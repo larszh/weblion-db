@@ -9,9 +9,14 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   server: {
-    port: 5173,
+    port: Number(process.env.VITE_PORT ?? 5173),
     proxy: {
-      '/api': { target: 'http://localhost:3000', ws: true, changeOrigin: false },
+      // VITE_API_TARGET lets several dev stacks run side by side.
+      '/api': {
+        target: process.env.VITE_API_TARGET ?? 'http://localhost:3000',
+        ws: true,
+        changeOrigin: false,
+      },
     },
   },
   build: {
