@@ -49,6 +49,48 @@ const ProviderDetailPage = lazy(() =>
 const ExplorerPage = lazy(() => import('@/pages/admin/explorer').then((m) => ({ default: m.ExplorerPage })));
 const AdminAuditPage = lazy(() => import('@/pages/admin/audit').then((m) => ({ default: m.AdminAuditPage })));
 
+// Billing, reseller, hosting and settings areas.
+const BillingPage = lazy(() =>
+  import('@/pages/billing/org-billing').then((m) => ({ default: m.BillingPage })),
+);
+const InvoicePage = lazy(() =>
+  import('@/pages/billing/org-billing').then((m) => ({ default: m.InvoicePage })),
+);
+const AdminProductsPage = lazy(() =>
+  import('@/pages/billing/products').then((m) => ({ default: m.AdminProductsPage })),
+);
+const ResellerProductsPage = lazy(() =>
+  import('@/pages/billing/products').then((m) => ({ default: m.ResellerProductsPage })),
+);
+const AdminBillingPage = lazy(() =>
+  import('@/pages/billing/admin-billing').then((m) => ({ default: m.AdminBillingPage })),
+);
+const AdminInvoicePage = lazy(() =>
+  import('@/pages/billing/admin-billing').then((m) => ({ default: m.AdminInvoicePage })),
+);
+const ResellerCustomersPage = lazy(() =>
+  import('@/pages/reseller/customers').then((m) => ({ default: m.ResellerCustomersPage })),
+);
+const ResellerCustomerPage = lazy(() =>
+  import('@/pages/reseller/customers').then((m) => ({ default: m.ResellerCustomerPage })),
+);
+const AdminSettingsPage = lazy(() =>
+  import('@/pages/admin/settings').then((m) => ({ default: m.AdminSettingsPage })),
+);
+const DomainsPage = lazy(() => import('@/pages/hosting/domains').then((m) => ({ default: m.DomainsPage })));
+const DomainDetailPage = lazy(() =>
+  import('@/pages/hosting/domains').then((m) => ({ default: m.DomainDetailPage })),
+);
+const WebspacesPage = lazy(() =>
+  import('@/pages/hosting/webhosting').then((m) => ({ default: m.WebspacesPage })),
+);
+const WebspaceDetailPage = lazy(() =>
+  import('@/pages/hosting/webhosting').then((m) => ({ default: m.WebspaceDetailPage })),
+);
+const AdminHostingPage = lazy(() =>
+  import('@/pages/admin/hosting').then((m) => ({ default: m.AdminHostingPage })),
+);
+
 function FullScreenSpinner() {
   return (
     <div className="flex h-full items-center justify-center">
@@ -181,6 +223,15 @@ export function App() {
             <Route path="tokens" element={<TokensPage />} />
             <Route path="audit" element={<OrgAuditPage />} />
             <Route path="settings" element={<OrgSettingsPage />} />
+            <Route path="billing" element={<BillingPage />} />
+            <Route path="billing/invoices/:invoiceId" element={<InvoicePage />} />
+            <Route path="domains" element={<DomainsPage />} />
+            <Route path="domains/:domainId" element={<DomainDetailPage />} />
+            <Route path="webhosting" element={<WebspacesPage />} />
+            <Route path="webhosting/:webspaceId" element={<WebspaceDetailPage />} />
+            <Route path="customers" element={<ResellerCustomersPage />} />
+            <Route path="customers/:customerId" element={<ResellerCustomerPage />} />
+            <Route path="products" element={<ResellerProductsPage />} />
           </Route>
           <Route
             path="/admin"
@@ -199,6 +250,11 @@ export function App() {
             <Route path="providers/:providerId" element={<ProviderDetailPage />} />
             <Route path="explorer" element={<ExplorerPage />} />
             <Route path="audit" element={<AdminAuditPage />} />
+            <Route path="hosting" element={<AdminHostingPage />} />
+            <Route path="billing" element={<AdminBillingPage />} />
+            <Route path="billing/invoices/:invoiceId" element={<AdminInvoicePage />} />
+            <Route path="products" element={<AdminProductsPage />} />
+            <Route path="settings" element={<AdminSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

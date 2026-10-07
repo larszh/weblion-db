@@ -3,13 +3,16 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
+  Briefcase,
   Building2,
   Check,
   ChevronsUpDown,
   Cloud,
   FolderKanban,
   Gauge,
+  Globe,
   KeyRound,
+  Layers,
   LayoutDashboard,
   Languages,
   Loader2,
@@ -18,11 +21,14 @@ import {
   Monitor,
   Moon,
   Network,
+  Receipt,
   ScrollText,
   Server,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Sun,
+  Tags,
   Terminal,
   UserCircle,
   Users,
@@ -226,10 +232,52 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
               onNavigate={onNavigate}
               items={[
                 { to: base, label: 'nav.overview', icon: <LayoutDashboard />, end: true },
-                { to: `${base}/servers`, label: 'nav.servers', icon: <Server /> },
-                { to: `${base}/projects`, label: 'nav.projects', icon: <FolderKanban /> },
+                {
+                  to: `${base}/servers`,
+                  label: 'nav.servers',
+                  icon: <Server />,
+                  show: orgCtx.hasModule('servers'),
+                },
+                {
+                  to: `${base}/projects`,
+                  label: 'nav.projects',
+                  icon: <FolderKanban />,
+                  show: orgCtx.hasModule('servers'),
+                },
+                {
+                  to: `${base}/domains`,
+                  label: 'nav.domains',
+                  icon: <Globe />,
+                  show: orgCtx.hasModule('dns') && orgCtx.can('domain:read'),
+                },
+                {
+                  to: `${base}/webhosting`,
+                  label: 'nav.webhosting',
+                  icon: <Layers />,
+                  show: orgCtx.hasModule('webhosting') && orgCtx.can('webspace:read'),
+                },
               ]}
             />
+            {orgCtx.org.kind === 'reseller' && (
+              <NavSection
+                title={t('nav.section.reseller')}
+                onNavigate={onNavigate}
+                items={[
+                  {
+                    to: `${base}/customers`,
+                    label: 'nav.customers',
+                    icon: <Briefcase />,
+                    show: orgCtx.can('reseller:customer:read'),
+                  },
+                  {
+                    to: `${base}/products`,
+                    label: 'nav.products',
+                    icon: <Tags />,
+                    show: orgCtx.can('reseller:billing'),
+                  },
+                ]}
+              />
+            )}
             <NavSection
               title={t('nav.section.access')}
               onNavigate={onNavigate}
@@ -251,6 +299,12 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
                   label: 'nav.tokens',
                   icon: <KeyRound />,
                   show: orgCtx.can('apitoken:read'),
+                },
+                {
+                  to: `${base}/billing`,
+                  label: 'nav.billing',
+                  icon: <Receipt />,
+                  show: orgCtx.can('billing:read'),
                 },
                 {
                   to: `${base}/audit`,
@@ -288,6 +342,24 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
               },
               { to: '/admin/servers', label: 'nav.admin.inventory', icon: <Server /> },
               {
+                to: '/admin/hosting',
+                label: 'nav.admin.hosting',
+                icon: <Globe />,
+                show: p.includes('platform:provider:read'),
+              },
+              {
+                to: '/admin/billing',
+                label: 'nav.admin.billing',
+                icon: <Receipt />,
+                show: p.includes('platform:billing:read'),
+              },
+              {
+                to: '/admin/products',
+                label: 'nav.admin.products',
+                icon: <Tags />,
+                show: p.includes('platform:billing:read'),
+              },
+              {
                 to: '/admin/providers',
                 label: 'nav.admin.providers',
                 icon: <Cloud />,
@@ -304,6 +376,12 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
                 label: 'nav.admin.audit',
                 icon: <Activity />,
                 show: p.includes('platform:audit:read'),
+              },
+              {
+                to: '/admin/settings',
+                label: 'nav.admin.settings',
+                icon: <SlidersHorizontal />,
+                show: p.includes('platform:settings'),
               },
             ]}
           />

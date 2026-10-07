@@ -7,6 +7,8 @@ import type { SecretBox } from './lib/crypto';
 import type { ProviderRegistry } from './providers/registry';
 import type { ConsoleTickets } from './modules/servers/console';
 import type { SyncService } from './jobs/sync';
+import type { Mailer } from './mail/types';
+import type { ZohoService } from './integrations/zoho';
 
 /** Everything route modules need, wired once at startup. */
 export interface AppContext {
@@ -19,5 +21,7 @@ export interface AppContext {
   audit: AuditService;
   consoleTickets: ConsoleTickets;
   sync: SyncService;
+  mail: Mailer;
+  zoho: ZohoService;
   secureCookies: boolean;
 }

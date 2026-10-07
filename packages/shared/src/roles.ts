@@ -27,6 +27,9 @@ const READ_ACTIONS = [
   'server:snapshot:read',
   'server:network:read',
   'server:firewall:read',
+  'domain:read',
+  'webspace:read',
+  'reseller:customer:read',
 ];
 
 export const ORG_ROLE_POLICIES: Record<OrgRole, PolicyStatement[]> = {
@@ -52,6 +55,8 @@ export const ORG_ROLE_POLICIES: Record<OrgRole, PolicyStatement[]> = {
         'server:backup:create',
         'server:snapshot:create',
         'server:network:update',
+        'domain:dns:write',
+        'reseller:customer:access',
       ],
     },
   ],
@@ -62,7 +67,7 @@ export const ORG_ROLE_POLICIES: Record<OrgRole, PolicyStatement[]> = {
       actions: ['org:read', 'apitoken:read', 'apitoken:write'],
     },
   ],
-  viewer: [{ sid: 'ReadOnly', effect: 'allow', actions: READ_ACTIONS }],
+  viewer: [{ sid: 'ReadOnly', effect: 'allow', actions: [...READ_ACTIONS, 'reseller:customer:access'] }],
   billing: [{ sid: 'Billing', effect: 'allow', actions: ['org:read', 'billing:*'] }],
 };
 
@@ -83,6 +88,8 @@ export const PLATFORM_ROLE_POLICIES: Record<PlatformRole, PolicyStatement[]> = {
         'platform:provider:read',
         'platform:infra:read',
         'platform:audit:read',
+        'platform:billing:read',
+        'billing:read',
       ],
     },
     {
@@ -102,6 +109,19 @@ export const DEFAULT_CUSTOMER_BOUNDARY: PolicyStatement[] = [
   {
     sid: 'StaffOnly',
     effect: 'deny',
+    actions: ['server:delete', 'server:rescale', 'server:config:read', 'platform:*', 'reseller:*'],
+  },
+];
+
+/**
+ * Default boundary for reseller organizations: like a customer, plus managing their own
+ * customers. A reseller's boundary also caps every customer below it.
+ */
+export const DEFAULT_RESELLER_BOUNDARY: PolicyStatement[] = [
+  { sid: 'Everything', effect: 'allow', actions: ['*'] },
+  {
+    sid: 'StaffOnly',
+    effect: 'deny',
     actions: ['server:delete', 'server:rescale', 'server:config:read', 'platform:*'],
   },
 ];
@@ -109,8 +129,14 @@ export const DEFAULT_CUSTOMER_BOUNDARY: PolicyStatement[] = [
 /** Internal organizations (weblion itself) have no extra cap besides platform actions. */
 export const DEFAULT_INTERNAL_BOUNDARY: PolicyStatement[] = [
   { sid: 'Everything', effect: 'allow', actions: ['*'] },
-  { sid: 'NoPlatform', effect: 'deny', actions: ['platform:*'] },
+  { sid: 'NoPlatform', effect: 'deny', actions: ['platform:*', 'reseller:*'] },
 ];
+
+export function defaultBoundary(kind: 'internal' | 'customer' | 'reseller'): PolicyStatement[] {
+  if (kind === 'internal') return DEFAULT_INTERNAL_BOUNDARY;
+  if (kind === 'reseller') return DEFAULT_RESELLER_BOUNDARY;
+  return DEFAULT_CUSTOMER_BOUNDARY;
+}
 
 /** Roles listed in ascending order of power, used to keep admins from promoting past themselves. */
 export const ORG_ROLE_RANK: Record<OrgRole, number> = {
@@ -142,7 +168,14 @@ export const TOKEN_SCOPE_POLICIES: Record<Exclude<TokenScope, 'custom'>, PolicyS
     {
       sid: 'TokenNoIdentity',
       effect: 'deny',
-      actions: ['member:*', 'policy:write', 'apitoken:write', 'org:delete'],
+      actions: [
+        'member:*',
+        'policy:write',
+        'apitoken:write',
+        'org:delete',
+        'webspace:credentials',
+        'domain:authcode',
+      ],
     },
   ],
 };

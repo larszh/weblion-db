@@ -3,6 +3,7 @@ import type { FastifyRequest } from 'fastify';
 import {
   allowedActions,
   can,
+  moduleDenyStatements,
   TOKEN_SCOPE_POLICIES,
   type AccessSubject,
   type Permission,
@@ -10,7 +11,7 @@ import {
   type ResourceContext,
 } from '@weblion/shared';
 import type { Database } from '../db/client';
-import { membershipPolicies, memberships, organizations, policies } from '../db/schema';
+import { membershipPolicies, memberships, organizations, policies, type Organization } from '../db/schema';
 import { forbidden, unauthorized } from '../lib/errors';
 import type { AuthState } from './types';
 
@@ -49,10 +50,18 @@ export class AccessService {
     if (cached) return cached;
 
     const token = auth.token;
-    let subject: AccessSubject;
+    const org = orgId
+      ? await this.db.query.organizations.findFirst({ where: eq(organizations.id, orgId) })
+      : undefined;
+    const parent = org?.parentOrgId
+      ? await this.db.query.organizations.findFirst({ where: eq(organizations.id, org.parentOrgId) })
+      : undefined;
 
-    if (token && orgId !== token.orgId) {
-      // Tokens are bound to one organization and never carry platform privileges.
+    let subject: AccessSubject;
+    // Tokens are bound to one organization (plus the customers below it, if it is a reseller)
+    // and never carry platform privileges.
+    const tokenReach = token && (orgId === token.orgId || (!!parent && parent.id === token.orgId));
+    if (token && !tokenReach) {
       subject = {};
     } else {
       subject = {
@@ -63,25 +72,36 @@ export class AccessService {
             : TOKEN_SCOPE_POLICIES[token.scope]
           : null,
       };
-      if (orgId) {
-        const [membership, org] = await Promise.all([
-          this.db.query.memberships.findFirst({
-            where: and(eq(memberships.orgId, orgId), eq(memberships.userId, auth.user.id)),
-          }),
-          this.db.query.organizations.findFirst({ where: eq(organizations.id, orgId) }),
-        ]);
-        if (org) {
-          subject.boundary = org.status === 'suspended' ? suspendedBoundary(org.boundary) : org.boundary;
-        }
-        if (membership) {
+      if (org) {
+        subject.boundary = effectiveBoundary(org);
+        if (parent) subject.parentBoundary = effectiveBoundary(parent);
+        const membership = await this.membership(org.id, auth.user.id);
+        // A token bound to the reseller acts through the reseller even if its owner is
+        // also a member of the customer.
+        if (membership && !(token && token.orgId !== org.id)) {
           subject.orgRole = membership.role;
           subject.memberPolicies = await this.memberPolicies(membership.id);
+        } else if (parent) {
+          const resellerMembership = await this.membership(parent.id, auth.user.id);
+          if (resellerMembership) {
+            subject.reseller = {
+              role: resellerMembership.role,
+              memberPolicies: await this.memberPolicies(resellerMembership.id),
+              boundary: effectiveBoundary(parent),
+            };
+          }
         }
       }
     }
 
     req.accessCache.set(cacheKey, subject);
     return subject;
+  }
+
+  private membership(orgId: string, userId: string) {
+    return this.db.query.memberships.findFirst({
+      where: and(eq(memberships.orgId, orgId), eq(memberships.userId, userId)),
+    });
   }
 
   private async memberPolicies(membershipId: string): Promise<PolicyStatement[]> {
@@ -126,6 +146,14 @@ export class AccessService {
   async canSeeOrg(req: FastifyRequest, orgId: string): Promise<boolean> {
     return this.can(req, 'org:read', orgScope(orgId));
   }
+}
+
+/** Boundary, suspension and inactive modules of one organization combined into one statement list. */
+export function effectiveBoundary(
+  org: Pick<Organization, 'boundary' | 'status' | 'modules'>,
+): PolicyStatement[] {
+  const base = org.status === 'suspended' ? suspendedBoundary(org.boundary) : org.boundary;
+  return [...base, ...moduleDenyStatements(org.modules)];
 }
 
 /** While suspended, the normal boundary still applies and everything but reading is denied on top. */

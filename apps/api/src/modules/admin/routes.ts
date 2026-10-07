@@ -30,7 +30,7 @@ import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors';
 import { parse, parseStatements, slugify } from '../../lib/validation';
 import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from '../../providers/types';
-import { orgCounts } from '../orgs/routes';
+import { orgCounts, orgRef } from '../orgs/routes';
 import { serverRowsQuery, toServerDto } from '../servers/service';
 
 const idParams = z.object({ id: z.uuid() });
@@ -529,6 +529,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       createdAt: org.createdAt.toISOString(),
       boundary: org.boundary,
       notes: org.notes,
+      modules: org.modules,
+      parent: await orgRef(ctx, org.parentOrgId),
       counts: await orgCounts(ctx, org.id),
     };
   }

@@ -1,10 +1,12 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import type { OrgDto, Permission } from '@weblion/shared';
+import type { ModuleKey, OrgDto, Permission } from '@weblion/shared';
 
 interface OrgContextValue {
   org: OrgDto;
   /** Organization level check, mirrors the API decision for resource "org". */
   can: (permission: Permission) => boolean;
+  /** True when the service module is activated for this organization. */
+  hasModule: (module: ModuleKey) => boolean;
   base: string;
 }
 
@@ -14,6 +16,7 @@ export function OrgProvider({ org, children }: { org: OrgDto; children: ReactNod
   const value: OrgContextValue = {
     org,
     can: (p) => org.permissions.includes(p),
+    hasModule: (m) => org.modules.includes(m),
     base: `/o/${org.slug}`,
   };
   return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>;

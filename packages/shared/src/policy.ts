@@ -11,6 +11,8 @@ import { ALL_PERMISSIONS, type Permission } from './permissions';
  *   token/<tokenId>                       an API token
  *   project/<projectId>                   a project
  *   project/<projectId>/server/<serverId> a server inside a project
+ *   domain/<domainId>                     a domain (module "dns")
+ *   webspace/<webspaceId>                 a web space (module "webhosting")
  *
  * Both actions and resources accept `*` as a wildcard for any sequence of characters
  * (including `/` and `:`). Evaluation follows the usual rules: an explicit deny wins,
@@ -122,7 +124,7 @@ export function isValidResourcePattern(pattern: string): boolean {
   if (pattern === '*' || pattern === 'org') return true;
   const segments = pattern.split('/');
   const [kind, id, third, fourth] = segments;
-  if (!kind || !['member', 'token', 'project'].includes(kind)) return false;
+  if (!kind || !['member', 'token', 'project', 'domain', 'webspace'].includes(kind)) return false;
   if (segments.length < 2 || segments.length > 4 || !id || !ID_SEGMENT.test(id)) return false;
   if (segments.length === 3) return kind === 'project' && third === '*';
   if (segments.length === 4)
@@ -169,4 +171,6 @@ export const resourcePath = {
   token: (tokenId: string) => `token/${tokenId}`,
   project: (projectId: string) => `project/${projectId}`,
   server: (projectId: string, serverId: string) => `project/${projectId}/server/${serverId}`,
+  domain: (domainId: string) => `domain/${domainId}`,
+  webspace: (webspaceId: string) => `webspace/${webspaceId}`,
 };

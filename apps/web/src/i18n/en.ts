@@ -1,6 +1,12 @@
 import type { TranslationKey } from './de';
+import { billingEn } from './sections/billing.en';
+import { adminEn } from './sections/admin.en';
+import { hostingEn } from './sections/hosting.en';
 
 export const en: Record<TranslationKey, string> = {
+  ...billingEn,
+  ...adminEn,
+  ...hostingEn,
   'common.actions': 'Actions',
   'common.add': 'Add',
   'common.cancel': 'Cancel',
@@ -26,6 +32,17 @@ export const en: Record<TranslationKey, string> = {
   'common.showAll': 'Show all',
   'confirm.typeToConfirm': 'Type to confirm:',
 
+  'nav.admin.billing': 'Billing',
+  'nav.admin.products': 'Products & prices',
+  'nav.admin.hosting': 'Domains & web spaces',
+  'nav.admin.settings': 'Settings',
+  'nav.billing': 'Billing',
+  'nav.customers': 'My customers',
+  'nav.domains': 'Domains & DNS',
+  'nav.products': 'Products & prices',
+  'nav.section.reseller': 'Reseller',
+  'nav.viaReseller': 'Via reseller',
+  'nav.webhosting': 'Web hosting',
   'nav.account': 'My account',
   'nav.admin.audit': 'Global audit log',
   'nav.admin.customers': 'Customers',

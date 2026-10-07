@@ -16,7 +16,10 @@ export type PermissionGroup =
   | 'snapshots'
   | 'networking'
   | 'security'
+  | 'domains'
+  | 'webhosting'
   | 'billing'
+  | 'reseller'
   | 'platform';
 
 export interface PermissionDef {
@@ -99,9 +102,51 @@ export const PERMISSIONS = {
   'server:firewall:read': def('networking', 'Firewall ansehen', 'View firewall'),
   'server:firewall:write': def('networking', 'Firewall bearbeiten', 'Edit firewall'),
 
+  // Domains & DNS (module "dns")
+  'domain:read': def('domains', 'Domains und DNS-Einträge ansehen', 'View domains and DNS records'),
+  'domain:dns:write': def('domains', 'DNS-Einträge bearbeiten', 'Edit DNS records'),
+  'domain:authcode': def('domains', 'Auth-Code (Transfer) anzeigen', 'Show auth code (transfer)', {
+    dangerous: true,
+  }),
+
+  // Web hosting (module "webhosting")
+  'webspace:read': def('webhosting', 'Webspaces ansehen', 'View web spaces'),
+  'webspace:credentials': def(
+    'webhosting',
+    'Zugangsdaten (Plesk) anzeigen',
+    'Show login credentials (Plesk)',
+    {
+      dangerous: true,
+    },
+  ),
+
   // Billing
-  'billing:read': def('billing', 'Rechnungen ansehen', 'View invoices'),
-  'billing:write': def('billing', 'Zahlungsdaten verwalten', 'Manage billing details'),
+  'billing:read': def(
+    'billing',
+    'Rechnungen, Guthaben und Dienste ansehen',
+    'View invoices, credit and services',
+  ),
+  'billing:pay': def('billing', 'Rechnungen bezahlen, Guthaben aufladen', 'Pay invoices, top up credit'),
+  'billing:write': def('billing', 'Rechnungsadresse verwalten', 'Manage billing address'),
+
+  // Reseller (only for reseller organizations, see DEFAULT_RESELLER_BOUNDARY)
+  'reseller:customer:read': def('reseller', 'Eigene Kunden ansehen', 'View own customers'),
+  'reseller:customer:write': def(
+    'reseller',
+    'Kunden anlegen, bearbeiten, sperren, Module freischalten',
+    'Create, edit and suspend customers, activate modules',
+  ),
+  'reseller:customer:access': def(
+    'reseller',
+    'In Kunden-Organisationen arbeiten (mit den eigenen Rechten)',
+    'Work inside customer organizations (with own permissions)',
+  ),
+  'reseller:billing': def(
+    'reseller',
+    'Rechnungen, Guthaben, Dienste und Preise für Kunden verwalten',
+    'Manage invoices, credit, services and prices for customers',
+    { dangerous: true },
+  ),
 
   // Platform (weblion staff only)
   'platform:access': def('platform', 'Admin-Bereich öffnen', 'Open admin area', { platform: true }),
@@ -121,9 +166,12 @@ export const PERMISSIONS = {
       dangerous: true,
     },
   ),
-  'platform:server:assign': def('platform', 'Server Kunden zuweisen', 'Assign servers to customers', {
-    platform: true,
-  }),
+  'platform:server:assign': def(
+    'platform',
+    'Server, Domains und Webspaces Kunden zuweisen',
+    'Assign servers, domains and web spaces to customers',
+    { platform: true },
+  ),
   'platform:server:create': def('platform', 'Server bei Providern erstellen', 'Create servers at providers', {
     platform: true,
     dangerous: true,
@@ -141,6 +189,26 @@ export const PERMISSIONS = {
     },
   ),
   'platform:audit:read': def('platform', 'Globales Audit-Log', 'Global audit log', { platform: true }),
+  'platform:billing:read': def(
+    'platform',
+    'Abrechnung aller Kunden ansehen',
+    'View billing of all customers',
+    {
+      platform: true,
+    },
+  ),
+  'platform:billing:write': def(
+    'platform',
+    'Rechnungen erstellen, Guthaben buchen, Dienste und Preise verwalten',
+    'Create invoices, book credit, manage services and prices',
+    { platform: true, dangerous: true },
+  ),
+  'platform:settings': def(
+    'platform',
+    'Plattform-Einstellungen (E-Mail, Rechnungssteller, Integrationen)',
+    'Platform settings (email, invoice issuer, integrations)',
+    { platform: true, dangerous: true },
+  ),
 } as const satisfies Record<string, PermissionDef>;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -164,6 +232,9 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   'backups',
   'snapshots',
   'networking',
+  'domains',
+  'webhosting',
   'billing',
+  'reseller',
   'platform',
 ];

@@ -11,3 +11,9 @@ export function createDb(databaseUrl: string): { db: Database; pool: pg.Pool } {
 }
 
 export { schema };
+
+/** A transaction handle, for helpers that must run inside `db.transaction`. */
+export type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+/** Either the database or a transaction. Helpers that work in both accept this. */
+export type DbOrTx = Database | Tx;

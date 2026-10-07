@@ -2,17 +2,35 @@ import { sql } from 'drizzle-orm';
 import {
   bigserial,
   boolean,
+  date,
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import type {
+  BillingInterval,
+  CreditType,
+  Currency,
+  DomainInfo,
+  InvoiceIssuerSettings,
+  InvoiceStatus,
+  ModuleKey,
+  PaymentMethod,
+  PaymentProvider,
+  PaymentStatus,
+  PostalAddress,
+  ServiceResourceType,
+  ServiceStatus,
+  WebspaceInfo,
+  ZohoSyncStatus,
   IpAddress,
   Location,
   OrgKind,
@@ -76,17 +94,27 @@ export const sessions = pgTable(
   (t) => [index('sessions_user_idx').on(t.userId)],
 );
 
-export const organizations = pgTable('organizations', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  kind: text('kind').$type<OrgKind>().notNull().default('customer'),
-  status: text('status').$type<OrgStatus>().notNull().default('active'),
-  /** Caps what any member of this organization can do. Managed by platform admins. */
-  boundary: jsonb('boundary').$type<PolicyStatement[]>().notNull(),
-  notes: text('notes'),
-  ...timestamps,
-});
+export const organizations = pgTable(
+  'organizations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull().unique(),
+    kind: text('kind').$type<OrgKind>().notNull().default('customer'),
+    status: text('status').$type<OrgStatus>().notNull().default('active'),
+    /** Caps what any member of this organization can do. Managed by platform admins. */
+    boundary: jsonb('boundary').$type<PolicyStatement[]>().notNull(),
+    /** Reseller that owns this customer. Only one level: resellers have no parent. */
+    parentOrgId: uuid('parent_org_id').references((): AnyPgColumn => organizations.id, {
+      onDelete: 'restrict',
+    }),
+    /** Activated service modules, see MODULES in @weblion/shared. */
+    modules: jsonb('modules').$type<ModuleKey[]>().notNull().default(['servers']),
+    notes: text('notes'),
+    ...timestamps,
+  },
+  (t) => [index('organizations_parent_idx').on(t.parentOrgId)],
+);
 
 export const memberships = pgTable(
   'memberships',
@@ -287,6 +315,268 @@ export const serverActions = pgTable(
   (t) => [index('server_actions_server_idx').on(t.serverId, t.startedAt)],
 );
 
+// --- Domains and web spaces (synced from provider accounts like servers) ------------
+
+export const domains = pgTable(
+  'domains',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    externalId: text('external_id').notNull(),
+    /** Organization the domain is assigned to, null = not assigned yet. */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    status: text('status'),
+    /** Last known provider facts (no secrets, never the auth code). */
+    info: jsonb('info').$type<DomainInfo>(),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('domains_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('domains_org_idx').on(t.orgId),
+  ],
+);
+
+export const webspaces = pgTable(
+  'webspaces',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    externalId: text('external_id').notNull(),
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    /** Last known provider facts. The control panel password is never stored. */
+    info: jsonb('info').$type<WebspaceInfo>(),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('webspaces_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('webspaces_org_idx').on(t.orgId),
+  ],
+);
+
+// --- Billing ------------------------------------------------------------------------
+// Money columns are integer minor units (Rappen/cents), tax rates basis points.
+
+/** Billing details of an organization as a customer, plus issuer settings for resellers. */
+export const billingProfiles = pgTable('billing_profiles', {
+  orgId: uuid('org_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  companyName: text('company_name'),
+  contactName: text('contact_name'),
+  line1: text('line1'),
+  line2: text('line2'),
+  postalCode: text('postal_code'),
+  city: text('city'),
+  country: text('country').notNull().default('CH'),
+  email: text('email'),
+  vatId: text('vat_id'),
+  currency: text('currency').$type<Currency>().notNull().default('CHF'),
+  paymentTermsDays: integer('payment_terms_days').notNull().default(30),
+  taxRateBp: integer('tax_rate_bp'),
+  /** Only for resellers: how their own invoices to their customers look. */
+  issuer: jsonb('issuer').$type<InvoiceIssuerSettings>(),
+  zohoContactId: text('zoho_contact_id'),
+  stripeCustomerId: text('stripe_customer_id'),
+  ...timestamps,
+});
+
+/** Price list. ownerOrgId null = platform catalog, otherwise a reseller's own products. */
+export const products = pgTable(
+  'products',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerOrgId: uuid('owner_org_id').references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    module: text('module').$type<ModuleKey>(),
+    unitPrice: integer('unit_price').notNull(),
+    currency: text('currency').$type<Currency>().notNull().default('CHF'),
+    interval: text('interval').$type<BillingInterval>().notNull(),
+    taxRateBp: integer('tax_rate_bp'),
+    active: boolean('active').notNull().default(true),
+    zohoItemId: text('zoho_item_id'),
+    ...timestamps,
+  },
+  (t) => [index('products_owner_idx').on(t.ownerOrgId)],
+);
+
+/** Services ("Dienste") a customer has. Recurring ones produce invoice lines when due. */
+export const services = pgTable(
+  'services',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    module: text('module').$type<ModuleKey>(),
+    resourceType: text('resource_type').$type<ServiceResourceType>(),
+    resourceId: uuid('resource_id'),
+    unitPrice: integer('unit_price').notNull(),
+    quantity: numeric('quantity', { precision: 12, scale: 3, mode: 'number' }).notNull().default(1),
+    currency: text('currency').$type<Currency>().notNull().default('CHF'),
+    interval: text('interval').$type<BillingInterval>().notNull(),
+    taxRateBp: integer('tax_rate_bp'),
+    status: text('status').$type<ServiceStatus>().notNull().default('active'),
+    startsAt: date('starts_at').notNull(),
+    nextBillingAt: date('next_billing_at'),
+    endsAt: date('ends_at'),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [index('services_org_idx').on(t.orgId), index('services_due_idx').on(t.status, t.nextBillingAt)],
+);
+
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Assigned on finalize, unique per issuer. */
+    number: text('number'),
+    /** null = issued by the platform, otherwise by this reseller. */
+    issuerOrgId: uuid('issuer_org_id').references(() => organizations.id, { onDelete: 'restrict' }),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    status: text('status').$type<InvoiceStatus>().notNull().default('draft'),
+    currency: text('currency').$type<Currency>().notNull().default('CHF'),
+    issueDate: date('issue_date'),
+    dueDate: date('due_date'),
+    subtotal: integer('subtotal').notNull().default(0),
+    taxTotal: integer('tax_total').notNull().default(0),
+    total: integer('total').notNull().default(0),
+    amountPaid: integer('amount_paid').notNull().default(0),
+    /** Snapshot of recipient and issuer at finalization, so later edits don't change old invoices. */
+    billingAddress: jsonb('billing_address').$type<
+      PostalAddress & { email: string | null; vatId: string | null }
+    >(),
+    issuerSnapshot: jsonb('issuer_snapshot').$type<InvoiceIssuerSettings>(),
+    notes: text('notes'),
+    zohoInvoiceId: text('zoho_invoice_id'),
+    zohoStatus: text('zoho_status').$type<ZohoSyncStatus>(),
+    zohoError: text('zoho_error'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    voidReason: text('void_reason'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('invoices_number_idx').on(sql`coalesce(${t.issuerOrgId}::text, 'platform')`, t.number),
+    index('invoices_org_idx').on(t.orgId, t.createdAt),
+    index('invoices_status_idx').on(t.status, t.dueDate),
+  ],
+);
+
+export const invoiceLines = pgTable(
+  'invoice_lines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    description: text('description').notNull(),
+    quantity: numeric('quantity', { precision: 12, scale: 3, mode: 'number' }).notNull(),
+    unit: text('unit'),
+    unitPrice: integer('unit_price').notNull(),
+    taxRateBp: integer('tax_rate_bp').notNull(),
+    total: integer('total').notNull(),
+    serviceId: uuid('service_id').references(() => services.id, { onDelete: 'set null' }),
+    periodStart: date('period_start'),
+    periodEnd: date('period_end'),
+  },
+  (t) => [index('invoice_lines_invoice_idx').on(t.invoiceId, t.position)],
+);
+
+export const payments = pgTable(
+  'payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    /** null = credit top-up. */
+    invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'restrict' }),
+    provider: text('provider').$type<PaymentProvider>().notNull(),
+    method: text('method').$type<PaymentMethod>().notNull(),
+    amount: integer('amount').notNull(),
+    currency: text('currency').$type<Currency>().notNull(),
+    status: text('status').$type<PaymentStatus>().notNull().default('pending'),
+    /** Stripe Checkout Session id. Unique so webhook retries can't book twice. */
+    externalId: text('external_id').unique(),
+    /** Free reference: Stripe payment intent, bank reference, receipt number. */
+    reference: text('reference'),
+    zohoPaymentId: text('zoho_payment_id'),
+    error: text('error'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [index('payments_org_idx').on(t.orgId, t.createdAt), index('payments_invoice_idx').on(t.invoiceId)],
+);
+
+/** Credit ("Guthaben") ledger. The balance is the sum of all amounts of an organization. */
+export const creditTransactions = pgTable(
+  'credit_transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    /** Positive adds credit, negative uses it. */
+    amount: integer('amount').notNull(),
+    currency: text('currency').$type<Currency>().notNull(),
+    type: text('type').$type<CreditType>().notNull(),
+    description: text('description').notNull(),
+    invoiceId: uuid('invoice_id').references(() => invoices.id, { onDelete: 'restrict' }),
+    paymentId: uuid('payment_id').references(() => payments.id, { onDelete: 'restrict' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('credit_org_idx').on(t.orgId, t.createdAt)],
+);
+
+/** Gapless counters, e.g. invoice numbers per issuer and year. */
+export const numberSequences = pgTable('number_sequences', {
+  key: text('key').primaryKey(),
+  value: integer('value').notNull(),
+});
+
+// --- Mail ---------------------------------------------------------------------------
+
+export const mailLog = pgTable(
+  'mail_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    to: text('to').notNull(),
+    subject: text('subject').notNull(),
+    template: text('template'),
+    status: text('status').$type<'sent' | 'failed' | 'skipped'>().notNull(),
+    error: text('error'),
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('mail_log_created_idx').on(t.createdAt)],
+);
+
 /** Simple key/value store for platform settings and job bookkeeping. */
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
@@ -305,3 +595,12 @@ export type ProviderConnection = typeof providerConnections.$inferSelect;
 export type Server = typeof servers.$inferSelect;
 export type ApiToken = typeof apiTokens.$inferSelect;
 export type Policy = typeof policies.$inferSelect;
+export type Domain = typeof domains.$inferSelect;
+export type Webspace = typeof webspaces.$inferSelect;
+export type BillingProfile = typeof billingProfiles.$inferSelect;
+export type Product = typeof products.$inferSelect;
+export type Service = typeof services.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;
+export type InvoiceLine = typeof invoiceLines.$inferSelect;
+export type Payment = typeof payments.$inferSelect;
+export type CreditTransaction = typeof creditTransactions.$inferSelect;

@@ -8,12 +8,15 @@ import {
   ORG_ROLES,
   type InvitationDto,
   type MemberDto,
+  type OrgCounts,
   type OrgDto,
+  type OrgRef,
   type OrgRole,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { orgScope, requireAuth, requireSession } from '../../auth/access';
 import {
+  domains,
   invitations,
   membershipPolicies,
   memberships,
@@ -22,6 +25,7 @@ import {
   projects,
   servers,
   users,
+  webspaces,
   type Organization,
 } from '../../db/schema';
 import { randomToken, sha256 } from '../../lib/crypto';
@@ -41,8 +45,8 @@ export async function loadOrg(ctx: AppContext, req: FastifyRequest, orgId: strin
   return org;
 }
 
-export async function orgCounts(ctx: AppContext, orgId: string) {
-  const [p, s, m] = await Promise.all([
+export async function orgCounts(ctx: AppContext, orgId: string): Promise<OrgCounts> {
+  const [p, s, m, d, w, c] = await Promise.all([
     ctx.db.select({ n: count() }).from(projects).where(eq(projects.orgId, orgId)),
     ctx.db
       .select({ n: count() })
@@ -50,8 +54,24 @@ export async function orgCounts(ctx: AppContext, orgId: string) {
       .innerJoin(projects, eq(projects.id, servers.projectId))
       .where(eq(projects.orgId, orgId)),
     ctx.db.select({ n: count() }).from(memberships).where(eq(memberships.orgId, orgId)),
+    ctx.db.select({ n: count() }).from(domains).where(eq(domains.orgId, orgId)),
+    ctx.db.select({ n: count() }).from(webspaces).where(eq(webspaces.orgId, orgId)),
+    ctx.db.select({ n: count() }).from(organizations).where(eq(organizations.parentOrgId, orgId)),
   ]);
-  return { projects: p[0]?.n ?? 0, servers: s[0]?.n ?? 0, members: m[0]?.n ?? 0 };
+  return {
+    projects: p[0]?.n ?? 0,
+    servers: s[0]?.n ?? 0,
+    members: m[0]?.n ?? 0,
+    domains: d[0]?.n ?? 0,
+    webspaces: w[0]?.n ?? 0,
+    customers: c[0]?.n ?? 0,
+  };
+}
+
+export async function orgRef(ctx: AppContext, orgId: string | null): Promise<OrgRef | null> {
+  if (!orgId) return null;
+  const org = await ctx.db.query.organizations.findFirst({ where: eq(organizations.id, orgId) });
+  return org ? { id: org.id, name: org.name, slug: org.slug } : null;
 }
 
 export async function toOrgDto(ctx: AppContext, req: FastifyRequest, org: Organization): Promise<OrgDto> {
@@ -65,6 +85,9 @@ export async function toOrgDto(ctx: AppContext, req: FastifyRequest, org: Organi
     createdAt: org.createdAt.toISOString(),
     role: subject.orgRole ?? null,
     permissions: await ctx.access.allowed(req, ORG_PERMISSIONS, orgScope(org.id)),
+    modules: org.modules,
+    parent: await orgRef(ctx, org.parentOrgId),
+    access: subject.orgRole ? 'member' : subject.reseller ? 'reseller' : 'staff',
     counts: await orgCounts(ctx, org.id),
   };
 }

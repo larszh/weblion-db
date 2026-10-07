@@ -1,5 +1,12 @@
+import { billingDe } from './sections/billing.de';
+import { adminDe } from './sections/admin.de';
+import { hostingDe } from './sections/hosting.de';
+
 /** German is the source language. English (en.ts) must provide every key. */
 export const de = {
+  ...billingDe,
+  ...adminDe,
+  ...hostingDe,
   // Common
   'common.actions': 'Aktionen',
   'common.add': 'Hinzufügen',
@@ -27,6 +34,17 @@ export const de = {
   'confirm.typeToConfirm': 'Zur Bestätigung eingeben:',
 
   // Navigation
+  'nav.admin.billing': 'Abrechnung',
+  'nav.admin.products': 'Produkte & Preise',
+  'nav.admin.hosting': 'Domains & Webspaces',
+  'nav.admin.settings': 'Einstellungen',
+  'nav.billing': 'Abrechnung',
+  'nav.customers': 'Meine Kunden',
+  'nav.domains': 'Domains & DNS',
+  'nav.products': 'Produkte & Preise',
+  'nav.section.reseller': 'Reseller',
+  'nav.viaReseller': 'Über Reseller',
+  'nav.webhosting': 'Webhosting',
   'nav.account': 'Mein Konto',
   'nav.admin.audit': 'Globales Audit-Log',
   'nav.admin.customers': 'Kunden',

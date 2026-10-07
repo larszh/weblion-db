@@ -28,6 +28,13 @@ import { auditRoutes } from './modules/audit/routes';
 import { serverRoutes } from './modules/servers/routes';
 import { adminRoutes } from './modules/admin/routes';
 import { metaRoutes } from './modules/meta/routes';
+import { billingRoutes } from './modules/billing/routes';
+import { paymentRoutes } from './modules/payments/routes';
+import { hostingRoutes } from './modules/hosting/routes';
+import { resellerRoutes } from './modules/reseller/routes';
+import { settingsRoutes } from './modules/settings/routes';
+import { MailService } from './mail/service';
+import { ZohoService } from './integrations/zoho';
 
 export interface BuildOptions {
   env: Env;
@@ -66,6 +73,8 @@ export async function buildApp({
     audit: new AuditService(db, app.log),
     consoleTickets: new ConsoleTickets(),
     sync: new SyncService(db, pool, providers, app.log),
+    mail: new MailService(db, box, env, app.log),
+    zoho: new ZohoService(db, env, app.log),
     secureCookies: env.APP_URL.startsWith('https://'),
   };
 
@@ -137,6 +146,11 @@ export async function buildApp({
         serverRoutes,
         consoleRoutes,
         adminRoutes,
+        hostingRoutes,
+        billingRoutes,
+        paymentRoutes,
+        resellerRoutes,
+        settingsRoutes,
       ]) {
         await register(api, ctx);
       }

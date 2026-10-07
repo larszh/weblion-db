@@ -1,3 +1,4 @@
+import type { ModuleKey } from './modules';
 import type { Permission } from './permissions';
 import type { PolicyStatement } from './policy';
 import type { OrgRole, PlatformRole, TokenScope } from './roles';
@@ -51,8 +52,25 @@ export interface MeDto {
   mfaPending?: boolean;
 }
 
-export type OrgKind = 'internal' | 'customer';
+export const ORG_KINDS = ['customer', 'reseller', 'internal'] as const;
+export type OrgKind = (typeof ORG_KINDS)[number];
 export type OrgStatus = 'active' | 'suspended';
+
+export interface OrgRef {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface OrgCounts {
+  projects: number;
+  servers: number;
+  members: number;
+  domains: number;
+  webspaces: number;
+  /** Customer organizations below a reseller. 0 for everyone else. */
+  customers: number;
+}
 
 export interface OrgDto {
   id: string;
@@ -64,13 +82,71 @@ export interface OrgDto {
   /** Actions the current user may perform at organization level. */
   permissions: Permission[];
   role: OrgRole | null;
-  counts?: { projects: number; servers: number; members: number };
+  /** Activated service modules. The console only shows these. */
+  modules: ModuleKey[];
+  /** The reseller this organization belongs to, if any. */
+  parent: OrgRef | null;
+  /** How the current user got access: membership, through the reseller, or as platform staff. */
+  access: 'member' | 'reseller' | 'staff';
+  counts?: OrgCounts;
 }
 
-export interface AdminOrgDto extends Omit<OrgDto, 'permissions' | 'role'> {
+export interface AdminOrgDto extends Omit<OrgDto, 'permissions' | 'role' | 'access'> {
   boundary: PolicyStatement[];
-  counts: { projects: number; servers: number; members: number };
+  counts: OrgCounts;
   notes: string | null;
+}
+
+/** A customer as seen by its reseller: GET /orgs/:resellerId/customers */
+export interface ResellerCustomerDto {
+  id: string;
+  name: string;
+  slug: string;
+  status: OrgStatus;
+  modules: ModuleKey[];
+  notes: string | null;
+  counts: OrgCounts;
+  /** Credit balance and open invoice total in the reseller's currency, minor units. */
+  balance: number;
+  openTotal: number;
+  createdAt: string;
+}
+
+/** Mail delivery settings as shown in the admin area. The password is never returned. */
+export interface MailSettingsDto {
+  /** env: configured through SMTP_* variables and read-only in the UI. */
+  source: 'env' | 'ui' | 'none';
+  host: string | null;
+  port: number;
+  /** true = implicit TLS (465), false = STARTTLS if offered (587/25). */
+  secure: boolean;
+  user: string | null;
+  passwordSet: boolean;
+  from: string | null;
+  replyTo: string | null;
+}
+
+export interface MailLogDto {
+  id: string;
+  to: string;
+  subject: string;
+  template: string | null;
+  status: 'sent' | 'failed' | 'skipped';
+  error: string | null;
+  org: { id: string; name: string } | null;
+  createdAt: string;
+}
+
+/** GET /admin/integrations */
+export interface IntegrationsDto {
+  mail: { configured: boolean; source: 'env' | 'ui' | 'none' };
+  stripe: { configured: boolean; mode: 'live' | 'test' | null; webhookConfigured: boolean; twint: boolean };
+  zoho: {
+    configured: boolean;
+    organizationId: string | null;
+    lastError: string | null;
+    lastSyncAt: string | null;
+  };
 }
 
 export interface ProjectDto {

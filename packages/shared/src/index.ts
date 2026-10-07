@@ -4,3 +4,6 @@ export * from './roles';
 export * from './access';
 export * from './providers';
 export * from './dto';
+export * from './modules';
+export * from './billing';
+export * from './hosting';
