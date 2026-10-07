@@ -3,34 +3,74 @@
 ## 24fire (Rechenzentrum DE)
 
 - API: REST API v2, Doku unter <https://apidocs.24fire.de/v2>
-- Base URL: `https://manage.24fire.de`, Header `X-Fire-Apikey: <key>`
+- Base URL: `https://manage.24fire.de`, Header `X-Fire-Apikey: <key>`, Bodys als
+  `application/x-www-form-urlencoded`, Antworten als `{ status, message, data }`
 - Konfiguration: `FIRE24_API_KEY` in der `.env` (in einfache Anführungszeichen setzen, der Key
   enthält Sonderzeichen wie `}` oder `)`).
 
-### Was die Console nutzt
+### Endpunkte
 
-Die Endpunkte stehen gesammelt in
-[`apps/api/src/providers/fire24/endpoints.ts`](../apps/api/src/providers/fire24/endpoints.ts).
+Alle 26 Endpunkte der v2-Doku stehen mit Methode und Pfad in
+[`apps/api/src/providers/fire24/endpoints.ts`](../apps/api/src/providers/fire24/endpoints.ts) und
+sind gegen die Doku geprüft (`verified: true`). Die Spalte 24fire+ zeigt, wofür der Account ein
+aktives **24fire+** Abo braucht.
 
-| Funktion | Endpoint | Status |
-|---|---|---|
-| Dienste/Server finden | `GET /api/account/services` | aus der Doku bestätigt |
-| Konfiguration (CPU, RAM, Disk, IPs, OS) | `GET /api/kvm/{id}/config` | bestätigt |
-| Traffic aktuell / Verlauf | `GET /api/kvm/{id}/traffic/current`, `/traffic/log` | bestätigt |
-| Monitoring (Ping, CPU, RAM alle 10 Min.) | `GET /api/kvm/{id}/monitoring/timings` | bestätigt, 24fire+ |
-| Verfügbarkeit / Vorfälle | `GET /api/kvm/{id}/monitoring/incidences` | bestätigt, 24fire+ |
-| Status | `GET /api/kvm/{id}/status` | **zu prüfen** |
-| Energie (start/stop/restart) | `POST /api/kvm/{id}/power` mit `mode=` | **zu prüfen** |
-| Backups auflisten / erstellen / wiederherstellen / löschen | `/api/kvm/{id}/backup/...` | **zu prüfen**, 24fire+ |
+| Funktion in der Console                                                   | Endpunkt                                                        | 24fire+ |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------- | ------- |
+| Verbindungstest, Guthaben, 24fire+ Status                                 | `GET /api/account`                                              | nein    |
+| Server, Domains und Webspaces finden                                      | `GET /api/account/services`                                     | nein    |
+| (nur API Explorer) Spendenseite, Affiliate                                | `GET /api/account/donations`, `/affiliate`                      | nein    |
+| Konfiguration (CPU, RAM, Disk, IPs, OS, ISO, Abuse-Status, Maximalausbau) | `GET /api/kvm/{id}/config`                                      | nein    |
+| Status inkl. laufendem Task (Boot, Reinstall, Backup, Restore)            | `GET /api/kvm/{id}/status`                                      | nein    |
+| Energie (start, stop, restart)                                            | `POST /api/kvm/{id}/power` mit `mode=`                          | nein    |
+| Traffic des Monats (GB) und Limits                                        | `GET /api/kvm/{id}/traffic/current`                             | nein    |
+| Traffic-Verlauf (MB pro 10 Min., in der Console pro Stunde summiert)      | `GET /api/kvm/{id}/traffic/log`                                 | nein    |
+| (nicht genutzt) Traffic-Diagramm                                          | `POST /api/kvm/{id}/traffic/chart`                              | ja      |
+| Graphen (CPU, RAM, Ping alle 10 Min.)                                     | `GET /api/kvm/{id}/monitoring/timings`                          | ja      |
+| Verfügbarkeit und Ausfälle                                                | `GET /api/kvm/{id}/monitoring/incidences`                       | ja      |
+| Backups auflisten                                                         | `GET /api/kvm/{id}/backup/list`                                 | nein    |
+| Backup erstellen, Fortschritt                                             | `POST /api/kvm/{id}/backup/create`, `.../create/status`         | ja      |
+| Backup wiederherstellen, Fortschritt                                      | `POST /api/kvm/{id}/backup/restore`, `.../restore/status`       | ja      |
+| Backup löschen                                                            | `DELETE /api/kvm/{id}/backup/delete`                            | ja      |
+| DDoS-Schutz pro IPv4 ansehen                                              | `GET /api/kvm/{id}/ddos`                                        | nein    |
+| DDoS-Schutz ändern (Layer 4 dynamic/permanent, Layer 7 on/off)            | `POST /api/kvm/{id}/ddos/change`                                | ja      |
+| Domain-Infos (Status, Nameserver, Ablauf, Auth-Code)                      | `GET /api/domain/{id}`                                          | nein    |
+| DNS-Einträge ansehen                                                      | `GET /api/domain/{id}/dns`                                      | nein    |
+| DNS-Eintrag hinzufügen / bearbeiten / löschen                             | `PUT .../dns/add`, `POST .../dns/edit`, `DELETE .../dns/remove` | ja      |
+| Webspace (Ressourcen, Plesk-Zugang)                                       | `GET /api/webspace/{id}`                                        | nein    |
 
-Die mit "zu prüfen" markierten Pfade folgen dem Schema der Doku und der alten v1-API, konnten
-beim Bau aber nicht gegen die v2-Doku geprüft werden (die Doku-Seite war aus der
-Build-Umgebung nicht erreichbar). Antwortet 24fire mit 404/405, steht in der Fehlermeldung
-direkt der Hinweis auf diese Datei. Korrigieren heisst: Methode/Pfad in `endpoints.ts`
-anpassen und `verified: true` setzen. Zum Ausprobieren eignet sich der API Explorer im
-Admin-Bereich.
+Ohne 24fire+ antwortet die Console mit einer klaren Meldung (Code `plus_required`), statt den
+Endpunkt aufzurufen. Den Abo-Status liest sie alle paar Minuten aus `GET /api/account`; Graphen,
+Monitoring, Restore und Löschen von Backups blendet sie dann aus, DNS ist nur lesbar.
+Das Format der Fehlerantworten von 24fire ist nicht dokumentiert. Zum Ausprobieren eignet sich
+der API Explorer im Admin-Bereich (Passwörter und Auth-Codes werden dort ausgeblendet).
 
-Monitoring- und Backup-Endpunkte brauchen ein aktives **24fire+** Abo auf dem Account.
+### Backups
+
+`backup/create` und `backup/restore` starten nur einen Task. Die Console merkt sich die
+`backup_id` an der Aktion und fragt alle paar Sekunden die passenden `/status`-Endpunkte ab, bis
+24fire `finished` meldet. Beschreibungen erlaubt 24fire nur mit höchstens 24 Zeichen aus
+Buchstaben, Umlauten, Leerzeichen und `- _ + # ( ) . :` (keine Ziffern).
+
+### Domains und DNS
+
+Domains kommen beim Sync aus `GET /api/account/services` (Typ `DOMAIN`) in die Console und
+werden im Admin-Bereich unter Domains einer Organisation zugewiesen. Dabei wird das Modul
+"Domains & DNS" für die Organisation freigeschaltet (abschaltbar). Kunden sehen danach Status,
+Nameserver und Ablaufdatum und können DNS-Einträge verwalten, sofern der 24fire-Account 24fire+
+hat. Der Auth-Code für einen Transfer wird nie gespeichert, sondern nur über einen eigenen,
+protokollierten Aufruf live geholt (Berechtigung `domain:authcode`, nur mit Login, nicht per
+API-Token).
+
+### Webspaces
+
+Webspaces (Plesk) werden im 24fire Control Panel bestellt. Die API kann sie nicht anlegen, sie
+liefert nur Ressourcen und Zugangsdaten. Ein neuer Webspace erscheint nach dem nächsten Sync
+(automatisch oder von Hand beim Provider im Admin-Bereich) unter Webspaces und wird dort einer
+Organisation zugewiesen, dabei wird das Modul "Webhosting" freigeschaltet. Das Plesk-Passwort
+wird nie gespeichert; die Console holt es nur über einen eigenen, protokollierten Aufruf
+(Berechtigung `webspace:credentials`, nur mit Login). Liefert 24fire das Passwort maskiert,
+zeigt die Console keines an.
 
 ## Proxmox VE (Self-Host CH)
 

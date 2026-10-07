@@ -2,13 +2,26 @@ import { and, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
 import type { Database } from '../db/client';
-import { providerConnections, serverActions, servers, type ProviderConnection } from '../db/schema';
+import {
+  domains,
+  providerConnections,
+  serverActions,
+  servers,
+  webspaces,
+  type ProviderConnection,
+} from '../db/schema';
 import { serverRef, type ProviderRegistry } from '../providers/registry';
-import type { RemoteServer } from '../providers/types';
+import type { ProviderAdapter, RemoteDomain, RemoteServer, RemoteWebspace } from '../providers/types';
 
-export interface SyncResult {
+export interface SyncCounts {
   seen: number;
   missing: number;
+}
+
+/** Servers on the top level; domains and web spaces only for providers that have them. */
+export interface SyncResult extends SyncCounts {
+  domains?: SyncCounts;
+  webspaces?: SyncCounts;
 }
 
 /** Postgres advisory lock ids, so only one API instance runs each job at a time. */
@@ -68,6 +81,91 @@ export class SyncService {
       });
   }
 
+  /**
+   * Domains keep their organization (only admins assign them) and never store the auth
+   * code: RemoteDomain.info has no field for it.
+   */
+  private async syncDomains(connection: ProviderConnection, adapter: ProviderAdapter): Promise<SyncCounts> {
+    const remote: RemoteDomain[] = await adapter.listDomains!();
+    const now = new Date();
+    for (const domain of remote) {
+      await this.db
+        .insert(domains)
+        .values({
+          providerConnectionId: connection.id,
+          externalId: domain.externalId,
+          name: domain.name,
+          status: domain.status,
+          info: domain.info,
+          meta: domain.meta ?? {},
+          lastSyncedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [domains.providerConnectionId, domains.externalId],
+          set: {
+            name: sql`excluded.name`,
+            status: sql`excluded.status`,
+            info: sql`coalesce(excluded.info, ${domains.info})`,
+            meta: sql`excluded.meta`,
+            lastSyncedAt: now,
+            missingSince: null,
+          },
+        });
+    }
+    const seenIds = remote.map((d) => d.externalId);
+    const missing = await this.db
+      .update(domains)
+      .set({ missingSince: sql`coalesce(${domains.missingSince}, now())` })
+      .where(
+        and(
+          eq(domains.providerConnectionId, connection.id),
+          seenIds.length > 0 ? notInArray(domains.externalId, seenIds) : undefined,
+        ),
+      )
+      .returning({ id: domains.id });
+    return { seen: remote.length, missing: missing.length };
+  }
+
+  /** Same for web spaces. The control panel password is never part of RemoteWebspace. */
+  private async syncWebspaces(connection: ProviderConnection, adapter: ProviderAdapter): Promise<SyncCounts> {
+    const remote: RemoteWebspace[] = await adapter.listWebspaces!();
+    const now = new Date();
+    for (const webspace of remote) {
+      await this.db
+        .insert(webspaces)
+        .values({
+          providerConnectionId: connection.id,
+          externalId: webspace.externalId,
+          name: webspace.name,
+          info: webspace.info,
+          meta: webspace.meta ?? {},
+          lastSyncedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [webspaces.providerConnectionId, webspaces.externalId],
+          set: {
+            name: sql`excluded.name`,
+            info: sql`coalesce(excluded.info, ${webspaces.info})`,
+            meta: sql`excluded.meta`,
+            lastSyncedAt: now,
+            missingSince: null,
+          },
+        });
+    }
+    const seenIds = remote.map((w) => w.externalId);
+    const missing = await this.db
+      .update(webspaces)
+      .set({ missingSince: sql`coalesce(${webspaces.missingSince}, now())` })
+      .where(
+        and(
+          eq(webspaces.providerConnectionId, connection.id),
+          seenIds.length > 0 ? notInArray(webspaces.externalId, seenIds) : undefined,
+        ),
+      )
+      .returning({ id: webspaces.id });
+    return { seen: remote.length, missing: missing.length };
+  }
+
   async syncConnection(connection: ProviderConnection): Promise<SyncResult> {
     if (this.running.has(connection.id)) return { seen: 0, missing: 0 };
     this.running.add(connection.id);
@@ -88,11 +186,15 @@ export class SyncService {
         )
         .returning({ id: servers.id });
 
+      const result: SyncResult = { seen: remote.length, missing: missing.length };
+      if (adapter.listDomains) result.domains = await this.syncDomains(connection, adapter);
+      if (adapter.listWebspaces) result.webspaces = await this.syncWebspaces(connection, adapter);
+
       await this.db
         .update(providerConnections)
         .set({ status: 'ok', lastError: null, lastSyncAt: new Date() })
         .where(eq(providerConnections.id, connection.id));
-      return { seen: remote.length, missing: missing.length };
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.db

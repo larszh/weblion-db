@@ -4,6 +4,7 @@ import { runMigrations } from './db/migrate';
 import { buildApp } from './app';
 import { ensureBootstrapAdmin, syncEnvProviders } from './bootstrap';
 import { SecretBox } from './lib/crypto';
+import { BillingJob } from './modules/billing/recurring';
 
 async function main() {
   const env = loadEnv();
@@ -15,10 +16,13 @@ async function main() {
   await syncEnvProviders(db, new SecretBox(env.ENCRYPTION_KEY), env, app.log);
 
   ctx.sync.start(env.SYNC_INTERVAL_SECONDS);
+  const billingJob = new BillingJob(ctx, pool);
+  if (env.BILLING_JOB_ENABLED) billingJob.start();
 
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'shutting down');
     ctx.sync.stop();
+    billingJob.stop();
     await app.close();
     await pool.end();
     process.exit(0);

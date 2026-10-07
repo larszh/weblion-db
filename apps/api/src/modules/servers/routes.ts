@@ -438,13 +438,18 @@ export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
     const loaded = await load(req, 'server:network:update');
     requireCapability(loaded, 'ddos');
     const body = parse(
-      z.object({
-        ip: z.string().min(2).max(60),
-        layer4: z.string().max(30).optional(),
-        layer7: z.string().max(30).optional(),
-      }),
+      z
+        .object({
+          ip: z.ipv4(),
+          layer4: z.enum(['dynamic', 'permanent']).optional(),
+          layer7: z.enum(['on', 'off']).optional(),
+        })
+        .refine((b) => b.layer4 || b.layer7, 'Nothing to change'),
       req.body,
     );
+    // The provider account is shared by all customers: only this server's own IPs.
+    if (!loaded.server.ips.some((ip) => ip.address === body.ip))
+      throw badRequest('IP does not belong to this server');
     return runServerAction(ctx, req, loaded, 'ddos', body, () => loaded.adapter.setDdos!(loaded.ref, body));
   });
 

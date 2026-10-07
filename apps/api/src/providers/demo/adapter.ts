@@ -3,6 +3,9 @@ import type {
   BackupInfo,
   Capability,
   DdosSettings,
+  DnsRecord,
+  DnsRecordInput,
+  DomainInfo,
   FirewallInfo,
   FirewallRule,
   ImageOption,
@@ -17,18 +20,24 @@ import type {
   ServerStatus,
   SnapshotInfo,
   TrafficInfo,
+  WebspaceCredentials,
+  WebspaceInfo,
 } from '@weblion/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import type {
   ActionResult,
   CreateServerRequest,
   DemoConfig,
+  DnsRecordPatch,
   InfraOverview,
   ProviderAdapter,
   RawResponse,
+  RemoteDomain,
   RemoteServer,
+  RemoteWebspace,
   ServerRef,
 } from '../types';
+import { DemoHosting, demoHostingState, resetDemoHosting } from './hosting';
 
 /**
  * Simulated provider for local development, UI work and automated tests.
@@ -82,6 +91,7 @@ function rng(seed: number) {
 export class DemoAdapter implements ProviderAdapter {
   readonly type = 'demo' as const;
   private readonly servers: Map<string, DemoServer>;
+  private readonly hosting: DemoHosting;
 
   constructor(
     private readonly connectionId: string,
@@ -93,11 +103,13 @@ export class DemoAdapter implements ProviderAdapter {
       STATE.set(connectionId, state);
     }
     this.servers = state;
+    this.hosting = new DemoHosting(demoHostingState(connectionId));
   }
 
   /** Test helper: forget all simulated state. */
   static reset() {
     STATE.clear();
+    resetDemoHosting();
   }
 
   private generate(): Map<string, DemoServer> {
@@ -165,10 +177,16 @@ export class DemoAdapter implements ProviderAdapter {
             },
           ],
         },
-        ddos: [{ ip: `185.${100 + i}.0.${10 + i}`, layer4: 'dynamic', layer7: 'off' }],
+        ddos: [],
         iso: null,
         seed: seed + i,
       });
+    }
+    // DDoS settings exist per IPv4 address of the server, like at 24fire.
+    for (const server of map.values()) {
+      server.ddos = server.ips
+        .filter((ip) => ip.version === 4)
+        .map((ip) => ({ ip: ip.address, layer4: 'dynamic', layer7: 'off' }));
     }
     return map;
   }
@@ -605,8 +623,56 @@ export class DemoAdapter implements ProviderAdapter {
       facts: [
         { label: 'Servers', value: String(servers.length) },
         { label: 'Running', value: String(servers.filter((s) => s.status === 'running').length) },
+        { label: 'Domains', value: String(this.hosting.listDomains().length) },
+        { label: 'Web spaces', value: String(this.hosting.listWebspaces().length) },
       ],
     };
+  }
+
+  // --- Domains & web spaces -------------------------------------------------------
+
+  async listDomains(): Promise<RemoteDomain[]> {
+    return this.hosting.listDomains();
+  }
+
+  async getDomain(externalId: string): Promise<DomainInfo> {
+    return this.hosting.getDomain(externalId);
+  }
+
+  async getDomainAuthcode(externalId: string): Promise<string | null> {
+    return this.hosting.getDomainAuthcode(externalId);
+  }
+
+  async listDnsRecords(externalId: string): Promise<DnsRecord[]> {
+    return this.hosting.listDnsRecords(externalId);
+  }
+
+  async addDnsRecord(externalId: string, input: DnsRecordInput): Promise<DnsRecord> {
+    return this.hosting.addDnsRecord(externalId, input);
+  }
+
+  async updateDnsRecord(externalId: string, recordId: string, patch: DnsRecordPatch): Promise<DnsRecord> {
+    return this.hosting.updateDnsRecord(externalId, recordId, patch);
+  }
+
+  async deleteDnsRecord(externalId: string, recordId: string): Promise<void> {
+    this.hosting.deleteDnsRecord(externalId, recordId);
+  }
+
+  async dnsWritable(): Promise<boolean> {
+    return true;
+  }
+
+  async listWebspaces(): Promise<RemoteWebspace[]> {
+    return this.hosting.listWebspaces();
+  }
+
+  async getWebspace(externalId: string): Promise<WebspaceInfo> {
+    return this.hosting.getWebspace(externalId);
+  }
+
+  async getWebspaceCredentials(externalId: string): Promise<WebspaceCredentials> {
+    return this.hosting.getWebspaceCredentials(externalId);
   }
 
   async rawRequest(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse> {

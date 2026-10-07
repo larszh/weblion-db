@@ -2,6 +2,9 @@ import type {
   BackupInfo,
   Capability,
   DdosSettings,
+  DnsRecord,
+  DnsRecordInput,
+  DomainInfo,
   FirewallInfo,
   FirewallRule,
   ImageOption,
@@ -20,6 +23,8 @@ import type {
   ServerUsage,
   SnapshotInfo,
   TrafficInfo,
+  WebspaceCredentials,
+  WebspaceInfo,
 } from '@weblion/shared';
 import type WebSocket from 'ws';
 
@@ -106,6 +111,27 @@ export interface RawResponse {
   data: unknown;
 }
 
+/** A domain as reported by a provider. `info` never contains the auth code. */
+export interface RemoteDomain {
+  externalId: string;
+  name: string;
+  status: string | null;
+  info: DomainInfo | null;
+  /** Provider extras without secrets (e.g. 24fire accounting data). */
+  meta?: Record<string, unknown>;
+}
+
+/** A web space as reported by a provider. `info` never contains the password. */
+export interface RemoteWebspace {
+  externalId: string;
+  name: string;
+  info: WebspaceInfo | null;
+  meta?: Record<string, unknown>;
+}
+
+/** Partial DNS change. Fields left out keep their current value. */
+export type DnsRecordPatch = Partial<DnsRecordInput>;
+
 export interface ProviderAdapter {
   readonly type: ProviderType;
 
@@ -162,6 +188,27 @@ export interface ProviderAdapter {
   openConsole?(ref: ServerRef): Promise<ConsoleSession>;
 
   overview?(): Promise<InfraOverview>;
+
+  // Domains & DNS (module "dns"). Addressed by the provider's id of the domain.
+  listDomains?(): Promise<RemoteDomain[]>;
+  getDomain?(externalId: string): Promise<DomainInfo>;
+  /** Transfer auth code. Only for the audited reveal route, never stored. */
+  getDomainAuthcode?(externalId: string): Promise<string | null>;
+  listDnsRecords?(externalId: string): Promise<DnsRecord[]>;
+  /** Returns the created record, or null if the provider does not report it back. */
+  addDnsRecord?(externalId: string, input: DnsRecordInput): Promise<DnsRecord | null>;
+  /** Returns the changed record, or null if the provider does not report it back. */
+  updateDnsRecord?(externalId: string, recordId: string, patch: DnsRecordPatch): Promise<DnsRecord | null>;
+  deleteDnsRecord?(externalId: string, recordId: string): Promise<void>;
+  /** Whether DNS changes are possible right now (24fire: only with an active 24fire+ plan). */
+  dnsWritable?(): Promise<boolean>;
+
+  // Web spaces (module "webhosting"). Read only: providers offer no provisioning API.
+  listWebspaces?(): Promise<RemoteWebspace[]>;
+  getWebspace?(externalId: string): Promise<WebspaceInfo>;
+  /** Control panel login. Only for the audited reveal route, never stored. */
+  getWebspaceCredentials?(externalId: string): Promise<WebspaceCredentials>;
+
   /** Unfiltered access to the provider API for the admin explorer. */
   rawRequest?(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse>;
 }
