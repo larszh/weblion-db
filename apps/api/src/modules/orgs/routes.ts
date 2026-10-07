@@ -92,6 +92,15 @@ export async function orgRoutes(app: FastifyInstance, ctx: AppContext) {
     return toOrgDto(ctx, req, await loadOrg(ctx, req, orgId));
   });
 
+  /** The console uses slugs in URLs. Staff can open organizations they are not a member of. */
+  app.get('/orgs/by-slug/:slug', async (req) => {
+    const { slug } = parse(z.object({ slug: z.string().min(1).max(60) }), req.params);
+    requireAuth(req);
+    const org = await db.query.organizations.findFirst({ where: eq(organizations.slug, slug) });
+    if (!org) throw notFound('Organization');
+    return toOrgDto(ctx, req, await loadOrg(ctx, req, org.id));
+  });
+
   app.patch('/orgs/:orgId', async (req) => {
     const { orgId } = parse(orgParams, req.params);
     await loadOrg(ctx, req, orgId);
