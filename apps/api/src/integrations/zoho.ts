@@ -18,6 +18,16 @@ export class ZohoService {
     return false;
   }
 
+  /** Connection state for the admin area (GET /admin/integrations). */
+  async status(): Promise<{
+    configured: boolean;
+    organizationId: string | null;
+    lastError: string | null;
+    lastSyncAt: string | null;
+  }> {
+    return { configured: false, organizationId: null, lastError: null, lastSyncAt: null };
+  }
+
   /** Pushes a finalized platform invoice (and its contact) to Zoho Books. */
   async syncInvoice(_invoiceId: string): Promise<void> {}
 

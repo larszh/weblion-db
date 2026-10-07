@@ -11,6 +11,9 @@ import {
   users,
 } from './schema';
 import { hashPassword } from '../lib/crypto';
+import { seedBillingDemo } from './seed-billing';
+import { seedHostingDemo } from './seed-hosting';
+import { seedResellerDemo } from './seed-reseller';
 
 /**
  * Development seed: two customer organizations with users in different roles, and the
@@ -140,5 +143,10 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
     if (unassigned.length > 0)
       log.push(`assigned ${Math.min(unassigned.length, targets.length)} demo servers`);
   }
+
+  // Area specific demo data. Order matters: resellers create organizations the other two use.
+  await seedResellerDemo(db, log);
+  await seedHostingDemo(db, log);
+  await seedBillingDemo(db, log);
   return log;
 }
