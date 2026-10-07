@@ -38,6 +38,8 @@ export const de = {
   'nav.allCustomers': 'Alle Kunden…',
   'nav.audit': 'Audit-Log',
   'nav.backToConsole': 'Zur Console',
+  'nav.platform': 'Plattform-Verwaltung',
+  'nav.chooseOrgHint': 'Zum Wechseln klicken',
   'nav.chooseOrg': 'Organisation wählen',
   'nav.logout': 'Abmelden',
   'nav.members': 'Mitglieder',

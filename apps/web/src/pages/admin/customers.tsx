@@ -410,7 +410,7 @@ export function CustomerDetailPage() {
             {servers.isPending ? (
               <LoadingBlock />
             ) : servers.data?.length ? (
-              <ServerTable servers={servers.data} linkFor={(s) => `/o/${o.slug}/servers/${s.id}`} />
+              <ServerTable servers={servers.data} compact linkFor={(s) => `/o/${o.slug}/servers/${s.id}`} />
             ) : (
               <EmptyState title={t('customers.noServers')} />
             )}

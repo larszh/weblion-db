@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,6 +12,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Languages,
+  Loader2,
   LogOut,
   Menu as MenuIcon,
   Monitor,
@@ -91,6 +92,7 @@ function OrgSwitcher({ me }: { me: MeDto }) {
   const { t } = useI18n();
   const orgCtx = useOptionalOrg();
   const navigate = useNavigate();
+  const inAdmin = useLocation().pathname.startsWith('/admin');
   const current = orgCtx?.org;
   return (
     <Menu
@@ -103,14 +105,16 @@ function OrgSwitcher({ me }: { me: MeDto }) {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold text-text">
-              {current?.name ?? t('nav.chooseOrg')}
+              {current?.name ?? (inAdmin ? t('nav.section.admin') : t('nav.chooseOrg'))}
             </span>
             <span className="block truncate text-xs text-muted">
               {current
                 ? current.role
                   ? t(`role.${current.role}` as TranslationKey)
                   : t('nav.staffAccess')
-                : '—'}
+                : inAdmin
+                  ? t('nav.platform')
+                  : t('nav.chooseOrgHint')}
             </span>
           </span>
           <ChevronsUpDown className="size-4 shrink-0 text-subtle" />
@@ -364,7 +368,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           <img src="/logo-horizontal.png" alt="weblion.one" className="h-6 w-auto" />
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
+          <div className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {/* Lazy pages load inside the shell so the sidebar stays put. */}
+            <Suspense
+              fallback={
+                <div className="flex justify-center py-24">
+                  <Loader2 className="size-6 animate-spin text-muted" />
+                </div>
+              }
+            >
+              {children}
+            </Suspense>
+          </div>
         </main>
       </div>
     </div>

@@ -17,12 +17,15 @@ export function ServerTable({
   servers,
   showProject = true,
   showOrg = false,
+  compact = false,
   linkFor,
   actions,
 }: {
   servers: ServerDto[];
   showProject?: boolean;
   showOrg?: boolean;
+  /** For narrow containers: drops the resource and CPU columns. */
+  compact?: boolean;
   linkFor?: (server: ServerDto) => string | null;
   actions?: (server: ServerDto) => ReactNode;
 }) {
@@ -35,8 +38,8 @@ export function ServerTable({
           <TH>{t('servers.col.name')}</TH>
           <TH>{t('servers.col.ip')}</TH>
           <TH className="hidden md:table-cell">{t('servers.col.location')}</TH>
-          <TH className="hidden xl:table-cell">{t('servers.col.specs')}</TH>
-          <TH className="hidden lg:table-cell">{t('servers.col.cpu')}</TH>
+          {!compact && <TH className="hidden xl:table-cell">{t('servers.col.specs')}</TH>}
+          {!compact && <TH className="hidden lg:table-cell">{t('servers.col.cpu')}</TH>}
           {showOrg && <TH>{t('servers.col.customer')}</TH>}
           {showProject && <TH className="hidden md:table-cell">{t('servers.col.project')}</TH>}
           {actions && <TH className="text-right" />}
@@ -84,19 +87,25 @@ export function ServerTable({
                   <span className="truncate">{s.location.city ?? s.location.label}</span>
                 </span>
               </TD>
-              <TD className="hidden xl:table-cell">
-                <SpecsLine specs={s.specs} />
-              </TD>
-              <TD className="hidden w-36 lg:table-cell">
-                {s.usage?.cpuPercent !== undefined && s.status === 'running' ? (
-                  <div className="space-y-1">
-                    <span className="text-xs text-muted tabular">{formatPercent(s.usage.cpuPercent)}</span>
-                    <UsageBar value={s.usage.cpuPercent} />
-                  </div>
-                ) : (
-                  <span className="text-subtle">–</span>
-                )}
-              </TD>
+              {!compact && (
+                <>
+                  <TD className="hidden whitespace-nowrap xl:table-cell">
+                    <SpecsLine specs={s.specs} />
+                  </TD>
+                  <TD className="hidden w-36 whitespace-nowrap lg:table-cell">
+                    {s.usage?.cpuPercent !== undefined && s.status === 'running' ? (
+                      <div className="space-y-1">
+                        <span className="text-xs text-muted tabular">
+                          {formatPercent(s.usage.cpuPercent)}
+                        </span>
+                        <UsageBar value={s.usage.cpuPercent} />
+                      </div>
+                    ) : (
+                      <span className="text-subtle">–</span>
+                    )}
+                  </TD>
+                </>
+              )}
               {showOrg && (
                 <TD className="text-sm">
                   {s.org?.name ?? <span className="text-warning">{t('servers.unassigned')}</span>}

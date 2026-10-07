@@ -217,7 +217,6 @@ export function GraphsTab() {
               format={(v) => formatBytes(v)}
               range={range}
               fetching={metrics.isFetching}
-              yDomain={memTotal ? [0, memTotal] : undefined}
             />
           )}
           {keys.has('netIn') && (

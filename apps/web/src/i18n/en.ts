@@ -37,6 +37,8 @@ export const en: Record<TranslationKey, string> = {
   'nav.allCustomers': 'All customers…',
   'nav.audit': 'Audit log',
   'nav.backToConsole': 'Back to console',
+  'nav.platform': 'Platform management',
+  'nav.chooseOrgHint': 'Click to switch',
   'nav.chooseOrg': 'Choose organization',
   'nav.logout': 'Sign out',
   'nav.members': 'Members',

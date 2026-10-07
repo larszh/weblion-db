@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { setUnauthorizedHandler } from '@/lib/api';
@@ -9,24 +9,45 @@ import { AppShell } from '@/components/layout/app-shell';
 import { EmptyState, ErrorState, Spinner } from '@/components/ui/primitives';
 import { LoginPage } from '@/pages/auth/login';
 import { InvitePage } from '@/pages/auth/invite';
-import { AccountPage } from '@/pages/account/account';
 import { OrgDashboard } from '@/pages/org/dashboard';
 import { ProjectsPage, ProjectPage } from '@/pages/org/projects';
 import { MembersPage } from '@/pages/org/members';
-import { PoliciesPage, PolicyEditorPage } from '@/pages/org/policies';
 import { TokensPage } from '@/pages/org/tokens';
 import { OrgAuditPage } from '@/pages/org/audit';
 import { OrgSettingsPage } from '@/pages/org/settings';
 import { ServersPage } from '@/pages/servers/list';
-import { ServerDetailPage } from '@/pages/servers/detail';
-import { AdminDashboard } from '@/pages/admin/dashboard';
-import { CustomersPage, CustomerDetailPage } from '@/pages/admin/customers';
-import { UsersPage } from '@/pages/admin/users';
-import { InventoryPage } from '@/pages/admin/inventory';
-import { ProvidersPage, ProviderDetailPage } from '@/pages/admin/providers';
-import { ExplorerPage } from '@/pages/admin/explorer';
-import { AdminAuditPage } from '@/pages/admin/audit';
 import { Building2 } from 'lucide-react';
+
+// Less frequently used areas (admin, policy editor) and the chart-heavy server page load on demand.
+const AccountPage = lazy(() => import('@/pages/account/account').then((m) => ({ default: m.AccountPage })));
+const PoliciesPage = lazy(() => import('@/pages/org/policies').then((m) => ({ default: m.PoliciesPage })));
+const PolicyEditorPage = lazy(() =>
+  import('@/pages/org/policies').then((m) => ({ default: m.PolicyEditorPage })),
+);
+const ServerDetailPage = lazy(() =>
+  import('@/pages/servers/detail').then((m) => ({ default: m.ServerDetailPage })),
+);
+const AdminDashboard = lazy(() =>
+  import('@/pages/admin/dashboard').then((m) => ({ default: m.AdminDashboard })),
+);
+const CustomersPage = lazy(() =>
+  import('@/pages/admin/customers').then((m) => ({ default: m.CustomersPage })),
+);
+const CustomerDetailPage = lazy(() =>
+  import('@/pages/admin/customers').then((m) => ({ default: m.CustomerDetailPage })),
+);
+const UsersPage = lazy(() => import('@/pages/admin/users').then((m) => ({ default: m.UsersPage })));
+const InventoryPage = lazy(() =>
+  import('@/pages/admin/inventory').then((m) => ({ default: m.InventoryPage })),
+);
+const ProvidersPage = lazy(() =>
+  import('@/pages/admin/providers').then((m) => ({ default: m.ProvidersPage })),
+);
+const ProviderDetailPage = lazy(() =>
+  import('@/pages/admin/providers').then((m) => ({ default: m.ProviderDetailPage })),
+);
+const ExplorerPage = lazy(() => import('@/pages/admin/explorer').then((m) => ({ default: m.ExplorerPage })));
+const AdminAuditPage = lazy(() => import('@/pages/admin/audit').then((m) => ({ default: m.AdminAuditPage })));
 
 function FullScreenSpinner() {
   return (
@@ -119,67 +140,69 @@ export function App() {
   return (
     <>
       <UnauthorizedRedirect />
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/invite/:token" element={<InvitePage />} />
-        <Route
-          path="/"
-          element={
-            <RequireAuth>
-              <HomeRedirect />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/account"
-          element={
-            <RequireAuth>
-              <AppShell>
-                <AccountPage />
-              </AppShell>
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/o/:slug"
-          element={
-            <RequireAuth>
-              <OrgLayout />
-            </RequireAuth>
-          }
-        >
-          <Route index element={<OrgDashboard />} />
-          <Route path="servers" element={<ServersPage />} />
-          <Route path="servers/:serverId/*" element={<ServerDetailPage />} />
-          <Route path="projects" element={<ProjectsPage />} />
-          <Route path="projects/:projectId" element={<ProjectPage />} />
-          <Route path="members" element={<MembersPage />} />
-          <Route path="policies" element={<PoliciesPage />} />
-          <Route path="policies/:policyId" element={<PolicyEditorPage />} />
-          <Route path="tokens" element={<TokensPage />} />
-          <Route path="audit" element={<OrgAuditPage />} />
-          <Route path="settings" element={<OrgSettingsPage />} />
-        </Route>
-        <Route
-          path="/admin"
-          element={
-            <RequireAuth>
-              <AdminLayout />
-            </RequireAuth>
-          }
-        >
-          <Route index element={<AdminDashboard />} />
-          <Route path="customers" element={<CustomersPage />} />
-          <Route path="customers/:orgId" element={<CustomerDetailPage />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="servers" element={<InventoryPage />} />
-          <Route path="providers" element={<ProvidersPage />} />
-          <Route path="providers/:providerId" element={<ProviderDetailPage />} />
-          <Route path="explorer" element={<ExplorerPage />} />
-          <Route path="audit" element={<AdminAuditPage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<FullScreenSpinner />}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/invite/:token" element={<InvitePage />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <HomeRedirect />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/account"
+            element={
+              <RequireAuth>
+                <AppShell>
+                  <AccountPage />
+                </AppShell>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/o/:slug"
+            element={
+              <RequireAuth>
+                <OrgLayout />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<OrgDashboard />} />
+            <Route path="servers" element={<ServersPage />} />
+            <Route path="servers/:serverId/*" element={<ServerDetailPage />} />
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="projects/:projectId" element={<ProjectPage />} />
+            <Route path="members" element={<MembersPage />} />
+            <Route path="policies" element={<PoliciesPage />} />
+            <Route path="policies/:policyId" element={<PolicyEditorPage />} />
+            <Route path="tokens" element={<TokensPage />} />
+            <Route path="audit" element={<OrgAuditPage />} />
+            <Route path="settings" element={<OrgSettingsPage />} />
+          </Route>
+          <Route
+            path="/admin"
+            element={
+              <RequireAuth>
+                <AdminLayout />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<AdminDashboard />} />
+            <Route path="customers" element={<CustomersPage />} />
+            <Route path="customers/:orgId" element={<CustomerDetailPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="servers" element={<InventoryPage />} />
+            <Route path="providers" element={<ProvidersPage />} />
+            <Route path="providers/:providerId" element={<ProviderDetailPage />} />
+            <Route path="explorer" element={<ExplorerPage />} />
+            <Route path="audit" element={<AdminAuditPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </>
   );
 }

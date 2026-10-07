@@ -79,6 +79,8 @@ export async function buildApp({
         fontSrc: ["'self'", 'data:'],
         connectSrc: ["'self'", 'ws:', 'wss:'],
         frameAncestors: ["'none'"],
+        // Only force https sub-requests when the panel itself is served over https.
+        upgradeInsecureRequests: ctx.secureCookies ? [] : null,
       },
     },
     crossOriginEmbedderPolicy: false,

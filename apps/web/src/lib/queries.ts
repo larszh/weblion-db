@@ -320,6 +320,7 @@ export const useAdminOrg = (id: string) =>
   useQuery({
     queryKey: qk.admin('org', { id }),
     queryFn: () => api.get<AdminOrgDto & { projects: { id: string; name: string }[] }>(`/admin/orgs/${id}`),
+    enabled: !!id,
   });
 
 export const useAdminUsers = (q?: string) =>
