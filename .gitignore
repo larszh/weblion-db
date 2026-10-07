@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Local secrets. Never commit real credentials.
+.env
+.env.*
+!.env.example
+
+# Tooling
+.turbo/
+.vite/
+playwright-report/
+test-results/

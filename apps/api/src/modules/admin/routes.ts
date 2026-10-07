@@ -1,0 +1,915 @@
+import { and, count, desc, eq, ilike, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+import {
+  DEFAULT_CUSTOMER_BOUNDARY,
+  DEFAULT_INTERNAL_BOUNDARY,
+  PLATFORM_ROLES,
+  PROVIDER_TYPES,
+  type AdminOrgDto,
+  type ProviderConnectionDto,
+  type ProviderType,
+} from '@weblion/shared';
+import type { AppContext } from '../../context';
+import { platformScope, requireSession } from '../../auth/access';
+import {
+  invitations,
+  memberships,
+  organizations,
+  projects,
+  providerConnections,
+  serverActions,
+  servers,
+  sessions,
+  users,
+  type Organization,
+  type ProviderConnection,
+} from '../../db/schema';
+import { hashPassword, randomToken, sha256 } from '../../lib/crypto';
+import { toUserDto } from '../../lib/dto';
+import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors';
+import { parse, parseStatements, slugify } from '../../lib/validation';
+import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from '../../providers/types';
+import { orgCounts } from '../orgs/routes';
+import { serverRowsQuery, toServerDto } from '../servers/service';
+
+const idParams = z.object({ id: z.uuid() });
+
+const locationSchema = z.object({
+  country: z.string().trim().min(2).max(2).toUpperCase(),
+  city: z.string().trim().max(80).optional(),
+  label: z.string().trim().min(1).max(80),
+});
+
+const fire24ConfigSchema = z.object({
+  apiKey: z.string().min(8).max(500),
+  baseUrl: z.url().default('https://manage.24fire.de'),
+});
+const proxmoxConfigSchema = z.object({
+  baseUrl: z.url(),
+  tokenId: z.string().regex(/^[^@\s]+@[^!\s]+![\w.-]+$/, 'expected user@realm!tokenid'),
+  tokenSecret: z.string().min(8).max(200),
+  verifyTls: z.boolean().default(true),
+  caCert: z.string().max(20_000).optional(),
+  backupStorage: z.string().max(100).optional(),
+});
+const demoConfigSchema = z.object({
+  seed: z.number().int().optional(),
+  servers: z.number().int().min(1).max(50).optional(),
+});
+
+function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
+  switch (type) {
+    case 'fire24':
+      return parse(fire24ConfigSchema, raw) as Fire24Config;
+    case 'proxmox':
+      return parse(proxmoxConfigSchema, raw) as ProxmoxConfig;
+    case 'demo':
+      return parse(demoConfigSchema, raw ?? {}) as DemoConfig;
+  }
+}
+
+/** Non secret parts of a provider config for display. */
+export function configSummary(type: ProviderType, config: ProviderConfig): Record<string, string> {
+  switch (type) {
+    case 'fire24': {
+      const c = config as Fire24Config;
+      return { baseUrl: c.baseUrl, apiKey: `${c.apiKey.slice(0, 4)}…${c.apiKey.slice(-3)}` };
+    }
+    case 'proxmox': {
+      const c = config as ProxmoxConfig;
+      return {
+        baseUrl: c.baseUrl,
+        tokenId: c.tokenId,
+        verifyTls: String(c.verifyTls),
+        ...(c.backupStorage ? { backupStorage: c.backupStorage } : {}),
+      };
+    }
+    case 'demo':
+      return { servers: String((config as DemoConfig).servers ?? 6) };
+  }
+}
+
+export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
+  const { db, access, audit, providers, box } = ctx;
+  const can = (req: FastifyRequest, action: Parameters<typeof access.assert>[1]) =>
+    access.assert(req, action, platformScope);
+
+  // --- Overview -------------------------------------------------------------------
+
+  app.get('/admin/stats', async (req) => {
+    await can(req, 'platform:access');
+    const [orgRows, userRows, serverRows, providerRows, recentFailures] = await Promise.all([
+      db.select({ kind: organizations.kind, n: count() }).from(organizations).groupBy(organizations.kind),
+      db.select({ n: count() }).from(users),
+      db
+        .select({
+          status: servers.status,
+          assigned: sql<boolean>`${servers.projectId} is not null`,
+          n: count(),
+        })
+        .from(servers)
+        .groupBy(servers.status, sql`${servers.projectId} is not null`),
+      db.select().from(providerConnections).orderBy(providerConnections.name),
+      db
+        .select({ n: count() })
+        .from(serverActions)
+        .where(
+          and(
+            eq(serverActions.status, 'error'),
+            sql`${serverActions.startedAt} > now() - interval '24 hours'`,
+          ),
+        ),
+    ]);
+    const totalServers = serverRows.reduce((sum, r) => sum + r.n, 0);
+    return {
+      organizations: {
+        customers: orgRows.find((r) => r.kind === 'customer')?.n ?? 0,
+        internal: orgRows.find((r) => r.kind === 'internal')?.n ?? 0,
+      },
+      users: userRows[0]?.n ?? 0,
+      servers: {
+        total: totalServers,
+        running: serverRows.filter((r) => r.status === 'running').reduce((s, r) => s + r.n, 0),
+        stopped: serverRows.filter((r) => r.status === 'stopped').reduce((s, r) => s + r.n, 0),
+        missing: serverRows.filter((r) => r.status === 'missing').reduce((s, r) => s + r.n, 0),
+        unassigned: serverRows.filter((r) => !r.assigned).reduce((s, r) => s + r.n, 0),
+      },
+      providers: providerRows.map((p) => ({
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        status: p.status,
+        lastSyncAt: p.lastSyncAt,
+      })),
+      failedActions24h: recentFailures[0]?.n ?? 0,
+    };
+  });
+
+  // --- Providers ------------------------------------------------------------------
+
+  async function toProviderDto(connection: ProviderConnection): Promise<ProviderConnectionDto> {
+    const [row] = await db
+      .select({ n: count() })
+      .from(servers)
+      .where(eq(servers.providerConnectionId, connection.id));
+    let summary: Record<string, string> = {};
+    try {
+      summary = configSummary(connection.type, providers.decryptConfig(connection));
+    } catch {
+      summary = { error: 'credentials cannot be decrypted (ENCRYPTION_KEY changed?)' };
+    }
+    return {
+      id: connection.id,
+      type: connection.type,
+      name: connection.name,
+      location: connection.location,
+      enabled: connection.enabled,
+      status: connection.status,
+      lastError: connection.lastError,
+      lastSyncAt: connection.lastSyncAt?.toISOString() ?? null,
+      serverCount: row?.n ?? 0,
+      summary: { ...summary, managedBy: connection.managedBy },
+      createdAt: connection.createdAt.toISOString(),
+    };
+  }
+
+  async function loadConnection(id: string) {
+    const connection = await db.query.providerConnections.findFirst({
+      where: eq(providerConnections.id, id),
+    });
+    if (!connection) throw notFound('Provider');
+    return connection;
+  }
+
+  app.get('/admin/providers', async (req) => {
+    await can(req, 'platform:provider:read');
+    const rows = await db.select().from(providerConnections).orderBy(providerConnections.name);
+    return Promise.all(rows.map(toProviderDto));
+  });
+
+  app.get('/admin/providers/:id', async (req) => {
+    await can(req, 'platform:provider:read');
+    return toProviderDto(await loadConnection(parse(idParams, req.params).id));
+  });
+
+  app.post('/admin/providers', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:provider:write');
+    const body = parse(
+      z.object({
+        type: z.enum(PROVIDER_TYPES),
+        name: z.string().trim().min(2).max(80),
+        location: locationSchema,
+        config: z.unknown(),
+        enabled: z.boolean().default(true),
+      }),
+      req.body,
+    );
+    const config = parseProviderConfig(body.type, body.config);
+    const [connection] = await db
+      .insert(providerConnections)
+      .values({
+        type: body.type,
+        name: body.name,
+        location: body.location,
+        enabled: body.enabled,
+        configEnc: box.encryptJson(config),
+      })
+      .returning();
+    await audit.record(req, {
+      action: 'provider.create',
+      resourceType: 'provider',
+      resourceId: connection!.id,
+      details: { type: body.type, name: body.name, ...configSummary(body.type, config) },
+    });
+    ctx.sync.syncConnection(connection!).catch((err) => req.log.warn({ err }, 'initial sync failed'));
+    return toProviderDto(connection!);
+  });
+
+  app.patch('/admin/providers/:id', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:provider:write');
+    const { id } = parse(idParams, req.params);
+    const connection = await loadConnection(id);
+    const body = parse(
+      z.object({
+        name: z.string().trim().min(2).max(80).optional(),
+        location: locationSchema.optional(),
+        enabled: z.boolean().optional(),
+        config: z.record(z.string(), z.unknown()).optional(),
+      }),
+      req.body,
+    );
+    if (body.config && connection.managedBy === 'env') {
+      throw conflict('Credentials of this provider come from environment variables. Change them there.');
+    }
+    let configEnc: string | undefined;
+    if (body.config) {
+      // Empty secret fields keep the stored value so the UI never needs to know it.
+      const current = providers.decryptConfig<ProviderConfig>(connection) as unknown as Record<
+        string,
+        unknown
+      >;
+      const merged = { ...current };
+      for (const [k, v] of Object.entries(body.config)) if (v !== '' && v !== undefined) merged[k] = v;
+      configEnc = box.encryptJson(parseProviderConfig(connection.type, merged));
+    }
+    const [updated] = await db
+      .update(providerConnections)
+      .set({
+        ...(body.name ? { name: body.name } : {}),
+        ...(body.location ? { location: body.location } : {}),
+        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+        ...(configEnc ? { configEnc, status: 'unknown' as const, lastError: null } : {}),
+      })
+      .where(eq(providerConnections.id, id))
+      .returning();
+    providers.invalidate(id);
+    await audit.record(req, {
+      action: 'provider.update',
+      resourceType: 'provider',
+      resourceId: id,
+      details: { name: body.name, enabled: body.enabled, credentialsChanged: !!configEnc },
+    });
+    return toProviderDto(updated!);
+  });
+
+  app.delete('/admin/providers/:id', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:provider:write');
+    const { id } = parse(idParams, req.params);
+    const connection = await loadConnection(id);
+    if (connection.managedBy === 'env')
+      throw conflict('Remove the environment variables to delete this provider');
+    const [assigned] = await db
+      .select({ n: count() })
+      .from(servers)
+      .where(and(eq(servers.providerConnectionId, id), isNotNull(servers.projectId)));
+    if ((assigned?.n ?? 0) > 0) throw conflict('Unassign all servers of this provider first');
+    await db.delete(providerConnections).where(eq(providerConnections.id, id));
+    providers.invalidate(id);
+    await audit.record(req, {
+      action: 'provider.delete',
+      resourceType: 'provider',
+      resourceId: id,
+      details: { name: connection.name },
+    });
+    return { ok: true };
+  });
+
+  app.post('/admin/providers/:id/test', async (req) => {
+    await can(req, 'platform:provider:read');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const started = Date.now();
+    try {
+      const info = await providers.forConnection(connection).testConnection();
+      await db
+        .update(providerConnections)
+        .set({ status: 'ok', lastError: null })
+        .where(eq(providerConnections.id, connection.id));
+      return { ok: true, latencyMs: Date.now() - started, info };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await db
+        .update(providerConnections)
+        .set({ status: 'error', lastError: message.slice(0, 1000) })
+        .where(eq(providerConnections.id, connection.id));
+      return { ok: false, latencyMs: Date.now() - started, error: message };
+    }
+  });
+
+  app.post('/admin/providers/:id/sync', async (req) => {
+    await can(req, 'platform:provider:read');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const result = await ctx.sync.syncConnection(connection);
+    await audit.record(req, {
+      action: 'provider.sync',
+      resourceType: 'provider',
+      resourceId: connection.id,
+      details: { ...result },
+    });
+    return result;
+  });
+
+  app.get('/admin/providers/:id/overview', async (req) => {
+    await can(req, 'platform:infra:read');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const adapter = providers.forConnection(connection);
+    if (!adapter.overview) return { nodes: [], storages: [], facts: [] };
+    return adapter.overview();
+  });
+
+  app.get('/admin/providers/:id/images', async (req) => {
+    await can(req, 'platform:server:create');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const adapter = providers.forConnection(connection);
+    return adapter.listImages ? adapter.listImages() : [];
+  });
+
+  // --- Server inventory -----------------------------------------------------------
+
+  app.get('/admin/servers', async (req) => {
+    await can(req, 'platform:access');
+    const query = parse(
+      z.object({
+        assigned: z.enum(['all', 'yes', 'no']).default('all'),
+        providerId: z.uuid().optional(),
+        orgId: z.uuid().optional(),
+        q: z.string().max(100).optional(),
+        includeMissing: z.coerce.boolean().default(true),
+      }),
+      req.query,
+    );
+    const filters: (SQL | undefined)[] = [
+      query.assigned === 'yes'
+        ? isNotNull(servers.projectId)
+        : query.assigned === 'no'
+          ? isNull(servers.projectId)
+          : undefined,
+      query.providerId ? eq(servers.providerConnectionId, query.providerId) : undefined,
+      query.orgId ? eq(projects.orgId, query.orgId) : undefined,
+      query.includeMissing ? undefined : sql`${servers.status} <> 'missing'`,
+      query.q
+        ? or(
+            ilike(servers.name, `%${query.q.replace(/[%_]/g, '')}%`),
+            ilike(servers.externalId, `%${query.q.replace(/[%_]/g, '')}%`),
+            sql`${servers.ips}::text ilike ${`%${query.q.replace(/[%_]/g, '')}%`}`,
+          )
+        : undefined,
+    ];
+    const rows = await serverRowsQuery(ctx)
+      .where(and(...filters))
+      .orderBy(servers.name)
+      .limit(1000);
+    return Promise.all(rows.map((r) => toServerDto(ctx, req, r)));
+  });
+
+  app.post('/admin/servers/:id/assign', async (req) => {
+    await can(req, 'platform:server:assign');
+    const { id } = parse(idParams, req.params);
+    const { projectId } = parse(z.object({ projectId: z.uuid().nullable() }), req.body);
+    const server = await db.query.servers.findFirst({ where: eq(servers.id, id) });
+    if (!server) throw notFound('Server');
+    let orgId: string | null = null;
+    if (projectId) {
+      const project = await db.query.projects.findFirst({ where: eq(projects.id, projectId) });
+      if (!project) throw notFound('Project');
+      orgId = project.orgId;
+    }
+    await db.update(servers).set({ projectId }).where(eq(servers.id, id));
+    await audit.record(req, {
+      action: projectId ? 'server.assign' : 'server.unassign',
+      orgId,
+      resourceType: 'server',
+      resourceId: id,
+      details: { name: server.name, projectId, previousProjectId: server.projectId },
+    });
+    return { ok: true };
+  });
+
+  app.post('/admin/servers/import', async (req) => {
+    await can(req, 'platform:server:assign');
+    const body = parse(
+      z.object({
+        providerId: z.uuid(),
+        externalId: z.string().trim().min(1).max(200),
+        projectId: z.uuid().nullish(),
+      }),
+      req.body,
+    );
+    const connection = await loadConnection(body.providerId);
+    const adapter = providers.forConnection(connection);
+    const remote = await adapter.getServer({ externalId: body.externalId, kind: 'vm', node: null, meta: {} });
+    const [server] = await db
+      .insert(servers)
+      .values({
+        providerConnectionId: connection.id,
+        externalId: remote.externalId,
+        name: remote.name,
+        providerName: remote.name,
+        kind: remote.kind,
+        status: remote.status,
+        specs: remote.specs,
+        usage: remote.usage ?? null,
+        ips: remote.ips,
+        os: remote.os ?? null,
+        node: remote.node ?? null,
+        meta: remote.meta ?? {},
+        projectId: body.projectId ?? null,
+        lastSyncedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!server) throw conflict('This server is already in the inventory');
+    await audit.record(req, {
+      action: 'server.import',
+      resourceType: 'server',
+      resourceId: server.id,
+      details: { provider: connection.name, externalId: body.externalId },
+    });
+    return { id: server.id };
+  });
+
+  app.post('/admin/servers', async (req) => {
+    const auth = requireSession(req);
+    await can(req, 'platform:server:create');
+    const body = parse(
+      z.object({
+        providerId: z.uuid(),
+        name: z.string().trim().min(1).max(63),
+        node: z.string().max(100).optional(),
+        cores: z.number().int().min(1).max(128),
+        memoryMb: z
+          .number()
+          .int()
+          .min(512)
+          .max(1024 * 1024),
+        diskGb: z.number().int().min(5).max(20_000),
+        imageId: z.string().max(200).optional(),
+        storage: z.string().max(100).optional(),
+        projectId: z.uuid().nullish(),
+      }),
+      req.body,
+    );
+    const connection = await loadConnection(body.providerId);
+    const adapter = providers.forConnection(connection);
+    if (!adapter.createServer) throw badRequest('This provider cannot create servers from the panel');
+
+    // Cloning can take minutes, so it runs in the background and reports through the audit log.
+    const jobId = randomToken(8);
+    void (async () => {
+      try {
+        const result = await adapter.createServer!(body);
+        await ctx.sync.syncConnection(connection);
+        if (result.externalId && body.projectId) {
+          await db
+            .update(servers)
+            .set({ projectId: body.projectId })
+            .where(
+              and(eq(servers.providerConnectionId, connection.id), eq(servers.externalId, result.externalId)),
+            );
+        }
+        await audit.record(null, {
+          action: 'server.create',
+          status: 'success',
+          actorUserId: auth.user.id,
+          actorName: auth.user.name,
+          resourceType: 'server',
+          resourceId: result.externalId ?? null,
+          details: { jobId, provider: connection.name, ...body },
+        });
+      } catch (err) {
+        await audit.record(null, {
+          action: 'server.create',
+          status: 'failure',
+          actorUserId: auth.user.id,
+          actorName: auth.user.name,
+          details: {
+            jobId,
+            provider: connection.name,
+            ...body,
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
+      }
+    })();
+    return { jobId, status: 'started' };
+  });
+
+  // --- Organizations --------------------------------------------------------------
+
+  async function toAdminOrgDto(org: Organization): Promise<AdminOrgDto> {
+    return {
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      kind: org.kind,
+      status: org.status,
+      createdAt: org.createdAt.toISOString(),
+      boundary: org.boundary,
+      notes: org.notes,
+      counts: await orgCounts(ctx, org.id),
+    };
+  }
+
+  async function uniqueSlug(base: string): Promise<string> {
+    const root = slugify(base) || 'org';
+    for (let i = 0; i < 50; i++) {
+      const slug = i === 0 ? root : `${root}-${i + 1}`;
+      const taken = await db.query.organizations.findFirst({ where: eq(organizations.slug, slug) });
+      if (!taken) return slug;
+    }
+    return `${root}-${randomToken(4).toLowerCase()}`;
+  }
+
+  app.get('/admin/orgs', async (req) => {
+    await can(req, 'platform:org:read');
+    const { q } = parse(z.object({ q: z.string().max(100).optional() }), req.query);
+    const rows = await db
+      .select()
+      .from(organizations)
+      .where(
+        q
+          ? or(
+              ilike(organizations.name, `%${q.replace(/[%_]/g, '')}%`),
+              ilike(organizations.slug, `%${q.replace(/[%_]/g, '')}%`),
+            )
+          : undefined,
+      )
+      .orderBy(organizations.name);
+    return Promise.all(rows.map(toAdminOrgDto));
+  });
+
+  app.get('/admin/orgs/:id', async (req) => {
+    await can(req, 'platform:org:read');
+    const org = await db.query.organizations.findFirst({
+      where: eq(organizations.id, parse(idParams, req.params).id),
+    });
+    if (!org) throw notFound('Organization');
+    const projectRows = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.orgId, org.id))
+      .orderBy(projects.name);
+    return { ...(await toAdminOrgDto(org)), projects: projectRows.map((p) => ({ id: p.id, name: p.name })) };
+  });
+
+  app.post('/admin/orgs', async (req) => {
+    const auth = requireSession(req);
+    await can(req, 'platform:org:write');
+    const body = parse(
+      z.object({
+        name: z.string().trim().min(2).max(100),
+        slug: z.string().trim().max(48).optional(),
+        kind: z.enum(['customer', 'internal']).default('customer'),
+        ownerEmail: z.email().optional(),
+        notes: z.string().max(2000).optional(),
+      }),
+      req.body,
+    );
+    const slug = await uniqueSlug(body.slug || body.name);
+    const result = await db.transaction(async (tx) => {
+      const [org] = await tx
+        .insert(organizations)
+        .values({
+          name: body.name,
+          slug,
+          kind: body.kind,
+          notes: body.notes ?? null,
+          boundary: body.kind === 'internal' ? DEFAULT_INTERNAL_BOUNDARY : DEFAULT_CUSTOMER_BOUNDARY,
+        })
+        .returning();
+      await tx.insert(projects).values({ orgId: org!.id, name: 'Default' });
+      let inviteLink: string | null = null;
+      if (body.ownerEmail) {
+        const existing = await tx.query.users.findFirst({
+          where: sql`lower(${users.email}) = lower(${body.ownerEmail})`,
+        });
+        if (existing) {
+          await tx.insert(memberships).values({ orgId: org!.id, userId: existing.id, role: 'owner' });
+        } else {
+          const token = randomToken(24);
+          await tx.insert(invitations).values({
+            orgId: org!.id,
+            email: body.ownerEmail.toLowerCase(),
+            role: 'owner',
+            tokenHash: sha256(token),
+            invitedBy: auth.user.id,
+            expiresAt: new Date(Date.now() + 14 * 86_400_000),
+          });
+          inviteLink = `${ctx.env.APP_URL.replace(/\/$/, '')}/invite/${token}`;
+        }
+      }
+      return { org: org!, inviteLink };
+    });
+    await audit.record(req, {
+      action: 'org.create',
+      orgId: result.org.id,
+      resourceType: 'org',
+      resourceId: result.org.id,
+      details: { name: body.name, kind: body.kind, ownerEmail: body.ownerEmail },
+    });
+    return { ...(await toAdminOrgDto(result.org)), inviteLink: result.inviteLink };
+  });
+
+  app.patch('/admin/orgs/:id', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:org:write');
+    const { id } = parse(idParams, req.params);
+    const body = parse(
+      z.object({
+        name: z.string().trim().min(2).max(100).optional(),
+        kind: z.enum(['customer', 'internal']).optional(),
+        status: z.enum(['active', 'suspended']).optional(),
+        notes: z.string().max(2000).nullish(),
+        boundary: z.unknown().optional(),
+      }),
+      req.body,
+    );
+    const boundary = body.boundary !== undefined ? parseStatements(body.boundary) : undefined;
+    const [org] = await db
+      .update(organizations)
+      .set({
+        ...(body.name ? { name: body.name } : {}),
+        ...(body.kind ? { kind: body.kind } : {}),
+        ...(body.status ? { status: body.status } : {}),
+        ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
+        ...(boundary ? { boundary } : {}),
+      })
+      .where(eq(organizations.id, id))
+      .returning();
+    if (!org) throw notFound('Organization');
+    await audit.record(req, {
+      action: 'org.admin_update',
+      orgId: id,
+      resourceType: 'org',
+      resourceId: id,
+      details: body,
+    });
+    return toAdminOrgDto(org);
+  });
+
+  app.delete('/admin/orgs/:id', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:org:write');
+    const { id } = parse(idParams, req.params);
+    const counts = await orgCounts(ctx, id);
+    if (counts.servers > 0) throw conflict('Unassign all servers of this organization first');
+    const [org] = await db.delete(organizations).where(eq(organizations.id, id)).returning();
+    if (!org) throw notFound('Organization');
+    await audit.record(req, {
+      action: 'org.delete',
+      resourceType: 'org',
+      resourceId: id,
+      details: { name: org.name },
+    });
+    return { ok: true };
+  });
+
+  // --- Users ----------------------------------------------------------------------
+
+  app.get('/admin/users', async (req) => {
+    await can(req, 'platform:user:read');
+    const { q } = parse(z.object({ q: z.string().max(100).optional() }), req.query);
+    const rows = await db
+      .select()
+      .from(users)
+      .where(
+        q
+          ? or(
+              ilike(users.email, `%${q.replace(/[%_]/g, '')}%`),
+              ilike(users.name, `%${q.replace(/[%_]/g, '')}%`),
+            )
+          : undefined,
+      )
+      .orderBy(users.name)
+      .limit(500);
+    const memberRows = await db
+      .select({
+        userId: memberships.userId,
+        role: memberships.role,
+        orgId: organizations.id,
+        orgName: organizations.name,
+        orgSlug: organizations.slug,
+      })
+      .from(memberships)
+      .innerJoin(organizations, eq(organizations.id, memberships.orgId));
+    return rows.map((u) => ({
+      ...toUserDto(u),
+      memberships: memberRows
+        .filter((m) => m.userId === u.id)
+        .map((m) => ({ orgId: m.orgId, orgName: m.orgName, orgSlug: m.orgSlug, role: m.role })),
+    }));
+  });
+
+  app.post('/admin/users', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:user:write');
+    const body = parse(
+      z.object({
+        email: z.email().max(200),
+        name: z.string().trim().min(1).max(100),
+        platformRole: z.enum(PLATFORM_ROLES).nullish(),
+        orgId: z.uuid().optional(),
+        orgRole: z.enum(['owner', 'admin', 'member', 'restricted', 'viewer', 'billing']).optional(),
+      }),
+      req.body,
+    );
+    await assertCanSetPlatformRole(req, body.platformRole ?? null);
+    const existing = await db.query.users.findFirst({
+      where: sql`lower(${users.email}) = lower(${body.email})`,
+    });
+    if (existing) throw conflict('A user with this email exists');
+    const password = randomToken(12);
+    const user = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(users)
+        .values({
+          email: body.email.toLowerCase(),
+          name: body.name,
+          platformRole: body.platformRole ?? null,
+          passwordHash: await hashPassword(password),
+        })
+        .returning();
+      if (body.orgId) {
+        await tx
+          .insert(memberships)
+          .values({ orgId: body.orgId, userId: created!.id, role: body.orgRole ?? 'member' });
+      }
+      return created!;
+    });
+    await audit.record(req, {
+      action: 'user.create',
+      orgId: body.orgId ?? null,
+      resourceType: 'user',
+      resourceId: user.id,
+      details: { email: body.email, platformRole: body.platformRole ?? null, orgRole: body.orgRole },
+    });
+    return { user: toUserDto(user), initialPassword: password };
+  });
+
+  async function assertCanSetPlatformRole(req: FastifyRequest, role: string | null) {
+    if (!role) return;
+    const subject = await access.subject(req, null);
+    if (subject.platformRole !== 'superadmin') throw forbidden('Only superadmins can grant platform roles');
+  }
+
+  async function superadminCount() {
+    const [row] = await db
+      .select({ n: count() })
+      .from(users)
+      .where(and(eq(users.platformRole, 'superadmin'), eq(users.status, 'active')));
+    return row?.n ?? 0;
+  }
+
+  app.patch('/admin/users/:id', async (req) => {
+    const auth = requireSession(req);
+    await can(req, 'platform:user:write');
+    const { id } = parse(idParams, req.params);
+    const body = parse(
+      z.object({
+        name: z.string().trim().min(1).max(100).optional(),
+        platformRole: z.enum(PLATFORM_ROLES).nullable().optional(),
+        status: z.enum(['active', 'disabled']).optional(),
+      }),
+      req.body,
+    );
+    const user = await db.query.users.findFirst({ where: eq(users.id, id) });
+    if (!user) throw notFound('User');
+    if (body.platformRole !== undefined) {
+      const subject = await access.subject(req, null);
+      if (subject.platformRole !== 'superadmin')
+        throw forbidden('Only superadmins can change platform roles');
+    }
+    const losesSuperadmin =
+      user.platformRole === 'superadmin' &&
+      ((body.platformRole !== undefined && body.platformRole !== 'superadmin') || body.status === 'disabled');
+    if (losesSuperadmin && (await superadminCount()) <= 1)
+      throw conflict('There must be at least one active superadmin');
+    if (id === auth.user.id && body.status === 'disabled') throw conflict('You cannot disable yourself');
+
+    const [updated] = await db
+      .update(users)
+      .set({
+        ...(body.name ? { name: body.name } : {}),
+        ...(body.platformRole !== undefined ? { platformRole: body.platformRole } : {}),
+        ...(body.status ? { status: body.status } : {}),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    if (body.status === 'disabled') await db.delete(sessions).where(eq(sessions.userId, id));
+    await audit.record(req, { action: 'user.update', resourceType: 'user', resourceId: id, details: body });
+    return toUserDto(updated!);
+  });
+
+  app.post('/admin/users/:id/reset-password', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:user:write');
+    const { id } = parse(idParams, req.params);
+    const user = await db.query.users.findFirst({ where: eq(users.id, id) });
+    if (!user) throw notFound('User');
+    if (user.platformRole === 'superadmin') {
+      const subject = await access.subject(req, null);
+      if (subject.platformRole !== 'superadmin') throw forbidden();
+    }
+    const password = randomToken(12);
+    await db
+      .update(users)
+      .set({ passwordHash: await hashPassword(password), failedLogins: 0, lockedUntil: null })
+      .where(eq(users.id, id));
+    await db.delete(sessions).where(eq(sessions.userId, id));
+    await audit.record(req, { action: 'user.password_reset', resourceType: 'user', resourceId: id });
+    return { initialPassword: password };
+  });
+
+  app.post('/admin/users/:id/reset-mfa', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:user:write');
+    const { id } = parse(idParams, req.params);
+    await db.update(users).set({ totpEnabled: false, totpSecretEnc: null }).where(eq(users.id, id));
+    await audit.record(req, { action: 'user.mfa_reset', resourceType: 'user', resourceId: id });
+    return { ok: true };
+  });
+
+  // --- API explorer ---------------------------------------------------------------
+
+  app.post('/admin/explorer', async (req) => {
+    requireSession(req);
+    await can(req, 'platform:explorer');
+    const body = parse(
+      z.object({
+        providerId: z.uuid(),
+        method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+        path: z.string().min(1).max(500),
+        body: z.record(z.string(), z.unknown()).optional(),
+      }),
+      req.body,
+    );
+    const connection = await loadConnection(body.providerId);
+    const adapter = providers.forConnection(connection);
+    if (!adapter.rawRequest) throw badRequest('This provider has no raw API access');
+    const started = Date.now();
+    let result;
+    try {
+      result = await adapter.rawRequest(body.method, body.path, body.body);
+    } catch (err) {
+      result = {
+        status: err instanceof AppError ? err.statusCode : 500,
+        data: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+    // Reads are not audited to keep the log useful, every write is.
+    if (body.method !== 'GET') {
+      await audit.record(req, {
+        action: 'provider.explorer',
+        resourceType: 'provider',
+        resourceId: connection.id,
+        details: { method: body.method, path: body.path, body: body.body ?? null, status: result.status },
+      });
+    }
+    return { ...result, durationMs: Date.now() - started };
+  });
+
+  app.get('/admin/actions', async (req) => {
+    await can(req, 'platform:access');
+    const rows = await db
+      .select({ action: serverActions, serverName: servers.name, userName: users.name })
+      .from(serverActions)
+      .innerJoin(servers, eq(servers.id, serverActions.serverId))
+      .leftJoin(users, eq(users.id, serverActions.userId))
+      .orderBy(desc(serverActions.startedAt))
+      .limit(100);
+    return rows.map(({ action, serverName, userName }) => ({
+      id: action.id,
+      serverId: action.serverId,
+      serverName,
+      type: action.type,
+      status: action.status,
+      startedAt: action.startedAt.toISOString(),
+      finishedAt: action.finishedAt?.toISOString() ?? null,
+      error: action.error,
+      user: action.userId ? { id: action.userId, name: userName ?? '' } : null,
+    }));
+  });
+}
