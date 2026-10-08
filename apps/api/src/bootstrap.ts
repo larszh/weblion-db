@@ -5,7 +5,7 @@ import type { Env } from './config/env';
 import type { Database } from './db/client';
 import { memberships, organizations, projects, providerConnections, users } from './db/schema';
 import { hashPassword, type SecretBox } from './lib/crypto';
-import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from './providers/types';
+import type { DemoConfig, Fire24Config, JokerConfig, ProviderConfig, ProxmoxConfig } from './providers/types';
 
 /** Creates the first superadmin and the weblion organization on an empty database. */
 export async function ensureBootstrapAdmin(db: Database, env: Env, log: FastifyBaseLogger): Promise<void> {
@@ -76,6 +76,20 @@ function envProviders(env: Env): EnvProvider[] {
         verifyTls: env.PROXMOX_VERIFY_TLS,
         ...(env.PROXMOX_BACKUP_STORAGE ? { backupStorage: env.PROXMOX_BACKUP_STORAGE } : {}),
       } satisfies ProxmoxConfig,
+    });
+  }
+  if (env.JOKER_API_KEY || (env.JOKER_USERNAME && env.JOKER_PASSWORD)) {
+    list.push({
+      key: 'joker',
+      type: 'joker',
+      name: env.JOKER_NAME,
+      location: { country: 'DE', city: 'Düsseldorf', label: 'Joker.com (Registrar)' },
+      config: {
+        baseUrl: env.JOKER_BASE_URL,
+        ...(env.JOKER_API_KEY
+          ? { apiKey: env.JOKER_API_KEY }
+          : { username: env.JOKER_USERNAME, password: env.JOKER_PASSWORD }),
+      } satisfies JokerConfig,
     });
   }
   if (env.ENABLE_DEMO_PROVIDER) {

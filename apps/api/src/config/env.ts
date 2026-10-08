@@ -52,6 +52,13 @@ const EnvSchema = z.object({
   /** Storage that receives backups created from the panel (vzdump target). */
   PROXMOX_BACKUP_STORAGE: optionalString,
 
+  // Joker.com domains (DMAPI). An API key, or reseller username and password.
+  JOKER_API_KEY: optionalString,
+  JOKER_USERNAME: optionalString,
+  JOKER_PASSWORD: optionalString,
+  JOKER_BASE_URL: z.string().url().default('https://dmapi.joker.com/request'),
+  JOKER_NAME: z.string().default('Joker.com'),
+
   // E-mail (SMTP). When SMTP_HOST is set, these win over the settings in the admin area.
   SMTP_HOST: optionalString,
   SMTP_PORT: z.coerce.number().int().positive().default(587),

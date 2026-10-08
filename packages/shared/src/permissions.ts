@@ -108,6 +108,12 @@ export const PERMISSIONS = {
   'domain:authcode': def('domains', 'Auth-Code (Transfer) anzeigen', 'Show auth code (transfer)', {
     dangerous: true,
   }),
+  'domain:manage': def(
+    'domains',
+    'Nameserver und Transfersperre ändern',
+    'Change name servers and transfer lock',
+    { dangerous: true },
+  ),
 
   // Web hosting (module "webhosting")
   'webspace:read': def('webhosting', 'Webspaces ansehen', 'View web spaces'),
@@ -207,6 +213,12 @@ export const PERMISSIONS = {
     'platform',
     'Plattform-Einstellungen (E-Mail, Rechnungssteller, Integrationen)',
     'Platform settings (email, invoice issuer, integrations)',
+    { platform: true, dangerous: true },
+  ),
+  'platform:domain:write': def(
+    'platform',
+    'Domains verlängern und automatische Verlängerung schalten (kostet beim Registrar)',
+    'Renew domains and switch auto-renew (charged by the registrar)',
     { platform: true, dangerous: true },
   ),
 } as const satisfies Record<string, PermissionDef>;

@@ -136,7 +136,12 @@ describe('visibility', () => {
       autoRenew: true,
       missingSince: null,
     });
-    expect(domain.permissions).toEqual(['domain:read', 'domain:dns:write', 'domain:authcode']);
+    expect(domain.permissions).toEqual([
+      'domain:read',
+      'domain:dns:write',
+      'domain:authcode',
+      'domain:manage',
+    ]);
     expect(musterWebspace.permissions).toEqual(['webspace:read', 'webspace:credentials']);
     expect(musterWebspace.resources?.emails).toBe(25);
 

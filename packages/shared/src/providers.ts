@@ -4,12 +4,13 @@
  * the public API and the UI never care where a server actually runs.
  */
 
-export const PROVIDER_TYPES = ['fire24', 'proxmox', 'demo'] as const;
+export const PROVIDER_TYPES = ['fire24', 'proxmox', 'joker', 'demo'] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const PROVIDER_LABELS: Record<ProviderType, string> = {
   fire24: '24fire',
   proxmox: 'Proxmox VE',
+  joker: 'Joker.com',
   demo: 'Demo',
 };
 

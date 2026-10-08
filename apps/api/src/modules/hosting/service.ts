@@ -2,7 +2,10 @@ import { eq } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import {
   ALL_PERMISSIONS,
+  DNS_RECORD_TYPES,
   resourcePath,
+  type DnsRecordType,
+  type DomainCapability,
   type DomainDto,
   type ModuleKey,
   type Permission,
@@ -117,6 +120,20 @@ export async function dnsWritable(adapter: ProviderAdapter): Promise<boolean> {
   if (typeof adapter.addDnsRecord !== 'function') return false;
   if (!adapter.dnsWritable) return true;
   return adapter.dnsWritable().catch(() => false);
+}
+
+/** Domain features of a provider. Adapters without the method get what they implement. */
+export function domainCapabilities(adapter: ProviderAdapter): DomainCapability[] {
+  if (adapter.domainCapabilities) return adapter.domainCapabilities();
+  const capabilities: DomainCapability[] = [];
+  if (adapter.listDnsRecords) capabilities.push('dns');
+  if (adapter.getDomainAuthcode) capabilities.push('authcode');
+  return capabilities;
+}
+
+/** Record types a provider accepts for new or changed records. */
+export function dnsRecordTypes(adapter: ProviderAdapter): DnsRecordType[] {
+  return adapter.dnsRecordTypes?.() ?? [...DNS_RECORD_TYPES];
 }
 
 export async function toDomainDto(ctx: AppContext, req: FastifyRequest, row: DomainRow): Promise<DomainDto> {

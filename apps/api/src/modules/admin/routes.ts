@@ -33,7 +33,13 @@ import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
-import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from '../../providers/types';
+import type {
+  DemoConfig,
+  Fire24Config,
+  JokerConfig,
+  ProviderConfig,
+  ProxmoxConfig,
+} from '../../providers/types';
 import { sendInvitationMail } from '../../mail/invitation';
 import { orgCounts, orgRef } from '../orgs/routes';
 import {
@@ -66,6 +72,18 @@ const proxmoxConfigSchema = z.object({
   caCert: z.string().max(20_000).optional(),
   backupStorage: z.string().max(100).optional(),
 });
+/** An API key wins over username and password when both are stored. */
+const jokerConfigSchema = z
+  .object({
+    apiKey: z.string().trim().min(8).max(500).optional(),
+    username: z.string().trim().min(1).max(200).optional(),
+    password: z.string().min(1).max(500).optional(),
+    baseUrl: z.url().default('https://dmapi.joker.com/request'),
+  })
+  .refine((c) => !!c.apiKey || (!!c.username && !!c.password), {
+    message: 'Either an API key or username and password are required',
+    path: ['apiKey'],
+  });
 const demoConfigSchema = z.object({
   seed: z.number().int().optional(),
   servers: z.number().int().min(1).max(50).optional(),
@@ -77,6 +95,8 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(fire24ConfigSchema, raw) as Fire24Config;
     case 'proxmox':
       return parse(proxmoxConfigSchema, raw) as ProxmoxConfig;
+    case 'joker':
+      return parse(jokerConfigSchema, raw) as JokerConfig;
     case 'demo':
       return parse(demoConfigSchema, raw ?? {}) as DemoConfig;
   }
@@ -96,6 +116,15 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         tokenId: c.tokenId,
         verifyTls: String(c.verifyTls),
         ...(c.backupStorage ? { backupStorage: c.backupStorage } : {}),
+      };
+    }
+    case 'joker': {
+      const c = config as JokerConfig;
+      return {
+        baseUrl: c.baseUrl,
+        ...(c.apiKey
+          ? { apiKey: `${c.apiKey.slice(0, 4)}…${c.apiKey.slice(-3)}` }
+          : { username: c.username ?? '' }),
       };
     }
     case 'demo':

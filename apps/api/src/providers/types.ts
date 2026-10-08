@@ -4,6 +4,8 @@ import type {
   DdosSettings,
   DnsRecord,
   DnsRecordInput,
+  DnsRecordType,
+  DomainCapability,
   DomainInfo,
   FirewallInfo,
   FirewallRule,
@@ -202,6 +204,17 @@ export interface ProviderAdapter {
   deleteDnsRecord?(externalId: string, recordId: string): Promise<void>;
   /** Whether DNS changes are possible right now (24fire: only with an active 24fire+ plan). */
   dnsWritable?(): Promise<boolean>;
+  /** Domain features beyond listing. Without it: "dns" and "authcode" as far as implemented. */
+  domainCapabilities?(): DomainCapability[];
+  /** Record types addDnsRecord/updateDnsRecord accept. Without it: all DNS_RECORD_TYPES. */
+  dnsRecordTypes?(): DnsRecordType[];
+  /** Replaces the delegation. Takes effect at the registry, possibly with a delay. */
+  setNameservers?(externalId: string, nameservers: string[]): Promise<ActionResult>;
+  setDomainLock?(externalId: string, locked: boolean): Promise<ActionResult>;
+  /** Charged to the provider account on expiry. Platform staff only. */
+  setDomainAutoRenew?(externalId: string, enabled: boolean): Promise<ActionResult>;
+  /** Extends the registration by whole years, charged right away. Platform staff only. */
+  renewDomain?(externalId: string, years: number): Promise<ActionResult>;
 
   // Web spaces (module "webhosting"). Read only: providers offer no provisioning API.
   listWebspaces?(): Promise<RemoteWebspace[]>;
@@ -229,9 +242,18 @@ export interface ProxmoxConfig {
   backupStorage?: string;
 }
 
+/** Joker.com DMAPI. Either an API key (recommended) or reseller username and password. */
+export interface JokerConfig {
+  apiKey?: string;
+  username?: string;
+  password?: string;
+  /** https://dmapi.joker.com/request, or https://dmapi.ote.joker.com/request for OT&E tests. */
+  baseUrl: string;
+}
+
 export interface DemoConfig {
   seed?: number;
   servers?: number;
 }
 
-export type ProviderConfig = Fire24Config | ProxmoxConfig | DemoConfig;
+export type ProviderConfig = Fire24Config | ProxmoxConfig | JokerConfig | DemoConfig;

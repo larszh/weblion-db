@@ -6,10 +6,12 @@ import type { SecretBox } from '../lib/crypto';
 import { notFound } from '../lib/errors';
 import { DemoAdapter } from './demo/adapter';
 import { Fire24Adapter } from './fire24/adapter';
+import { JokerAdapter } from './joker/adapter';
 import { ProxmoxAdapter } from './proxmox/adapter';
 import type {
   DemoConfig,
   Fire24Config,
+  JokerConfig,
   ProviderAdapter,
   ProviderConfig,
   ProxmoxConfig,
@@ -26,6 +28,8 @@ export function createAdapter(
       return new Fire24Adapter(config as Fire24Config);
     case 'proxmox':
       return new ProxmoxAdapter(config as ProxmoxConfig);
+    case 'joker':
+      return new JokerAdapter(config as JokerConfig);
     case 'demo':
       return new DemoAdapter(connectionId, config as DemoConfig);
   }

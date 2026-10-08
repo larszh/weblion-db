@@ -21,7 +21,9 @@ import { assertNoLinkedService } from '../reseller/service';
 import { dnsDataIssue, dnsRecordBody, dnsRecordPatchBody } from './dns';
 import {
   HOSTING_MODULES,
+  dnsRecordTypes,
   dnsWritable,
+  domainCapabilities,
   domainRowsQuery,
   domainScope,
   loadDomain,
@@ -150,6 +152,8 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       info,
       liveError,
       dnsWritable: await dnsWritable(loaded.adapter),
+      capabilities: domainCapabilities(loaded.adapter),
+      dnsRecordTypes: dnsRecordTypes(loaded.adapter),
     };
   });
 
