@@ -63,7 +63,7 @@ beforeAll(async () => {
   dev = new Client(t.app);
   await dev.login('dev@beispiel.example');
   musterDomains = json(await anna.get(`/orgs/${musterOrgId}/domains`));
-  [musterWebspace] = json<WebspaceDto[]>(await anna.get(`/orgs/${musterOrgId}/webspaces`));
+  musterWebspace = json<WebspaceDto[]>(await anna.get(`/orgs/${musterOrgId}/webspaces`))[0]!;
 });
 
 afterAll(async () => {

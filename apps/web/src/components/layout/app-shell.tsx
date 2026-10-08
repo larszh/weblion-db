@@ -100,6 +100,7 @@ function OrgSwitcher({ me }: { me: MeDto }) {
   const navigate = useNavigate();
   const inAdmin = useLocation().pathname.startsWith('/admin');
   const current = orgCtx?.org;
+  const resellers = me.memberships.filter((m) => m.orgKind === 'reseller');
   return (
     <Menu
       align="start"
@@ -117,7 +118,9 @@ function OrgSwitcher({ me }: { me: MeDto }) {
               {current
                 ? current.role
                   ? t(`role.${current.role}` as TranslationKey)
-                  : t('nav.staffAccess')
+                  : current.access === 'reseller'
+                    ? t('nav.viaReseller')
+                    : t('nav.staffAccess')
                 : inAdmin
                   ? t('nav.platform')
                   : t('nav.chooseOrgHint')}
@@ -138,6 +141,30 @@ function OrgSwitcher({ me }: { me: MeDto }) {
           {m.orgName}
         </MenuItem>
       ))}
+      {/* A customer opened through its reseller is no membership, so list it while it is open. */}
+      {current?.access === 'reseller' && !me.memberships.some((m) => m.orgId === current.id) && (
+        <MenuItem
+          icon={<Check />}
+          hint={current.parent ? `${t('nav.viaReseller')} · ${current.parent.name}` : t('nav.viaReseller')}
+        >
+          {current.name}
+        </MenuItem>
+      )}
+      {resellers.length > 0 && (
+        <>
+          <MenuSeparator />
+          {resellers.map((m) => (
+            <MenuItem
+              key={m.orgId}
+              icon={<Briefcase />}
+              onSelect={() => navigate(`/o/${m.orgSlug}/customers`)}
+              hint={resellers.length > 1 ? m.orgName : undefined}
+            >
+              {t('nav.customers')}
+            </MenuItem>
+          ))}
+        </>
+      )}
       {me.platformPermissions.includes('platform:org:read') && (
         <>
           <MenuSeparator />
