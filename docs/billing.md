@@ -81,7 +81,7 @@ existieren: Das Geld gehört jeweils dem bisherigen Verkäufer.
 
 1. Im Stripe-Dashboard unter Settings > Payment methods **TWINT aktivieren** (nur CHF).
 2. Secret Key nach `STRIPE_SECRET_KEY` (zuerst `sk_test_...`).
-3. Webhook anlegen: Endpoint `https://console.weblion.one/api/v1/payments/stripe/webhook`,
+3. Webhook anlegen: Endpoint `https://cp.weblion.cloud/api/v1/payments/stripe/webhook`,
    Events `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
    `checkout.session.async_payment_failed`, `checkout.session.expired`. Das Signing Secret
    (`whsec_...`) nach `STRIPE_WEBHOOK_SECRET`.

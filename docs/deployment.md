@@ -55,7 +55,7 @@ In der `.env` mindestens setzen:
 
 ```env
 NODE_ENV=production
-APP_URL=https://console.weblion.one
+APP_URL=https://cp.weblion.cloud
 ENCRYPTION_KEY=<openssl rand -base64 32>
 POSTGRES_PASSWORD=<langes Zufallspasswort>
 BOOTSTRAP_ADMIN_EMAIL=admin@weblion.one
@@ -88,7 +88,7 @@ ZOHO_ORGANIZATION_ID=...
 ZOHO_TAX_IDS=810:...,0:...
 ```
 
-Der Stripe-Webhook zeigt auf `https://console.weblion.one/api/v1/payments/stripe/webhook`.
+Der Stripe-Webhook zeigt auf `https://cp.weblion.cloud/api/v1/payments/stripe/webhook`.
 Der Reverse Proxy muss den Request-Body unverändert durchreichen (Caddy und nginx tun das
 standardmässig), sonst schlägt die Signaturprüfung fehl.
 
@@ -105,7 +105,7 @@ Migrationen laufen beim Start automatisch. Nach dem ersten Login das
 Der Container lauscht nur auf `127.0.0.1:3000`. Beispiel mit Caddy:
 
 ```caddyfile
-console.weblion.one {
+cp.weblion.cloud {
     encode gzip
     reverse_proxy 127.0.0.1:3000
 }
@@ -132,12 +132,12 @@ sinngemäss vorgehen.
 
 1. Als root Docker installieren (`curl -fsSL https://get.docker.com | sh`).
 2. Repo z.B. nach `/opt/weblion-console` klonen, `.env` wie oben ausfüllen und
-   `APP_URL=https://console.weblion.one` setzen. `docker compose up -d --build`.
+   `APP_URL=https://cp.weblion.cloud` setzen. `docker compose up -d --build`.
    Die Console lauscht nur auf `127.0.0.1:3000` (so steht es in `docker-compose.yml`), ist
    also von aussen nicht direkt erreichbar. Ist Port 3000 auf dem Server schon belegt (z.B.
    durch eine andere Node.js-Site), in `docker-compose.yml` links einen freien Port nehmen,
    etwa `127.0.0.1:3100:3000`, und unten dieselbe Zahl verwenden.
-3. In CloudPanel: *Sites > Add Site > Reverse Proxy*, Domain `console.weblion.one`,
+3. In CloudPanel: *Sites > Add Site > Reverse Proxy*, Domain `cp.weblion.cloud`,
    Reverse-Proxy-URL `http://127.0.0.1:3000`.
 4. *SSL/TLS > Let's Encrypt* für die Domain.
 5. Websockets prüfen, siehe [unten](#websockets-im-vhost).
@@ -155,7 +155,7 @@ sudo -u postgres createdb --owner weblion weblion
 Postgres lauscht danach nur lokal. Debian 12 bringt Version 15, Ubuntu 24.04 Version 16,
 beides passt.
 
-**2. Site anlegen:** *Sites > Add Site > Node.js*, Domain `console.weblion.one`,
+**2. Site anlegen:** *Sites > Add Site > Node.js*, Domain `cp.weblion.cloud`,
 Node.js-Version **22**, App-Port z.B. `3000` (darf auf dem Server nicht schon belegt sein).
 CloudPanel legt einen Site-User an und leitet die Domain per nginx auf den Port weiter.
 Danach *SSL/TLS > Let's Encrypt*.
@@ -163,7 +163,7 @@ Danach *SSL/TLS > Let's Encrypt*.
 **3. Code holen und bauen** (per SSH als Site-User):
 
 ```bash
-cd ~/htdocs/console.weblion.one
+cd ~/htdocs/cp.weblion.cloud
 git clone https://github.com/larszh/weblion-db.git .
 npm install -g pnpm@10 pm2
 pnpm install --frozen-lockfile
@@ -179,7 +179,7 @@ Falls Node 22 bei der Site-Erstellung nicht angeboten wurde: als Site-User
 ```env
 NODE_ENV=production
 PORT=3000                     # gleich wie der App-Port der Site
-APP_URL=https://console.weblion.one
+APP_URL=https://cp.weblion.cloud
 DATABASE_URL=postgres://weblion:<passwort>@127.0.0.1:5432/weblion
 ```
 
@@ -201,7 +201,7 @@ Migrationen laufen beim Start automatisch. Logs: `pm2 logs weblion-console`.
 **Updates:**
 
 ```bash
-cd ~/htdocs/console.weblion.one
+cd ~/htdocs/cp.weblion.cloud
 git pull && pnpm install --frozen-lockfile && pnpm build
 pm2 reload weblion-console
 ```

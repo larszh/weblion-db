@@ -117,7 +117,7 @@ eintragen (verschlüsselt gespeichert). Einrichtung Schritt für Schritt in
 ## Produktion
 
 ```bash
-cp .env.example .env    # NODE_ENV=production, APP_URL=https://console.weblion.one, Secrets setzen
+cp .env.example .env    # NODE_ENV=production, APP_URL=https://cp.weblion.cloud, Secrets setzen
 docker compose up -d --build
 ```
 
@@ -149,9 +149,9 @@ Alles, was die Console kann, geht auch per API unter `/api/v1`, authentifiziert 
 API-Token aus der Console:
 
 ```bash
-curl -H "Authorization: Bearer wlc_…" https://console.weblion.one/api/v1/orgs/<org-id>/servers
+curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/servers
 curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
-  -d '{"action":"reboot"}' https://console.weblion.one/api/v1/servers/<server-id>/power
+  -d '{"action":"reboot"}' https://cp.weblion.cloud/api/v1/servers/<server-id>/power
 ```
 
 ## Weiterlesen
