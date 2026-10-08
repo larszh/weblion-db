@@ -8,9 +8,12 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
                                        │    ├─ IAM: Rollen + Policies + Kundengrenze
                                        │    └─ Provider-Adapter ──> 24fire API (DE)
                                        │                       └─> Proxmox API (CH)
+                                       │    ├─ Abrechnung ──> Stripe (Karte, TWINT), Zoho Books
+                                       │    └─ E-Mail (SMTP)
                                        ├─ Websocket-Bridge für die Konsole (noVNC)
-                                       └─ Sync-Job (Inventar, laufende Tasks)
-                                     Postgres (Benutzer, Kunden, Server-Cache, Audit-Log)
+                                       └─ Jobs: Sync (Server, Domains, Webspaces, Tasks),
+                                          wiederkehrende Abrechnung
+                                     Postgres (Benutzer, Kunden, Inventar, Rechnungen, Audit-Log)
 ```
 
 ## Pakete
@@ -24,19 +27,26 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
 
 ## Datenmodell (Kurzfassung)
 
-- `organizations`: Kunden und interne Organisationen, mit `boundary` (Berechtigungsgrenze)
+- `organizations`: Kunden, Reseller und interne Organisationen, mit `boundary`
+  (Berechtigungsgrenze), `modules` (freigeschaltete Module) und `parent_org_id` (Reseller)
 - `memberships`: Benutzer in Organisationen mit Rolle, `membership_policies` hängt Policies an
 - `projects`: gruppieren Server innerhalb einer Organisation
 - `provider_connections`: 24fire, Proxmox, ... mit verschlüsselten Zugangsdaten
 - `servers`: Cache der Provider-Server, `project_id` leer heisst "noch nicht zugewiesen"
+- `domains`, `webspaces`: Cache der Domains und Webspaces aus Provider-Konten, wie Server
+  einem Kunden zugewiesen oder nicht
 - `server_actions`: über die Console ausgelöste Aktionen mit Provider-Task-Referenz
+- `products`, `services`, `invoices`, `invoice_lines`, `payments`, `credit_transactions`,
+  `billing_profiles`, `number_sequences`: Abrechnung, siehe [billing.md](billing.md)
+- `mail_log`: jede versendete (oder übersprungene) E-Mail
 - `audit_logs`: unveränderliches Protokoll (wer, was, wann, Ergebnis, IP)
 - `api_tokens`, `sessions`, `invitations`
 
 ## Rechte-Modell
 
 Jede Aktion hat einen Namen wie `server:power` oder `server:backup:restore`. Ressourcen sind
-Pfade relativ zur Organisation: `project/<id>`, `project/<id>/server/<id>`, `member/<id>`.
+Pfade relativ zur Organisation: `project/<id>`, `project/<id>/server/<id>`, `domain/<id>`,
+`webspace/<id>`, `member/<id>`.
 Eine Policy-Regel erlaubt oder verweigert Aktionen auf Ressourcen, optional nur für Server
 mit bestimmten Labels (`env=prod`). Wildcards mit `*`.
 
@@ -48,7 +58,13 @@ Auswertung einer Anfrage:
 3. **Rolle + angehängte Policies** des Mitglieds. Ein explizites Verweigern gewinnt immer.
 4. **Berechtigungsgrenze** der Organisation, gesetzt von weblion.one. Standard für Kunden:
    alles ausser Server löschen, Rescale und Rohkonfiguration. Pro Kunde im Admin-Bereich
-   freischaltbar. Gesperrte Kunden dürfen nur noch lesen.
+   freischaltbar. Gesperrte Kunden dürfen nur noch lesen (und bezahlen).
+5. **Module**: Aktionen eines nicht freigeschalteten Moduls (`server:*`/`project:*`,
+   `domain:*`, `webspace:*`) werden verweigert, als zusätzliche Regel in der Grenze.
+6. **Reseller**: Gehört die Organisation zu einem Reseller, gilt dessen Grenze (inkl. Module
+   und Sperre) zusätzlich. Mitarbeitende des Resellers, die beim Kunden kein Mitglied sind,
+   handeln dort mit ihrer Reseller-Rolle und -Policies, wenn diese
+   `reseller:customer:access` erlauben, und bleiben an beide Grenzen gebunden.
 
 Server, die man nicht sehen darf, liefern 404 statt 403, damit ihre Existenz nicht verraten
 wird.
