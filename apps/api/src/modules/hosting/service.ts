@@ -149,6 +149,7 @@ export async function toDomainDto(ctx: AppContext, req: FastifyRequest, row: Dom
     expiresAt: domain.info?.expiresAt ?? null,
     autoRenew: domain.info?.autoRenew ?? null,
     permissions,
+    capabilities: domainCapabilities(ctx.providers.forConnection(connection)),
     lastSyncedAt: domain.lastSyncedAt?.toISOString() ?? null,
     missingSince: domain.missingSince?.toISOString() ?? null,
     createdAt: domain.createdAt.toISOString(),

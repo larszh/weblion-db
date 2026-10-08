@@ -146,6 +146,8 @@ export interface DomainDto {
   autoRenew: boolean | null;
   /** Actions the current user may perform on this domain. */
   permissions: Permission[];
+  /** What the provider supports for this domain. The UI combines it with `permissions`. */
+  capabilities: DomainCapability[];
   lastSyncedAt: string | null;
   missingSince: string | null;
   createdAt: string;
@@ -157,8 +159,6 @@ export interface DomainDetailDto extends DomainDto {
   liveError: string | null;
   /** DNS changes need the provider's premium plan (24fire+). */
   dnsWritable: boolean;
-  /** What the provider supports for this domain. The UI combines it with `permissions`. */
-  capabilities: DomainCapability[];
   /** Record types the provider accepts when adding or changing records. */
   dnsRecordTypes: DnsRecordType[];
 }

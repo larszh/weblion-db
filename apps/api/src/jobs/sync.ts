@@ -1,6 +1,7 @@
 import { and, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
+import type { DomainInfo } from '@weblion/shared';
 import type { Database } from '../db/client';
 import {
   domains,
@@ -89,6 +90,9 @@ export class SyncService {
     const remote: RemoteDomain[] = await adapter.listDomains!();
     const now = new Date();
     for (const domain of remote) {
+      // Only the fields the provider reported overwrite what is stored (see RemoteDomain.info).
+      const known = domain.info ? knownFields(domain.info) : null;
+      const complete = known ? completeDomainInfo(domain, known) : null;
       await this.db
         .insert(domains)
         .values({
@@ -96,7 +100,7 @@ export class SyncService {
           externalId: domain.externalId,
           name: domain.name,
           status: domain.status,
-          info: domain.info,
+          info: complete,
           meta: domain.meta ?? {},
           lastSyncedAt: now,
         })
@@ -105,7 +109,9 @@ export class SyncService {
           set: {
             name: sql`excluded.name`,
             status: sql`excluded.status`,
-            info: sql`coalesce(excluded.info, ${domains.info})`,
+            info: known
+              ? sql`coalesce(${domains.info}, ${JSON.stringify(complete)}::jsonb) || ${JSON.stringify(known)}::jsonb`
+              : sql`${domains.info}`,
             meta: sql`excluded.meta`,
             lastSyncedAt: now,
             missingSince: null,
@@ -323,4 +329,26 @@ export class SyncService {
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];
   }
+}
+
+/** The fields of a provider's domain info that carry a value. */
+function knownFields(info: Partial<DomainInfo>): Partial<DomainInfo> {
+  return Object.fromEntries(
+    Object.entries(info).filter(([, value]) => value !== undefined && value !== null),
+  ) as Partial<DomainInfo>;
+}
+
+/** Stored domain info for a domain seen for the first time. */
+function completeDomainInfo(domain: RemoteDomain, known: Partial<DomainInfo>): DomainInfo {
+  return {
+    name: domain.name,
+    status: domain.status,
+    terminated: false,
+    nameservers: [],
+    handle: null,
+    createdAt: null,
+    expiresAt: null,
+    autoRenew: null,
+    ...known,
+  };
 }

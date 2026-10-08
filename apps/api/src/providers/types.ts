@@ -118,7 +118,11 @@ export interface RemoteDomain {
   externalId: string;
   name: string;
   status: string | null;
-  info: DomainInfo | null;
+  /**
+   * The facts the list call knows. Fields left out (or null) keep their stored value, so a
+   * cheap list call (Joker: expiry and flags only) does not wipe what a detail call stored.
+   */
+  info: Partial<DomainInfo> | null;
   /** Provider extras without secrets (e.g. 24fire accounting data). */
   meta?: Record<string, unknown>;
 }
