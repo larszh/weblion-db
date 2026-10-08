@@ -36,6 +36,7 @@ import { parse, parseStatements } from '../../lib/validation';
 import type {
   DemoConfig,
   Fire24Config,
+  HetznerConfig,
   JokerConfig,
   ProviderConfig,
   ProxmoxConfig,
@@ -72,6 +73,10 @@ const proxmoxConfigSchema = z.object({
   caCert: z.string().max(20_000).optional(),
   backupStorage: z.string().max(100).optional(),
 });
+const hetznerConfigSchema = z.object({
+  apiToken: z.string().trim().min(32).max(200),
+  baseUrl: z.url().default('https://api.hetzner.cloud/v1'),
+});
 /** An API key wins over username and password when both are stored. */
 const jokerConfigSchema = z
   .object({
@@ -95,6 +100,8 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(fire24ConfigSchema, raw) as Fire24Config;
     case 'proxmox':
       return parse(proxmoxConfigSchema, raw) as ProxmoxConfig;
+    case 'hetzner':
+      return parse(hetznerConfigSchema, raw) as HetznerConfig;
     case 'joker':
       return parse(jokerConfigSchema, raw) as JokerConfig;
     case 'demo':
@@ -117,6 +124,10 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         verifyTls: String(c.verifyTls),
         ...(c.backupStorage ? { backupStorage: c.backupStorage } : {}),
       };
+    }
+    case 'hetzner': {
+      const c = config as HetznerConfig;
+      return { baseUrl: c.baseUrl, apiToken: `${c.apiToken.slice(0, 4)}…${c.apiToken.slice(-3)}` };
     }
     case 'joker': {
       const c = config as JokerConfig;

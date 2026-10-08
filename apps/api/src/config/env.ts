@@ -52,6 +52,11 @@ const EnvSchema = z.object({
   /** Storage that receives backups created from the panel (vzdump target). */
   PROXMOX_BACKUP_STORAGE: optionalString,
 
+  // Hetzner Cloud (one project per token).
+  HETZNER_API_TOKEN: optionalString,
+  HETZNER_BASE_URL: z.string().url().default('https://api.hetzner.cloud/v1'),
+  HETZNER_NAME: z.string().default('Hetzner Cloud'),
+
   // Joker.com domains (DMAPI). An API key, or reseller username and password.
   JOKER_API_KEY: optionalString,
   JOKER_USERNAME: optionalString,

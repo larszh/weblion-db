@@ -5,7 +5,14 @@ import type { Env } from './config/env';
 import type { Database } from './db/client';
 import { memberships, organizations, projects, providerConnections, users } from './db/schema';
 import { hashPassword, type SecretBox } from './lib/crypto';
-import type { DemoConfig, Fire24Config, JokerConfig, ProviderConfig, ProxmoxConfig } from './providers/types';
+import type {
+  DemoConfig,
+  Fire24Config,
+  HetznerConfig,
+  JokerConfig,
+  ProviderConfig,
+  ProxmoxConfig,
+} from './providers/types';
 
 /** Creates the first superadmin and the weblion organization on an empty database. */
 export async function ensureBootstrapAdmin(db: Database, env: Env, log: FastifyBaseLogger): Promise<void> {
@@ -76,6 +83,16 @@ function envProviders(env: Env): EnvProvider[] {
         verifyTls: env.PROXMOX_VERIFY_TLS,
         ...(env.PROXMOX_BACKUP_STORAGE ? { backupStorage: env.PROXMOX_BACKUP_STORAGE } : {}),
       } satisfies ProxmoxConfig,
+    });
+  }
+  if (env.HETZNER_API_TOKEN) {
+    list.push({
+      key: 'hetzner',
+      type: 'hetzner',
+      name: env.HETZNER_NAME,
+      // Each server reports its own location (Falkenstein, Nürnberg, Helsinki, ...).
+      location: { country: 'DE', city: 'Hetzner', label: 'Hetzner Cloud' },
+      config: { apiToken: env.HETZNER_API_TOKEN, baseUrl: env.HETZNER_BASE_URL } satisfies HetznerConfig,
     });
   }
   if (env.JOKER_API_KEY || (env.JOKER_USERNAME && env.JOKER_PASSWORD)) {
