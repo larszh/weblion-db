@@ -126,11 +126,16 @@ export class ProxmoxAdapter implements ProviderAdapter {
 
   async testConnection(): Promise<Record<string, unknown>> {
     const version = await this.client.get<{ version: string; release?: string }>('/version');
-    const nodes = await this.client.get<{ node: string; status: string }[]>('/nodes');
-    if (nodes.length === 0) {
+    const nodes = await this.client.get<{ node: string; status: string; maxcpu?: number }[]>('/nodes');
+    // Every token sees the node list, but node stats only with Sys.Audit. A token with
+    // privilege separation and no ACLs of its own gets exactly that, and no VMs at all.
+    const online = nodes.filter((n) => n.status === 'online');
+    if (nodes.length === 0 || (online.length > 0 && online.every((n) => n.maxcpu === undefined))) {
       throw new ProviderError(
         'Proxmox',
-        'token works but sees no nodes. With privilege separation enabled the token needs its own ACLs (e.g. PVEAdmin or Administrator on /).',
+        `token works but has no permissions (no node details, no VMs). Privilege separation is probably enabled: ` +
+          `disable it for the token or grant the token a role on /, e.g. ` +
+          `pveum acl modify / --tokens '${this.config.tokenId}' --roles Administrator`,
       );
     }
     return { version: version.version, nodes: nodes.map((n) => `${n.node} (${n.status})`).join(', ') };

@@ -356,7 +356,8 @@ describe('24fire adapter: servers', () => {
     const s = servers[0]!;
     expect(s).toMatchObject({
       externalId: KVM_ID,
-      name: 'shop-01',
+      // The panel name, not the OS hostname.
+      name: 'EPYC 01',
       status: 'running',
       os: 'Debian 12',
       specs: { cores: 4, memoryMb: 8192, diskGb: 80, networkMbit: 2000, backupSlots: 2 },
@@ -366,6 +367,7 @@ describe('24fire adapter: servers', () => {
     expect(s.ips[0]!.rdns).toBe('shop.example.ch');
     expect(s.usage?.memoryUsedMb).toBe(2560);
     expect(s.meta).toMatchObject({
+      hostname: 'shop-01',
       abuseStatus: 'CLEAN',
       iso: null,
       maxConfig: { cores: 12, memoryMb: 65536, ipv4: 6 },
@@ -374,6 +376,10 @@ describe('24fire adapter: servers', () => {
     // Domains and web spaces must not be asked for a KVM config.
     expect(mock.requests.some((r) => r.path.includes(`/kvm/${DOMAIN_ID}`))).toBe(false);
     expect(mock.requests.some((r) => r.path.includes(`/kvm/${WEBSPACE_ID}`))).toBe(false);
+  });
+
+  it('keeps the panel name when one server is refreshed', async () => {
+    expect((await adapter.getServer(ref)).name).toBe('EPYC 01');
   });
 
   it('sends power commands as form data', async () => {

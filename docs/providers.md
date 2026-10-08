@@ -45,6 +45,11 @@ Monitoring, Restore und Löschen von Backups blendet sie dann aus, DNS ist nur l
 Das Format der Fehlerantworten von 24fire ist nicht dokumentiert. Zum Ausprobieren eignet sich
 der API Explorer im Admin-Bereich (Passwörter und Auth-Codes werden dort ausgeblendet).
 
+Servernamen kommen aus `GET /api/account/services`, also so, wie sie im 24fire Control Panel
+heissen. Der Hostname aus der KVM-Konfiguration taugt nicht dafür, er ist bei Installationen
+aus 24fire-Images immer `24fire`. Wer einen Server in der Console umbenennt, behält diesen
+Namen, ein Umbenennen bei 24fire wird dann nicht mehr übernommen.
+
 ### Backups
 
 `backup/create` und `backup/restore` starten nur einen Task. Die Console merkt sich die
@@ -89,12 +94,16 @@ pveum user token add weblion@pve console --privsep 0
 ```
 
 Wichtig: Ist bei einem Token **Privilege Separation** aktiv (Standard beim Anlegen in der
-GUI), hat das Token eigene, zunächst leere Rechte. Die Console sieht dann keine Nodes und
-meldet das beim Verbindungstest. Entweder `--privsep 0` oder dem Token selbst ACLs geben:
+GUI), hat das Token eigene, zunächst leere Rechte. Die Verbindung klappt dann zwar, aber die
+Console sieht nur den Namen des Nodes, keine Auslastung und keine einzige VM. Der
+Verbindungstest meldet das. Entweder `--privsep 0` oder dem Token selbst ACLs geben:
 
 ```bash
 pveum acl modify / --tokens 'weblion@pve!console' --roles Administrator
 ```
+
+In der GUI geht das unter Datacenter > Permissions > Add > API Token Permission: Path `/`,
+das Token wählen, Rolle `Administrator`, "Propagate" an.
 
 ### Was die Console nutzt
 
