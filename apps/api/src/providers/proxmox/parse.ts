@@ -1,5 +1,5 @@
 import type { IpAddress, ServerStatus } from '@weblion/shared';
-import { isRecord, str } from '../http';
+import { isRecord, num, str } from '../http';
 
 export type GuestType = 'qemu' | 'lxc';
 
@@ -32,12 +32,20 @@ export function parseExternalId(externalId: string): { type: GuestType; vmid: nu
   return { type, vmid: Number(vmid) };
 }
 
+/** Proxmox booleans arrive as 1/0, "1"/"0" or true/false depending on the endpoint. */
+export function bool(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 export function mapStatus(status: string | undefined, lock?: string, qmpstatus?: string): ServerStatus {
   if (lock) {
     if (lock === 'backup') return 'backup';
     if (lock === 'migrate') return 'migrating';
     if (lock === 'create' || lock === 'clone') return 'installing';
     if (lock === 'rollback') return 'restoring';
+    // Hibernated VMs (suspend to disk) are stopped with this lock and resume on start.
+    if (lock === 'suspended') return 'paused';
+    if (lock === 'suspending') return 'stopping';
     return 'locked';
   }
   if (qmpstatus === 'paused' || qmpstatus === 'suspended') return 'paused';
@@ -121,12 +129,17 @@ export function ipsFromLxcInterfaces(data: unknown): IpAddress[] {
   for (const iface of data) {
     if (!isRecord(iface) || iface.name === 'lo') continue;
     const name = str(iface.name) ?? undefined;
-    const v4 = stripPrefix(str(iface.inet) ?? undefined);
-    const v6 = stripPrefix(str(iface.inet6) ?? undefined);
-    if (v4 && isUsableAddress(v4))
-      ips.push({ address: v4, version: 4, interface: name, mac: str(iface.hwaddr) ?? undefined });
-    if (v6 && isUsableAddress(v6))
-      ips.push({ address: v6, version: 6, interface: name, mac: str(iface.hwaddr) ?? undefined });
+    const mac = str(iface.hwaddr) ?? str(iface['hardware-address']) ?? undefined;
+    // `ip-addresses` lists every address, `inet`/`inet6` only the first of each family.
+    const listed =
+      Array.isArray(iface['ip-addresses']) && iface['ip-addresses'].length > 0
+        ? iface['ip-addresses'].filter(isRecord).map((a) => str(a['ip-address']))
+        : [str(iface.inet), str(iface.inet6)];
+    for (const raw of listed) {
+      const address = stripPrefix(raw ?? undefined);
+      if (!address || !isUsableAddress(address)) continue;
+      ips.push({ address, version: address.includes(':') ? 6 : 4, interface: name, mac });
+    }
   }
   return ips;
 }
@@ -158,17 +171,26 @@ const OS_TYPES: Record<string, string> = {
   win10: 'Windows 10 / Server 2016-2019',
   win8: 'Windows 8 / Server 2012',
   win7: 'Windows 7 / Server 2008 R2',
+  wvista: 'Windows Vista',
   w2k8: 'Windows Server 2008',
   w2k3: 'Windows Server 2003',
+  w2k: 'Windows 2000',
   wxp: 'Windows XP',
   solaris: 'Solaris',
   other: 'Other',
 };
 
+const LXC_OS_TYPES: Record<string, string> = {
+  archlinux: 'Arch Linux',
+  centos: 'CentOS',
+  nixos: 'NixOS',
+  opensuse: 'openSUSE',
+};
+
 export function osLabel(type: GuestType, config: Record<string, unknown>): string | null {
   const ostype = str(config.ostype);
   if (!ostype) return null;
-  if (type === 'lxc') return ostype.charAt(0).toUpperCase() + ostype.slice(1);
+  if (type === 'lxc') return LXC_OS_TYPES[ostype] ?? ostype.charAt(0).toUpperCase() + ostype.slice(1);
   return OS_TYPES[ostype] ?? ostype;
 }
 
@@ -218,4 +240,63 @@ export function primaryDisk(type: GuestType, config: Record<string, unknown>): D
 
 export function parseTags(tags: string | undefined): string[] {
   return tags ? tags.split(/[;, ]+/).filter(Boolean) : [];
+}
+
+const DRIVE_KEY = /^(ide|sata|scsi)\d+$/;
+
+/** CD-ROM drives that can take an ISO. Cloud-init drives are CD-ROMs too and must stay untouched. */
+export function cdromDrives(config: Record<string, unknown>): string[] {
+  return Object.keys(config)
+    .filter(
+      (k) =>
+        DRIVE_KEY.test(k) &&
+        parsePropertyString(config[k]).media === 'cdrom' &&
+        !/vm-\d+-cloudinit/.test(String(config[k])),
+    )
+    .sort();
+}
+
+/** Drive for mounting an ISO: an existing CD-ROM drive (ide2 first), else a free IDE slot. */
+export function isoDriveKey(config: Record<string, unknown>): string | null {
+  const drives = cdromDrives(config);
+  if (drives.length > 0) return drives.includes('ide2') ? 'ide2' : drives[0]!;
+  return ['ide2', 'ide0', 'ide1', 'ide3'].find((k) => !(k in config)) ?? null;
+}
+
+/**
+ * QEMU counts cores per socket. Turns a total vCPU count into config changes that keep
+ * the socket layout where it divides evenly and fall back to a single socket otherwise.
+ */
+export function qemuCpuChanges(config: Record<string, unknown>, total: number): Record<string, number> {
+  const sockets = Math.max(1, num(config.sockets) ?? 1);
+  const changes: Record<string, number> =
+    total % sockets === 0 ? { cores: total / sockets } : { sockets: 1, cores: total };
+  // Hotplugged vCPUs cap how many are online, so they follow the new total.
+  if (num(config.vcpus)) changes.vcpus = total;
+  return changes;
+}
+
+/** Proxmox rejects a balloon target above the assigned memory, so it shrinks along. */
+export function qemuMemoryChanges(config: Record<string, unknown>, memoryMb: number): Record<string, number> {
+  const balloon = num(config.balloon);
+  return balloon && balloon > memoryMb ? { memory: memoryMb, balloon: memoryMb } : { memory: memoryMb };
+}
+
+/** Guest type and VMID encoded in a backup volume id (vzdump file name or PBS snapshot path). */
+export function backupOwner(volid: string): { type: GuestType; vmid: number } | null {
+  const file = /vzdump-(qemu|lxc)-(\d+)-/.exec(volid);
+  if (file) return { type: file[1] as GuestType, vmid: Number(file[2]) };
+  const pbs = /(?:^|[:/])backup\/(vm|ct)\/(\d+)\//.exec(volid);
+  if (pbs) return { type: pbs[1] === 'vm' ? 'qemu' : 'lxc', vmid: Number(pbs[2]) };
+  return null;
+}
+
+/** vzdump wants the notes template on one line, with backslash and newline escaped. */
+export function notesTemplate(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n');
+}
+
+/** Task exit status: "OK", "WARNINGS: <n>" (finished with warnings) or the error message. */
+export function taskSucceeded(exitstatus: string | null): boolean {
+  return !exitstatus || exitstatus === 'OK' || /^WARNINGS: \d+$/.test(exitstatus);
 }

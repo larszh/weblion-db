@@ -145,7 +145,7 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
   }
 
   // Area specific demo data. Order matters: resellers create organizations the other two use.
-  await seedResellerDemo(db, log);
+  await seedResellerDemo(db, log, hash);
   await seedHostingDemo(db, log);
   await seedBillingDemo(db, log);
   return log;

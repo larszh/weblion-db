@@ -100,11 +100,44 @@ pveum acl modify / --tokens 'weblion@pve!console' --roles Administrator
 
 - Inventar über `/cluster/resources`, IPs über den QEMU Guest Agent (Paket
   `qemu-guest-agent` im Gast, Option "QEMU Guest Agent" in der VM aktivieren) oder
-  Cloud-Init/LXC-Netzwerkkonfiguration
+  Cloud-Init/LXC-Netzwerkkonfiguration bzw. `/lxc/<vmid>/interfaces`
 - Energie, RRD-Graphen, Snapshots, vzdump-Backups (Ziel `PROXMOX_BACKUP_STORAGE` oder der
-  erste Backup-Storage), Restore, Firewall, ISO, Rescale, Löschen, Tasks
+  erste aktive Backup-Storage), Restore, Firewall, ISO, Rescale, Löschen, Tasks
 - Konsole über `vncproxy` und `vncwebsocket`, gebrückt durch die API
-- Server erstellen per Klon aus Templates (VMs mit Template-Flag)
+- Server erstellen per Full Clone aus VM- und Container-Templates (Gäste mit Template-Flag)
+
+Die Aufrufe sind gegen die offizielle API-Referenz (api-viewer, Stand Oktober 2026) geprüft.
+
+### Verhalten im Detail
+
+- **Konsole:** Proxmox erzeugt für API-Tokens ein eigenes VNC-Passwort. Die Console gibt
+  nur dieses Passwort an den Browser weiter; das VNC-Ticket bleibt im Server und öffnet nur
+  den Websocket. Ältere Versionen ohne eigenes Passwort nutzen das Ticket.
+- **Backups:** Angezeigt, wiederhergestellt und gelöscht werden nur Backups des eigenen
+  Gasts. Die Console prüft VMID und Typ (VM oder Container) anhand des Volume-Namens, weil
+  nicht jeder Storage den VMID-Filter beachtet und eine VMID nach dem Löschen neu vergeben
+  werden kann. Restore geht nur bei gestopptem Server. Container werden auf den Storage
+  ihrer aktuellen Root-Disk zurückgespielt (ohne Angabe nähme Proxmox `local`).
+- **Snapshots:** Ein Rollback stoppt den Gast. War er vorher gestartet, startet die Console
+  ihn danach wieder.
+- **Tasks:** Endet ein Task mit `WARNINGS: <n>`, gilt er als erfolgreich; die Warnung bleibt
+  als Meldung sichtbar.
+- **Rescale:** Proxmox zählt bei VMs Kerne pro Socket. Die Console rechnet die gewünschte
+  Gesamtzahl auf die vorhandenen Sockets um (geht das nicht auf, wird es ein Socket) und
+  passt Hotplug-vCPUs und einen zu hohen Balloon-Wert mit an. Disks wachsen nur.
+- **ISO:** Das Image kommt ins vorhandene CD-ROM-Laufwerk. Ein Cloud-Init-Laufwerk bleibt
+  unangetastet; fehlt ein CD-ROM-Laufwerk, nimmt die Console einen freien IDE-Slot (bei
+  laufender VM erst nach einem Neustart aktiv).
+- **Firewall:** Regeln greifen nur, wenn die Firewall im Datacenter aktiv ist und die
+  Netzwerkkarte des Gasts die Option "Firewall" (`firewall=1`) hat. Fehlt sie bei allen
+  Karten, weist die Console beim Einschalten darauf hin. Regeln aus Security Groups zeigt
+  die Console nicht an, die Positionen der übrigen Regeln bleiben aber korrekt.
+- **Container:** Kein Reset und kein Suspend (in Proxmox als experimentell markiert).
+- **Server erstellen:** Ein anderer Ziel-Node als der des Templates geht nur, wenn das
+  Template auf Shared Storage liegt. Die Console wartet auf Klon und Disk-Vergrösserung,
+  bevor sie den Server startet.
+- **Rechte:** Für Guest-Agent-Daten braucht das Token `VM.GuestAgent.Audit` (in der Rolle
+  `Administrator` enthalten).
 
 ### Hinweise zum Port 2096
 

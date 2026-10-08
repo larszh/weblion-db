@@ -3,6 +3,7 @@ import WebSocket from 'ws';
 import { ProviderError } from '../../lib/errors';
 import { httpRequest, isRecord, str } from '../http';
 import type { ProxmoxConfig } from '../types';
+import { taskSucceeded } from './parse';
 
 const PROVIDER = 'Proxmox';
 
@@ -107,7 +108,10 @@ export class ProxmoxClient {
     });
   }
 
-  /** Polls a task (UPID) until it finishes. Returns the exit status. */
+  /**
+   * Polls a task (UPID) until it finishes. Returns the exit status ("OK" or "WARNINGS: <n>",
+   * which Proxmox counts as success) and throws with the error for anything else.
+   */
   async waitForTask(upid: string, timeoutMs = 10 * 60_000): Promise<string> {
     const node = nodeFromUpid(upid);
     if (!node) throw new ProviderError(PROVIDER, `invalid task id ${upid}`);
@@ -117,10 +121,9 @@ export class ProxmoxClient {
         `/nodes/${encodeURIComponent(node)}/tasks/${encodeURIComponent(upid)}/status`,
       );
       if (status.status === 'stopped') {
-        if (status.exitstatus && status.exitstatus !== 'OK') {
-          throw new ProviderError(PROVIDER, `task failed: ${status.exitstatus}`);
-        }
-        return status.exitstatus ?? 'OK';
+        const exit = status.exitstatus ?? null;
+        if (!taskSucceeded(exit)) throw new ProviderError(PROVIDER, `task failed: ${exit}`);
+        return exit ?? 'OK';
       }
       await new Promise((r) => setTimeout(r, 2000));
     }

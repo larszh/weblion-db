@@ -29,6 +29,7 @@ import {
   type Organization,
 } from '../../db/schema';
 import { randomToken, sha256 } from '../../lib/crypto';
+import { sendInvitationMail } from '../../mail/invitation';
 import { iso } from '../../lib/dto';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
@@ -309,7 +310,7 @@ export async function orgRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post('/orgs/:orgId/invitations', async (req): Promise<InvitationDto> => {
     const { orgId } = parse(orgParams, req.params);
     const auth = requireSession(req);
-    await loadOrg(ctx, req, orgId);
+    const org = await loadOrg(ctx, req, orgId);
     await access.assert(req, 'member:invite', orgScope(orgId));
     const body = parse(z.object({ email: z.email().max(200), role: z.string() }), req.body);
     if (!isOrgRole(body.role)) throw badRequest('Unknown role');
@@ -342,6 +343,17 @@ export async function orgRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceId: invitation!.id,
       details: { email: body.email, role: body.role },
     });
+    const link = `${ctx.env.APP_URL.replace(/\/$/, '')}/invite/${token}`;
+    // The link is returned either way, so a mail problem never blocks the invitation.
+    await sendInvitationMail(ctx.mail, {
+      email: invitation!.email,
+      orgId,
+      orgName: org.name,
+      role: invitation!.role,
+      link,
+      expiresAt: invitation!.expiresAt,
+      inviter: auth.user,
+    });
     return {
       id: invitation!.id,
       email: invitation!.email,
@@ -349,7 +361,7 @@ export async function orgRoutes(app: FastifyInstance, ctx: AppContext) {
       expiresAt: invitation!.expiresAt.toISOString(),
       createdAt: invitation!.createdAt.toISOString(),
       invitedBy: auth.user.name,
-      link: `${ctx.env.APP_URL.replace(/\/$/, '')}/invite/${token}`,
+      link,
     };
   });
 

@@ -2,10 +2,13 @@ import { and, count, desc, eq, ilike, isNotNull, isNull, or, sql, type SQL } fro
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
-  DEFAULT_CUSTOMER_BOUNDARY,
-  DEFAULT_INTERNAL_BOUNDARY,
+  DEFAULT_MODULES,
+  MODULES,
+  ORG_KINDS,
   PLATFORM_ROLES,
   PROVIDER_TYPES,
+  defaultBoundary,
+  normalizeModules,
   type AdminOrgDto,
   type ProviderConnectionDto,
   type ProviderType,
@@ -13,7 +16,7 @@ import {
 import type { AppContext } from '../../context';
 import { platformScope, requireSession } from '../../auth/access';
 import {
-  invitations,
+  domains,
   memberships,
   organizations,
   projects,
@@ -22,15 +25,18 @@ import {
   servers,
   sessions,
   users,
+  webspaces,
   type Organization,
   type ProviderConnection,
 } from '../../db/schema';
-import { hashPassword, randomToken, sha256 } from '../../lib/crypto';
+import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors';
-import { parse, parseStatements, slugify } from '../../lib/validation';
+import { parse, parseStatements } from '../../lib/validation';
 import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from '../../providers/types';
+import { sendInvitationMail } from '../../mail/invitation';
 import { orgCounts, orgRef } from '../orgs/routes';
+import { assertDeletable, assertModulesWithin, createInvitation, uniqueSlug } from '../reseller/service';
 import { serverRowsQuery, toServerDto } from '../servers/service';
 
 const idParams = z.object({ id: z.uuid() });
@@ -287,6 +293,18 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .from(servers)
       .where(and(eq(servers.providerConnectionId, id), isNotNull(servers.projectId)));
     if ((assigned?.n ?? 0) > 0) throw conflict('Unassign all servers of this provider first');
+    // Domains and web spaces would silently disappear from their organizations with the provider.
+    const [assignedDomains] = await db
+      .select({ n: count() })
+      .from(domains)
+      .where(and(eq(domains.providerConnectionId, id), isNotNull(domains.orgId)));
+    const [assignedWebspaces] = await db
+      .select({ n: count() })
+      .from(webspaces)
+      .where(and(eq(webspaces.providerConnectionId, id), isNotNull(webspaces.orgId)));
+    if ((assignedDomains?.n ?? 0) + (assignedWebspaces?.n ?? 0) > 0) {
+      throw conflict('Unassign all domains and web spaces of this provider first');
+    }
     await db.delete(providerConnections).where(eq(providerConnections.id, id));
     providers.invalidate(id);
     await audit.record(req, {
@@ -519,6 +537,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // --- Organizations --------------------------------------------------------------
 
+  const modulesSchema = z.array(z.enum(MODULES)).max(MODULES.length);
+
   async function toAdminOrgDto(org: Organization): Promise<AdminOrgDto> {
     return {
       id: org.id,
@@ -535,29 +555,38 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     };
   }
 
-  async function uniqueSlug(base: string): Promise<string> {
-    const root = slugify(base) || 'org';
-    for (let i = 0; i < 50; i++) {
-      const slug = i === 0 ? root : `${root}-${i + 1}`;
-      const taken = await db.query.organizations.findFirst({ where: eq(organizations.slug, slug) });
-      if (!taken) return slug;
-    }
-    return `${root}-${randomToken(4).toLowerCase()}`;
+  /** A parent must exist and be a reseller. Only one level: resellers have no parent themselves. */
+  async function loadParent(parentOrgId: string): Promise<Organization> {
+    const parent = await db.query.organizations.findFirst({ where: eq(organizations.id, parentOrgId) });
+    if (!parent) throw badRequest('Unknown parent organization');
+    if (parent.kind !== 'reseller') throw conflict('The parent organization must be a reseller');
+    return parent;
   }
 
   app.get('/admin/orgs', async (req) => {
     await can(req, 'platform:org:read');
-    const { q } = parse(z.object({ q: z.string().max(100).optional() }), req.query);
+    const { q, kind, parentOrgId } = parse(
+      z.object({
+        q: z.string().max(100).optional(),
+        kind: z.enum(ORG_KINDS).optional(),
+        parentOrgId: z.uuid().optional(),
+      }),
+      req.query,
+    );
     const rows = await db
       .select()
       .from(organizations)
       .where(
-        q
-          ? or(
-              ilike(organizations.name, `%${q.replace(/[%_]/g, '')}%`),
-              ilike(organizations.slug, `%${q.replace(/[%_]/g, '')}%`),
-            )
-          : undefined,
+        and(
+          q
+            ? or(
+                ilike(organizations.name, `%${q.replace(/[%_]/g, '')}%`),
+                ilike(organizations.slug, `%${q.replace(/[%_]/g, '')}%`),
+              )
+            : undefined,
+          kind ? eq(organizations.kind, kind) : undefined,
+          parentOrgId ? eq(organizations.parentOrgId, parentOrgId) : undefined,
+        ),
       )
       .orderBy(organizations.name);
     return Promise.all(rows.map(toAdminOrgDto));
@@ -584,13 +613,24 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       z.object({
         name: z.string().trim().min(2).max(100),
         slug: z.string().trim().max(48).optional(),
-        kind: z.enum(['customer', 'internal']).default('customer'),
+        kind: z.enum(ORG_KINDS).default('customer'),
+        parentOrgId: z.uuid().nullish(),
+        modules: modulesSchema.optional(),
         ownerEmail: z.email().optional(),
         notes: z.string().max(2000).optional(),
       }),
       req.body,
     );
-    const slug = await uniqueSlug(body.slug || body.name);
+    const parent = body.parentOrgId ? await loadParent(body.parentOrgId) : null;
+    if (parent && body.kind !== 'customer') {
+      throw conflict('Resellers and internal organizations cannot belong to a reseller');
+    }
+    const modules = body.modules
+      ? normalizeModules(body.modules)
+      : DEFAULT_MODULES.filter((m) => !parent || parent.modules.includes(m));
+    if (parent) assertModulesWithin(parent, modules);
+
+    const slug = await uniqueSlug(db, body.slug || body.name);
     const result = await db.transaction(async (tx) => {
       const [org] = await tx
         .insert(organizations)
@@ -599,11 +639,13 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
           slug,
           kind: body.kind,
           notes: body.notes ?? null,
-          boundary: body.kind === 'internal' ? DEFAULT_INTERNAL_BOUNDARY : DEFAULT_CUSTOMER_BOUNDARY,
+          boundary: defaultBoundary(body.kind),
+          parentOrgId: parent?.id ?? null,
+          modules,
         })
         .returning();
       await tx.insert(projects).values({ orgId: org!.id, name: 'Default' });
-      let inviteLink: string | null = null;
+      let invitation: Awaited<ReturnType<typeof createInvitation>> | null = null;
       if (body.ownerEmail) {
         const existing = await tx.query.users.findFirst({
           where: sql`lower(${users.email}) = lower(${body.ownerEmail})`,
@@ -611,28 +653,46 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         if (existing) {
           await tx.insert(memberships).values({ orgId: org!.id, userId: existing.id, role: 'owner' });
         } else {
-          const token = randomToken(24);
-          await tx.insert(invitations).values({
+          invitation = await createInvitation(ctx, tx, {
             orgId: org!.id,
-            email: body.ownerEmail.toLowerCase(),
+            email: body.ownerEmail,
             role: 'owner',
-            tokenHash: sha256(token),
             invitedBy: auth.user.id,
-            expiresAt: new Date(Date.now() + 14 * 86_400_000),
+            days: 14,
           });
-          inviteLink = `${ctx.env.APP_URL.replace(/\/$/, '')}/invite/${token}`;
         }
       }
-      return { org: org!, inviteLink };
+      return { org: org!, invitation };
     });
     await audit.record(req, {
       action: 'org.create',
       orgId: result.org.id,
       resourceType: 'org',
       resourceId: result.org.id,
-      details: { name: body.name, kind: body.kind, ownerEmail: body.ownerEmail },
+      details: {
+        name: body.name,
+        kind: body.kind,
+        parentOrgId: parent?.id ?? null,
+        modules,
+        ownerEmail: body.ownerEmail,
+      },
     });
-    return { ...(await toAdminOrgDto(result.org)), inviteLink: result.inviteLink };
+    const mail = result.invitation
+      ? await sendInvitationMail(ctx.mail, {
+          email: body.ownerEmail!,
+          orgId: result.org.id,
+          orgName: result.org.name,
+          role: 'owner',
+          link: result.invitation.link,
+          expiresAt: result.invitation.expiresAt,
+          inviter: auth.user,
+        })
+      : null;
+    return {
+      ...(await toAdminOrgDto(result.org)),
+      inviteLink: result.invitation?.link ?? null,
+      mail,
+    };
   });
 
   app.patch('/admin/orgs/:id', async (req) => {
@@ -642,32 +702,80 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = parse(
       z.object({
         name: z.string().trim().min(2).max(100).optional(),
-        kind: z.enum(['customer', 'internal']).optional(),
+        kind: z.enum(ORG_KINDS).optional(),
+        parentOrgId: z.uuid().nullable().optional(),
+        modules: modulesSchema.optional(),
         status: z.enum(['active', 'suspended']).optional(),
         notes: z.string().max(2000).nullish(),
         boundary: z.unknown().optional(),
       }),
       req.body,
     );
-    const boundary = body.boundary !== undefined ? parseStatements(body.boundary) : undefined;
-    const [org] = await db
-      .update(organizations)
-      .set({
-        ...(body.name ? { name: body.name } : {}),
-        ...(body.kind ? { kind: body.kind } : {}),
-        ...(body.status ? { status: body.status } : {}),
-        ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
-        ...(boundary ? { boundary } : {}),
-      })
-      .where(eq(organizations.id, id))
-      .returning();
-    if (!org) throw notFound('Organization');
+    const current = await db.query.organizations.findFirst({ where: eq(organizations.id, id) });
+    if (!current) throw notFound('Organization');
+
+    const kind = body.kind ?? current.kind;
+    const kindChanged = kind !== current.kind;
+    const parentOrgId = body.parentOrgId !== undefined ? body.parentOrgId : current.parentOrgId;
+    if (parentOrgId === id) throw conflict('An organization cannot be its own reseller');
+    const parent = parentOrgId ? await loadParent(parentOrgId) : null;
+    if (parent && kind !== 'customer') {
+      throw conflict('Resellers and internal organizations cannot belong to a reseller');
+    }
+    const customers = await db
+      .select({ id: organizations.id, modules: organizations.modules })
+      .from(organizations)
+      .where(eq(organizations.parentOrgId, id));
+    if (kindChanged && customers.length > 0) {
+      throw conflict('This reseller still has customers. Move or delete them before changing its kind.');
+    }
+    const modules = body.modules ? normalizeModules(body.modules) : current.modules;
+    if (parent && (body.modules || parentOrgId !== current.parentOrgId)) assertModulesWithin(parent, modules);
+    // A reseller that loses a module takes it away from its customers as well.
+    const removed = current.modules.filter((m) => !modules.includes(m));
+
+    // A new kind gets the default boundary of that kind unless one is given explicitly.
+    const boundary =
+      body.boundary !== undefined
+        ? parseStatements(body.boundary)
+        : kindChanged
+          ? defaultBoundary(kind)
+          : undefined;
+    const org = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(organizations)
+        .set({
+          ...(body.name ? { name: body.name } : {}),
+          ...(body.kind ? { kind: body.kind } : {}),
+          ...(body.parentOrgId !== undefined ? { parentOrgId: body.parentOrgId } : {}),
+          ...(body.modules ? { modules } : {}),
+          ...(body.status ? { status: body.status } : {}),
+          ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
+          ...(boundary ? { boundary } : {}),
+        })
+        .where(eq(organizations.id, id))
+        .returning();
+      if (removed.length > 0) {
+        for (const customer of customers) {
+          const kept = customer.modules.filter((m) => !removed.includes(m));
+          if (kept.length !== customer.modules.length) {
+            await tx.update(organizations).set({ modules: kept }).where(eq(organizations.id, customer.id));
+          }
+        }
+      }
+      return updated!;
+    });
     await audit.record(req, {
       action: 'org.admin_update',
       orgId: id,
       resourceType: 'org',
       resourceId: id,
-      details: body,
+      details: {
+        ...body,
+        ...(kindChanged ? { previousKind: current.kind, boundaryReset: body.boundary === undefined } : {}),
+        ...(body.parentOrgId !== undefined ? { previousParentOrgId: current.parentOrgId } : {}),
+        ...(removed.length > 0 && customers.length > 0 ? { modulesRemovedFromCustomers: removed } : {}),
+      },
     });
     return toAdminOrgDto(org);
   });
@@ -676,15 +784,15 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     requireSession(req);
     await can(req, 'platform:org:write');
     const { id } = parse(idParams, req.params);
-    const counts = await orgCounts(ctx, id);
-    if (counts.servers > 0) throw conflict('Unassign all servers of this organization first');
-    const [org] = await db.delete(organizations).where(eq(organizations.id, id)).returning();
+    const org = await db.query.organizations.findFirst({ where: eq(organizations.id, id) });
     if (!org) throw notFound('Organization');
+    await assertDeletable(db, id);
+    await db.delete(organizations).where(eq(organizations.id, id));
     await audit.record(req, {
       action: 'org.delete',
       resourceType: 'org',
       resourceId: id,
-      details: { name: org.name },
+      details: { name: org.name, kind: org.kind },
     });
     return { ok: true };
   });

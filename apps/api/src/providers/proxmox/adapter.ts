@@ -27,22 +27,31 @@ import type {
 } from '../types';
 import { nodeFromUpid, ProxmoxClient } from './client';
 import {
+  backupOwner,
+  bool,
+  cdromDrives,
   ipsFromAgent,
   ipsFromConfig,
   ipsFromLxcInterfaces,
+  isoDriveKey,
   mapStatus,
   mergeIps,
+  notesTemplate,
   osLabel,
   parseExternalId,
   parsePropertyString,
   parseTags,
   primaryDisk,
+  qemuCpuChanges,
+  qemuMemoryChanges,
+  taskSucceeded,
   type ClusterVmResource,
   type GuestType,
 } from './parse';
 
 const QEMU_POWER: PowerAction[] = ['start', 'shutdown', 'stop', 'reboot', 'reset', 'suspend', 'resume'];
-const LXC_POWER: PowerAction[] = ['start', 'shutdown', 'stop', 'reboot', 'suspend', 'resume'];
+// Containers have no reset, and Proxmox marks container suspend/resume as experimental.
+const LXC_POWER: PowerAction[] = ['start', 'shutdown', 'stop', 'reboot'];
 
 const HOSTNAME = /^(?=.{1,63}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
 
@@ -91,7 +100,9 @@ export class ProxmoxAdapter implements ProviderAdapter {
 
   private async clusterVms(maxAgeMs = 5000): Promise<ClusterVmResource[]> {
     if (this.resourceCache && Date.now() - this.resourceCache.at < maxAgeMs) return this.resourceCache.items;
-    const items = await this.client.get<ClusterVmResource[]>('/cluster/resources', { type: 'vm' });
+    const all = await this.client.get<ClusterVmResource[]>('/cluster/resources', { type: 'vm' });
+    // type=vm can also list legacy openvz entries, which have no API the console could use.
+    const items = all.filter((r) => r.type === 'qemu' || r.type === 'lxc');
     this.resourceCache = { at: Date.now(), items };
     return items;
   }
@@ -199,7 +210,7 @@ export class ProxmoxAdapter implements ProviderAdapter {
         lock: r.lock ?? null,
         hastate: r.hastate ?? null,
         description: str(config.description),
-        onboot: config.onboot === 1 || config.onboot === '1',
+        onboot: bool(config.onboot),
       },
     };
   }
@@ -219,12 +230,15 @@ export class ProxmoxAdapter implements ProviderAdapter {
 
   async openConsole(ref: ServerRef): Promise<ConsoleSession> {
     const g = await this.guest(ref);
-    const proxy = await this.client.post<{ port: string | number; ticket: string }>(`${g.base}/vncproxy`, {
-      websocket: 1,
-    });
+    const proxy = await this.client.post<{ port: string | number; ticket: string; password?: string }>(
+      `${g.base}/vncproxy`,
+      { websocket: 1 },
+    );
     return {
       type: 'vnc',
-      password: proxy.ticket,
+      // Proxmox generates a separate VNC password when the ticket can't serve as one (API tokens).
+      // The ticket itself only authorizes the websocket.
+      password: proxy.password ?? proxy.ticket,
       connect: () =>
         this.client.openWebSocket(`${g.base}/vncwebsocket`, {
           port: String(proxy.port),
@@ -283,7 +297,10 @@ export class ProxmoxAdapter implements ProviderAdapter {
         source: 'all',
       },
     );
-    return tasks.map(toTask);
+    // The list reports the exit status as `status` and leaves it out (or "RUNNING") while active.
+    return tasks.map((t) =>
+      toTask(t, str(t.status), !num(t.endtime) && (!t.status || str(t.status)?.toLowerCase() === 'running')),
+    );
   }
 
   async getTaskStatus(_ref: ServerRef, upid: string): Promise<ProviderTask | null> {
@@ -292,7 +309,7 @@ export class ProxmoxAdapter implements ProviderAdapter {
     const s = await this.client.get<Record<string, unknown>>(
       `/nodes/${encodeURIComponent(node)}/tasks/${encodeURIComponent(upid)}/status`,
     );
-    return toTask({ ...s, upid, status: s.status === 'running' ? undefined : s.exitstatus });
+    return toTask({ ...s, upid }, str(s.exitstatus), s.status === 'running');
   }
 
   // ---------------------------------------------------------------------------
@@ -307,7 +324,7 @@ export class ProxmoxAdapter implements ProviderAdapter {
         id: String(s.name),
         description: str(s.description),
         createdAt: num(s.snaptime) ? new Date(num(s.snaptime)! * 1000).toISOString() : null,
-        includesRam: s.vmstate === 1 || s.vmstate === '1',
+        includesRam: bool(s.vmstate),
         parent: str(s.parent),
       }))
       .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
@@ -333,8 +350,11 @@ export class ProxmoxAdapter implements ProviderAdapter {
 
   async rollbackSnapshot(ref: ServerRef, snapshotId: string): Promise<ActionResult> {
     const g = await this.guest(ref);
+    // Rollback stops the guest and leaves it stopped. Start it again if it was running.
+    const current = await this.client.get<{ status: string }>(`${g.base}/status/current`);
     const upid = await this.client.post<string>(
       `${g.base}/snapshot/${encodeURIComponent(snapshotId)}/rollback`,
+      current.status === 'running' ? { start: 1 } : undefined,
     );
     return { providerRef: upid, message: 'Rollback started' };
   }
@@ -349,11 +369,15 @@ export class ProxmoxAdapter implements ProviderAdapter {
   // Backups (vzdump)
 
   private async backupStorages(node: string): Promise<string[]> {
-    const storages = await this.client.get<{ storage: string; active?: number; enabled?: number }[]>(
+    const storages = await this.client.get<{ storage: string; active?: unknown; enabled?: unknown }[]>(
       `/nodes/${encodeURIComponent(node)}/storage`,
-      { content: 'backup' },
+      { content: 'backup', enabled: 1 },
     );
-    return storages.filter((s) => s.active !== 0 && s.enabled !== 0).map((s) => s.storage);
+    return storages
+      .filter(
+        (s) => (s.active === undefined || bool(s.active)) && (s.enabled === undefined || bool(s.enabled)),
+      )
+      .map((s) => s.storage);
   }
 
   async listBackups(ref: ServerRef): Promise<BackupInfo[]> {
@@ -372,22 +396,25 @@ export class ProxmoxAdapter implements ProviderAdapter {
     );
     const seen = new Set<string>();
     const backups: BackupInfo[] = [];
-    lists.forEach((list, i) => {
-      for (const b of list) {
-        const volid = str(b.volid);
-        if (!volid || seen.has(volid)) continue;
-        seen.add(volid);
-        backups.push({
-          id: volid,
-          createdAt: num(b.ctime) ? new Date(num(b.ctime)! * 1000).toISOString() : null,
-          sizeBytes: num(b.size),
-          description: str(b.notes),
-          status: 'finished',
-          storage: storages[i] ?? null,
-          protected: b.protected === 1 || b.protected === '1',
-        });
-      }
-    });
+    for (const b of lists.flat()) {
+      const volid = str(b.volid);
+      if (!volid || seen.has(volid)) continue;
+      // Only backups of this very guest: the vmid filter is a hint, and a VMID can have
+      // belonged to a container before it was reused for a VM (or the other way round).
+      const owner = backupOwner(volid);
+      if ((owner?.vmid ?? num(b.vmid)) !== g.vmid || (owner && owner.type !== g.type)) continue;
+      seen.add(volid);
+      backups.push({
+        id: volid,
+        createdAt: num(b.ctime) ? new Date(num(b.ctime)! * 1000).toISOString() : null,
+        // Some storages (e.g. PBS) only report an approximate size.
+        sizeBytes: num(b.size) ?? num(b['approximate-size']),
+        description: str(b.notes),
+        status: 'finished',
+        storage: volid.split(':')[0] ?? null,
+        protected: bool(b.protected),
+      });
+    }
     return backups.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   }
 
@@ -400,26 +427,36 @@ export class ProxmoxAdapter implements ProviderAdapter {
       storage,
       mode: 'snapshot',
       compress: 'zstd',
-      'notes-template': options.description ?? '{{guestname}} (weblion.one Console)',
+      'notes-template': options.description
+        ? notesTemplate(options.description)
+        : '{{guestname}} (weblion.one Console)',
     });
     return { providerRef: upid, message: `Backup to ${storage} started` };
   }
 
   async restoreBackup(ref: ServerRef, backupId: string): Promise<ActionResult> {
     const g = await this.guest(ref);
+    // Restoring overwrites the guest with any archive the token can read, so only accept
+    // backups of this guest. Otherwise a caller could pull in another customer's data.
+    if (!(await this.listBackups(ref)).some((b) => b.id === backupId)) {
+      throw new ProviderError('Proxmox', 'backup not found for this server', 404);
+    }
     const status = await this.client.get<{ status: string }>(`${g.base}/status/current`);
     if (status.status !== 'stopped')
       throw conflict('The server must be stopped before a backup can be restored');
     const nodeBase = `/nodes/${encodeURIComponent(g.node)}/${g.type}`;
-    const upid =
-      g.type === 'qemu'
-        ? await this.client.post<string>(nodeBase, { vmid: g.vmid, archive: backupId, force: 1 })
-        : await this.client.post<string>(nodeBase, {
-            vmid: g.vmid,
-            ostemplate: backupId,
-            restore: 1,
-            force: 1,
-          });
+    let params: Record<string, unknown>;
+    if (g.type === 'qemu') {
+      params = { vmid: g.vmid, archive: backupId, force: 1 };
+    } else {
+      // Without a storage Proxmox restores containers to "local", which usually can't hold
+      // container disks. Keep the root disk where it is now.
+      const config = await this.client.get<Record<string, unknown>>(`${g.base}/config`);
+      const storage = primaryDisk('lxc', config)?.storage;
+      if (!storage) throw conflict('Could not determine the storage of the container');
+      params = { vmid: g.vmid, ostemplate: backupId, restore: 1, force: 1, storage };
+    }
+    const upid = await this.client.post<string>(nodeBase, params);
     this.invalidate();
     return { providerRef: upid, message: 'Restore started' };
   }
@@ -457,9 +494,7 @@ export class ProxmoxAdapter implements ProviderAdapter {
   async rescale(ref: ServerRef, request: RescaleRequest): Promise<ActionResult> {
     const g = await this.guest(ref);
     const config = await this.client.get<Record<string, unknown>>(`${g.base}/config`);
-    const changes: Record<string, unknown> = {};
-    if (request.cores) changes.cores = request.cores;
-    if (request.memoryMb) changes.memory = request.memoryMb;
+    const changes = resourceChanges(g.type, config, request);
     if (Object.keys(changes).length > 0) await this.client.put(`${g.base}/config`, changes);
 
     let upid: string | null = null;
@@ -502,9 +537,8 @@ export class ProxmoxAdapter implements ProviderAdapter {
   async createServer(request: CreateServerRequest): Promise<ActionResult & { externalId?: string }> {
     if (!request.imageId) throw badRequest('A template is required to create a Proxmox server');
     const template = parseExternalId(request.imageId);
-    if (template.type !== 'qemu') throw unsupported('Only QEMU templates can be cloned');
     const source = (await this.clusterVms(0)).find(
-      (r) => r.type === 'qemu' && r.vmid === template.vmid && r.template,
+      (r) => r.type === template.type && r.vmid === template.vmid && r.template,
     );
     if (!source) throw badRequest('Template not found');
     if (!HOSTNAME.test(request.name)) throw badRequest('The name must be a valid hostname');
@@ -512,27 +546,36 @@ export class ProxmoxAdapter implements ProviderAdapter {
     const newid = Number(await this.client.get<string | number>('/cluster/nextid'));
     const target = request.node ?? source.node;
     const cloneUpid = await this.client.post<string>(
-      `/nodes/${encodeURIComponent(source.node)}/qemu/${source.vmid}/clone`,
+      `/nodes/${encodeURIComponent(source.node)}/${source.type}/${source.vmid}/clone`,
       {
         newid,
-        name: request.name,
+        [source.type === 'qemu' ? 'name' : 'hostname']: request.name,
         full: 1,
-        target,
+        // Another node is only accepted when the template sits on shared storage.
+        ...(target !== source.node ? { target } : {}),
         ...(request.storage ? { storage: request.storage } : {}),
       },
     );
     await this.client.waitForTask(cloneUpid);
 
-    const base = `/nodes/${encodeURIComponent(target)}/qemu/${newid}`;
-    await this.client.put(`${base}/config`, { cores: request.cores, memory: request.memoryMb });
+    const base = `/nodes/${encodeURIComponent(target)}/${source.type}/${newid}`;
     const config = await this.client.get<Record<string, unknown>>(`${base}/config`);
-    const disk = primaryDisk('qemu', config);
+    await this.client.put(
+      `${base}/config`,
+      resourceChanges(source.type, config, { cores: request.cores, memoryMb: request.memoryMb }),
+    );
+    const disk = primaryDisk(source.type, config);
     if (disk && disk.sizeGb !== null && request.diskGb > disk.sizeGb) {
-      await this.client.put(`${base}/resize`, { disk: disk.key, size: `${request.diskGb}G` });
+      const resizeUpid = await this.client.put<string | null>(`${base}/resize`, {
+        disk: disk.key,
+        size: `${request.diskGb}G`,
+      });
+      // Resizing runs as a task. Starting before it finished would hit the config lock.
+      if (resizeUpid) await this.client.waitForTask(resizeUpid);
     }
     if (request.start !== false) await this.client.post(`${base}/status/start`);
     this.invalidate();
-    return { externalId: `qemu/${newid}`, providerRef: cloneUpid, message: 'Server created' };
+    return { externalId: `${source.type}/${newid}`, providerRef: cloneUpid, message: 'Server created' };
   }
 
   // ---------------------------------------------------------------------------
@@ -564,14 +607,23 @@ export class ProxmoxAdapter implements ProviderAdapter {
     if (g.type !== 'qemu') throw unsupported('ISO images are only available for virtual machines');
     const isos = await this.listIsos(ref);
     if (!isos.some((i) => i.id === isoId)) throw badRequest('Unknown ISO image');
-    await this.client.put(`${g.base}/config`, { ide2: `${isoId},media=cdrom` });
+    const config = await this.client.get<Record<string, unknown>>(`${g.base}/config`);
+    const drive = isoDriveKey(config);
+    if (!drive) throw conflict('The VM has no CD-ROM drive and no free IDE slot for one');
+    await this.client.put(`${g.base}/config`, { [drive]: `${isoId},media=cdrom` });
     return { message: 'ISO mounted' };
   }
 
   async unmountIso(ref: ServerRef): Promise<ActionResult> {
     const g = await this.guest(ref);
     if (g.type !== 'qemu') throw unsupported('ISO images are only available for virtual machines');
-    await this.client.put(`${g.base}/config`, { ide2: 'none,media=cdrom' });
+    const config = await this.client.get<Record<string, unknown>>(`${g.base}/config`);
+    const changes: Record<string, string> = {};
+    for (const drive of cdromDrives(config)) {
+      if (parsePropertyString(config[drive])._ !== 'none') changes[drive] = 'none,media=cdrom';
+    }
+    if (Object.keys(changes).length === 0) return { message: 'No ISO mounted' };
+    await this.client.put(`${g.base}/config`, changes);
     return { message: 'ISO removed' };
   }
 
@@ -585,14 +637,14 @@ export class ProxmoxAdapter implements ProviderAdapter {
       this.client.get<Record<string, unknown>[]>(`${g.base}/firewall/rules`),
     ]);
     return {
-      enabled: options.enable === 1 || options.enable === '1',
+      enabled: bool(options.enable),
       policyIn: str(options.policy_in) ?? 'DROP',
       policyOut: str(options.policy_out) ?? 'ACCEPT',
       rules: rules
         .filter((r) => r.type === 'in' || r.type === 'out')
         .map((r) => ({
           pos: num(r.pos) ?? 0,
-          enabled: r.enable === 1 || r.enable === '1',
+          enabled: bool(r.enable),
           direction: r.type as 'in' | 'out',
           action: (str(r.action) ?? 'ACCEPT') as FirewallRule['action'],
           protocol: str(r.proto) ?? str(r.macro),
@@ -630,7 +682,18 @@ export class ProxmoxAdapter implements ProviderAdapter {
   async setFirewallEnabled(ref: ServerRef, enabled: boolean): Promise<ActionResult> {
     const g = await this.guest(ref);
     await this.client.put(`${g.base}/firewall/options`, { enable: enabled ? 1 : 0 });
-    return { message: enabled ? 'Firewall enabled' : 'Firewall disabled' };
+    if (!enabled) return { message: 'Firewall disabled' };
+    // Rules only apply to network devices with firewall=1, which is not the default for
+    // devices added through the API.
+    const config = await this.client.get<Record<string, unknown>>(`${g.base}/config`).catch(() => null);
+    const nics = Object.keys(config ?? {}).filter((k) => /^net\d+$/.test(k));
+    if (config && nics.length > 0 && !nics.some((k) => bool(parsePropertyString(config[k]).firewall))) {
+      return {
+        message:
+          'Firewall enabled, but no network device has the firewall option set in Proxmox, so the rules do not apply yet',
+      };
+    }
+    return { message: 'Firewall enabled' };
   }
 
   // ---------------------------------------------------------------------------
@@ -661,7 +724,7 @@ export class ProxmoxAdapter implements ProviderAdapter {
         used: num(s.disk),
         total: num(s.maxdisk),
         content: (str(s.content) ?? '').split(',').filter(Boolean),
-        shared: s.shared === 1,
+        shared: bool(s.shared),
       })),
       facts: [
         { label: 'VMs', value: String(vms.filter((v) => v.type === 'qemu' && !v.template).length) },
@@ -690,16 +753,33 @@ function agentEnabled(config: Record<string, unknown>): boolean {
   return (props.enabled ?? props._) === '1';
 }
 
-function toTask(t: Record<string, unknown>): ProviderTask {
-  const exit = str(t.status) ?? str(t.exitstatus);
-  const running = !t.endtime && !exit;
+/** Config changes for a CPU/memory request. QEMU needs care with sockets and ballooning. */
+function resourceChanges(
+  type: GuestType,
+  config: Record<string, unknown>,
+  request: { cores?: number; memoryMb?: number },
+): Record<string, unknown> {
+  if (type === 'lxc') {
+    return {
+      ...(request.cores ? { cores: request.cores } : {}),
+      ...(request.memoryMb ? { memory: request.memoryMb } : {}),
+    };
+  }
+  return {
+    ...(request.cores ? qemuCpuChanges(config, request.cores) : {}),
+    ...(request.memoryMb ? qemuMemoryChanges(config, request.memoryMb) : {}),
+  };
+}
+
+function toTask(t: Record<string, unknown>, exit: string | null, running: boolean): ProviderTask {
   return {
     id: String(t.upid ?? ''),
     type: str(t.type) ?? 'task',
-    status: running ? 'running' : exit === 'OK' ? 'ok' : 'error',
+    status: running ? 'running' : taskSucceeded(exit) ? 'ok' : 'error',
     startedAt: num(t.starttime) ? new Date(num(t.starttime)! * 1000).toISOString() : null,
     endedAt: num(t.endtime) ? new Date(num(t.endtime)! * 1000).toISOString() : null,
     user: str(t.user),
-    message: exit && exit !== 'OK' ? exit : null,
+    // Errors and warnings ("WARNINGS: 2") are worth showing, a plain OK is not.
+    message: !running && exit && exit !== 'OK' ? exit : null,
   };
 }
