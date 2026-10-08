@@ -233,6 +233,33 @@ proxy_read_timeout 3600s;
 Test: Server im Panel öffnen, Konsole starten. Bleibt sie schwarz oder meldet sie
 "Verbindung getrennt", fehlen diese Zeilen.
 
+### Hinter Cloudflare
+
+Läuft die Domain über Cloudflare (orange Wolke), muss der SSL-Modus für sie **Full (strict)**
+sein. Mit **Flexible** spricht Cloudflare per HTTP mit dem Server, nginx leitet auf HTTPS um,
+Cloudflare kommt wieder per HTTP: Der Browser meldet `ERR_TOO_MANY_REDIRECTS`.
+
+1. In Cloudflare unter *Rules > Configuration Rules* eine Regel nur für den Hostnamen
+   `cp.weblion.cloud` anlegen, SSL auf **Full** stellen. So bleibt der Modus anderer
+   Subdomains unverändert. Wer die ganze Zone umstellen will: *SSL/TLS > Overview*.
+2. In CloudPanel unter *SSL/TLS* ein Let's-Encrypt-Zertifikat holen (oder ein Cloudflare
+   Origin Certificate erzeugen und dort importieren).
+3. Danach die Regel auf **Full (strict)** stellen.
+
+Websockets (Browser-Konsole) leitet Cloudflare standardmässig durch. Cloudflare trennt aber
+Verbindungen, über die länger als rund 100 Sekunden nichts läuft. Die Konsole verbindet sich
+dann neu.
+
+Prüfen, wo eine Weiterleitungsschleife entsteht:
+
+```bash
+curl -sIL --max-redirs 5 https://cp.weblion.cloud | grep -iE "^HTTP|^location|^server"
+```
+
+Steht dort mehrfach `server: cloudflare` mit `location: https://cp.weblion.cloud/`, ist es der
+SSL-Modus. Auf dem Server selbst zeigt `curl -sI http://127.0.0.1:3000/healthz`, ob die
+Console läuft (`200`).
+
 ## Image aus GitHub
 
 Der Workflow `.github/workflows/docker.yml` baut bei jedem Push auf `main` ein Image nach
