@@ -29,14 +29,16 @@ export const adminDe = {
     'Mitglieder von {name} können danach nur noch lesen, auch bei den Kunden dieses Resellers. Server und Webspaces laufen weiter.',
   'admin.status.activateTitle': 'Kunde entsperren?',
   'admin.status.activateText': '{name} kann danach wieder alles tun, was Rollen und Policies erlauben.',
+  'admin.status.byPlatform': 'Von weblion.one gesperrt',
+  'admin.status.byReseller': 'Vom Reseller gesperrt',
 
   // Invitations
   'admin.invite.link': 'Einladungslink für den Owner (14 Tage gültig):',
   'admin.invite.mailSent': 'Die Einladung wurde per E-Mail an {email} gesendet.',
   'admin.invite.mailFailed':
-    'Die Einladungs-E-Mail konnte nicht gesendet werden. Gib den Link selbst weiter.',
+    'Die Einladungs-E-Mail konnte nicht gesendet werden. Geben Sie den Link selbst weiter.',
   'admin.invite.mailSkipped':
-    'Es wurde keine E-Mail gesendet, weil SMTP nicht eingerichtet ist. Gib den Link selbst weiter.',
+    'Es wurde keine E-Mail gesendet, weil SMTP nicht eingerichtet ist. Geben Sie den Link selbst weiter.',
 
   // Delete protection
   'admin.delete.blocked': 'Löschen nicht möglich, es hängt noch etwas daran:',
@@ -53,57 +55,60 @@ export const adminDe = {
   'admin.blocker.services': 'Dienste: {n}',
 
   // Reseller area
-  'admin.reseller.subtitle': 'Deine Kunden, ihre Module und die Ressourcen, die du ihnen zuweist.',
+  'admin.reseller.subtitle': 'Ihre Kunden, deren Module und die Ressourcen, die Sie ihnen zuweisen.',
   'admin.reseller.tab.customers': 'Kunden',
   'admin.reseller.tab.issuer': 'Rechnungssteller',
   'admin.reseller.new': 'Kunde anlegen',
   'admin.reseller.newText':
-    'Legt eine Organisation für deinen Kunden an. Der Owner bekommt eine Einladung und sieht nur die Module, die du freischaltest.',
+    'Legt eine Organisation für Ihren Kunden an. Der Owner bekommt eine Einladung und sieht nur die Module, die Sie freischalten.',
   'admin.reseller.ownerHint': 'Erhält einen Einladungslink, auch wenn bereits ein Konto besteht.',
-  'admin.reseller.modulesHint': 'Nur Module, die für deine Organisation freigeschaltet sind.',
-  'admin.reseller.notesHint': 'Nur für dein Team sichtbar, nicht für den Kunden.',
+  'admin.reseller.modulesHint': 'Nur Module, die für Ihre Organisation freigeschaltet sind.',
+  'admin.reseller.notesHint': 'Nur für Ihr Team sichtbar, nicht für den Kunden.',
   'admin.reseller.noModules':
-    'Für deine Organisation ist noch kein Modul freigeschaltet. Wende dich an weblion.one.',
+    'Für Ihre Organisation ist noch kein Modul freigeschaltet. Wenden Sie sich an weblion.one.',
   'admin.reseller.noOwnerYet':
-    'Ohne Owner-E-Mail hat noch niemand Zugriff. Du kannst später Mitglieder einladen.',
+    'Ohne Owner-E-Mail hat noch niemand Zugriff. Sie können später Mitglieder einladen.',
   'admin.reseller.empty': 'Noch keine Kunden',
-  'admin.reseller.emptyText': 'Lege deinen ersten Kunden an und weise ihm Server, Domains oder Webspaces zu.',
+  'admin.reseller.emptyText':
+    'Legen Sie Ihren ersten Kunden an und weisen Sie ihm Server, Domains oder Webspaces zu.',
   'admin.reseller.notReseller': 'Nur für Reseller',
   'admin.reseller.notResellerText':
     'Diese Organisation ist kein Reseller und hat daher keine eigenen Kunden.',
   'admin.reseller.noAccess': 'Keine Berechtigung für die Kundenverwaltung.',
   'admin.reseller.notFound': 'Kunde nicht gefunden',
-  'admin.reseller.notFoundText': 'Den Kunden gibt es nicht oder er gehört nicht zu deiner Organisation.',
+  'admin.reseller.notFoundText': 'Den Kunden gibt es nicht oder er gehört nicht zu Ihrer Organisation.',
   'admin.reseller.modulesText': 'Der Kunde sieht nur freigeschaltete Module in seiner Console.',
-  'admin.reseller.moduleMissing': 'Für deine Organisation nicht freigeschaltet.',
+  'admin.reseller.moduleMissing': 'Für Ihre Organisation nicht freigeschaltet.',
   'admin.reseller.openPanel': 'Kunden-Panel öffnen',
+  'admin.reseller.platformSuspended':
+    'weblion.one hat diesen Kunden gesperrt. Nur weblion.one kann die Sperre aufheben. Wenden Sie sich bei Fragen an den Support.',
   'admin.reseller.deleteText':
     'Nur möglich, wenn keine Ressourcen, Rechnungen oder Dienste mehr daran hängen. Mitglieder verlieren den Zugriff.',
 
   // Resources
   'admin.resources.intro':
-    'Ressourcen kommen aus dem Bestand deiner Organisation. Freigegebene Ressourcen gehen dorthin zurück.',
+    'Ressourcen kommen aus dem Bestand Ihrer Organisation. Freigegebene Ressourcen gehen dorthin zurück.',
   'admin.resources.title.server': 'Server',
   'admin.resources.title.domain': 'Domains',
   'admin.resources.title.webspace': 'Webspaces',
   'admin.resources.empty.server': 'Diesem Kunden sind keine Server zugewiesen.',
   'admin.resources.empty.domain': 'Diesem Kunden sind keine Domains zugewiesen.',
   'admin.resources.empty.webspace': 'Diesem Kunden sind keine Webspaces zugewiesen.',
-  'admin.resources.poolCount': '{n} frei in deinem Bestand',
-  'admin.resources.poolEmpty': 'In deinem Bestand ist nichts mehr frei.',
+  'admin.resources.poolCount': '{n} frei in Ihrem Bestand',
+  'admin.resources.poolEmpty': 'In Ihrem Bestand ist nichts mehr frei.',
   'admin.resources.assign': 'Zuweisen',
   'admin.resources.assign.server': 'Server zuweisen',
   'admin.resources.assign.domain': 'Domain zuweisen',
   'admin.resources.assign.webspace': 'Webspace zuweisen',
-  'admin.resources.assignText': 'Wähle aus deinem Bestand, was {name} bekommen soll.',
-  'admin.resources.fromPool': 'Aus deinem Bestand',
+  'admin.resources.assignText': 'Wählen Sie aus Ihrem Bestand, was {name} bekommen soll.',
+  'admin.resources.fromPool': 'Aus Ihrem Bestand',
   'admin.resources.serverProject': 'Der Server kommt ins erste Projekt des Kunden.',
   'admin.resources.enablesModule': 'Das Modul {module} wird für den Kunden dabei freigeschaltet.',
   'admin.resources.assigned': 'Zugewiesen',
   'admin.resources.release': 'Freigeben',
   'admin.resources.releaseTitle': 'Ressource freigeben?',
   'admin.resources.releaseText':
-    '{name} geht zurück in deinen Bestand. {customer} hat danach keinen Zugriff mehr darauf. Laufende Dienste in der Abrechnung bleiben bestehen.',
+    '{name} geht zurück in Ihren Bestand. {customer} hat danach keinen Zugriff mehr darauf. Wird die Ressource über einen Dienst verrechnet, kündigen Sie ihn zuerst.',
   'admin.resources.released': 'Freigegeben',
 
   // Admin: organizations
@@ -129,6 +134,19 @@ export const adminDe = {
   'admin.orgs.moduleMissing': '{name} hat dieses Modul nicht.',
   'admin.orgs.resellerText': 'Kunden eines Resellers werden von ihm verwaltet und verrechnet.',
   'admin.orgs.resellerSaved': 'Reseller geändert',
+  'admin.orgs.moveBillingHint':
+    'Ein Wechsel geht nur, wenn beim bisherigen Rechnungssteller kein Guthaben, keine offenen Rechnungen oder Entwürfe, keine ausstehenden Zahlungen und keine aktiven Dienste mehr bestehen.',
+  'admin.orgs.moveBlocked': 'Wechsel nicht möglich, beim bisherigen Rechnungssteller ist noch offen:',
+  'admin.orgs.moveBlocker.balance': 'Guthaben: {amount}',
+  'admin.orgs.moveBlocker.invoices': 'Offene Rechnungen und Entwürfe: {n}',
+  'admin.orgs.moveBlocker.payments': 'Ausstehende Zahlungen: {n}',
+  'admin.orgs.moveBlocker.services': 'Aktive oder pausierte Dienste: {n}',
+  'admin.orgs.moveBlockedHint':
+    'Schliessen oder stornieren Sie die Rechnungen, erstatten oder verbrauchen Sie das Guthaben und kündigen Sie die Dienste. Danach kann der neue Rechnungssteller neue Dienste anlegen.',
+  'admin.orgs.suspendedByPlatform':
+    'Von weblion.one gesperrt. Der Reseller kann diese Sperre nicht aufheben.',
+  'admin.orgs.suspendedByReseller':
+    'Vom Reseller {name} gesperrt. Entsperren Sie hier, ist auch seine Sperre aufgehoben.',
   'admin.orgs.moveMissing':
     '{name} hat nicht alle Module dieses Kunden. Schalte sie beim Reseller frei oder deaktiviere sie hier zuerst.',
   'admin.orgs.customersOf': 'Kunden dieses Resellers',
@@ -137,7 +155,7 @@ export const adminDe = {
   'admin.orgs.boundaryReseller':
     'Was Mitglieder dieses Resellers maximal dürfen. Die Grenze gilt auch für alles, was sie bei ihren Kunden tun.',
   'admin.orgs.kindLocked': 'Ein Reseller mit Kunden kann seine Art nicht ändern.',
-  'admin.orgs.kindLockedParent': 'Kunden eines Resellers bleiben Kunden. Entferne zuerst den Reseller.',
+  'admin.orgs.kindLockedParent': 'Kunden eines Resellers bleiben Kunden. Entfernen Sie zuerst den Reseller.',
   'admin.orgs.kindTitle': 'Art ändern?',
   'admin.orgs.kindText':
     '{name} wird zu "{kind}". Die Berechtigungsgrenze wird dabei auf den Standard dieser Art zurückgesetzt.',
@@ -159,7 +177,7 @@ export const adminDe = {
   'admin.mail.source.none': 'Nicht eingerichtet',
   'admin.mail.envTitle': 'Eingerichtet über Umgebungsvariablen',
   'admin.mail.envText':
-    'Diese Werte kommen aus der .env-Datei und können hier nur angesehen werden. Ändere sie dort und starte die API neu.',
+    'Diese Werte kommen aus der .env-Datei und können hier nur angesehen werden. Ändern Sie sie dort und starten Sie die API neu.',
   'admin.mail.noneText':
     'Ohne SMTP-Server werden keine E-Mails versendet. Einladungslinks werden trotzdem angezeigt.',
   'admin.mail.host': 'Server',
@@ -188,10 +206,10 @@ export const adminDe = {
   'admin.mail.testText': 'Prüft, ob der Versand mit den gespeicherten Einstellungen klappt.',
   'admin.mail.testTo': 'Empfänger',
   'admin.mail.testSend': 'Test-Mail senden',
-  'admin.mail.testSent': 'Test-Mail an {to} gesendet. Schau im Postfach nach.',
+  'admin.mail.testSent': 'Test-Mail an {to} gesendet. Schauen Sie im Postfach nach.',
   'admin.mail.testFailed': 'Versand fehlgeschlagen',
   'admin.mail.testSkipped': 'Nicht gesendet, weil kein SMTP-Server eingerichtet ist.',
-  'admin.mail.testNotConfigured': 'Richte zuerst einen SMTP-Server ein.',
+  'admin.mail.testNotConfigured': 'Richten Sie zuerst einen SMTP-Server ein.',
   'admin.mail.log': 'Versandprotokoll',
   'admin.mail.logText': 'Jede E-Mail der Plattform, auch die nicht gesendeten.',
   'admin.mail.logEmpty': 'Noch keine E-Mails',
@@ -233,7 +251,7 @@ export const adminDe = {
   'admin.int.webhookSet': 'Eingerichtet',
   'admin.int.webhookMissing': 'Fehlt',
   'admin.int.webhookWarning':
-    'Ohne Webhook-Secret werden Zahlungen nicht bestätigt. Trage den Endpoint in Stripe ein und setze STRIPE_WEBHOOK_SECRET.',
+    'Ohne Webhook-Secret werden Zahlungen nicht bestätigt. Tragen Sie den Endpoint in Stripe ein und setzen Sie STRIPE_WEBHOOK_SECRET.',
   'admin.int.webhookUrl': 'Webhook-URL',
   'admin.int.webhookHint':
     'In Stripe unter Entwickler > Webhooks als Endpoint eintragen, mit diesen Ereignissen:',
@@ -253,7 +271,7 @@ export const adminDe = {
     'ZOHO_TAX_IDS ordnet Steuersätze den Steuer-IDs in Zoho zu, zum Beispiel 810:123456,0:654321 (Satz in Basispunkten).',
 
   // Dashboard
-  'admin.dash.subtitle': 'Deine Dienste, die Abrechnung und die letzten Aktivitäten.',
+  'admin.dash.subtitle': 'Ihre Dienste, die Abrechnung und die letzten Aktivitäten.',
   'admin.dash.serversSub': '{running} laufend, {stopped} gestoppt',
   'admin.dash.noDomains': 'Noch keine Domains',
   'admin.dash.noWebspaces': 'Noch keine Webspaces',
@@ -261,7 +279,7 @@ export const adminDe = {
   'admin.dash.overdue': '{amount} sind überfällig.',
   'admin.dash.recurring': 'Aktive Dienste: {n}, zusammen {amount} pro Monat',
   'admin.dash.seller': 'Rechnungen von {name}',
-  'admin.dash.viaReseller': 'Du verwaltest diese Organisation als Reseller über {name}.',
+  'admin.dash.viaReseller': 'Sie verwalten diese Organisation als Reseller über {name}.',
   'admin.dash.backToReseller': 'Zur Kundenverwaltung',
   'admin.dash.noModules': 'Noch keine Dienste freigeschaltet',
   'admin.dash.noModulesText': 'Sobald ein Modul freigeschaltet ist, erscheint es hier und in der Navigation.',

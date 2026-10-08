@@ -24,8 +24,15 @@ export interface Scope {
 export const orgScope = (orgId: string): Scope => ({ orgId, resource: { path: 'org' } });
 export const platformScope: Scope = { orgId: null, resource: { path: 'platform' } };
 
-/** Read-only actions that stay available while an organization is suspended. */
-const SUSPENDED_ALLOWED = ['*:read', 'server:metrics', 'server:task:read', 'billing:*'];
+/** Read-only actions. */
+const READ_ONLY = ['*:read', 'server:metrics', 'server:task:read'];
+
+/**
+ * What stays available while an organization is suspended: reading, and paying its own
+ * bills. Staff of a suspended reseller still enter their customers
+ * (reseller:customer:access), but only to read there (see AccessService.subject).
+ */
+const SUSPENDED_ALLOWED = [...READ_ONLY, 'billing:*', 'reseller:customer:access'];
 
 export function requireAuth(req: FastifyRequest): AuthState {
   const auth = req.auth;
@@ -89,6 +96,8 @@ export class AccessService {
               memberPolicies: await this.memberPolicies(resellerMembership.id),
               boundary: effectiveBoundary(parent),
             };
+            // The billing:* of a suspended reseller is for its own bills, not its customers'.
+            if (parent.status === 'suspended') subject.parentBoundary = effectiveBoundary(parent, READ_ONLY);
           }
         }
       }
@@ -148,18 +157,22 @@ export class AccessService {
   }
 }
 
-/** Boundary, suspension and inactive modules of one organization combined into one statement list. */
+/**
+ * Boundary, suspension and inactive modules of one organization combined into one statement
+ * list. `suspendedAllowed` is what a suspension leaves open.
+ */
 export function effectiveBoundary(
   org: Pick<Organization, 'boundary' | 'status' | 'modules'>,
+  suspendedAllowed: string[] = SUSPENDED_ALLOWED,
 ): PolicyStatement[] {
-  const base = org.status === 'suspended' ? suspendedBoundary(org.boundary) : org.boundary;
+  const base = org.status === 'suspended' ? suspendedBoundary(org.boundary, suspendedAllowed) : org.boundary;
   return [...base, ...moduleDenyStatements(org.modules)];
 }
 
-/** While suspended, the normal boundary still applies and everything but reading is denied on top. */
-function suspendedBoundary(boundary: PolicyStatement[]): PolicyStatement[] {
+/** While suspended, the normal boundary still applies and everything but `allowed` is denied on top. */
+function suspendedBoundary(boundary: PolicyStatement[], allowed: string[]): PolicyStatement[] {
   return [
     ...boundary.filter((s) => s.effect === 'deny'),
-    { sid: 'SuspendedReadOnly', effect: 'allow', actions: SUSPENDED_ALLOWED },
+    { sid: 'SuspendedReadOnly', effect: 'allow', actions: allowed },
   ];
 }

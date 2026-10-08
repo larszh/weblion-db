@@ -1,7 +1,13 @@
 import { and, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { formatMoney, invoiceTotals, lineTotal, type InvoiceIssuerSettings } from '@weblion/shared';
+import {
+  MAX_AMOUNT,
+  formatMoney,
+  invoiceTotals,
+  lineTotal,
+  type InvoiceIssuerSettings,
+} from '@weblion/shared';
 import type { AppContext } from '../../context';
 import type { DbOrTx, Tx } from '../../db/client';
 import { orgScope, requireAuth } from '../../auth/access';
@@ -110,6 +116,35 @@ export const linesSchema = z.array(lineInputSchema).min(1).max(200);
 
 type NewLine = Omit<typeof invoiceLines.$inferInsert, 'invoiceId' | 'position'>;
 
+const MAX_AMOUNT_TEXT = (MAX_AMOUNT / 100).toFixed(2);
+
+/**
+ * Why these lines can't be stored, or null when they can: a line total or an invoice
+ * total beyond what the money columns hold (MAX_AMOUNT). Checked up front, so it is a
+ * 400 and not a database error.
+ */
+export function amountsProblem(
+  lines: { quantity: number; unitPrice: number; taxRateBp: number }[],
+): string | null {
+  for (const [i, line] of lines.entries()) {
+    if (Math.abs(lineTotal(line.quantity, line.unitPrice)) > MAX_AMOUNT) {
+      return `The total of line ${i + 1} is above the maximum of ${MAX_AMOUNT_TEXT}`;
+    }
+  }
+  const totals = invoiceTotals(lines);
+  if ([totals.subtotal, totals.taxTotal, totals.total].some((v) => Math.abs(v) > MAX_AMOUNT)) {
+    return `The invoice total is above the maximum of ${MAX_AMOUNT_TEXT}`;
+  }
+  return null;
+}
+
+/** Quantity times price of a service must fit in one invoice line. */
+export function serviceAmountProblem(quantity: number, unitPrice: number): string | null {
+  return Math.abs(lineTotal(quantity, unitPrice)) > MAX_AMOUNT
+    ? `Quantity times price is above the maximum of ${MAX_AMOUNT_TEXT}`
+    : null;
+}
+
 /**
  * Validates line inputs for an organization and fills in the tax rate: the line's own,
  * else the linked service's (or its product's), else the customer's, else the issuer's.
@@ -155,6 +190,8 @@ export async function buildLines(
 
 /** Replaces all lines of a draft and stores the recomputed totals. */
 export async function replaceLines(tx: Tx, invoiceId: string, lines: NewLine[]): Promise<void> {
+  const problem = amountsProblem(lines);
+  if (problem) throw badRequest(problem);
   await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, invoiceId));
   if (lines.length > 0) {
     await tx.insert(invoiceLines).values(lines.map((l, i) => ({ ...l, invoiceId, position: i + 1 })));

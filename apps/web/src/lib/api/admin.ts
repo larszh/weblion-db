@@ -4,7 +4,6 @@ import type {
   AdminOrgDto,
   BillingSummaryDto,
   IntegrationsDto,
-  InvoiceIssuerSettings,
   MailLogDto,
   MailSettingsDto,
   ModuleKey,
@@ -32,7 +31,6 @@ export const adminKeys = {
   integrations: ['settings', 'integrations'] as const,
   // Under the billing prefix so billing mutations that invalidate ['billing'] refresh these too.
   billingSummary: (orgId: string) => ['billing', 'summary', orgId] as const,
-  resellerIssuer: (orgId: string) => ['billing', 'issuer', orgId] as const,
 };
 
 export type MailResult = { status: 'sent' | 'failed' | 'skipped'; error?: string };
@@ -201,15 +199,6 @@ export function useMoveResource(
     },
   );
 }
-
-/** Invoice issuer settings of a reseller, used here only for its default currency. */
-export const useResellerIssuer = (resellerId: string, enabled = true) =>
-  useQuery({
-    queryKey: adminKeys.resellerIssuer(resellerId),
-    queryFn: () => api.get<InvoiceIssuerSettings>(`/orgs/${resellerId}/reseller/issuer`),
-    enabled,
-    staleTime: 5 * 60_000,
-  });
 
 // --- Dashboard ---------------------------------------------------------------------
 

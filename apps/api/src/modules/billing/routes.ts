@@ -34,7 +34,7 @@ import {
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors';
 import { paginationQuery, parse } from '../../lib/validation';
 import { loadOrg } from '../orgs/routes';
-import { addCredit, billingCurrency, creditBalance, lockOrgBilling } from './ledger';
+import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockOrgBilling } from './ledger';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
@@ -68,6 +68,7 @@ import {
   markPaidInTx,
   replaceLines,
   sendInvoiceMail,
+  serviceAmountProblem,
   sendPaymentReceivedMail,
   voidInTx,
   billingRecipients,
@@ -80,6 +81,7 @@ import {
   issuerNames,
   issuerSchema,
   issuerSettings,
+  keepCustomerCurrencies,
   optionalEmail,
   optionalText,
   patchText,
@@ -87,7 +89,7 @@ import {
   saveBillingSettings,
   taxRateSchema,
 } from './settings';
-import { dateSchema, todayZurich } from './dates';
+import { dateSchema, resumeBillingDate, todayZurich } from './dates';
 
 const orgParams = z.object({ orgId: z.uuid() });
 const idParams = z.object({ id: z.uuid() });
@@ -335,7 +337,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/orgs/:orgId/services', async (req) => {
     const { orgId } = parse(orgParams, req.params);
     await customerOrg(req, orgId, 'billing:read');
-    return listServices(db, orgId);
+    // The customer's view: internal notes of the seller stay out.
+    return listServices(db, orgId, { seller: false });
   });
 
   app.get('/orgs/:orgId/credit', async (req) => {
@@ -365,9 +368,15 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = await customerOrg(req, orgId, 'billing:write');
     const body = parse(customerProfileBody, req.body);
     const issuer = await issuerSettings(db, sellerOrgId(org));
+    // A new profile starts with the seller's defaults, which applied without one as well.
     await db
       .insert(billingProfiles)
-      .values({ orgId, ...body, paymentTermsDays: issuer.defaultPaymentTermsDays })
+      .values({
+        orgId,
+        ...body,
+        currency: issuer.defaultCurrency,
+        paymentTermsDays: issuer.defaultPaymentTermsDays,
+      })
       .onConflictDoUpdate({ target: billingProfiles.orgId, set: body });
     await audit.record(req, {
       action: 'billing.profile_update',
@@ -537,16 +546,18 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/billing/customers/:orgId', async (req): Promise<SellerCustomerBillingDto> => {
     const { orgId } = parse(orgParams, req.params);
     const org = await loadCustomerAsSeller(ctx, req, orgId, 'read');
-    const [profile, issuer, summary] = await Promise.all([
+    const [profile, issuer, summary, write] = await Promise.all([
       loadProfile(db, orgId),
       issuerSettings(db, sellerOrgId(org)),
       billingSummary(ctx, req, org),
+      canActAsSeller(ctx, req, org, 'write'),
     ]);
     return {
       org: { id: org.id, name: org.name, slug: org.slug, status: org.status, modules: org.modules },
       seller: summary.seller,
       profile: toBillingProfileDto(orgId, profile, issuer),
       summary,
+      can: { write },
     };
   });
 
@@ -557,16 +568,14 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     const issuer = await issuerSettings(db, sellerOrgId(org));
     await db.transaction(async (tx) => {
       await lockOrgBilling(tx, orgId);
-      const current = await loadProfile(tx, orgId);
-      if (body.currency && body.currency !== (current?.currency ?? 'CHF')) {
-        // Credit is kept in the billing currency. Switching with a balance would strand it.
-        if ((await creditBalance(tx, orgId)) !== 0) {
-          throw conflict('The currency can only be changed while the credit balance is zero');
-        }
+      const currency = await billingCurrency(tx, orgId);
+      if (body.currency && body.currency !== currency) {
+        const problem = await currencyChangeProblem(tx, orgId);
+        if (problem) throw conflict(problem);
       }
       await tx
         .insert(billingProfiles)
-        .values({ orgId, paymentTermsDays: issuer.defaultPaymentTermsDays, ...body })
+        .values({ orgId, currency, paymentTermsDays: issuer.defaultPaymentTermsDays, ...body })
         .onConflictDoUpdate({ target: billingProfiles.orgId, set: body });
     });
     await audit.record(req, {
@@ -728,7 +737,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get('/billing/customers/:orgId/services', async (req) => {
     const { orgId } = parse(orgParams, req.params);
     await loadCustomerAsSeller(ctx, req, orgId, 'read');
-    return listServices(db, orgId);
+    return listServices(db, orgId, { seller: true });
   });
 
   app.post('/billing/customers/:orgId/services', async (req) => {
@@ -751,6 +760,9 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!name || unitPrice === undefined || !interval) {
       throw badRequest('Name, price and interval are required without a product');
     }
+    const quantity = roundQuantity(body.quantity ?? 1);
+    const tooHigh = serviceAmountProblem(quantity, unitPrice);
+    if (tooHigh) throw badRequest(tooHigh);
     if (!!body.resourceType !== !!body.resourceId) {
       throw badRequest('resourceType and resourceId go together');
     }
@@ -774,7 +786,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
           resourceType: body.resourceType ?? null,
           resourceId: body.resourceId ?? null,
           unitPrice,
-          quantity: roundQuantity(body.quantity ?? 1),
+          quantity,
           currency: product?.currency ?? (await billingCurrency(tx, orgId)),
           interval,
           taxRateBp: body.taxRateBp !== undefined ? body.taxRateBp : (product?.taxRateBp ?? null),
@@ -799,31 +811,60 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
         moduleActivated: activated ? module : null,
       },
     });
-    return toServiceDto(db, service);
+    return toServiceDto(db, service, { seller: true });
   });
 
   app.patch('/services/:id', async (req) => {
     const { id } = parse(idParams, req.params);
     const { service } = await loadServiceAsSeller(req, id);
     const body = parse(servicePatch, req.body);
-    if (service.status === 'cancelled') throw conflict('Cancelled services cannot be changed');
-    const [updated] = await db
-      .update(services)
-      .set({
-        ...body,
-        ...(body.quantity !== undefined ? { quantity: roundQuantity(body.quantity) } : {}),
-      })
-      .where(and(eq(services.id, service.id), ne(services.status, 'cancelled')))
-      .returning();
-    if (!updated) throw conflict('Cancelled services cannot be changed');
+    const { updated, resumedFrom } = await db.transaction(async (tx) => {
+      // Under the billing lock, so a billing run can't move the billing date in between.
+      await lockOrgBilling(tx, service.orgId);
+      const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
+      if (!current || current.status === 'cancelled') throw conflict('Cancelled services cannot be changed');
+      const quantity = body.quantity !== undefined ? roundQuantity(body.quantity) : current.quantity;
+      const tooHigh = serviceAmountProblem(quantity, body.unitPrice ?? current.unitPrice);
+      if (tooHigh) throw badRequest(tooHigh);
+      // A paused service resumes with the next period that has not started yet. The
+      // periods it was paused for are not billed, unless a billing date is given.
+      let nextBillingAt = body.nextBillingAt;
+      const resumed =
+        current.status === 'suspended' && body.status === 'active' && body.nextBillingAt === undefined;
+      if (resumed && current.nextBillingAt) {
+        nextBillingAt = resumeBillingDate(
+          current.nextBillingAt,
+          current.interval,
+          current.startsAt,
+          todayZurich(),
+        );
+      }
+      const [row] = await tx
+        .update(services)
+        .set({
+          ...body,
+          quantity,
+          ...(nextBillingAt !== undefined ? { nextBillingAt } : {}),
+        })
+        .where(eq(services.id, current.id))
+        .returning();
+      const moved = resumed && nextBillingAt !== current.nextBillingAt;
+      return { updated: row!, resumedFrom: moved ? current.nextBillingAt : null };
+    });
+    // Notes are the seller's and this entry is in the customer's audit log: only say that they changed.
+    const { notes, ...changes } = body;
     await audit.record(req, {
       action: 'service.update',
       orgId: service.orgId,
       resourceType: 'service',
       resourceId: service.id,
-      details: body,
+      details: {
+        ...changes,
+        ...(notes !== undefined ? { notesChanged: true } : {}),
+        ...(resumedFrom ? { nextBillingAt: updated.nextBillingAt, pausedFrom: resumedFrom } : {}),
+      },
     });
-    return toServiceDto(db, updated);
+    return toServiceDto(db, updated, { seller: true });
   });
 
   app.post('/services/:id/cancel', async (req) => {
@@ -856,7 +897,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceId: service.id,
       details: { endsAt: updated.endsAt, moduleDeactivated: deactivated ? updated.module : null },
     });
-    return toServiceDto(db, updated);
+    return toServiceDto(db, updated, { seller: true });
   });
 
   // --- Products -------------------------------------------------------------------
@@ -1050,12 +1091,20 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     await access.assert(req, 'platform:settings', platformScope);
     const body = parse(billingSettingsSchema, req.body);
     const before = await getBillingSettings(db);
-    await saveBillingSettings(db, body);
+    const pinned = await db.transaction(async (tx) => {
+      await saveBillingSettings(tx, body);
+      return before.issuer.defaultCurrency !== body.issuer.defaultCurrency
+        ? keepCustomerCurrencies(tx, null, before.issuer)
+        : 0;
+    });
     await audit.record(req, {
       action: 'settings.billing_update',
       resourceType: 'settings',
       resourceId: 'billing',
-      details: { changed: changedKeys(before, body) },
+      details: {
+        changed: changedKeys(before, body),
+        ...(pinned ? { customersKeepingCurrency: pinned } : {}),
+      },
     });
     return getBillingSettings(db);
   });
@@ -1078,16 +1127,25 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     const org = await resellerOrg(req);
     const body = parse(issuerSchema, req.body);
     const before = await resellerIssuer(db, org.id);
-    await db
-      .insert(billingProfiles)
-      .values({ orgId: org.id, issuer: body })
-      .onConflictDoUpdate({ target: billingProfiles.orgId, set: { issuer: body } });
+    const pinned = await db.transaction(async (tx) => {
+      // The reseller's own profile as a platform customer: a new one keeps the currency
+      // it is billed in now.
+      const ownCurrency = await billingCurrency(tx, org.id);
+      await tx
+        .insert(billingProfiles)
+        .values({ orgId: org.id, currency: ownCurrency, issuer: body })
+        .onConflictDoUpdate({ target: billingProfiles.orgId, set: { issuer: body } });
+      return before.defaultCurrency !== body.defaultCurrency ? keepCustomerCurrencies(tx, org.id, before) : 0;
+    });
     await audit.record(req, {
       action: 'reseller.issuer_update',
       orgId: org.id,
       resourceType: 'org',
       resourceId: org.id,
-      details: { changed: changedKeys(before, body) },
+      details: {
+        changed: changedKeys(before, body),
+        ...(pinned ? { customersKeepingCurrency: pinned } : {}),
+      },
     });
     return resellerIssuer(db, org.id);
   });

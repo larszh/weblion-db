@@ -17,6 +17,7 @@ import { domains, organizations, webspaces, type Organization } from '../../db/s
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import { loadOrg } from '../orgs/routes';
+import { assertNoLinkedService } from '../reseller/service';
 import { dnsDataIssue, dnsRecordBody, dnsRecordPatchBody } from './dns';
 import {
   HOSTING_MODULES,
@@ -336,6 +337,8 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
           .set({ modules: normalizeModules([...target.org.modules, module]) })
           .where(eq(organizations.id, target.org.id));
       }
+      // Not while the previous owner is billed for it.
+      if (current.orgId !== body.orgId) await assertNoLinkedService(tx, 'domain', id, body.orgId);
       await tx.update(domains).set({ orgId: body.orgId }).where(eq(domains.id, id));
     });
     await audit.record(req, {
@@ -388,6 +391,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
           .set({ modules: normalizeModules([...target.org.modules, module]) })
           .where(eq(organizations.id, target.org.id));
       }
+      if (current.orgId !== body.orgId) await assertNoLinkedService(tx, 'webspace', id, body.orgId);
       await tx.update(webspaces).set({ orgId: body.orgId }).where(eq(webspaces.id, id));
     });
     await audit.record(req, {

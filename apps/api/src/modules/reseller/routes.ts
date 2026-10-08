@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -26,11 +26,13 @@ import {
 import { conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import { sendInvitationMail } from '../../mail/invitation';
+import { billingCurrency } from '../billing/ledger';
 import { loadOrg, orgCounts } from '../orgs/routes';
 import {
   RESOURCE_MODULES,
   assertDeletable,
   assertModulesWithin,
+  assertNoLinkedService,
   createInvitation,
   defaultProject,
   uniqueSlug,
@@ -141,9 +143,11 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
         name: c.name,
         slug: c.slug,
         status: c.status,
+        suspendedBy: c.status === 'suspended' ? c.suspendedBy : null,
         modules: c.modules,
         notes: c.notes,
         counts: await orgCounts(ctx, c.id),
+        currency: await billingCurrency(db, c.id),
         balance: amounts.get(c.id)?.balance ?? 0,
         openTotal: amounts.get(c.id)?.openTotal ?? 0,
         createdAt: c.createdAt.toISOString(),
@@ -244,16 +248,31 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = parse(updateBody, req.body);
     const modules = body.modules ? normalizeModules(body.modules) : undefined;
     if (modules) assertModulesWithin(reseller, modules);
+    const platformSuspended = conflict(
+      'weblion.one suspended this customer. Only weblion.one can lift or change this suspension.',
+    );
+    if (body.status && customer.suspendedBy === 'platform') throw platformSuspended;
     const [updated] = await db
       .update(organizations)
       .set({
         ...(body.name ? { name: body.name } : {}),
-        ...(body.status ? { status: body.status } : {}),
+        ...(body.status
+          ? { status: body.status, suspendedBy: body.status === 'suspended' ? ('reseller' as const) : null }
+          : {}),
         ...(modules ? { modules } : {}),
         ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
       })
-      .where(eq(organizations.id, customer.id))
+      .where(
+        and(
+          eq(organizations.id, customer.id),
+          // The platform may have suspended it since it was loaded.
+          body.status
+            ? or(isNull(organizations.suspendedBy), ne(organizations.suspendedBy, 'platform'))
+            : undefined,
+        ),
+      )
       .returning();
+    if (!updated) throw body.status ? platformSuspended : notFound('Customer');
     await audit.record(req, {
       action: 'reseller.customer_update',
       orgId: reseller.id,
@@ -417,6 +436,7 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
           .set({ modules: normalizeModules([...target!.modules, module]) })
           .where(eq(organizations.id, customer.id));
       }
+      if (current.orgId !== customer.id) await assertNoLinkedService(tx, body.type, body.id, customer.id);
       if (body.type === 'server') projectId ??= (await defaultProject(tx, customer.id)).id;
       await moveResource(tx, body.type, body.id, current, { orgId: customer.id, projectId });
       return enable;
@@ -448,6 +468,7 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!current || current.orgId !== customer.id) throw notFoundFor(body.type);
 
     const projectId = await db.transaction(async (tx) => {
+      await assertNoLinkedService(tx, body.type, body.id, reseller.id);
       const target = body.type === 'server' ? (await defaultProject(tx, reseller.id)).id : null;
       await moveResource(tx, body.type, body.id, current, { orgId: reseller.id, projectId: target });
       return target;

@@ -140,6 +140,7 @@ export const billingDe = {
   'billing.invoice.notFound': 'Rechnung nicht gefunden',
   'billing.invoice.notFoundText': 'Die Rechnung existiert nicht oder Sie haben keinen Zugriff darauf.',
   'billing.invoice.voidText': 'Diese Rechnung wurde storniert und muss nicht bezahlt werden.',
+  'billing.invoice.voidReason': 'Grund: {reason}',
   'billing.invoice.sentAt': 'Per E-Mail versendet am {date}',
   'billing.invoice.draftHint':
     'Entwürfe sieht nur der Rechnungssteller. Erst beim Abschliessen erhält die Rechnung eine Nummer und wird für den Kunden sichtbar.',
@@ -241,7 +242,8 @@ export const billingDe = {
   'billing.profile.vatIdHint': 'Optional, erscheint auf der Rechnung',
   'billing.profile.terms.title': 'Konditionen',
   'billing.profile.currency': 'Währung',
-  'billing.profile.currencyHint': 'Nur änderbar, solange kein Guthaben besteht.',
+  'billing.profile.currencyHint':
+    'Nur änderbar ohne Guthaben, offene Rechnungen, Entwürfe und laufende Zahlungen.',
   'billing.profile.terms': 'Zahlungsfrist',
   'billing.profile.termsHint': 'Tage ab Rechnungsdatum',
   'billing.profile.termsValue': '{days} Tage',
@@ -285,6 +287,7 @@ export const billingDe = {
     'Die Rechnung bleibt mit ihrer Nummer erhalten, muss aber nicht mehr bezahlt werden. Das lässt sich nicht rückgängig machen.',
   'billing.void.reason': 'Grund',
   'billing.void.reasonPlaceholder': 'z. B. Doppelt verrechnet',
+  'billing.void.reasonHint': 'Der Kunde sieht den Grund auf der Rechnung.',
   'billing.void.confirm': 'Stornieren',
   'billing.void.done': 'Rechnung storniert',
   'billing.markPaid.action': 'Zahlung erfassen',
@@ -352,6 +355,8 @@ export const billingDe = {
   'billing.generate.doneFinal': 'Rechnung {number} erstellt',
   'billing.generate.nothing': 'Es ist kein Dienst fällig.',
   'billing.generate.skipped': 'Nicht abgerechnet, andere Währung: {names}',
+  'billing.generate.skippedAmount':
+    'Nicht abgerechnet, Betrag zu hoch für eine Rechnung: {names}. Die Dienste bleiben fällig.',
   'billing.service.add': 'Dienst hinzufügen',
   'billing.service.addTitle': 'Dienst hinzufügen',
   'billing.service.addText': 'Der Dienst wird {name} ab dem Startdatum in Rechnung gestellt.',
@@ -369,7 +374,7 @@ export const billingDe = {
   'billing.service.resourcesError': 'Die Ressourcen des Kunden konnten nicht geladen werden.',
   'billing.service.activateModule': 'Modul «{module}» freischalten',
   'billing.service.activateModuleHint': 'Der Kunde sieht den Bereich danach in seiner Console.',
-  'billing.service.notesHint': 'Nur für Sie sichtbar.',
+  'billing.service.notesHint': 'Nur für Sie sichtbar, nicht für den Kunden.',
   'billing.service.created': 'Dienst «{name}» hinzugefügt',
   'billing.service.editTitle': 'Dienst bearbeiten',
   'billing.service.editText': 'Änderungen gelten ab der nächsten Rechnung.',
@@ -380,6 +385,8 @@ export const billingDe = {
   'billing.service.resume': 'Fortsetzen',
   'billing.service.suspended': 'Dienst «{name}» pausiert',
   'billing.service.resumed': 'Dienst «{name}» fortgesetzt',
+  'billing.service.resumedOn': 'Dienst «{name}» fortgesetzt, nächste Abrechnung am {date}',
+  'billing.service.resumeHint': 'Ab der nächsten Periode. Die Pause wird nicht verrechnet.',
   'billing.service.cancel': 'Kündigen',
   'billing.service.cancelTitle': '«{name}» kündigen',
   'billing.service.cancelText':
@@ -450,7 +457,8 @@ export const billingDe = {
   'billing.issuer.prefixHint': 'Rechnungsnummern sehen so aus: {example}',
   'billing.issuer.prefixError': '1 bis 8 Buchstaben oder Ziffern.',
   'billing.issuer.currency': 'Standardwährung',
-  'billing.issuer.currencyHint': 'Für neue Kunden und Produkte.',
+  'billing.issuer.currencyHint':
+    'Für neue Kunden und Produkte. Kunden mit Rechnungen, Diensten oder Guthaben behalten ihre Währung.',
   'billing.issuer.taxRate': 'Standard-MWST-Satz (%)',
   'billing.issuer.taxRateHint': 'Gilt, wenn Produkt oder Kunde keinen eigenen Satz haben ({rate}).',
   'billing.issuer.terms': 'Zahlungsfrist (Tage)',

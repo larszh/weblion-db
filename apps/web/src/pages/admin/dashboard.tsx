@@ -100,7 +100,10 @@ export function AdminDashboard() {
           icon={<Building2 />}
           label={t('admin.stat.customers')}
           value={s.organizations.customers}
-          sub={t('admin.stat.internal', { n: s.organizations.internal })}
+          sub={t('admin.stat.orgsSub', {
+            resellers: s.organizations.resellers,
+            internal: s.organizations.internal,
+          })}
           to="/admin/customers"
         />
         <Tile icon={<Users />} label={t('admin.stat.users')} value={s.users} to="/admin/users" />

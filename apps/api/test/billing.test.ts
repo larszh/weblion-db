@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { and, eq, isNull, like } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like } from 'drizzle-orm';
 import { isQRReferenceValid } from 'swissqrbill/utils';
 import {
   DEFAULT_CUSTOMER_BOUNDARY,
@@ -11,9 +11,11 @@ import {
   type InvoiceDto,
   type Paginated,
   type ProductDto,
+  type SellerCustomerBillingDto,
   type ServiceDto,
 } from '@weblion/shared';
 import {
+  auditLogs,
   invoiceLines,
   invoices,
   memberships,
@@ -27,7 +29,7 @@ import {
 } from '../src/db/schema';
 import { hashPassword } from '../src/lib/crypto';
 import { payFromCredit, creditBalance } from '../src/modules/billing/ledger';
-import { addMonths, nextBillingDate, todayZurich } from '../src/modules/billing/dates';
+import { addMonths, nextBillingDate, resumeBillingDate, todayZurich } from '../src/modules/billing/dates';
 import { mod10CheckDigit, qrReference } from '../src/modules/billing/pdf';
 import { BillingJob } from '../src/modules/billing/recurring';
 import { ADMIN, Client, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
@@ -52,6 +54,18 @@ const line = (description: string, unitPrice: number, extra: Record<string, unkn
   unitPrice,
   ...extra,
 });
+
+type ErrorBody = { error: { code: string; message: string } };
+type Generated = { invoice: InvoiceDetailDto | null; skipped: { serviceId: string; reason: string }[] };
+
+/** A platform customer of its own, so a test can bill it without touching the others. */
+async function customer(slug: string, extra: Partial<typeof organizations.$inferInsert> = {}) {
+  const [org] = await t.db
+    .insert(organizations)
+    .values({ name: slug, slug, kind: 'customer', boundary: DEFAULT_CUSTOMER_BOUNDARY, ...extra })
+    .returning();
+  return org!.id;
+}
 
 /** Number of pages in a PDF made by pdfkit (page objects are written uncompressed). */
 const pageCount = (pdf: Buffer) => (pdf.toString('latin1').match(/\/Type \/Page\b/g) ?? []).length;
@@ -309,7 +323,9 @@ describe('invoice lifecycle', () => {
     const voided = json<InvoiceDetailDto>(
       await admin.post(`/invoices/${other.id}/void`, { reason: 'Doppelt' }),
     );
-    expect([voided.status, voided.amountDue]).toEqual(['void', 0]);
+    expect([voided.status, voided.amountDue, voided.voidReason]).toEqual(['void', 0, 'Doppelt']);
+    expect(json<InvoiceDetailDto>(await dev.get(`/invoices/${other.id}`)).voidReason).toBe('Doppelt');
+    expect(paid.voidReason).toBeNull();
     expect((await admin.post(`/invoices/${other.id}/void`, { reason: 'nochmals' })).statusCode).toBe(409);
     expect((await admin.post(`/invoices/${other.id}/mark-paid`, { method: 'cash' })).statusCode).toBe(409);
   });
@@ -590,6 +606,39 @@ describe('services and modules', () => {
     expect(kunde!.modules).toEqual(['servers', 'dns']);
   });
 
+  it("keeps the seller's notes away from the customer", async () => {
+    const created = json<ServiceDto>(
+      await admin.post(`/billing/customers/${musterId}/services`, {
+        name: 'Wartung',
+        unitPrice: 2000,
+        interval: 'monthly',
+        startsAt: addMonths(todayZurich(), 1),
+        notes: 'Rabatt nur bis Q2',
+      }),
+    );
+    expect(created.notes).toBe('Rabatt nur bis Q2');
+    const seller = json<ServiceDto[]>(await admin.get(`/billing/customers/${musterId}/services`));
+    expect(seller.find((s) => s.id === created.id)!.notes).toBe('Rabatt nur bis Q2');
+    const own = json<ServiceDto[]>(await anna.get(`/orgs/${musterId}/services`));
+    expect(own.find((s) => s.id === created.id)).toBeDefined();
+    expect(own.every((s) => s.notes === null)).toBe(true);
+
+    // The change lands in the customer's audit log, the note itself does not.
+    const patched = await admin.patch(`/services/${created.id}`, {
+      notes: 'Kunde zahlt schlecht',
+      unitPrice: 2100,
+    });
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect(json<ServiceDto>(patched).notes).toBe('Kunde zahlt schlecht');
+    const [entry] = await t.db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.action, 'service.update'), eq(auditLogs.resourceId, created.id)));
+    expect(entry!.orgId).toBe(musterId);
+    expect(entry!.details).toEqual({ unitPrice: 2100, notesChanged: true });
+    await admin.post(`/services/${created.id}/cancel`, {});
+  });
+
   it('links services only to resources of the same organization', async () => {
     const [musterServer] = await t.db
       .select({ id: servers.id })
@@ -615,6 +664,27 @@ describe('services and modules', () => {
     });
     expect(own.statusCode, own.body).toBe(200);
     expect(json<ServiceDto>(own).resource).toMatchObject({ type: 'server', id: musterServer!.id });
+
+    // Once the server belongs to someone else, the service no longer shows its name.
+    const serverRow = await t.db.query.servers.findFirst({ where: eq(servers.id, musterServer!.id) });
+    const [beispielProject] = await t.db
+      .select()
+      .from(projects)
+      .where(eq(projects.orgId, beispielId))
+      .limit(1);
+    await t.db
+      .update(servers)
+      .set({ projectId: beispielProject!.id })
+      .where(eq(servers.id, musterServer!.id));
+    const moved = json<ServiceDto[]>(await admin.get(`/billing/customers/${musterId}/services`));
+    expect(moved.find((s) => s.id === json<ServiceDto>(own).id)!.resource).toMatchObject({
+      id: musterServer!.id,
+      name: null,
+    });
+    await t.db
+      .update(servers)
+      .set({ projectId: serverRow!.projectId })
+      .where(eq(servers.id, musterServer!.id));
   });
 });
 
@@ -701,6 +771,49 @@ describe('recurring billing', () => {
     const reset = json<ServiceDto[]>(await admin.get(`/billing/customers/${beispielId}/services`));
     expect(reset.find((s) => s.id === monthly.id)!.nextBillingAt).toBe('2026-01-31');
     expect(reset.find((s) => s.id === setup.id)!.nextBillingAt).toBe('2026-02-01');
+  });
+
+  it('resumes a paused service with the next period instead of billing the paused ones', async () => {
+    expect(resumeBillingDate('2026-01-31', 'monthly', '2026-01-31', '2026-06-10')).toBe('2026-06-30');
+    expect(resumeBillingDate('2026-01-31', 'monthly', '2026-01-31', '2026-04-30')).toBe('2026-04-30');
+    expect(resumeBillingDate('2026-01-15', 'quarterly', '2025-10-15', '2026-09-01')).toBe('2026-10-15');
+    expect(resumeBillingDate('2026-07-01', 'monthly', '2026-01-01', '2026-06-10')).toBe('2026-07-01');
+    // A one-off charge was never billed, so it stays due.
+    expect(resumeBillingDate('2026-01-01', 'once', '2026-01-01', '2026-06-10')).toBe('2026-01-01');
+
+    const orgId = await customer('pause-gmbh');
+    const today = todayZurich();
+    const startsAt = addMonths(today, -5);
+    const svc = json<ServiceDto>(
+      await admin.post(`/billing/customers/${orgId}/services`, {
+        name: 'Pausiert',
+        unitPrice: 1000,
+        interval: 'monthly',
+        startsAt,
+      }),
+    );
+    expect((await admin.patch(`/services/${svc.id}`, { status: 'suspended' })).statusCode).toBe(200);
+    expect(
+      json<Generated>(await admin.post(`/billing/customers/${orgId}/invoices/generate`, {})).invoice,
+    ).toBeNull();
+    const resumed = json<ServiceDto>(await admin.patch(`/services/${svc.id}`, { status: 'active' }));
+    expect(resumed.status).toBe('active');
+    expect(resumed.nextBillingAt).toBe(resumeBillingDate(startsAt, 'monthly', startsAt, today));
+    expect(resumed.nextBillingAt! >= today).toBe(true);
+    const generated = json<Generated>(
+      await admin.post(`/billing/customers/${orgId}/invoices/generate`, {}),
+    ).invoice;
+    // At most the period starting today, none of the five paused months.
+    expect(generated?.lines.length ?? 0).toBe(resumed.nextBillingAt === today ? 1 : 0);
+    if (generated) await admin.del(`/invoices/${generated.id}`);
+
+    // A billing date given with the resume wins.
+    await admin.patch(`/services/${svc.id}`, { status: 'suspended' });
+    const explicit = json<ServiceDto>(
+      await admin.patch(`/services/${svc.id}`, { status: 'active', nextBillingAt: startsAt }),
+    );
+    expect(explicit.nextBillingAt).toBe(startsAt);
+    await admin.post(`/services/${svc.id}/cancel`, {});
   });
 
   it('skips services in another currency and the daily job bills every due organization', async () => {
@@ -848,5 +961,239 @@ describe('admin', () => {
     expect(json(await admin.del(`/billing/products/${used.id}`))).toEqual({ ok: true, deactivated: true });
     const patched = json<ProductDto>(await admin.patch(`/billing/products/${used.id}`, { active: true }));
     expect([patched.active, patched.description]).toEqual([true, used.description]);
+  });
+});
+
+describe('billing currency', () => {
+  it("follows the seller's default currency until the customer has billing records", async () => {
+    const [reseller] = await t.db
+      .insert(organizations)
+      .values({
+        name: 'Euro Reseller AG',
+        slug: 'euro-reseller',
+        kind: 'reseller',
+        boundary: DEFAULT_RESELLER_BOUNDARY,
+        modules: ['servers'],
+      })
+      .returning();
+    const busyId = await customer('euro-kunde', { parentOrgId: reseller!.id, modules: ['servers'] });
+    const idleId = await customer('ruhig-kunde', { parentOrgId: reseller!.id });
+    const issuer = {
+      name: 'Euro Reseller AG',
+      invoicePrefix: 'ER',
+      defaultTaxRateBp: 810,
+      defaultCurrency: 'EUR',
+      defaultPaymentTermsDays: 14,
+    };
+    const saved = await admin.request('PUT', `/orgs/${reseller!.id}/reseller/issuer`, issuer);
+    expect(saved.statusCode, saved.body).toBe(200);
+
+    const busy = json<SellerCustomerBillingDto>(await admin.get(`/billing/customers/${busyId}`));
+    expect(busy.profile).toMatchObject({ currency: 'EUR', paymentTermsDays: 14 });
+    expect(busy.summary.currency).toBe('EUR');
+    expect(busy.can).toEqual({ write: true });
+
+    // The EUR catalog is billed, nothing is skipped as "another currency".
+    const product = json<ProductDto>(
+      await admin.post('/billing/products', {
+        ownerOrgId: reseller!.id,
+        name: 'Pflege EUR',
+        unitPrice: 3000,
+        interval: 'monthly',
+      }),
+    );
+    expect(product.currency).toBe('EUR');
+    const service = json<ServiceDto>(
+      await admin.post(`/billing/customers/${busyId}/services`, { productId: product.id }),
+    );
+    const generated = json<Generated>(await admin.post(`/billing/customers/${busyId}/invoices/generate`, {}));
+    expect(generated.skipped).toEqual([]);
+    expect(generated.invoice).toMatchObject({ currency: 'EUR', issuer: { orgId: reseller!.id } });
+    expect(generated.invoice!.lines.map((l) => l.serviceId)).toEqual([service.id]);
+
+    // Back to CHF: the customer with records keeps EUR, the other one follows.
+    const back = await admin.request('PUT', `/orgs/${reseller!.id}/reseller/issuer`, {
+      ...issuer,
+      defaultCurrency: 'CHF',
+    });
+    expect(back.statusCode, back.body).toBe(200);
+    expect(
+      json<SellerCustomerBillingDto>(await admin.get(`/billing/customers/${busyId}`)).profile,
+    ).toMatchObject({ currency: 'EUR', paymentTermsDays: 14 });
+    expect(
+      json<SellerCustomerBillingDto>(await admin.get(`/billing/customers/${idleId}`)).profile.currency,
+    ).toBe('CHF');
+
+    // An explicit change waits until no draft or open invoice is left.
+    const change = () =>
+      admin.request('PUT', `/billing/customers/${busyId}/profile`, {
+        companyName: 'Euro Kunde',
+        currency: 'CHF',
+      });
+    const refused = await change();
+    expect(refused.statusCode).toBe(409);
+    expect(json<ErrorBody>(refused).error.message).toContain('1 open invoice(s) or draft(s)');
+    expect((await admin.del(`/invoices/${generated.invoice!.id}`)).statusCode).toBe(200);
+    await admin.post(`/services/${service.id}/cancel`, {});
+    const changed = await change();
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(json(changed)).toMatchObject({ currency: 'CHF' });
+  });
+
+  it("gives a new profile the seller's currency when the customer saves an address", async () => {
+    const settings = json<BillingSettingsDto>(await admin.get('/admin/settings/billing'));
+    const orgId = await customer('neu-ag');
+    const [owner] = await t.db
+      .insert(users)
+      .values({
+        email: 'owner@neu.example',
+        name: 'Nora Neu',
+        passwordHash: await hashPassword(DEMO_PASSWORD),
+      })
+      .returning();
+    await t.db.insert(memberships).values({ orgId, userId: owner!.id, role: 'owner' });
+    const nora = new Client(t.app);
+    await nora.login('owner@neu.example');
+    // A customer without a profile that already has a (CHF) draft.
+    const oldId = await customer('alt-ag');
+    const old = await draft(admin, oldId, [line('Alt', 100)]);
+
+    const switched = await admin.request('PUT', '/admin/settings/billing', {
+      ...settings,
+      issuer: { ...settings.issuer, defaultCurrency: 'EUR' },
+    });
+    expect(switched.statusCode, switched.body).toBe(200);
+    try {
+      // The customer with a draft keeps CHF, the new one is billed in EUR.
+      const kept = json<SellerCustomerBillingDto>(await admin.get(`/billing/customers/${oldId}`));
+      expect([kept.profile.currency, kept.summary.currency]).toEqual(['CHF', 'CHF']);
+      expect(
+        json<SellerCustomerBillingDto>(await admin.get(`/billing/customers/${orgId}`)).profile.currency,
+      ).toBe('EUR');
+      const res = await nora.request('PUT', `/orgs/${orgId}/billing/profile`, { companyName: 'Neu AG' });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(json(res)).toMatchObject({ companyName: 'Neu AG', currency: 'EUR' });
+    } finally {
+      await admin.request('PUT', '/admin/settings/billing', settings);
+    }
+    // The saved profile keeps EUR after the platform went back to CHF.
+    expect(json(await nora.get(`/orgs/${orgId}/billing/profile`))).toMatchObject({ currency: 'EUR' });
+    await admin.del(`/invoices/${old.id}`);
+  });
+
+  it("keeps the customers' currency when the reseller itself is billed in another one", async () => {
+    const settings = json<BillingSettingsDto>(await admin.get('/admin/settings/billing'));
+    // A reseller that never saved issuer settings, and a customer of it without a profile.
+    const resellerOrgId = await customer('franken-reseller', {
+      kind: 'reseller',
+      boundary: DEFAULT_RESELLER_BOUNDARY,
+    });
+    const orgId = await customer('franken-kunde', { parentOrgId: resellerOrgId });
+    const credit = await admin.post(`/billing/customers/${orgId}/credit`, {
+      amount: 5000,
+      type: 'topup',
+      description: 'Gutschrift',
+    });
+    expect(credit.statusCode, credit.body).toBe(200);
+    const state = async () => {
+      const dto = json<SellerCustomerBillingDto>(await admin.get(`/billing/customers/${orgId}`));
+      return [dto.profile.currency, dto.summary.currency, dto.summary.balance];
+    };
+    expect(await state()).toEqual(['CHF', 'CHF', 5000]);
+
+    // The platform bills the reseller in EUR: its customer stays in CHF.
+    const own = await admin.request('PUT', `/billing/customers/${resellerOrgId}/profile`, {
+      currency: 'EUR',
+    });
+    expect(own.statusCode, own.body).toBe(200);
+    expect(await state()).toEqual(['CHF', 'CHF', 5000]);
+    const d = await draft(admin, orgId, [line('Pflege', 3000)]);
+    expect(d.currency).toBe('CHF');
+    await admin.del(`/invoices/${d.id}`);
+
+    // The reseller still follows the platform default, and its customer with credit keeps CHF.
+    const switched = await admin.request('PUT', '/admin/settings/billing', {
+      ...settings,
+      issuer: { ...settings.issuer, defaultCurrency: 'EUR' },
+    });
+    expect(switched.statusCode, switched.body).toBe(200);
+    try {
+      expect(await state()).toEqual(['CHF', 'CHF', 5000]);
+    } finally {
+      await admin.request('PUT', '/admin/settings/billing', settings);
+    }
+  });
+});
+
+describe('money limits', () => {
+  it('answers 400 for amounts the database cannot hold, and the billing run skips them', async () => {
+    const orgId = await customer('gross-ag');
+    const tooBig = await admin.post(`/billing/customers/${orgId}/invoices`, {
+      lines: [line('Gross', 10_000_000, { quantity: 1000 })],
+    });
+    expect(tooBig.statusCode).toBe(400);
+    expect(json<ErrorBody>(tooBig).error.message).toContain('line 1');
+    // Every line fits, the sum does not.
+    const tooMany = await admin.post(`/billing/customers/${orgId}/invoices`, {
+      lines: Array.from({ length: 25 }, (_, i) => line(`Teil ${i + 1}`, 100_000_000)),
+    });
+    expect(tooMany.statusCode).toBe(400);
+    expect(json<ErrorBody>(tooMany).error.message).toContain('invoice total');
+    const small = await draft(admin, orgId, [line('Klein', 100)]);
+    expect(
+      (await admin.patch(`/invoices/${small.id}`, { lines: [line('Gross', 10_000_000, { quantity: 1000 })] }))
+        .statusCode,
+    ).toBe(400);
+    await admin.del(`/invoices/${small.id}`);
+
+    // Services: quantity times price must fit in one line.
+    expect(
+      (
+        await admin.post(`/billing/customers/${orgId}/services`, {
+          name: 'Gross',
+          unitPrice: 100_000_000,
+          quantity: 1_000_000,
+          interval: 'monthly',
+        })
+      ).statusCode,
+    ).toBe(400);
+    const service = (name: string) =>
+      admin.post(`/billing/customers/${orgId}/services`, {
+        name,
+        unitPrice: 100_000_000,
+        interval: 'monthly',
+        startsAt: todayZurich(),
+      });
+    const first = json<ServiceDto>(await service('Gross 1'));
+    const second = json<ServiceDto>(await service('Gross 2'));
+    expect((await admin.patch(`/services/${first.id}`, { quantity: 1000 })).statusCode).toBe(400);
+
+    // Prices from before the limits: each line fits, both together don't. The second one
+    // waits for the next run instead of failing it.
+    await t.db
+      .update(servicesTable)
+      .set({ unitPrice: 1_500_000_000 })
+      .where(inArray(servicesTable.id, [first.id, second.id]));
+    const run1 = json<Generated>(await admin.post(`/billing/customers/${orgId}/invoices/generate`, {}));
+    expect(run1.invoice!.lines.map((l) => l.serviceId)).toEqual([first.id]);
+    expect(run1.skipped).toEqual([
+      { serviceId: second.id, name: 'Gross 2', currency: 'CHF', reason: 'amount' },
+    ]);
+    const run2 = json<Generated>(await admin.post(`/billing/customers/${orgId}/invoices/generate`, {}));
+    expect(run2.invoice!.lines.map((l) => l.serviceId)).toEqual([second.id]);
+    expect(run2.skipped).toEqual([]);
+
+    // A single line beyond the limit: the daily job logs it and carries on.
+    await t.db
+      .update(servicesTable)
+      .set({ unitPrice: 2_000_000_000, quantity: 2, nextBillingAt: todayZurich() })
+      .where(eq(servicesTable.id, second.id));
+    const job = await new BillingJob(t.ctx, null as never).runDue(todayZurich());
+    expect(job.failed).toBe(0);
+    const run3 = json<Generated>(await admin.post(`/billing/customers/${orgId}/invoices/generate`, {}));
+    expect(run3.invoice).toBeNull();
+    expect(run3.skipped).toMatchObject([{ serviceId: second.id, reason: 'amount' }]);
+
+    for (const id of [first.id, second.id]) await admin.post(`/services/${id}/cancel`, {});
   });
 });

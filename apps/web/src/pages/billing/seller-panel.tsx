@@ -42,7 +42,7 @@ import {
   Notice,
   Select,
 } from '@/components/ui/primitives';
-import { NoBillingAccess, Pager, TabCount, Tabs, useSellerWrite, useTabParam } from './bits';
+import { NoBillingAccess, Pager, TabCount, Tabs, useTabParam } from './bits';
 import { InvoiceEditorDialog } from './invoice-editor';
 import { InvoiceView, PaymentsTable } from './invoice-view';
 import { BillingProfileForm } from './profile-form';
@@ -53,6 +53,7 @@ import {
   EditServiceDialog,
   GenerateDialog,
 } from './seller-dialogs';
+import { formatDay } from './money';
 import { SummaryCards, SummarySkeleton } from './summary';
 import { CreditTable, InvoiceTable, ServiceTable } from './tables';
 
@@ -198,7 +199,7 @@ function ServicesSection({
   canWrite: boolean;
   defaultTaxRateBp: number | undefined;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const services = useSellerServices(customer.org.id);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ServiceDto | null>(null);
@@ -210,7 +211,9 @@ function ServicesSection({
       success: (s) =>
         s.status === 'suspended'
           ? t('billing.service.suspended', { name: s.name })
-          : t('billing.service.resumed', { name: s.name }),
+          : s.nextBillingAt
+            ? t('billing.service.resumedOn', { name: s.name, date: formatDay(s.nextBillingAt, locale) })
+            : t('billing.service.resumed', { name: s.name }),
       invalidate: [billingKeys.all],
     },
   );
@@ -281,6 +284,7 @@ function ServicesSection({
                       ) : (
                         <MenuItem
                           icon={<Play />}
+                          hint={t('billing.service.resumeHint')}
                           onSelect={() => setStatus.mutate({ service: s, status: 'active' })}
                         >
                           {t('billing.service.resume')}
@@ -398,7 +402,7 @@ export function SellerBillingPanel({ orgId }: { orgId: string }) {
   const { t } = useI18n();
   const customer = useSellerCustomer(orgId);
   const sellerOrgId = customer.data?.seller.orgId;
-  const canWrite = useSellerWrite(sellerOrgId);
+  const canWrite = customer.data?.can.write ?? false;
   const issuer = useIssuerOf(sellerOrgId ?? null, customer.isSuccess);
   const [section, setSection] = useTabParam(SECTIONS, 'invoices', 'billing');
   const [invoiceId, setInvoiceId, invoiceHref] = useInvoiceParam();

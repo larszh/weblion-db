@@ -64,7 +64,8 @@ Auswertung einer Anfrage:
 6. **Reseller**: Gehört die Organisation zu einem Reseller, gilt dessen Grenze (inkl. Module
    und Sperre) zusätzlich. Mitarbeitende des Resellers, die beim Kunden kein Mitglied sind,
    handeln dort mit ihrer Reseller-Rolle und -Policies, wenn diese
-   `reseller:customer:access` erlauben, und bleiben an beide Grenzen gebunden.
+   `reseller:customer:access` erlauben, und bleiben an beide Grenzen gebunden. Ist der
+   Reseller gesperrt, dürfen sie beim Kunden nur noch lesen (auch nicht bezahlen).
 
 Server, die man nicht sehen darf, liefern 404 statt 403, damit ihre Existenz nicht verraten
 wird.

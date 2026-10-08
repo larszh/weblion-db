@@ -105,10 +105,11 @@ export async function loadProfile(db: DbOrTx, orgId: string): Promise<BillingPro
   return db.query.billingProfiles.findFirst({ where: eq(billingProfiles.orgId, orgId) });
 }
 
+/** `issuer` is the seller's: its defaults apply while the organization has no profile. */
 export function toBillingProfileDto(
   orgId: string,
   profile: BillingProfile | null | undefined,
-  issuer: Pick<InvoiceIssuerSettings, 'defaultPaymentTermsDays'>,
+  issuer: Pick<InvoiceIssuerSettings, 'defaultPaymentTermsDays' | 'defaultCurrency'>,
 ): BillingProfileDto {
   return {
     orgId,
@@ -121,8 +122,8 @@ export function toBillingProfileDto(
     country: profile?.country ?? 'CH',
     email: profile?.email ?? null,
     vatId: profile?.vatId ?? null,
-    // Without a profile the ledger bills in CHF (see billingCurrency).
-    currency: profile?.currency ?? 'CHF',
+    // Without a profile the ledger bills in the seller's currency (see billingCurrency).
+    currency: profile?.currency ?? issuer.defaultCurrency,
     paymentTermsDays: profile?.paymentTermsDays ?? issuer.defaultPaymentTermsDays,
     taxRateBp: profile?.taxRateBp ?? null,
     updatedAt: iso(profile?.updatedAt),
@@ -247,6 +248,7 @@ export async function toInvoiceDetailDto(
     taxBreakdown: invoiceTotals(lines).breakdown,
     billingAddress,
     notes: invoice.notes,
+    voidReason: invoice.status === 'void' ? invoice.voidReason : null,
     payments: paymentRows.map((p) => paymentDtoFrom(p, { id: invoice.id, number: invoice.number })),
     can: {
       edit: sellerWrite && draft,
@@ -411,8 +413,17 @@ export function toProductDto(product: Product): ProductDto {
   };
 }
 
-/** Service DTOs with product and resource names, looked up in batches. */
-export async function serviceDtos(db: Database, rows: Service[]): Promise<ServiceDto[]> {
+/** Who looks at services: the seller sees its internal notes, the customer does not. */
+export interface ServiceView {
+  seller: boolean;
+}
+
+/**
+ * Service DTOs with product and resource names, looked up in batches. A resource name is
+ * only shown while the resource still belongs to the service's organization, or to one of
+ * its customers when that organization is a reseller billed for what it hands on.
+ */
+export async function serviceDtos(db: Database, rows: Service[], view: ServiceView): Promise<ServiceDto[]> {
   const ids = (type: string) => [
     ...new Set(rows.filter((s) => s.resourceType === type && s.resourceId).map((s) => s.resourceId!)),
   ];
@@ -426,36 +437,61 @@ export async function serviceDtos(db: Database, rows: Service[]): Promise<Servic
       : [],
     ids('server').length
       ? db
-          .select({ id: servers.id, name: servers.name })
+          .select({
+            id: servers.id,
+            name: servers.name,
+            orgId: projects.orgId,
+            parentOrgId: organizations.parentOrgId,
+          })
           .from(servers)
+          .innerJoin(projects, eq(projects.id, servers.projectId))
+          .innerJoin(organizations, eq(organizations.id, projects.orgId))
           .where(inArray(servers.id, ids('server')))
       : [],
     ids('domain').length
       ? db
-          .select({ id: domains.id, name: domains.name })
+          .select({
+            id: domains.id,
+            name: domains.name,
+            orgId: domains.orgId,
+            parentOrgId: organizations.parentOrgId,
+          })
           .from(domains)
+          .leftJoin(organizations, eq(organizations.id, domains.orgId))
           .where(inArray(domains.id, ids('domain')))
       : [],
     ids('webspace').length
       ? db
-          .select({ id: webspaces.id, name: webspaces.name })
+          .select({
+            id: webspaces.id,
+            name: webspaces.name,
+            orgId: webspaces.orgId,
+            parentOrgId: organizations.parentOrgId,
+          })
           .from(webspaces)
+          .leftJoin(organizations, eq(organizations.id, webspaces.orgId))
           .where(inArray(webspaces.id, ids('webspace')))
       : [],
   ]);
-  const names = new Map<string, string>(
-    [...productRows, ...serverRows, ...domainRows, ...webspaceRows].map((r) => [r.id, r.name]),
+  const productNames = new Map(productRows.map((r) => [r.id, r.name]));
+  const resources = new Map<string, { name: string; orgId: string | null; parentOrgId: string | null }>(
+    [...serverRows, ...domainRows, ...webspaceRows].map((r) => [r.id, r]),
   );
+  const resourceName = (s: Service) => {
+    const resource = resources.get(s.resourceId!);
+    const reached = resource && (resource.orgId === s.orgId || resource.parentOrgId === s.orgId);
+    return reached ? resource.name : null;
+  };
   return rows.map((s) => ({
     id: s.id,
     orgId: s.orgId,
-    product: s.productId ? { id: s.productId, name: names.get(s.productId) ?? s.name } : null,
+    product: s.productId ? { id: s.productId, name: productNames.get(s.productId) ?? s.name } : null,
     name: s.name,
     description: s.description,
     module: s.module,
     resource:
       s.resourceType && s.resourceId
-        ? { type: s.resourceType, id: s.resourceId, name: names.get(s.resourceId) ?? null }
+        ? { type: s.resourceType, id: s.resourceId, name: resourceName(s) }
         : null,
     unitPrice: s.unitPrice,
     quantity: s.quantity,
@@ -467,16 +503,16 @@ export async function serviceDtos(db: Database, rows: Service[]): Promise<Servic
     nextBillingAt: s.nextBillingAt,
     endsAt: s.endsAt,
     cancelledAt: iso(s.cancelledAt),
-    notes: s.notes,
+    notes: view.seller ? s.notes : null,
     createdAt: s.createdAt.toISOString(),
   }));
 }
 
-export async function toServiceDto(db: Database, service: Service): Promise<ServiceDto> {
-  return (await serviceDtos(db, [service]))[0]!;
+export async function toServiceDto(db: Database, service: Service, view: ServiceView): Promise<ServiceDto> {
+  return (await serviceDtos(db, [service], view))[0]!;
 }
 
-export async function listServices(db: Database, orgId: string): Promise<ServiceDto[]> {
+export async function listServices(db: Database, orgId: string, view: ServiceView): Promise<ServiceDto[]> {
   const rows = await db
     .select()
     .from(services)
@@ -485,7 +521,7 @@ export async function listServices(db: Database, orgId: string): Promise<Service
       sql`case ${services.status} when 'active' then 0 when 'suspended' then 1 else 2 end`,
       asc(services.name),
     );
-  return serviceDtos(db, rows);
+  return serviceDtos(db, rows, view);
 }
 
 /** Net monthly value of recurring services (yearly ones count with a twelfth). */

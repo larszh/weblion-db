@@ -24,6 +24,8 @@ import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { useServerContext } from '../context';
 
 type Draft = Omit<FirewallRule, 'pos'>;
+/** Proxmox only takes ports together with one of these protocols. */
+const hasPorts = (protocol: string | null | undefined) => protocol === 'tcp' || protocol === 'udp';
 const EMPTY: Draft = {
   direction: 'in',
   action: 'ACCEPT',
@@ -203,7 +205,13 @@ export function FirewallTab() {
               <Select
                 id="fw-proto"
                 value={draft.protocol ?? ''}
-                onChange={(e) => setDraft({ ...draft, protocol: e.target.value })}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    protocol: e.target.value,
+                    dport: hasPorts(e.target.value) ? draft.dport : '',
+                  })
+                }
               >
                 <option value="tcp">TCP</option>
                 <option value="udp">UDP</option>
@@ -211,12 +219,17 @@ export function FirewallTab() {
                 <option value="">{t('firewall.any')}</option>
               </Select>
             </Field>
-            <Field label={t('firewall.port')} hint={t('firewall.portHint')} htmlFor="fw-port">
+            <Field
+              label={t('firewall.port')}
+              hint={hasPorts(draft.protocol) ? t('firewall.portHint') : t('firewall.portNeedsProtocol')}
+              htmlFor="fw-port"
+            >
               <Input
                 id="fw-port"
                 value={draft.dport ?? ''}
                 onChange={(e) => setDraft({ ...draft, dport: e.target.value })}
-                placeholder="22,80,443"
+                placeholder={hasPorts(draft.protocol) ? '22,80,443' : t('firewall.any')}
+                disabled={!hasPorts(draft.protocol)}
                 className="font-mono"
               />
             </Field>

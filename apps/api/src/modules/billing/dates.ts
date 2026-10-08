@@ -70,6 +70,24 @@ export function nextBillingDate(current: string, interval: BillingInterval, star
   return addMonths(current, months, onAnchor ? anchor : d);
 }
 
+/**
+ * The first billing date on or after `today`, stepping on from `current` like the billing
+ * run does, so the day anchor stays. Used when a paused service resumes: the periods it
+ * was paused for are skipped, not billed late. One-off services keep their date, they
+ * are a single charge and not a period.
+ */
+export function resumeBillingDate(
+  current: string,
+  interval: BillingInterval,
+  startsAt: string,
+  today: string,
+): string {
+  if (INTERVAL_MONTHS[interval] === 0) return current;
+  let next = current;
+  while (next < today) next = nextBillingDate(next, interval, startsAt)!;
+  return next;
+}
+
 /** "2026-10-01" -> "01.10.2026" */
 export function formatDateCH(date: string | null | undefined): string {
   if (!date) return '';

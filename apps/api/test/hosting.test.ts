@@ -410,6 +410,41 @@ describe('admin inventory', () => {
     await admin.post(`/admin/domains/${free!.id}/assign`, { orgId: null });
   });
 
+  it('keeps a billed domain or web space with the organization that pays for it', async () => {
+    const [domain] = json<DomainDto[]>(await admin.get('/admin/domains?assigned=false&q=alpenblick'));
+    const [webspace] = json<WebspaceDto[]>(await admin.get('/admin/webspaces?assigned=false'));
+    const assign = (type: 'domains' | 'webspaces', id: string, orgId: string | null) =>
+      admin.post(`/admin/${type}/${id}/assign`, { orgId });
+    expect((await assign('domains', domain!.id, beispielOrgId)).statusCode).toBe(200);
+    expect((await assign('webspaces', webspace!.id, beispielOrgId)).statusCode).toBe(200);
+    const bill = async (resourceType: 'domain' | 'webspace', resourceId: string) => {
+      const res = await admin.post(`/billing/customers/${beispielOrgId}/services`, {
+        name: `Hosting ${resourceType}`,
+        unitPrice: 1500,
+        interval: 'monthly',
+        resourceType,
+        resourceId,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return json<{ id: string }>(res).id;
+    };
+    const billed = [await bill('domain', domain!.id), await bill('webspace', webspace!.id)];
+
+    // Neither to another organization nor back to the inventory while Beispiel GmbH pays for it.
+    for (const orgId of [musterOrgId, null]) {
+      const refused = await assign('domains', domain!.id, orgId);
+      expect(refused.statusCode).toBe(409);
+      expect(json(refused).error.message).toContain('"Hosting domain"');
+      expect((await assign('webspaces', webspace!.id, orgId)).statusCode).toBe(409);
+    }
+    const [kept] = json<DomainDto[]>(await admin.get('/admin/domains?q=alpenblick'));
+    expect(kept!.org).toMatchObject({ id: beispielOrgId });
+
+    for (const id of billed) expect((await admin.post(`/services/${id}/cancel`, {})).statusCode).toBe(200);
+    expect((await assign('domains', domain!.id, null)).statusCode).toBe(200);
+    expect((await assign('webspaces', webspace!.id, null)).statusCode).toBe(200);
+  });
+
   it('validates input and keeps customers out', async () => {
     const [domain] = json<DomainDto[]>(await admin.get('/admin/domains'));
     expect((await admin.post(`/admin/domains/${domain!.id}/assign`, { orgId: 'nope' })).statusCode).toBe(400);

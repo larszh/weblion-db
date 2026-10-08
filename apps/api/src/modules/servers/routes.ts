@@ -22,25 +22,33 @@ import {
 
 const idParams = z.object({ id: z.uuid() });
 
-const firewallRuleBody = z.object({
-  direction: z.enum(['in', 'out']),
-  action: z.enum(['ACCEPT', 'DROP', 'REJECT']),
-  enabled: z.boolean().default(true),
-  protocol: z.string().max(20).nullish(),
-  dport: z
-    .string()
-    .regex(/^[0-9,:\-]*$/)
-    .max(100)
-    .nullish(),
-  sport: z
-    .string()
-    .regex(/^[0-9,:\-]*$/)
-    .max(100)
-    .nullish(),
-  source: z.string().max(200).nullish(),
-  dest: z.string().max(200).nullish(),
-  comment: z.string().max(200).nullish(),
-});
+const PORT_PROTOCOLS = new Set(['tcp', 'udp']);
+
+const firewallRuleBody = z
+  .object({
+    direction: z.enum(['in', 'out']),
+    action: z.enum(['ACCEPT', 'DROP', 'REJECT']),
+    enabled: z.boolean().default(true),
+    protocol: z.string().max(20).nullish(),
+    dport: z
+      .string()
+      .regex(/^[0-9,:\-]*$/)
+      .max(100)
+      .nullish(),
+    sport: z
+      .string()
+      .regex(/^[0-9,:\-]*$/)
+      .max(100)
+      .nullish(),
+    source: z.string().max(200).nullish(),
+    dest: z.string().max(200).nullish(),
+    comment: z.string().max(200).nullish(),
+  })
+  // Proxmox only accepts ports together with a protocol that has them.
+  .refine((rule) => (!rule.dport && !rule.sport) || PORT_PROTOCOLS.has(rule.protocol?.toLowerCase() ?? ''), {
+    path: ['protocol'],
+    message: 'Ports need the protocol tcp or udp',
+  });
 
 export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db, access } = ctx;

@@ -64,8 +64,11 @@ export interface CreditPageDto {
 /** POST /billing/customers/:orgId/invoices/generate */
 export interface GenerateResult {
   invoice: InvoiceDetailDto | null;
-  /** Due services in another currency than the customer's billing currency. */
-  skipped?: { serviceId: string; name: string; currency: Currency }[];
+  /**
+   * Due services that were not billed and stay due: in another currency than the
+   * customer's (currency), or with an amount too high for the invoice (amount).
+   */
+  skipped?: { serviceId: string; name: string; currency: Currency; reason: 'currency' | 'amount' }[];
 }
 
 /** POST /invoices/:id/pay */

@@ -36,7 +36,14 @@ import { parse, parseStatements } from '../../lib/validation';
 import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from '../../providers/types';
 import { sendInvitationMail } from '../../mail/invitation';
 import { orgCounts, orgRef } from '../orgs/routes';
-import { assertDeletable, assertModulesWithin, createInvitation, uniqueSlug } from '../reseller/service';
+import {
+  assertDeletable,
+  assertModulesWithin,
+  assertNoLinkedService,
+  assertSellerChangeable,
+  createInvitation,
+  uniqueSlug,
+} from '../reseller/service';
 import { serverRowsQuery, toServerDto } from '../servers/service';
 
 const idParams = z.object({ id: z.uuid() });
@@ -131,6 +138,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     return {
       organizations: {
         customers: orgRows.find((r) => r.kind === 'customer')?.n ?? 0,
+        resellers: orgRows.find((r) => r.kind === 'reseller')?.n ?? 0,
         internal: orgRows.find((r) => r.kind === 'internal')?.n ?? 0,
       },
       users: userRows[0]?.n ?? 0,
@@ -415,6 +423,11 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!project) throw notFound('Project');
       orgId = project.orgId;
     }
+    const previous = server.projectId
+      ? await db.query.projects.findFirst({ where: eq(projects.id, server.projectId) })
+      : undefined;
+    // Another project of the same organization is fine, another owner is not while it is billed.
+    if ((previous?.orgId ?? null) !== orgId) await assertNoLinkedService(db, 'server', id, orgId);
     await db.update(servers).set({ projectId }).where(eq(servers.id, id));
     await audit.record(req, {
       action: projectId ? 'server.assign' : 'server.unassign',
@@ -546,6 +559,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       slug: org.slug,
       kind: org.kind,
       status: org.status,
+      suspendedBy: org.status === 'suspended' ? org.suspendedBy : null,
       createdAt: org.createdAt.toISOString(),
       boundary: org.boundary,
       notes: org.notes,
@@ -741,7 +755,10 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         : kindChanged
           ? defaultBoundary(kind)
           : undefined;
+    const sellerChanged = parentOrgId !== current.parentOrgId;
     const org = await db.transaction(async (tx) => {
+      // Credit, invoices and services belong to the seller that issued them.
+      if (sellerChanged) await assertSellerChangeable(tx, id);
       const [updated] = await tx
         .update(organizations)
         .set({
@@ -749,7 +766,10 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
           ...(body.kind ? { kind: body.kind } : {}),
           ...(body.parentOrgId !== undefined ? { parentOrgId: body.parentOrgId } : {}),
           ...(body.modules ? { modules } : {}),
-          ...(body.status ? { status: body.status } : {}),
+          // Staff can lift any suspension; one they set themselves the reseller can't lift.
+          ...(body.status
+            ? { status: body.status, suspendedBy: body.status === 'suspended' ? ('platform' as const) : null }
+            : {}),
           ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
           ...(boundary ? { boundary } : {}),
         })
@@ -774,6 +794,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         ...body,
         ...(kindChanged ? { previousKind: current.kind, boundaryReset: body.boundary === undefined } : {}),
         ...(body.parentOrgId !== undefined ? { previousParentOrgId: current.parentOrgId } : {}),
+        ...(body.status ? { previousStatus: current.status, previousSuspendedBy: current.suspendedBy } : {}),
         ...(removed.length > 0 && customers.length > 0 ? { modulesRemovedFromCustomers: removed } : {}),
       },
     });

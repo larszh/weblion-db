@@ -226,6 +226,25 @@ describe('server operations', () => {
     );
     expect((await admin.post(`/servers/${id}/power`, { action: 'explode' })).statusCode).toBe(400);
   });
+
+  it('only accepts firewall ports together with tcp or udp', async () => {
+    const rules = `/servers/${serverId('web-01')}/firewall/rules`;
+    const rule = { direction: 'in', action: 'ACCEPT', dport: '22' };
+    const icmp = await admin.post(rules, { ...rule, protocol: 'icmp' });
+    expect(icmp.statusCode).toBe(400);
+    expect(icmp.body).toContain('tcp or udp');
+    expect((await admin.post(rules, rule)).statusCode).toBe(400);
+    expect((await admin.post(rules, { ...rule, dport: null, sport: '53', protocol: null })).statusCode).toBe(
+      400,
+    );
+    expect((await admin.post(rules, { ...rule, protocol: 'tcp' })).statusCode).toBe(200);
+    expect((await admin.post(rules, { ...rule, dport: '', protocol: 'icmp' })).statusCode).toBe(200);
+    const firewall = json<{ rules: { protocol: string; dport: string | null }[] }>(
+      await admin.get(`/servers/${serverId('web-01')}/firewall`),
+    );
+    // New rules go first.
+    expect(firewall.rules.slice(0, 2).map((r) => r.protocol)).toEqual(['icmp', 'tcp']);
+  });
 });
 
 describe('administration', () => {

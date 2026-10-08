@@ -8,6 +8,7 @@ import {
   type OrgCounts,
   type OrgKind,
   type OrgStatus,
+  type SuspendedBy,
 } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { ApiError } from '@/lib/api';
@@ -95,13 +96,29 @@ export function KindBadge({ kind }: { kind: OrgKind }) {
   );
 }
 
-export function StatusBadge({ status }: { status: OrgStatus }) {
+/**
+ * Active or suspended, and by whom. A reseller (`viewer="reseller"`) is not told that it
+ * suspended a customer itself, only when weblion.one did.
+ */
+export function StatusBadge({
+  status,
+  suspendedBy,
+  viewer = 'platform',
+}: {
+  status: OrgStatus;
+  suspendedBy?: SuspendedBy | null;
+  viewer?: SuspendedBy;
+}) {
   const { t } = useI18n();
-  return (
-    <Badge tone={status === 'active' ? 'success' : 'danger'}>
-      {status === 'active' ? t('orgStatus.active') : t('orgStatus.suspended')}
-    </Badge>
-  );
+  const label =
+    status === 'active'
+      ? t('orgStatus.active')
+      : suspendedBy === 'platform'
+        ? t('admin.status.byPlatform')
+        : suspendedBy === 'reseller' && viewer === 'platform'
+          ? t('admin.status.byReseller')
+          : t('orgStatus.suspended');
+  return <Badge tone={status === 'active' ? 'success' : 'danger'}>{label}</Badge>;
 }
 
 /**

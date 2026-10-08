@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   DEFAULT_RESELLER_BOUNDARY,
   type AdminOrgDto,
@@ -9,8 +9,18 @@ import {
   type ServerDto,
   type WebspaceDto,
 } from '@weblion/shared';
-import { auditLogs, invitations, memberships, organizations } from '../src/db/schema';
-import { ADMIN, Client, createTestApp, json, type TestApp } from './helpers';
+import {
+  auditLogs,
+  creditTransactions,
+  invitations,
+  invoices,
+  memberships,
+  organizations,
+  payments,
+  services,
+} from '../src/db/schema';
+import { seedDemo } from '../src/db/seed';
+import { ADMIN, Client, DEMO_PASSWORD, createTestApp, json, type TestApp } from './helpers';
 
 let t: TestApp;
 let admin: Client;
@@ -84,6 +94,16 @@ describe('seed', () => {
     });
     // Still one unassigned demo server left for the admin inventory.
     expect(json<unknown[]>(await admin.get('/admin/servers?assigned=no')).length).toBeGreaterThan(0);
+    const stats = json<{ organizations: Record<string, number> }>(await admin.get('/admin/stats'));
+    expect(stats.organizations).toMatchObject({ resellers: 1, internal: 1 });
+  });
+
+  it('leaves spare servers alone when it runs again', async () => {
+    const spare = async () =>
+      json<{ id: string }[]>(await admin.get('/admin/servers?assigned=no')).map((s) => s.id);
+    const before = await spare();
+    await seedDemo(t.db, DEMO_PASSWORD);
+    expect(await spare()).toEqual(before);
   });
 });
 
@@ -96,8 +116,10 @@ describe('customers', () => {
       name: 'Bäckerei Huber',
       slug: 'baeckerei-huber',
       status: 'active',
+      suspendedBy: null,
       modules: ['servers', 'dns'],
       counts: { servers: 1, domains: 1, members: 1 },
+      currency: 'CHF',
     });
     expect(typeof list[0]!.balance).toBe('number');
     expect(list[0]!.openTotal).toBeGreaterThanOrEqual(0);
@@ -239,12 +261,22 @@ describe('customers', () => {
       // The customer's own members can still look, but not change anything.
       expect((await hanna.get(`/orgs/${huberId}/servers`)).statusCode).toBe(200);
       expect((await power(hanna)).statusCode).toBe(403);
-      // The reseller keeps its customer list, but can't operate or create anything.
+      // The reseller keeps its customer list and still looks into its customers, but can't
+      // operate or create anything.
       expect((await reto.get(`/orgs/${alpenId}/customers`)).statusCode).toBe(200);
-      expect((await power(reto)).statusCode).not.toBe(200);
+      expect(json<OrgDto>(await reto.get(`/orgs/${huberId}`))).toMatchObject({ access: 'reseller' });
+      expect(json<ServerDto[]>(await reto.get(`/orgs/${huberId}/servers`))).toHaveLength(1);
+      expect((await power(reto)).statusCode).toBe(403);
       expect((await reto.post(`/orgs/${alpenId}/customers`, { name: 'Gesperrt AG' })).statusCode).toBe(403);
       expect(
         (await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { notes: 'gesperrt' })).statusCode,
+      ).toBe(403);
+      // Its billing:* is for paying its own bills: in the customer it only reads.
+      const profile = await reto.get(`/orgs/${huberId}/billing/profile`);
+      expect(profile.statusCode).toBe(200);
+      expect(
+        (await reto.request('PUT', `/orgs/${huberId}/billing/profile`, { companyName: 'Gesperrt AG' }))
+          .statusCode,
       ).toBe(403);
     } finally {
       await admin.patch(`/admin/orgs/${alpenId}`, { status: 'active' });
@@ -253,7 +285,9 @@ describe('customers', () => {
     expect((await power(reto)).statusCode).toBe(200);
 
     // The reseller can suspend a customer itself.
-    await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { status: 'suspended' });
+    expect(
+      json(await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { status: 'suspended' })),
+    ).toMatchObject({ status: 'suspended', suspendedBy: 'reseller' });
     expect((await power(hanna)).statusCode).toBe(403);
     expect((await power(reto)).statusCode).toBe(403);
     expect(
@@ -262,6 +296,79 @@ describe('customers', () => {
       status: 'active',
     });
     expect((await power(hanna)).statusCode).toBe(200);
+  });
+
+  it('keeps a platform suspension out of the reseller’s hands', async () => {
+    const customer = () => reto.get(`/orgs/${alpenId}/customers/${huberId}`);
+    const setStatus = (status: string) => reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { status });
+    expect(
+      json<AdminOrgDto>(await admin.patch(`/admin/orgs/${huberId}`, { status: 'suspended' })),
+    ).toMatchObject({ status: 'suspended', suspendedBy: 'platform' });
+    try {
+      expect(json<ResellerCustomerDto>(await customer())).toMatchObject({
+        status: 'suspended',
+        suspendedBy: 'platform',
+      });
+      expect(json<OrgDto>(await hanna.get(`/orgs/${huberId}`))).toMatchObject({ suspendedBy: 'platform' });
+      for (const status of ['active', 'suspended']) {
+        const res = await setStatus(status);
+        expect(res.statusCode).toBe(409);
+        expect(json(res).error.message).toContain('Only weblion.one');
+      }
+      expect(await orgBySlug('baeckerei-huber')).toMatchObject({
+        status: 'suspended',
+        suspendedBy: 'platform',
+      });
+      // Everything else stays the reseller's to change.
+      expect(
+        (await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { notes: 'Stammkunde seit 2020' }))
+          .statusCode,
+      ).toBe(200);
+    } finally {
+      // Staff lift it, whoever set it.
+      expect(
+        json<AdminOrgDto>(await admin.patch(`/admin/orgs/${huberId}`, { status: 'active' })),
+      ).toMatchObject({ status: 'active', suspendedBy: null });
+    }
+
+    // Staff see a reseller suspension as such, and can take it over.
+    expect(json(await setStatus('suspended'))).toMatchObject({ suspendedBy: 'reseller' });
+    expect(json<AdminOrgDto>(await admin.get(`/admin/orgs/${huberId}`))).toMatchObject({
+      suspendedBy: 'reseller',
+    });
+    await admin.patch(`/admin/orgs/${huberId}`, { status: 'suspended' });
+    expect((await setStatus('active')).statusCode).toBe(409);
+    await admin.patch(`/admin/orgs/${huberId}`, { status: 'active' });
+    expect(json(await customer())).toMatchObject({ status: 'active', suspendedBy: null });
+  });
+
+  it('lets reseller staff manage the members of their customers', async () => {
+    // Created without an owner: the reseller invites one.
+    const empty = await orgBySlug('ohne-owner-gmbh');
+    const invite = (c: Client, role: string) =>
+      c.post(`/orgs/${empty.id}/invitations`, { email: `${role}@ohne-owner.example`, role });
+    const owner = await invite(reto, 'owner');
+    expect(owner.statusCode, owner.body).toBe(200);
+    // A reseller admin hands out roles below its own, like an admin member does.
+    const alpenAdmin = await staffClient('admin@alpen.example', alpenId, 'admin');
+    expect((await invite(alpenAdmin, 'owner')).statusCode).toBe(403);
+    expect((await invite(alpenAdmin, 'member')).statusCode).toBe(200);
+
+    // Changing and removing a member of a customer.
+    await admin.post('/admin/users', {
+      email: 'verkauf@baeckerei.example',
+      name: 'Verkauf',
+      orgId: huberId,
+      orgRole: 'member',
+    });
+    const members = json<{ membershipId: string; email: string }[]>(
+      await reto.get(`/orgs/${huberId}/members`),
+    );
+    const member = members.find((m) => m.email === 'verkauf@baeckerei.example')!;
+    const changed = await reto.patch(`/orgs/${huberId}/members/${member.membershipId}`, { role: 'viewer' });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(json(changed)).toMatchObject({ role: 'viewer' });
+    expect((await reto.del(`/orgs/${huberId}/members/${member.membershipId}`)).statusCode).toBe(200);
   });
 
   it('lets a reseller API token reach its customers but no platform routes', async () => {
@@ -358,6 +465,70 @@ describe('admin organizations', () => {
     await admin.patch(`/admin/orgs/${seilbahn.id}`, { modules: ['servers', 'dns'] });
     await admin.patch(`/admin/orgs/${berg.id}`, { modules: ['servers'] });
     expect((await orgBySlug('seilbahn-ag')).modules).toEqual(['servers']);
+  });
+
+  it('refuses a reseller change while billing is open with the current seller', async () => {
+    const berg = await orgBySlug('berg-it');
+    const org = json<AdminOrgDto>(await admin.post('/admin/orgs', { name: 'Kredit AG' }));
+    const move = (parentOrgId: string | null) => admin.patch(`/admin/orgs/${org.id}`, { parentOrgId });
+    const refused = async (parentOrgId: string | null, details: object) => {
+      const res = await move(parentOrgId);
+      expect(res.statusCode, res.body).toBe(409);
+      expect(json(res).error.details).toEqual({
+        balance: 0,
+        currency: 'CHF',
+        invoices: 0,
+        payments: 0,
+        services: 0,
+        ...details,
+      });
+      return json(res).error.message as string;
+    };
+
+    // Credit from a top-up the platform received.
+    const credit = (amount: number) =>
+      t.db.insert(creditTransactions).values({
+        orgId: org.id,
+        amount,
+        currency: 'CHF',
+        type: amount > 0 ? 'topup' : 'adjustment',
+        description: 'Test',
+      });
+    await credit(5000);
+    expect(await refused(berg.id, { balance: 5000 })).toContain('credit balance of CHF');
+    await credit(-5000);
+
+    const [draft] = await t.db.insert(invoices).values({ orgId: org.id }).returning();
+    await refused(berg.id, { invoices: 1 });
+    await t.db.update(invoices).set({ status: 'void' }).where(eq(invoices.id, draft!.id));
+
+    const [payment] = await t.db
+      .insert(payments)
+      .values({ orgId: org.id, provider: 'stripe', method: 'twint', amount: 10000, currency: 'CHF' })
+      .returning();
+    await refused(berg.id, { payments: 1 });
+    await t.db.update(payments).set({ status: 'failed' }).where(eq(payments.id, payment!.id));
+
+    const [service] = await t.db
+      .insert(services)
+      .values({
+        orgId: org.id,
+        name: 'Cloud Server S',
+        unitPrice: 1900,
+        interval: 'monthly',
+        startsAt: '2026-01-01',
+        status: 'suspended',
+      })
+      .returning();
+    await refused(berg.id, { services: 1 });
+    await t.db.update(services).set({ status: 'cancelled' }).where(eq(services.id, service!.id));
+
+    // Settled: the move goes through, history stays.
+    expect(json<AdminOrgDto>(await move(berg.id)).parent?.id).toBe(berg.id);
+    // And the same in the other direction.
+    await credit(1000);
+    await refused(null, { balance: 1000 });
+    expect((await orgBySlug('kredit-ag')).parentOrgId).toBe(berg.id);
   });
 });
 
@@ -514,5 +685,138 @@ describe('resource moves', () => {
     expect(after.pool.domains).toHaveLength(1);
     // Now the empty customer can be deleted again.
     expect((await reto.del(`/orgs/${alpenId}/customers/${metzgereiId}`)).statusCode).toBe(200);
+  });
+
+  it('keeps resources a service bills for where they are', async () => {
+    const huber = json<Resources>(await reto.get(`/orgs/${alpenId}/customers/${huberId}/resources`));
+    const server = huber.servers[0]!;
+    const domain = huber.domains[0]!;
+    const linked = await t.db
+      .insert(services)
+      .values([
+        {
+          orgId: huberId,
+          name: 'Cloud Server S',
+          resourceType: 'server' as const,
+          resourceId: server.id,
+          unitPrice: 1900,
+          interval: 'monthly' as const,
+          startsAt: '2026-01-01',
+        },
+        {
+          orgId: huberId,
+          name: 'Domain baeckerei-huber.ch',
+          resourceType: 'domain' as const,
+          resourceId: domain.id,
+          unitPrice: 1500,
+          interval: 'yearly' as const,
+          startsAt: '2026-01-01',
+        },
+      ])
+      .returning();
+    const release = (body: object) =>
+      reto.post(`/orgs/${alpenId}/customers/${huberId}/resources/release`, body);
+    const sibling = json<{ customer: ResellerCustomerDto }>(
+      await reto.post(`/orgs/${alpenId}/customers`, { name: 'Konditorei Süss' }),
+    ).customer;
+
+    const refused = await release({ type: 'server', id: server.id });
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error.message).toContain('"Cloud Server S"');
+    expect((await release({ type: 'domain', id: domain.id })).statusCode).toBe(409);
+    expect(
+      (
+        await reto.post(`/orgs/${alpenId}/customers/${sibling.id}/resources`, {
+          type: 'server',
+          id: server.id,
+        })
+      ).statusCode,
+    ).toBe(409);
+    // Staff assignments to another organization are held back as well.
+    const alpenProject = json<{ projects: { id: string }[] }>(await admin.get(`/admin/orgs/${alpenId}`))
+      .projects[0]!.id;
+    expect(
+      (await admin.post(`/admin/servers/${server.id}/assign`, { projectId: alpenProject })).statusCode,
+    ).toBe(409);
+    expect((await admin.post(`/admin/servers/${server.id}/assign`, { projectId: null })).statusCode).toBe(
+      409,
+    );
+    // Within the organization it can still move between projects.
+    expect(
+      (await admin.post(`/admin/servers/${server.id}/assign`, { projectId: server.projectId })).statusCode,
+    ).toBe(200);
+
+    // Once the services are cancelled, the resources move again.
+    await t.db
+      .update(services)
+      .set({ status: 'cancelled' })
+      .where(
+        inArray(
+          services.id,
+          linked.map((s) => s.id),
+        ),
+      );
+    expect((await release({ type: 'server', id: server.id })).statusCode).toBe(200);
+    expect(
+      (await reto.post(`/orgs/${alpenId}/customers/${huberId}/resources`, { type: 'server', id: server.id }))
+        .statusCode,
+    ).toBe(200);
+    expect((await reto.del(`/orgs/${alpenId}/customers/${sibling.id}`)).statusCode).toBe(200);
+  });
+
+  it('hands on a resource the platform bills the reseller for', async () => {
+    const resources = () => reto.get(`/orgs/${alpenId}/customers/${huberId}/resources`);
+    const poolServer = json<Resources>(await resources()).pool.servers[0]!;
+    const created = await admin.post(`/billing/customers/${alpenId}/services`, {
+      name: 'Wholesale Server',
+      unitPrice: 1200,
+      interval: 'monthly',
+      resourceType: 'server',
+      resourceId: poolServer.id,
+    });
+    expect(created.statusCode, created.body).toBe(200);
+    const wholesale = json<{ id: string }>(created);
+
+    // The reseller keeps paying for it: to a customer and back is fine.
+    const assign = await reto.post(`/orgs/${alpenId}/customers/${huberId}/resources`, {
+      type: 'server',
+      id: poolServer.id,
+    });
+    expect(assign.statusCode, assign.body).toBe(200);
+    const atHuber = json<Resources>(await resources()).servers.find((s) => s.id === poolServer.id)!;
+    expect(
+      json<{ id: string; resource: { name: string | null } }[]>(
+        await admin.get(`/billing/customers/${alpenId}/services`),
+      ).find((s) => s.id === wholesale.id)!.resource,
+    ).toMatchObject({ name: atHuber.name });
+    const release = await reto.post(`/orgs/${alpenId}/customers/${huberId}/resources/release`, {
+      type: 'server',
+      id: poolServer.id,
+    });
+    expect(release.statusCode, release.body).toBe(200);
+
+    // Staff may hand it to a customer of the reseller too, but not to anyone else.
+    const huberProject = json<{ projects: { id: string }[] }>(await admin.get(`/admin/orgs/${huberId}`))
+      .projects[0]!.id;
+    const musterProject = json<{ projects: { id: string }[] }>(await admin.get(`/admin/orgs/${musterOrgId}`))
+      .projects[0]!.id;
+    expect(
+      (await admin.post(`/admin/servers/${poolServer.id}/assign`, { projectId: huberProject })).statusCode,
+    ).toBe(200);
+    const elsewhere = await admin.post(`/admin/servers/${poolServer.id}/assign`, {
+      projectId: musterProject,
+    });
+    expect(elsewhere.statusCode).toBe(409);
+    expect(json(elsewhere).error.message).toContain('"Wholesale Server"');
+
+    await admin.post(`/services/${wholesale.id}/cancel`, {});
+    expect(
+      (
+        await reto.post(`/orgs/${alpenId}/customers/${huberId}/resources/release`, {
+          type: 'server',
+          id: poolServer.id,
+        })
+      ).statusCode,
+    ).toBe(200);
   });
 });

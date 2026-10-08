@@ -751,3 +751,73 @@ describe('other Checkout outcomes', () => {
     expect(payment).toMatchObject({ status: 'succeeded', reference: `pi_${polled.sessionId}` });
   });
 });
+
+describe('a billing currency change while a payment is pending', () => {
+  it('is refused, and a payment that arrives in the old currency anyway is still booked', async () => {
+    const [org] = await t.db
+      .insert(organizations)
+      .values({
+        name: 'Wechsel AG',
+        slug: 'wechsel-ag',
+        kind: 'customer',
+        boundary: DEFAULT_CUSTOMER_BOUNDARY,
+      })
+      .returning();
+    const [owner] = await t.db
+      .insert(users)
+      .values({
+        email: 'wanda@wechsel.example',
+        name: 'Wanda Wechsel',
+        passwordHash: await hashPassword(DEMO_PASSWORD),
+      })
+      .returning();
+    await t.db.insert(memberships).values({ orgId: org!.id, userId: owner!.id, role: 'owner' });
+    const wanda = new Client(t.app);
+    await wanda.login('wanda@wechsel.example');
+
+    const invoice = await invoiceFor(org!.id, 10000);
+    const start = json<{ paymentId: string }>(
+      await wanda.post(`/invoices/${invoice.id}/pay`, { method: 'card' }),
+    );
+    const sessionId = (await paymentRow(start.paymentId)).externalId!;
+    const change = await admin.request('PUT', `/billing/customers/${org!.id}/profile`, {
+      companyName: 'Wechsel AG',
+      currency: 'EUR',
+    });
+    expect(change.statusCode).toBe(409);
+    expect(json<{ error: { message: string } }>(change).error.message).toContain('1 pending payment(s)');
+
+    // Part of it arrives by bank transfer, then the currency changes behind the API's back.
+    expect(
+      (await admin.post(`/invoices/${invoice.id}/mark-paid`, { amount: 810, method: 'bank_transfer' }))
+        .statusCode,
+    ).toBe(200);
+    await t.db
+      .insert(billingProfiles)
+      .values({ orgId: org!.id, currency: 'EUR' })
+      .onConflictDoUpdate({ target: billingProfiles.orgId, set: { currency: 'EUR' } });
+
+    // Stripe charged the full amount: the invoice is paid, the 8.10 left over can't become
+    // EUR credit, so it is noted for staff instead of failing the webhook forever.
+    expect((await webhook('checkout.session.completed', paid(sessionId))).statusCode).toBe(200);
+    expect(await paymentRow(start.paymentId)).toMatchObject({ status: 'succeeded' });
+    expect((await paymentRow(start.paymentId)).error).toContain('could not be booked as credit');
+    expect(await invoiceRow(invoice.id)).toMatchObject({ status: 'paid', amountPaid: invoice.total });
+    expect(await t.db.select().from(creditTransactions).where(eq(creditTransactions.orgId, org!.id))).toEqual(
+      [],
+    );
+    const [unbooked] = await t.db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.action, 'payment.unbooked'), eq(auditLogs.resourceId, start.paymentId)));
+    expect(unbooked).toMatchObject({ status: 'failure', orgId: org!.id });
+    expect(unbooked!.details).toMatchObject({ unbooked: 810, currency: 'CHF' });
+
+    // Nothing pending, open or credited anymore: now the currency may change.
+    const later = await admin.request('PUT', `/billing/customers/${org!.id}/profile`, {
+      companyName: 'Wechsel AG',
+      currency: 'CHF',
+    });
+    expect(later.statusCode, later.body).toBe(200);
+  });
+});

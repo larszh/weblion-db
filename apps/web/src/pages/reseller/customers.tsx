@@ -30,7 +30,6 @@ import {
   useMoveResource,
   useResellerCustomer,
   useResellerCustomers,
-  useResellerIssuer,
   useUpdateResellerCustomer,
   type CustomerResources,
   type ResellerCustomerCreated,
@@ -206,8 +205,6 @@ function CustomerList() {
   const [creating, setCreating] = useState(false);
   const customers = useResellerCustomers(org.id);
   const billing = can('reseller:billing');
-  const issuer = useResellerIssuer(org.id, billing);
-  const currency = issuer.data?.defaultCurrency ?? 'CHF';
   const needle = q.trim().toLowerCase();
   const rows = (customers.data ?? []).filter(
     (c) => !needle || c.name.toLowerCase().includes(needle) || c.slug.includes(needle),
@@ -285,7 +282,7 @@ function CustomerList() {
                     <Mono className="block whitespace-nowrap text-subtle">{c.slug}</Mono>
                   </TD>
                   <TD>
-                    <StatusBadge status={c.status} />
+                    <StatusBadge status={c.status} suspendedBy={c.suspendedBy} viewer="reseller" />
                   </TD>
                   <TD className="hidden md:table-cell">
                     <ModuleBadges modules={c.modules} empty={t('admin.modules.none')} />
@@ -295,14 +292,14 @@ function CustomerList() {
                   </TD>
                   {billing && (
                     <TD className="text-right whitespace-nowrap tabular">
-                      {formatMoney(c.balance, currency, locale)}
+                      {formatMoney(c.balance, c.currency, locale)}
                     </TD>
                   )}
                   {billing && (
                     <TD
                       className={`text-right whitespace-nowrap tabular ${c.openTotal > 0 ? 'font-medium text-warning' : 'text-muted'}`}
                     >
-                      {formatMoney(c.openTotal, currency, locale)}
+                      {formatMoney(c.openTotal, c.currency, locale)}
                     </TD>
                   )}
                 </TR>
@@ -352,8 +349,7 @@ function OverviewTab({ customer }: { customer: ResellerCustomerDto }) {
   const { org, can } = useOrg();
   const canWrite = can('reseller:customer:write');
   const billing = can('reseller:billing');
-  const issuer = useResellerIssuer(org.id, billing);
-  const currency = issuer.data?.defaultCurrency ?? 'CHF';
+  const currency = customer.currency;
   const update = useUpdateResellerCustomer(org.id, customer.id, t('common.saved'));
   const [notes, setNotes] = useState<string | null>(null);
   const [disabling, setDisabling] = useState<ModuleKey | null>(null);
@@ -406,7 +402,16 @@ function OverviewTab({ customer }: { customer: ResellerCustomerDto }) {
           <CardBody className="py-1">
             <KeyValue
               items={[
-                { label: t('orgSettings.status'), value: <StatusBadge status={customer.status} /> },
+                {
+                  label: t('orgSettings.status'),
+                  value: (
+                    <StatusBadge
+                      status={customer.status}
+                      suspendedBy={customer.suspendedBy}
+                      viewer="reseller"
+                    />
+                  ),
+                },
                 {
                   label: t('nav.servers'),
                   value: <span className="tabular">{customer.counts.servers}</span>,
@@ -695,6 +700,8 @@ function CustomerDetail({ customer }: { customer: ResellerCustomerDto }) {
   const update = useUpdateResellerCustomer(org.id, customer.id, t('common.saved'));
   const [toggling, setToggling] = useState(false);
   const suspended = customer.status === 'suspended';
+  // Only weblion.one lifts a suspension it set.
+  const platformSuspended = suspended && customer.suspendedBy === 'platform';
   const tabs = [
     { value: 'overview' as DetailTab, label: t('admin.tab.overview'), icon: <LayoutDashboard /> },
     { value: 'resources' as DetailTab, label: t('admin.tab.resources'), icon: <Layers /> },
@@ -714,7 +721,7 @@ function CustomerDetail({ customer }: { customer: ResellerCustomerDto }) {
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
             <Mono>{customer.slug}</Mono>
-            <StatusBadge status={customer.status} />
+            <StatusBadge status={customer.status} suspendedBy={customer.suspendedBy} viewer="reseller" />
           </span>
         }
         actions={
@@ -727,7 +734,7 @@ function CustomerDetail({ customer }: { customer: ResellerCustomerDto }) {
                 <ExternalLink className="size-4" /> {t('admin.reseller.openPanel')}
               </Link>
             )}
-            {canWrite && (
+            {canWrite && !platformSuspended && (
               <Button variant={suspended ? 'primary' : 'danger-soft'} onClick={() => setToggling(true)}>
                 {suspended ? t('customers.reactivate') : t('customers.suspend')}
               </Button>
@@ -737,7 +744,7 @@ function CustomerDetail({ customer }: { customer: ResellerCustomerDto }) {
       />
       {suspended && (
         <Notice tone="danger" className="mb-6">
-          {t('customers.suspendedHint')}
+          {platformSuspended ? t('admin.reseller.platformSuspended') : t('customers.suspendedHint')}
         </Notice>
       )}
       <TabBar label={customer.name} tabs={tabs} current={tab} onChange={setTab} />

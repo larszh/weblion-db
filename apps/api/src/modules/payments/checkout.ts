@@ -195,6 +195,24 @@ export async function applyCheckoutOutcome(
         credited: settled.credited,
       },
     });
+    if (settled.unbooked > 0) {
+      // Received but not booked: the customer's credit is kept in another currency now.
+      ctx.log.error(
+        { paymentId: payment.id, unbooked: settled.unbooked, currency: payment.currency },
+        'payment could not be booked as credit',
+      );
+      await ctx.audit.record(req, {
+        ...auditBase,
+        action: 'payment.unbooked',
+        status: 'failure',
+        details: {
+          invoiceId: payment.invoiceId,
+          unbooked: settled.unbooked,
+          currency: payment.currency,
+          error: settled.payment.error,
+        },
+      });
+    }
     inBackground(ctx, 'payment mail', async () => {
       await sendPaymentReceivedMail(ctx, payment.id);
     });

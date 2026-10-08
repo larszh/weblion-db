@@ -15,6 +15,13 @@
       "when": 1791373841514,
       "tag": "0001_billing_reseller_hosting",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791445834944,
+      "tag": "0002_org_suspended_by",
+      "breakpoints": true
     }
   ]
 }

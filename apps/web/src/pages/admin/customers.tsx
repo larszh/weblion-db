@@ -14,13 +14,14 @@ import {
   DEFAULT_MODULES,
   MODULE_DEFS,
   ORG_KINDS,
+  formatMoney,
   type AdminOrgDto,
   type ModuleKey,
   type OrgKind,
   type Permission,
   type PolicyStatement,
 } from '@weblion/shared';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { formatDate } from '@/lib/format';
 import { qk, useAdminOrg, useAdminServers, useApiMutation, useMe, useMeta } from '@/lib/queries';
@@ -35,7 +36,6 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
 import {
-  Badge,
   Card,
   CardBody,
   CardHeader,
@@ -331,7 +331,9 @@ export function CustomersPage() {
                   <TD>
                     <div className="flex flex-wrap gap-1">
                       <KindBadge kind={o.kind} />
-                      {o.status === 'suspended' && <Badge tone="danger">{t('orgStatus.suspended')}</Badge>}
+                      {o.status === 'suspended' && (
+                        <StatusBadge status={o.status} suspendedBy={o.suspendedBy} />
+                      )}
                     </div>
                     {o.kind === 'reseller' && (
                       <span className="mt-0.5 block text-xs whitespace-nowrap text-muted">
@@ -578,6 +580,44 @@ function ModulesCard({
   );
 }
 
+/** Open billing with the current seller, as a 409 on a reseller change carries it. */
+interface MoveBlockerDetails {
+  balance: number;
+  currency: string;
+  invoices: number;
+  payments: number;
+  services: number;
+}
+
+/** Explains why the reseller can't change (409 with open billing), nothing for other errors. */
+function MoveBlockers({ error }: { error: unknown }) {
+  const { t, locale } = useI18n();
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const details = error.details as Partial<MoveBlockerDetails> | null;
+  if (!details || typeof details !== 'object' || typeof details.balance !== 'number') return null;
+  const items = [
+    details.balance
+      ? t('admin.orgs.moveBlocker.balance', {
+          amount: formatMoney(details.balance, details.currency ?? 'CHF', locale),
+        })
+      : null,
+    details.invoices ? t('admin.orgs.moveBlocker.invoices', { n: details.invoices }) : null,
+    details.payments ? t('admin.orgs.moveBlocker.payments', { n: details.payments }) : null,
+    details.services ? t('admin.orgs.moveBlocker.services', { n: details.services }) : null,
+  ].filter((item): item is string => item !== null);
+  if (items.length === 0) return null;
+  return (
+    <Notice tone="danger" title={t('admin.orgs.moveBlocked')}>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <p className="mt-2">{t('admin.orgs.moveBlockedHint')}</p>
+    </Notice>
+  );
+}
+
 /** Which reseller a customer belongs to. Moving it changes who bills and manages it. */
 function ResellerCard({
   org,
@@ -601,7 +641,10 @@ function ResellerCard({
       <CardBody className="space-y-3">
         <Select
           value={parentId}
-          onChange={(e) => setParentId(e.target.value)}
+          onChange={(e) => {
+            setParentId(e.target.value);
+            update.reset();
+          }}
           disabled={!canWrite || !resellers}
           aria-label={t('admin.orgs.reseller')}
         >
@@ -615,6 +658,8 @@ function ResellerCard({
         {missing.length > 0 && (
           <Notice tone="warning">{t('admin.orgs.moveMissing', { name: target?.name ?? '' })}</Notice>
         )}
+        {canWrite && <p className="text-xs text-muted">{t('admin.orgs.moveBillingHint')}</p>}
+        <MoveBlockers error={update.error} />
         {canWrite && (
           <Button
             size="sm"
@@ -680,7 +725,7 @@ function ResellerCustomersCard({ org, canWrite }: { org: DetailOrg; canWrite: bo
                   <Mono className="block whitespace-nowrap text-subtle">{c.slug}</Mono>
                 </TD>
                 <TD>
-                  <StatusBadge status={c.status} />
+                  <StatusBadge status={c.status} suspendedBy={c.suspendedBy} />
                 </TD>
                 <TD className="hidden md:table-cell">
                   <ModuleBadges modules={c.modules} empty={t('admin.modules.none')} />
@@ -731,7 +776,7 @@ function InfoCard({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
         )}
         <div className="flex justify-between gap-3">
           <span className="text-muted">{t('orgSettings.status')}</span>
-          <StatusBadge status={org.status} />
+          <StatusBadge status={org.status} suspendedBy={org.suspendedBy} />
         </div>
         <div className="flex justify-between gap-3">
           <span className="text-muted">{t('nav.projects')}</span>
@@ -955,6 +1000,14 @@ function CustomerDetail({ org }: { org: DetailOrg }) {
       {suspended && (
         <Notice tone="danger" className="mb-6">
           {t('customers.suspendedHint')}
+          {org.parent && org.suspendedBy && (
+            <>
+              {' '}
+              {org.suspendedBy === 'platform'
+                ? t('admin.orgs.suspendedByPlatform')
+                : t('admin.orgs.suspendedByReseller', { name: org.parent.name })}
+            </>
+          )}
         </Notice>
       )}
       <TabBar label={org.name} tabs={tabs} current={tab} onChange={setTab} />

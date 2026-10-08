@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, exists, isNotNull, isNull, notExists, or, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { isIBANValid } from 'swissqrbill/utils';
 import {
@@ -7,8 +7,16 @@ import {
   type BillingSettingsDto,
   type InvoiceIssuerSettings,
 } from '@weblion/shared';
-import type { DbOrTx } from '../../db/client';
-import { billingProfiles, organizations, settings } from '../../db/schema';
+import type { DbOrTx, Tx } from '../../db/client';
+import {
+  billingProfiles,
+  creditTransactions,
+  invoices,
+  organizations,
+  payments,
+  services,
+  settings,
+} from '../../db/schema';
 
 /**
  * Who issues invoices and how they look. The platform keeps its settings in the settings
@@ -159,7 +167,9 @@ export async function resellerIssuer(db: DbOrTx, resellerOrgId: string): Promise
     vatId: profile?.vatId ?? null,
     invoicePrefix: defaultPrefix(org?.slug ?? ''),
     defaultTaxRateBp: platform.issuer.defaultTaxRateBp,
-    defaultCurrency: profile?.currency ?? platform.issuer.defaultCurrency,
+    // Not the currency the reseller itself is billed in: changing that must not switch the
+    // currency of its customers without a profile.
+    defaultCurrency: platform.issuer.defaultCurrency,
   };
   return profile?.issuer ? { ...derived, ...profile.issuer } : derived;
 }
@@ -178,6 +188,65 @@ function defaultPrefix(slug: string): string {
 export async function issuerSettings(db: DbOrTx, issuerOrgId: string | null): Promise<InvoiceIssuerSettings> {
   if (!issuerOrgId) return (await getBillingSettings(db)).issuer;
   return resellerIssuer(db, issuerOrgId);
+}
+
+/**
+ * Customers without a billing profile are billed in their seller's default currency. When
+ * a seller changes that default, its customers that already have services, invoices,
+ * payments or credit keep the old currency (stored in a new profile), so nothing they owe
+ * or have changes currency under them. For the platform (null) that includes customers of
+ * resellers that never saved issuer settings, whose default comes from the platform.
+ * Returns how many customers were pinned.
+ */
+export async function keepCustomerCurrencies(
+  tx: Tx,
+  sellerOrgId: string | null,
+  before: Pick<InvoiceIssuerSettings, 'defaultCurrency' | 'defaultPaymentTermsDays'>,
+): Promise<number> {
+  const profileOf = (orgId: typeof organizations.id) =>
+    tx
+      .select({ one: sql`1` })
+      .from(billingProfiles)
+      .where(eq(billingProfiles.orgId, orgId));
+  const issuerSavedBy = (orgId: typeof organizations.parentOrgId) =>
+    tx
+      .select({ one: sql`1` })
+      .from(billingProfiles)
+      .where(and(eq(billingProfiles.orgId, orgId), isNotNull(billingProfiles.issuer)));
+  const used = (table: typeof services | typeof invoices | typeof payments | typeof creditTransactions) =>
+    exists(
+      tx
+        .select({ one: sql`1` })
+        .from(table)
+        .where(eq(table.orgId, organizations.id)),
+    );
+  /** Pins the customers matching `customersOf` with the payment terms they have now. */
+  const pin = async (customersOf: SQL | undefined, paymentTermsDays: number): Promise<number> => {
+    const customers = await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(
+        and(
+          customersOf,
+          notExists(profileOf(organizations.id)),
+          or(used(services), used(invoices), used(payments), used(creditTransactions)),
+        ),
+      );
+    if (customers.length === 0) return 0;
+    await tx
+      .insert(billingProfiles)
+      .values(customers.map((c) => ({ orgId: c.id, currency: before.defaultCurrency, paymentTermsDays })))
+      .onConflictDoNothing();
+    return customers.length;
+  };
+  if (sellerOrgId) return pin(eq(organizations.parentOrgId, sellerOrgId), before.defaultPaymentTermsDays);
+  // Sequential on purpose: a transaction runs one query at a time.
+  const platform = await pin(isNull(organizations.parentOrgId), before.defaultPaymentTermsDays);
+  const derived = await pin(
+    and(isNotNull(organizations.parentOrgId), notExists(issuerSavedBy(organizations.parentOrgId))),
+    DEFAULT_ISSUER.defaultPaymentTermsDays,
+  );
+  return platform + derived;
 }
 
 /** Memoized issuer names for building many DTOs in one request. */

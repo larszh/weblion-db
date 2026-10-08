@@ -30,6 +30,8 @@ export const adminEn: Record<keyof typeof adminDe, string> = {
     "Members of {name} can only read afterwards, also at this reseller's customers. Servers and web spaces keep running.",
   'admin.status.activateTitle': 'Reactivate customer?',
   'admin.status.activateText': '{name} can do everything their roles and policies allow again.',
+  'admin.status.byPlatform': 'Suspended by weblion.one',
+  'admin.status.byReseller': 'Suspended by the reseller',
 
   // Invitations
   'admin.invite.link': 'Invitation link for the owner (valid for 14 days):',
@@ -73,6 +75,8 @@ export const adminEn: Record<keyof typeof adminDe, string> = {
   'admin.reseller.modulesText': 'The customer only sees active modules in their console.',
   'admin.reseller.moduleMissing': 'Not active for your organization.',
   'admin.reseller.openPanel': 'Open customer panel',
+  'admin.reseller.platformSuspended':
+    'weblion.one suspended this customer. Only weblion.one can lift the suspension. Contact support if you have questions.',
   'admin.reseller.deleteText':
     'Only possible when no resources, invoices or services are attached any more. Members lose access.',
 
@@ -98,7 +102,7 @@ export const adminEn: Record<keyof typeof adminDe, string> = {
   'admin.resources.release': 'Release',
   'admin.resources.releaseTitle': 'Release resource?',
   'admin.resources.releaseText':
-    '{name} goes back to your stock. {customer} loses access to it. Running services in billing stay as they are.',
+    '{name} goes back to your stock. {customer} loses access to it. If a service bills for it, cancel the service first.',
   'admin.resources.released': 'Released',
 
   // Admin: organizations
@@ -123,6 +127,18 @@ export const adminEn: Record<keyof typeof adminDe, string> = {
   'admin.orgs.moduleMissing': '{name} does not have this module.',
   'admin.orgs.resellerText': "A reseller's customers are managed and billed by the reseller.",
   'admin.orgs.resellerSaved': 'Reseller changed',
+  'admin.orgs.moveBillingHint':
+    'A change is only possible when nothing is left with the current invoice issuer: no credit, no open or draft invoices, no pending payments and no active services.',
+  'admin.orgs.moveBlocked': 'Cannot change, still open with the current invoice issuer:',
+  'admin.orgs.moveBlocker.balance': 'Credit: {amount}',
+  'admin.orgs.moveBlocker.invoices': 'Open and draft invoices: {n}',
+  'admin.orgs.moveBlocker.payments': 'Pending payments: {n}',
+  'admin.orgs.moveBlocker.services': 'Active or paused services: {n}',
+  'admin.orgs.moveBlockedHint':
+    'Settle or void the invoices, refund or use up the credit and cancel the services. The new invoice issuer can then add new services.',
+  'admin.orgs.suspendedByPlatform': 'Suspended by weblion.one. The reseller cannot lift this suspension.',
+  'admin.orgs.suspendedByReseller':
+    'Suspended by the reseller {name}. Reactivating it here lifts their suspension too.',
   'admin.orgs.moveMissing':
     "{name} does not have all of this customer's modules. Activate them for the reseller or deactivate them here first.",
   'admin.orgs.customersOf': "This reseller's customers",

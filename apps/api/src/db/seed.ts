@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { DEFAULT_CUSTOMER_BOUNDARY } from '@weblion/shared';
 import type { Database } from './client';
 import {
@@ -113,9 +113,17 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
     log.push('policy Webshop Operator');
   }
 
-  // Spread unassigned demo servers over the projects.
+  // Spread the demo servers over the projects, only on the first run. Later runs leave
+  // unassigned servers alone: someone took them away on purpose, or they are the spare ones
+  // the admin inventory and the reseller demo work with.
   const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.type, 'demo') });
-  if (demo) {
+  const [assigned] = demo
+    ? await db
+        .select({ n: count() })
+        .from(servers)
+        .where(and(eq(servers.providerConnectionId, demo.id), isNotNull(servers.projectId)))
+    : [];
+  if (demo && (assigned?.n ?? 0) === 0) {
     const unassigned = await db
       .select()
       .from(servers)

@@ -44,6 +44,7 @@ import type {
   ServerSpecs,
   ServerStatus,
   ServerUsage,
+  SuspendedBy,
   TokenScope,
 } from '@weblion/shared';
 
@@ -102,6 +103,8 @@ export const organizations = pgTable(
     slug: text('slug').notNull().unique(),
     kind: text('kind').$type<OrgKind>().notNull().default('customer'),
     status: text('status').$type<OrgStatus>().notNull().default('active'),
+    /** Who suspended it, set while status is "suspended". Resellers can't lift a platform suspension. */
+    suspendedBy: text('suspended_by').$type<SuspendedBy>(),
     /** Caps what any member of this organization can do. Managed by platform admins. */
     boundary: jsonb('boundary').$type<PolicyStatement[]>().notNull(),
     /** Reseller that owns this customer. Only one level: resellers have no parent. */

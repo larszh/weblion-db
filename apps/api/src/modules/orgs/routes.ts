@@ -83,6 +83,7 @@ export async function toOrgDto(ctx: AppContext, req: FastifyRequest, org: Organi
     slug: org.slug,
     kind: org.kind,
     status: org.status,
+    suspendedBy: org.status === 'suspended' ? org.suspendedBy : null,
     createdAt: org.createdAt.toISOString(),
     role: subject.orgRole ?? null,
     permissions: await ctx.access.allowed(req, ORG_PERMISSIONS, orgScope(org.id)),
@@ -184,11 +185,14 @@ export async function orgRoutes(app: FastifyInstance, ctx: AppContext) {
     return listMembers(orgId);
   });
 
-  /** Owners manage owners. Everyone else can only hand out roles below their own. */
+  /**
+   * Owners manage owners. Everyone else can only hand out roles below their own. Reseller
+   * staff act in their customers with their role in the reseller, like can() does.
+   */
   async function assertCanGrant(req: FastifyRequest, orgId: string, role: OrgRole) {
     const subject = await access.subject(req, orgId);
     if (subject.platformRole === 'superadmin') return;
-    const mine = subject.orgRole;
+    const mine = subject.orgRole ?? subject.reseller?.role;
     if (!mine) throw forbidden();
     if (mine === 'owner') return;
     if (ORG_ROLE_RANK[role] >= ORG_ROLE_RANK[mine])

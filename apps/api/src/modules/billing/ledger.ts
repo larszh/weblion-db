@@ -1,16 +1,18 @@
-import { and, eq, sql } from 'drizzle-orm';
-import type { Currency, CreditType } from '@weblion/shared';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
+import { formatMoney, type Currency, type CreditType } from '@weblion/shared';
 import type { DbOrTx, Tx } from '../../db/client';
 import {
   billingProfiles,
   creditTransactions,
   invoices,
+  organizations,
   payments,
   type CreditTransaction,
   type Invoice,
   type Payment,
 } from '../../db/schema';
 import { badRequest, conflict, notFound } from '../../lib/errors';
+import { issuerSettings } from './settings';
 
 /**
  * Money primitives shared by billing, payments and webhooks. Every function that moves
@@ -24,10 +26,18 @@ export async function lockOrgBilling(tx: Tx, orgId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing:${orgId}`}, 0))`);
 }
 
-/** Currency the organization is billed in (its billing profile, CHF by default). */
+/**
+ * Currency the organization is billed in: the one in its billing profile, else the default
+ * currency of its seller (the reseller's issuer settings or the platform's).
+ */
 export async function billingCurrency(db: DbOrTx, orgId: string): Promise<Currency> {
   const profile = await db.query.billingProfiles.findFirst({ where: eq(billingProfiles.orgId, orgId) });
-  return profile?.currency ?? 'CHF';
+  if (profile) return profile.currency;
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, orgId),
+    columns: { parentOrgId: true },
+  });
+  return (await issuerSettings(db, org?.parentOrgId ?? null)).defaultCurrency;
 }
 
 /** Current credit balance in minor units. Call lockOrgBilling first when you act on it. */
@@ -37,6 +47,32 @@ export async function creditBalance(db: DbOrTx, orgId: string): Promise<number> 
     .from(creditTransactions)
     .where(eq(creditTransactions.orgId, orgId));
   return Number(row?.sum ?? 0);
+}
+
+/**
+ * Why the billing currency of an organization can't change now, or null when it can.
+ * Credit, open invoices and drafts, and payments still waiting for Stripe are all in the
+ * current currency: switching under them would strand the credit or leave a payment that
+ * can't be booked. Call it with the organization's billing lock held.
+ */
+export async function currencyChangeProblem(tx: Tx, orgId: string): Promise<string | null> {
+  // One query at a time: a transaction runs on a single connection.
+  const balance = await creditBalance(tx, orgId);
+  const [open] = await tx
+    .select({ n: count() })
+    .from(invoices)
+    .where(and(eq(invoices.orgId, orgId), inArray(invoices.status, ['draft', 'open'])));
+  const [pending] = await tx
+    .select({ n: count() })
+    .from(payments)
+    .where(and(eq(payments.orgId, orgId), eq(payments.status, 'pending')));
+  const reasons: string[] = [];
+  if (balance !== 0)
+    reasons.push(`credit of ${formatMoney(balance, await billingCurrency(tx, orgId), 'en')}`);
+  if (open && open.n > 0) reasons.push(`${open.n} open invoice(s) or draft(s)`);
+  if (pending && pending.n > 0) reasons.push(`${pending.n} pending payment(s)`);
+  if (reasons.length === 0) return null;
+  return `The currency can only be changed without credit, open invoices, drafts and pending payments (now: ${reasons.join(', ')})`;
 }
 
 export interface CreditEntry {
@@ -166,16 +202,21 @@ export async function payFromCredit(
  * Marks a pending payment as succeeded exactly once and settles it: applied to its
  * invoice, anything left over (or a top-up without invoice) is booked as credit.
  * Returns null when the payment was not pending anymore (webhook retry, double click).
+ *
+ * The money has arrived when this runs, so it never fails over the leftover: when the
+ * credit is kept in another currency (the billing currency changed while the payment was
+ * pending), the leftover is not booked but reported as `unbooked` and noted on the
+ * payment, for staff to settle by hand.
  */
 export async function settlePayment(
   tx: Tx,
   paymentId: string,
   update: { reference?: string | null } = {},
-): Promise<{ payment: Payment; invoice: Invoice | null; credited: number } | null> {
+): Promise<{ payment: Payment; invoice: Invoice | null; credited: number; unbooked: number } | null> {
   const [pending] = await tx.select().from(payments).where(eq(payments.id, paymentId));
   if (!pending) throw notFound('Payment');
   await lockOrgBilling(tx, pending.orgId);
-  const [payment] = await tx
+  const [succeeded] = await tx
     .update(payments)
     .set({
       status: 'succeeded',
@@ -185,28 +226,39 @@ export async function settlePayment(
     })
     .where(and(eq(payments.id, paymentId), eq(payments.status, 'pending')))
     .returning();
-  if (!payment) return null;
+  if (!succeeded) return null;
+  let payment = succeeded;
 
   let invoice: Invoice | null = null;
   let credited = payment.amount;
+  let unbooked = 0;
   if (payment.invoiceId) {
     const result = await applyToInvoice(tx, payment.invoiceId, payment.amount);
     invoice = result.invoice;
     credited = result.excess;
   }
   if (credited > 0) {
-    await addCredit(tx, {
-      orgId: payment.orgId,
-      amount: credited,
-      currency: payment.currency,
-      type: 'topup',
-      description: payment.invoiceId
-        ? 'Überzahlung einer Rechnung als Guthaben'
-        : `Guthaben aufgeladen (${payment.method})`,
-      invoiceId: payment.invoiceId,
-      paymentId: payment.id,
-      createdBy: payment.createdBy,
-    });
+    const currency = await billingCurrency(tx, payment.orgId);
+    if (currency !== payment.currency) {
+      unbooked = credited;
+      credited = 0;
+      const error = `${formatMoney(unbooked, payment.currency, 'en')} could not be booked as credit, the credit is kept in ${currency}`;
+      const [noted] = await tx.update(payments).set({ error }).where(eq(payments.id, payment.id)).returning();
+      payment = noted!;
+    } else {
+      await addCredit(tx, {
+        orgId: payment.orgId,
+        amount: credited,
+        currency: payment.currency,
+        type: 'topup',
+        description: payment.invoiceId
+          ? 'Überzahlung einer Rechnung als Guthaben'
+          : `Guthaben aufgeladen (${payment.method})`,
+        invoiceId: payment.invoiceId,
+        paymentId: payment.id,
+        createdBy: payment.createdBy,
+      });
+    }
   }
-  return { payment, invoice, credited };
+  return { payment, invoice, credited, unbooked };
 }

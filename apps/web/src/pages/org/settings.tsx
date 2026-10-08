@@ -67,13 +67,13 @@ export function OrgSettingsPage() {
                 { label: 'Slug', value: <Mono>{org.slug}</Mono> },
                 {
                   label: t('orgSettings.kind'),
-                  value: <Badge>{t(`orgKind.${org.kind}` as TranslationKey)}</Badge>,
+                  value: <Badge>{t(`orgKind.${org.kind}`)}</Badge>,
                 },
                 {
                   label: t('orgSettings.status'),
                   value: (
                     <Badge tone={org.status === 'active' ? 'success' : 'danger'}>
-                      {t(`orgStatus.${org.status}` as TranslationKey)}
+                      {t(`orgStatus.${org.status}`)}
                     </Badge>
                   ),
                 },

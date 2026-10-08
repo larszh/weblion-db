@@ -141,6 +141,13 @@ function zohoRoute(req: JsonRequest) {
     return { body: { code: 0, contacts: books.contacts.filter((c) => c.contact_name === name) } };
   }
   if (m === 'POST' && p === '/contacts') {
+    // Like Zoho: contact names are unique.
+    if (books.contacts.some((c) => c.contact_name === req.body.contact_name)) {
+      return {
+        status: 400,
+        body: { code: 3062, message: `The contact "${req.body.contact_name}" already exists.` },
+      };
+    }
     const contact = { contact_id: `C${++books.seq}`, contact_name: req.body.contact_name };
     books.contacts.push(contact);
     return { status: 201, body: { code: 0, contact } };
@@ -408,15 +415,15 @@ describe('invoices', () => {
     expect((await t.ctx.zoho.status()).lastSyncAt).not.toBeNull();
 
     // The next invoice reuses the stored contact without asking Zoho.
-    const contactCalls = calls('GET', '/books/v3/contacts').length;
     const second = await finalizedInvoice(beispielId, [{ description: 'Cloud Server S', unitPrice: 1900 }]);
     await t.ctx.zoho.syncInvoice(second.id);
     expect(calls('POST', '/books/v3/contacts')).toHaveLength(1);
-    expect(calls('GET', '/books/v3/contacts')).toHaveLength(contactCalls);
+    expect(calls('GET', '/books/v3/contacts')).toHaveLength(0);
     expect(calls('POST', '/books/v3/invoices').at(-1)!.body.customer_id).toBe('C1');
   });
 
-  it('reuses a Zoho contact with the same name and pushes payments on the invoice', async () => {
+  it('never adopts a Zoho contact by its name and pushes payments on the invoice', async () => {
+    // Somebody else's contact with the same name: names are free input, so it is not ours.
     books.contacts.push({ contact_id: 'C-EXISTING', contact_name: 'Muster AG' });
     const [paid] = await t.db
       .select()
@@ -424,17 +431,21 @@ describe('invoices', () => {
       .where(and(eq(invoices.orgId, musterId), eq(invoices.status, 'paid')));
     await t.ctx.zoho.syncInvoice(paid!.id);
 
-    expect(calls('POST', '/books/v3/contacts')).toHaveLength(1);
-    expect(calls('POST', '/books/v3/invoices').at(-1)!.body.customer_id).toBe('C-EXISTING');
+    const attempts = calls('POST', '/books/v3/contacts').slice(1);
+    expect(attempts.map((r) => r.body.contact_name)).toEqual(['Muster AG', 'Muster AG (muster-ag)']);
+    const own = books.contacts.find((c) => c.contact_name === 'Muster AG (muster-ag)')!;
+    expect(own.contact_id).not.toBe('C-EXISTING');
+    expect(calls('POST', '/books/v3/invoices').at(-1)!.body.customer_id).toBe(own.contact_id);
+    expect(calls('GET', '/books/v3/contacts')).toHaveLength(0);
     const profile = await t.db.query.billingProfiles.findFirst({
       where: eq(billingProfiles.orgId, musterId),
     });
-    expect(profile?.zohoContactId).toBe('C-EXISTING');
+    expect(profile?.zohoContactId).toBe(own.contact_id);
 
     const [payment] = await t.db.select().from(payments).where(eq(payments.invoiceId, paid!.id));
     const [pushed] = calls('POST', '/customerpayments');
     expect(pushed!.body).toEqual({
-      customer_id: 'C-EXISTING',
+      customer_id: own.contact_id,
       payment_mode: 'banktransfer',
       amount: paid!.total / 100,
       date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),

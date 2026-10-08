@@ -52,6 +52,12 @@ export type ZohoSyncStatus = 'pending' | 'synced' | 'error' | 'skipped';
 /** Swiss VAT standard rate since 2024. */
 export const DEFAULT_TAX_RATE_BP = 810;
 
+/**
+ * Largest amount in minor units the database stores (a Postgres integer), CHF 21'474'836.47.
+ * Line totals and invoice totals above it are refused.
+ */
+export const MAX_AMOUNT = 2_147_483_647;
+
 export interface PostalAddress {
   companyName: string | null;
   contactName: string | null;
@@ -143,6 +149,7 @@ export interface ServiceDto {
   nextBillingAt: string | null;
   endsAt: string | null;
   cancelledAt: string | null;
+  /** Internal note of the seller. Always null in the customer's view. */
   notes: string | null;
   createdAt: string;
 }
@@ -198,6 +205,8 @@ export interface InvoiceDetailDto extends InvoiceDto {
   /** Snapshot taken at finalization, live profile for drafts. */
   billingAddress: (PostalAddress & { email: string | null; vatId: string | null }) | null;
   notes: string | null;
+  /** Why the invoice was voided. Only set for void invoices. */
+  voidReason: string | null;
   payments: PaymentDto[];
   /** What the current user may do with this invoice. */
   can: { edit: boolean; finalize: boolean; void: boolean; markPaid: boolean; pay: boolean; send: boolean };
@@ -256,6 +265,8 @@ export interface SellerCustomerBillingDto {
   seller: { orgId: string | null; name: string };
   profile: BillingProfileDto;
   summary: BillingSummaryDto;
+  /** What the current user may do as the seller: write = book, invoice and change services. */
+  can: { write: boolean };
 }
 
 /** Admin: GET /admin/billing/stats */

@@ -198,7 +198,7 @@ function ActionPicker({ value, onChange }: { value: string[]; onChange: (v: stri
                     )
                   }
                 />
-                {t(`perm.group.${g}` as TranslationKey)}
+                {t(`perm.group.${g}`)}
               </label>
               <div className="space-y-1">
                 {items.map(([key, def]) => (

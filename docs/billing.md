@@ -23,6 +23,12 @@ Zahlung von Hand. Wer das später auch online will, braucht Stripe Connect (sieh
 | **Guthaben** | Konto pro Kunde. Gutschrift, Korrektur, Rückerstattung durch den Verkäufer, Aufladen per Stripe durch den Kunden. Offene Rechnungen lassen sich aus dem Guthaben bezahlen, optional automatisch beim Abschliessen. |
 | **Zahlungen** | Stripe (Karte, TWINT), manuell gebucht (Überweisung, bar) oder aus Guthaben. |
 
+Ohne eigenes Abrechnungsprofil wird ein Kunde in der Standardwährung seines Verkäufers
+abgerechnet (Rechnungsstellerdaten der Plattform bzw. des Resellers). Wie die Plattform den
+Reseller selbst abrechnet, spielt dafür keine Rolle. Ändert ein Verkäufer seine
+Standardwährung, behalten Kunden mit Diensten, Rechnungen, Zahlungen oder Guthaben ihre
+bisherige Währung.
+
 Beträge werden intern als ganze Rappen gespeichert, MWST als Basispunkte (8.1 % = 810).
 Alle Geldbewegungen laufen in einer Transaktion mit Sperre pro Kunde, damit Guthaben nicht
 doppelt ausgegeben und keine Rechnung doppelt bezahlt werden kann.
@@ -55,14 +61,16 @@ Ein Reseller ist eine Organisation vom Typ "Reseller". Seine Mitarbeitenden:
 - legen eigene Kunden an (mit Einladung für den Owner), sperren sie und schalten Module frei
 - öffnen das Panel eines Kunden und arbeiten dort mit ihrer eigenen Rolle (ein Reseller-Owner
   darf beim Kunden alles, ein Reseller-Viewer nur lesen)
-- verschieben Server, Domains und Webspaces aus dem eigenen Bestand zu ihren Kunden
+- verschieben Server, Domains und Webspaces aus dem eigenen Bestand zu ihren Kunden (nicht,
+  solange der bisherige Kunde dafür einen laufenden Dienst hat; was die Plattform dem
+  Reseller selbst verrechnet, darf er weitergeben)
 - erstellen Rechnungen, buchen Guthaben und verwalten Dienste und Preise ihrer Kunden
 
 Grenzen: Ein Reseller kann seinen Kunden nie mehr geben, als er selbst hat. Seine
 Berechtigungsgrenze und seine Module gelten auch für alle Kunden darunter. Sperrt weblion.one
-den Reseller, sind auch seine Kunden nur noch lesend. Eine Sperre durch weblion.one kann ein
-Reseller nicht aufheben. API-Tokens eines Resellers erreichen auch seine Kunden, aber nie den
-Admin-Bereich.
+den Reseller, sind auch seine Kunden nur noch lesend, auch für die Mitarbeitenden des
+Resellers. Eine Sperre durch weblion.one kann ein Reseller nicht aufheben. API-Tokens eines
+Resellers erreichen auch seine Kunden, aber nie den Admin-Bereich.
 
 Plattform-Admins legen Reseller unter Admin > Kunden an (Typ "Reseller") und können bestehende
 Kunden einem Reseller zuordnen. Der Wechsel des Verkäufers ist gesperrt, solange beim Kunden

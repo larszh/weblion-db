@@ -263,7 +263,7 @@ export const useSessions = () =>
 // --- Admin -------------------------------------------------------------------------
 
 export interface AdminStats {
-  organizations: { customers: number; internal: number };
+  organizations: { customers: number; resellers: number; internal: number };
   users: number;
   servers: { total: number; running: number; stopped: number; missing: number; unassigned: number };
   providers: { id: string; name: string; type: ProviderType; status: string; lastSyncAt: string | null }[];

@@ -36,7 +36,19 @@ interface ZohoState {
 }
 
 /** A problem worth showing to staff: Zoho's own message or something missing on our side. */
-class ZohoError extends Error {}
+class ZohoError extends Error {
+  constructor(
+    message: string,
+    /** Zoho's error code, when Zoho answered with one. */
+    readonly code?: number,
+  ) {
+    super(message);
+  }
+}
+
+/** Zoho Books refuses a second contact with the same name (code 3062, "... already exists"). */
+const isDuplicateName = (err: unknown) =>
+  err instanceof ZohoError && (err.code === 3062 || /already exists/i.test(err.message));
 
 /** Zoho's built-in payment modes. TWINT and credit have none of their own. */
 const PAYMENT_MODES: Record<PaymentMethod, string> = {
@@ -76,6 +88,8 @@ export class ZohoService {
   private refreshing: Promise<string> | null = null;
   private currencyIds: Map<string, string> | null = null;
   private readonly queues = new Map<string, Promise<void>>();
+  /** Contact creations in flight per organization, so two invoice syncs create only one. */
+  private readonly contactCreations = new Map<string, Promise<string>>();
 
   constructor(
     private readonly db: Database,
@@ -340,30 +354,31 @@ export class ZohoService {
   }
 
   /**
-   * The Zoho contact of the invoiced organization: the stored one, else an existing contact
-   * with the same name (Zoho requires unique names), else a new one.
+   * The Zoho contact of the invoiced organization: the stored one, else a new one. An
+   * existing contact is never adopted by its name: names are free input (and can be shared
+   * by unrelated customers), so invoices could end up on somebody else's account.
    */
-  private async ensureContact(invoice: Invoice): Promise<string> {
+  private ensureContact(invoice: Invoice): Promise<string> {
+    const pending = this.contactCreations.get(invoice.orgId);
+    if (pending) return pending;
+    const run = this.contactOf(invoice).finally(() => this.contactCreations.delete(invoice.orgId));
+    this.contactCreations.set(invoice.orgId, run);
+    return run;
+  }
+
+  private async contactOf(invoice: Invoice): Promise<string> {
     const profile = await loadProfile(this.db, invoice.orgId);
     if (profile?.zohoContactId) return profile.zohoContactId;
     const org = await this.db.query.organizations.findFirst({ where: eq(organizations.id, invoice.orgId) });
     if (!org) throw new ZohoError('Organization not found');
     const address = billingAddressOf(org, profile);
     const name = (address.companyName || org.name).slice(0, 200);
-
-    const found = await this.api<{ contacts?: { contact_id?: unknown; contact_name?: string }[] }>(
-      'GET',
-      '/contacts',
-      { query: { contact_name: name } },
-    );
-    const match = found.contacts?.find((c) => c.contact_name === name);
-    let contactId = match?.contact_id ? String(match.contact_id) : null;
-    if (!contactId) {
-      const currencyId = await this.currencyId(invoice.currency);
-      const [first, ...rest] = (address.contactName ?? '').trim().split(/\s+/);
-      const created = await this.api<{ contact?: { contact_id?: unknown } }>('POST', '/contacts', {
+    const currencyId = await this.currencyId(invoice.currency);
+    const [first, ...rest] = (address.contactName ?? '').trim().split(/\s+/);
+    const create = (contactName: string) =>
+      this.api<{ contact?: { contact_id?: unknown } }>('POST', '/contacts', {
         body: {
-          contact_name: name,
+          contact_name: contactName,
           company_name: address.companyName ?? name,
           contact_type: 'customer',
           currency_id: currencyId,
@@ -389,9 +404,18 @@ export class ZohoService {
             : {}),
         },
       });
-      contactId = created.contact?.contact_id ? String(created.contact.contact_id) : null;
-      if (!contactId) throw new ZohoError('Zoho Books returned no contact id');
+
+    let created;
+    try {
+      created = await create(name);
+    } catch (err) {
+      // Zoho wants unique names: the slug tells this organization apart from the other one.
+      if (!isDuplicateName(err)) throw err;
+      const suffix = ` (${org.slug})`;
+      created = await create(`${name.slice(0, 200 - suffix.length)}${suffix}`);
     }
+    const contactId = created.contact?.contact_id ? String(created.contact.contact_id) : null;
+    if (!contactId) throw new ZohoError('Zoho Books returned no contact id');
 
     // Organizations without a profile get one, with the defaults they are billed with anyway.
     const issuer = await issuerSettings(this.db, null);
@@ -533,7 +557,8 @@ export class ZohoService {
     const body = isJson(res.body) ? res.body : {};
     if (res.status >= 400 || (typeof body.code === 'number' && body.code !== 0)) {
       const message = typeof body.message === 'string' ? body.message : `HTTP ${res.status}`;
-      throw new ZohoError(`${message}${typeof body.code === 'number' ? ` (code ${body.code})` : ''}`);
+      const code = typeof body.code === 'number' ? body.code : undefined;
+      throw new ZohoError(`${message}${code !== undefined ? ` (code ${code})` : ''}`, code);
     }
     return body as T;
   }

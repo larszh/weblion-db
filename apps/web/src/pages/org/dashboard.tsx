@@ -226,7 +226,9 @@ function CustomersCard() {
                 <span className="hidden md:block">
                   <ModuleBadges modules={c.modules} empty={t('admin.modules.none')} />
                 </span>
-                {c.status === 'suspended' && <StatusBadge status={c.status} />}
+                {c.status === 'suspended' && (
+                  <StatusBadge status={c.status} suspendedBy={c.suspendedBy} viewer="reseller" />
+                )}
               </Link>
             </li>
           ))}

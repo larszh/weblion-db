@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { Children, useState, type ReactNode } from 'react';
 import * as RadixDialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -93,6 +93,8 @@ export function ConfirmDialog({
   const t = useT();
   const [typed, setTyped] = useState('');
   const blocked = !!confirmText && typed !== confirmText;
+  // Without content (children that render nothing, like `{error && ...}`) there is no body band.
+  const hasBody = Children.toArray(children).length > 0 || !!confirmText;
   return (
     <Dialog
       open={open}
@@ -119,20 +121,24 @@ export function ConfirmDialog({
         </>
       }
     >
-      {children}
-      {confirmText && (
-        <div className="space-y-1.5">
-          <p className="text-sm text-muted">
-            {t('confirm.typeToConfirm')}{' '}
-            <span className="font-mono font-semibold text-text">{confirmText}</span>
-          </p>
-          <Input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            autoFocus
-            aria-label={t('confirm.typeToConfirm')}
-          />
-        </div>
+      {hasBody && (
+        <>
+          {children}
+          {confirmText && (
+            <div className="space-y-1.5">
+              <p className="text-sm text-muted">
+                {t('confirm.typeToConfirm')}{' '}
+                <span className="font-mono font-semibold text-text">{confirmText}</span>
+              </p>
+              <Input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                autoFocus
+                aria-label={t('confirm.typeToConfirm')}
+              />
+            </div>
+          )}
+        </>
       )}
     </Dialog>
   );

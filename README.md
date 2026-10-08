@@ -52,6 +52,8 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 | ![Graphen](docs/screenshots/server-graphs.png) | ![Policy-Editor](docs/screenshots/policy-editor.png) | ![Kunde](docs/screenshots/admin-customer.png) |
 | **Dashboard** | **Dunkel, eingeschränkter Benutzer** | **Mobil** |
 | ![Dashboard](docs/screenshots/dashboard.png) | ![Dunkel](docs/screenshots/server-dark-restricted.png) | ![Mobil](docs/screenshots/mobile.png) |
+| **Abrechnung** | **Reseller: eigene Kunden** | **Domains & DNS (dunkel)** |
+| ![Abrechnung](docs/screenshots/billing.png) | ![Reseller](docs/screenshots/reseller.png) | ![Domains](docs/screenshots/domains-dark.png) |
 
 ## Stand
 

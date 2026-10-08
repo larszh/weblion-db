@@ -866,12 +866,18 @@ export function GenerateDialog({
     {
       invalidate: [billingKeys.all],
       onSuccess: (result) => {
-        if (result.skipped?.length) {
+        const skipped = result.skipped ?? [];
+        const currency = skipped.filter((s) => s.reason === 'currency');
+        const amount = skipped.filter((s) => s.reason === 'amount');
+        if (currency.length) {
           toast.warning(
             t('billing.generate.skipped', {
-              names: result.skipped.map((s) => `${s.name} (${s.currency})`).join(', '),
+              names: currency.map((s) => `${s.name} (${s.currency})`).join(', '),
             }),
           );
+        }
+        if (amount.length) {
+          toast.warning(t('billing.generate.skippedAmount', { names: amount.map((s) => s.name).join(', ') }));
         }
         if (result.invoice) {
           toast.success(

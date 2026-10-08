@@ -6,7 +6,7 @@ import type { Tx } from '../../db/client';
 import { organizations, products, services, settings, type Organization } from '../../db/schema';
 import { billingCurrency, lockOrgBilling } from './ledger';
 import { loadProfile } from './dto';
-import { afterFinalize, createDraft, finalizeInTx, type FinalizeResult } from './invoices';
+import { afterFinalize, amountsProblem, createDraft, finalizeInTx, type FinalizeResult } from './invoices';
 import { getBillingSettings, issuerSettings } from './settings';
 import { addDays, formatDateCH, nextBillingDate, todayZurich } from './dates';
 
@@ -28,6 +28,8 @@ export interface SkippedService {
   serviceId: string;
   name: string;
   currency: Currency;
+  /** currency: in another currency than the customer's; amount: its line would not fit the invoice. */
+  reason: 'currency' | 'amount';
 }
 
 export interface GenerateResult {
@@ -35,7 +37,7 @@ export interface GenerateResult {
   finalized: FinalizeResult | null;
   invoiceId: string | null;
   lines: number;
-  /** Services in another currency than the customer's billing currency. */
+  /** Services that were due but not billed, they stay due. */
   skipped: SkippedService[];
 }
 
@@ -71,11 +73,17 @@ export async function generateInTx(
 
   for (const { service, productRate } of due) {
     if (service.currency !== currency) {
-      skipped.push({ serviceId: service.id, name: service.name, currency: service.currency });
+      skipped.push({
+        serviceId: service.id,
+        name: service.name,
+        currency: service.currency,
+        reason: 'currency',
+      });
       continue;
     }
     const taxRateBp = service.taxRateBp ?? productRate ?? fallbackRate;
     let next: string | null = service.nextBillingAt;
+    let billed = 0;
     for (let n = 0; next && next <= until && n < MAX_PERIODS_PER_RUN; n++) {
       if (service.endsAt && next > service.endsAt) {
         next = null;
@@ -97,7 +105,24 @@ export async function generateInTx(
         periodStart: next,
         periodEnd,
       });
+      // An amount beyond what the database holds would fail the whole run, every day.
+      // The period stays due: it goes on a later invoice, or staff fix the price.
+      if (amountsProblem(lines)) {
+        lines.pop();
+        break;
+      }
+      billed++;
       next = following;
+    }
+    if (billed === 0 && next === service.nextBillingAt) {
+      // Not even its first due period fits.
+      skipped.push({
+        serviceId: service.id,
+        name: service.name,
+        currency: service.currency,
+        reason: 'amount',
+      });
+      continue;
     }
     await tx.update(services).set({ nextBillingAt: next }).where(eq(services.id, service.id));
   }
@@ -161,10 +186,7 @@ export class BillingJob {
           });
         }
         if (result.skipped.length > 0) {
-          log.warn(
-            { orgId: org.id, skipped: result.skipped },
-            'services in another currency were not billed',
-          );
+          log.warn({ orgId: org.id, skipped: result.skipped }, 'due services were not billed');
         }
       } catch (err) {
         failed++;

@@ -397,8 +397,15 @@ export function PaymentsTable({
             </TD>
             <TD>
               <PaymentStatusBadge status={p.status} />
-              {p.error && p.status !== 'succeeded' && (
-                <div className="mt-0.5 max-w-[200px] text-xs text-danger">{p.error}</div>
+              {p.error && (
+                <div
+                  className={cn(
+                    'mt-0.5 max-w-[200px] text-xs',
+                    p.status === 'succeeded' ? 'text-warning' : 'text-danger',
+                  )}
+                >
+                  {p.error}
+                </div>
               )}
             </TD>
           </tr>
@@ -420,7 +427,11 @@ function PaymentList({ payments }: { payments: PaymentDto[] }) {
             <div className="text-text">{labels.method(p.method)}</div>
             <div className="text-xs text-muted">{formatDate(p.completedAt ?? p.createdAt, locale)}</div>
             {p.reference && <div className="truncate text-xs text-muted">{p.reference}</div>}
-            {p.error && p.status !== 'succeeded' && <div className="text-xs text-danger">{p.error}</div>}
+            {p.error && (
+              <div className={cn('text-xs', p.status === 'succeeded' ? 'text-warning' : 'text-danger')}>
+                {p.error}
+              </div>
+            )}
           </div>
           <div className="shrink-0 text-right">
             <div className="font-medium tabular">{formatMoney(p.amount, p.currency, locale)}</div>
@@ -523,7 +534,7 @@ function VoidDialog({
         </>
       }
     >
-      <Field label={t('billing.void.reason')} htmlFor="void-reason">
+      <Field label={t('billing.void.reason')} htmlFor="void-reason" hint={t('billing.void.reasonHint')}>
         <Textarea
           id="void-reason"
           rows={3}
@@ -914,7 +925,14 @@ export function InvoiceView({
             <Card>
               <CardBody className="flex items-start gap-3">
                 <Ban className="mt-0.5 size-5 shrink-0 text-muted" />
-                <p className="text-sm text-muted">{t('billing.invoice.voidText')}</p>
+                <div className="min-w-0 text-sm">
+                  <p className="text-muted">{t('billing.invoice.voidText')}</p>
+                  {invoice.voidReason && (
+                    <p className="mt-1 break-words text-text">
+                      {t('billing.invoice.voidReason', { reason: invoice.voidReason })}
+                    </p>
+                  )}
+                </div>
               </CardBody>
             </Card>
           )}

@@ -1,3 +1,4 @@
+import type { Currency } from './billing';
 import type { ModuleKey } from './modules';
 import type { Permission } from './permissions';
 import type { PolicyStatement } from './policy';
@@ -55,6 +56,11 @@ export interface MeDto {
 export const ORG_KINDS = ['customer', 'reseller', 'internal'] as const;
 export type OrgKind = (typeof ORG_KINDS)[number];
 export type OrgStatus = 'active' | 'suspended';
+/**
+ * Who suspended an organization. A platform suspension can only be lifted by platform
+ * staff, a reseller suspension by the reseller (or platform staff).
+ */
+export type SuspendedBy = 'platform' | 'reseller';
 
 export interface OrgRef {
   id: string;
@@ -78,6 +84,8 @@ export interface OrgDto {
   slug: string;
   kind: OrgKind;
   status: OrgStatus;
+  /** Set while suspended. */
+  suspendedBy: SuspendedBy | null;
   createdAt: string;
   /** Actions the current user may perform at organization level. */
   permissions: Permission[];
@@ -103,10 +111,14 @@ export interface ResellerCustomerDto {
   name: string;
   slug: string;
   status: OrgStatus;
+  /** Set while suspended. A platform suspension can't be lifted by the reseller. */
+  suspendedBy: SuspendedBy | null;
   modules: ModuleKey[];
   notes: string | null;
   counts: OrgCounts;
-  /** Credit balance and open invoice total in the reseller's currency, minor units. */
+  /** Currency the customer is billed in. */
+  currency: Currency;
+  /** Credit balance and open invoice total in `currency`, minor units. */
   balance: number;
   openTotal: number;
   createdAt: string;
