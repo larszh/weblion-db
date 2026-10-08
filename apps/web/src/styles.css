@@ -1,0 +1,177 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * weblion.one design tokens.
+ * Brand: teal #00C8CB, blue #408BCB, coral #FF6870.
+ * Interactive colors are darkened variants so white text keeps AA contrast.
+ */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-2: #f7f9fb;
+  --surface-3: #eef2f6;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f1b2d;
+  --text-muted: #5a6a7e;
+  --text-subtle: #8593a5;
+
+  --primary: #2f72ad;
+  --primary-hover: #275f91;
+  --primary-soft: #e8f1fa;
+  --primary-text: #24639a;
+
+  --brand-blue: #408bcb;
+  --brand-teal: #00c8cb;
+  --brand-coral: #ff6870;
+
+  --success: #0f9f78;
+  --success-soft: #e3f6f0;
+  --warning: #c27c00;
+  --warning-soft: #fdf3dc;
+  --danger: #d33b45;
+  --danger-hover: #b8313a;
+  --danger-soft: #fdebec;
+  --info-soft: #e0f8f8;
+
+  --sidebar: #ffffff;
+  --sidebar-active: #e8f1fa;
+  --ring: #408bcb;
+  --shadow: 0 1px 2px rgb(15 27 45 / 0.06), 0 1px 3px rgb(15 27 45 / 0.04);
+  --shadow-lg: 0 10px 30px rgb(15 27 45 / 0.14);
+
+  /* Chart series, validated for CVD separation and contrast against the card surface. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --chart-grid: #e9eef4;
+  --chart-axis: #cbd5e1;
+}
+
+.dark {
+  --bg: #0b1320;
+  --surface: #111c2c;
+  --surface-2: #142134;
+  --surface-3: #1a2a40;
+  --border: #22344d;
+  --border-strong: #2f4563;
+  --text: #e7eef7;
+  --text-muted: #9fb0c5;
+  --text-subtle: #71849c;
+
+  --primary: #408bcb;
+  --primary-hover: #5a9dd6;
+  --primary-soft: #16304b;
+  --primary-text: #7db4e6;
+
+  --success: #2cc79a;
+  --success-soft: #0f2f29;
+  --warning: #e8a530;
+  --warning-soft: #33280f;
+  --danger: #ff6870;
+  --danger-hover: #ff8088;
+  --danger-soft: #3a1a20;
+  --info-soft: #0d3033;
+
+  --sidebar: #0e1828;
+  --sidebar-active: #16304b;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 30px rgb(0 0 0 / 0.5);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --chart-grid: #1c2b40;
+  --chart-axis: #2f4563;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-text: var(--primary-text);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-coral: var(--brand-coral);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-soft: var(--danger-soft);
+  --color-info-soft: var(--info-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-ring: var(--ring);
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Poppins', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-lg);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--brand-teal) 35%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes wl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.animate-status {
+  animation: wl-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-status,
+  .animate-spin {
+    animation: none;
+  }
+}

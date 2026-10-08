@@ -1,0 +1,40 @@
+# Production style setup: Postgres plus the console (API and web in one container).
+# Put a TLS reverse proxy (Caddy, Traefik, nginx) in front, see docs/deployment.md.
+#
+#   cp .env.example .env   # fill in ENCRYPTION_KEY, POSTGRES_PASSWORD, provider credentials
+#   docker compose up -d --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: weblion
+      POSTGRES_DB: weblion
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U weblion -d weblion']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  console:
+    build: .
+    image: ghcr.io/larszh/weblion-console:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://weblion:${POSTGRES_PASSWORD}@db:5432/weblion
+      WEB_DIST_DIR: /app/web
+    ports:
+      # Only reachable locally, the reverse proxy terminates TLS.
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
