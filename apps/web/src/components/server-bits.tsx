@@ -127,6 +127,7 @@ const PROVIDER_STYLE: Record<ProviderType, string> = {
   proxmox: 'bg-[#fff4e5] text-[#b45309] dark:bg-[#33270f] dark:text-[#fcd34d]',
   hetzner: 'bg-[#fdecec] text-[#c81e1e] dark:bg-[#3a1515] dark:text-[#fca5a5]',
   joker: 'bg-[#eaf2fb] text-[#2f6aa3] dark:bg-[#132536] dark:text-[#93c5fd]',
+  nextcloud: 'bg-[#e8f3fc] text-[#0068b4] dark:bg-[#10283b] dark:text-[#7cc4fa]',
   demo: 'bg-info-soft text-[#0a8d90] dark:text-brand-teal',
 };
 
@@ -135,11 +136,12 @@ const PROVIDER_LABEL: Record<ProviderType, string> = {
   proxmox: 'Proxmox',
   hetzner: 'Hetzner',
   joker: 'Joker',
+  nextcloud: 'Nextcloud',
   demo: 'Demo',
 };
 
 /** Registrars (Joker.com) only have domains: keep them out of server pickers and filters. */
-export const providerHasServers = (type: ProviderType): boolean => type !== 'joker';
+export const providerHasServers = (type: ProviderType): boolean => type !== 'joker' && type !== 'nextcloud';
 
 export function ProviderBadge({
   type,

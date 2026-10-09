@@ -141,6 +141,42 @@ export interface RemoteWebspace {
   meta?: Record<string, unknown>;
 }
 
+/** A Nextcloud user as the instance reports it. Never carries a password. */
+export interface RemoteCloudAccount {
+  /** Nextcloud user id = login name. */
+  externalId: string;
+  displayName: string | null;
+  email: string | null;
+  /** null = unlimited. */
+  quotaBytes: number | null;
+  usedBytes: number | null;
+  enabled: boolean;
+  lastLoginAt: string | null;
+  groups: string[];
+}
+
+export interface CloudAccountInput {
+  /** Full Nextcloud user id, e.g. "anna@muster-ag". */
+  username: string;
+  /** Without a password Nextcloud mails the user an invitation link (needs email). */
+  password?: string;
+  displayName?: string | null;
+  email?: string | null;
+  quotaBytes: number;
+  /** Groups the account joins; missing ones are created. */
+  groups: string[];
+  /** BCP 47 language for Nextcloud's UI and mails, e.g. "de". */
+  language?: string;
+}
+
+/** Fields left out keep their current value. */
+export interface CloudAccountPatch {
+  displayName?: string | null;
+  email?: string | null;
+  quotaBytes?: number;
+  enabled?: boolean;
+}
+
 /** Partial DNS change. Fields left out keep their current value. */
 export type DnsRecordPatch = Partial<DnsRecordInput>;
 
@@ -235,6 +271,19 @@ export interface ProviderAdapter {
    */
   renewDomain?(externalId: string, years: number, expiresAt?: string | null): Promise<ActionResult>;
 
+  // Cloud storage (module "storage", Nextcloud). Addressed by the user id.
+  /** Every user of the instance (the sync only updates accounts the panel knows). */
+  listCloudAccounts?(): Promise<RemoteCloudAccount[]>;
+  getCloudAccount?(externalId: string): Promise<RemoteCloudAccount>;
+  createCloudAccount?(input: CloudAccountInput): Promise<RemoteCloudAccount>;
+  updateCloudAccount?(externalId: string, patch: CloudAccountPatch): Promise<void>;
+  /** Only for the audited password route, the password is never stored. */
+  setCloudAccountPassword?(externalId: string, password: string): Promise<void>;
+  /** Deletes the user and all of its files. */
+  deleteCloudAccount?(externalId: string): Promise<void>;
+  /** Where users log in, e.g. https://cloud.weblion.ch. */
+  cloudLoginUrl?(): string;
+
   // Web spaces (module "webhosting"). Read only: providers offer no provisioning API.
   listWebspaces?(): Promise<RemoteWebspace[]>;
   getWebspace?(externalId: string): Promise<WebspaceInfo>;
@@ -269,6 +318,16 @@ export interface HetznerConfig {
   baseUrl: string;
 }
 
+/** Nextcloud OCS API with an admin account (an app password, not the login password). */
+export interface NextcloudConfig {
+  /** e.g. https://cloud.weblion.ch */
+  baseUrl: string;
+  username: string;
+  appPassword: string;
+  /** Prefix of the per-organization groups, default "weblion-". */
+  groupPrefix?: string;
+}
+
 /** Joker.com DMAPI. Either an API key (recommended) or reseller username and password. */
 export interface JokerConfig {
   apiKey?: string;
@@ -283,4 +342,5 @@ export interface DemoConfig {
   servers?: number;
 }
 
-export type ProviderConfig = Fire24Config | ProxmoxConfig | HetznerConfig | JokerConfig | DemoConfig;
+export type ProviderConfig =
+  Fire24Config | ProxmoxConfig | HetznerConfig | JokerConfig | NextcloudConfig | DemoConfig;

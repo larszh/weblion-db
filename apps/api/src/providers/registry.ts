@@ -8,12 +8,14 @@ import { DemoAdapter } from './demo/adapter';
 import { Fire24Adapter } from './fire24/adapter';
 import { HetznerAdapter } from './hetzner/adapter';
 import { JokerAdapter } from './joker/adapter';
+import { NextcloudAdapter } from './nextcloud/adapter';
 import { ProxmoxAdapter } from './proxmox/adapter';
 import type {
   DemoConfig,
   Fire24Config,
   HetznerConfig,
   JokerConfig,
+  NextcloudConfig,
   ProviderAdapter,
   ProviderConfig,
   ProxmoxConfig,
@@ -34,6 +36,8 @@ export function createAdapter(
       return new HetznerAdapter(config as HetznerConfig);
     case 'joker':
       return new JokerAdapter(config as JokerConfig);
+    case 'nextcloud':
+      return new NextcloudAdapter(config as NextcloudConfig);
     case 'demo':
       return new DemoAdapter(connectionId, config as DemoConfig);
   }

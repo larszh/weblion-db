@@ -18,6 +18,7 @@ export type PermissionGroup =
   | 'security'
   | 'domains'
   | 'webhosting'
+  | 'storage'
   | 'billing'
   | 'reseller'
   | 'platform';
@@ -124,6 +125,21 @@ export const PERMISSIONS = {
     {
       dangerous: true,
     },
+  ),
+
+  // Cloud storage (module "storage", Nextcloud)
+  'cloud:read': def('storage', 'Cloud-Konten und Speicherverbrauch ansehen', 'View cloud accounts and usage'),
+  'cloud:write': def(
+    'storage',
+    'Cloud-Konten anlegen, ändern und löschen',
+    'Create, change and delete cloud accounts',
+    { dangerous: true },
+  ),
+  'cloud:password': def(
+    'storage',
+    'Passwort von Cloud-Konten neu setzen',
+    'Set a new password for cloud accounts',
+    { dangerous: true },
   ),
 
   // Billing

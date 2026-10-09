@@ -529,6 +529,7 @@ export const en: Record<TranslationKey, string> = {
   'perm.group.networking': 'Networking',
   'perm.group.domains': 'Domains',
   'perm.group.webhosting': 'Web hosting',
+  'perm.group.storage': 'Cloud storage',
   'perm.group.billing': 'Billing',
   'perm.group.reseller': 'Reseller',
   'perm.group.platform': 'Platform',

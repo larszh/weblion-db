@@ -57,6 +57,14 @@ const EnvSchema = z.object({
   HETZNER_BASE_URL: z.string().url().default('https://api.hetzner.cloud/v1'),
   HETZNER_NAME: z.string().default('Hetzner Cloud'),
 
+  // Nextcloud (cloud storage). An admin account and an app password of it.
+  NEXTCLOUD_URL: optionalString,
+  NEXTCLOUD_USER: optionalString,
+  NEXTCLOUD_APP_PASSWORD: optionalString,
+  NEXTCLOUD_NAME: z.string().default('Nextcloud'),
+  NEXTCLOUD_COUNTRY: z.string().default('CH'),
+  NEXTCLOUD_CITY: z.string().default('Zürich'),
+
   // Joker.com domains (DMAPI). An API key, or reseller username and password.
   JOKER_API_KEY: optionalString,
   JOKER_USERNAME: optionalString,

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   bigserial,
   boolean,
   date,
@@ -368,6 +369,53 @@ export const webspaces = pgTable(
   ],
 );
 
+// --- Cloud storage (Nextcloud) -----------------------------------------------------
+
+/** Storage an organization may hand out to Nextcloud accounts, on one instance. */
+export const cloudAllowances = pgTable('cloud_allowances', {
+  orgId: uuid('org_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  /** The Nextcloud instance. Kept while accounts exist there (restrict). */
+  providerConnectionId: uuid('provider_connection_id')
+    .notNull()
+    .references(() => providerConnections.id, { onDelete: 'restrict' }),
+  quotaBytes: bigint('quota_bytes', { mode: 'number' }).notNull(),
+  /** null = no limit on the number of accounts. */
+  maxAccounts: integer('max_accounts'),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
+
+/** A Nextcloud user managed through the panel. The password is never stored. */
+export const cloudAccounts = pgTable(
+  'cloud_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** Nextcloud user id = login name, e.g. "anna@muster-ag". */
+    externalId: text('external_id').notNull(),
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    displayName: text('display_name'),
+    email: text('email'),
+    /** null = unlimited (only possible for accounts imported by staff). */
+    quotaBytes: bigint('quota_bytes', { mode: 'number' }),
+    usedBytes: bigint('used_bytes', { mode: 'number' }),
+    enabled: boolean('enabled').notNull().default(true),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('cloud_accounts_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('cloud_accounts_org_idx').on(t.orgId),
+  ],
+);
+
 // --- Billing ------------------------------------------------------------------------
 // Money columns are integer minor units (Rappen/cents), tax rates basis points.
 
@@ -607,3 +655,5 @@ export type Invoice = typeof invoices.$inferSelect;
 export type InvoiceLine = typeof invoiceLines.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
+export type CloudAllowance = typeof cloudAllowances.$inferSelect;
+export type CloudAccount = typeof cloudAccounts.$inferSelect;

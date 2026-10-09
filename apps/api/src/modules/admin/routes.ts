@@ -39,6 +39,7 @@ import type {
   Fire24Config,
   HetznerConfig,
   JokerConfig,
+  NextcloudConfig,
   ProviderConfig,
   ProxmoxConfig,
 } from '../../providers/types';
@@ -78,6 +79,16 @@ const hetznerConfigSchema = z.object({
   apiToken: z.string().trim().min(32).max(200),
   baseUrl: z.url().default('https://api.hetzner.cloud/v1'),
 });
+const nextcloudConfigSchema = z.object({
+  baseUrl: z.url(),
+  username: z.string().trim().min(1).max(200),
+  appPassword: z.string().min(8).max(500),
+  groupPrefix: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9][a-z0-9._-]{0,30}$/, 'lower-case letters, digits, dot, dash, underscore')
+    .optional(),
+});
 /** An API key wins over username and password when both are stored. */
 const jokerConfigSchema = z
   .object({
@@ -105,6 +116,8 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(hetznerConfigSchema, raw) as HetznerConfig;
     case 'joker':
       return parse(jokerConfigSchema, raw) as JokerConfig;
+    case 'nextcloud':
+      return parse(nextcloudConfigSchema, raw) as NextcloudConfig;
     case 'demo':
       return parse(demoConfigSchema, raw ?? {}) as DemoConfig;
   }
@@ -137,6 +150,15 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         ...(c.apiKey
           ? { apiKey: `${c.apiKey.slice(0, 4)}…${c.apiKey.slice(-3)}` }
           : { username: c.username ?? '' }),
+      };
+    }
+    case 'nextcloud': {
+      const c = config as NextcloudConfig;
+      return {
+        baseUrl: c.baseUrl,
+        username: c.username,
+        appPassword: `${c.appPassword.slice(0, 4)}…`,
+        ...(c.groupPrefix ? { groupPrefix: c.groupPrefix } : {}),
       };
     }
     case 'demo':

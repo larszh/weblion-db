@@ -68,6 +68,7 @@ const DEFAULT_NAME: Record<ProviderType, string> = {
   proxmox: 'Proxmox',
   hetzner: 'Hetzner Cloud',
   joker: 'Joker.com',
+  nextcloud: 'Nextcloud',
   demo: 'Demo',
 };
 

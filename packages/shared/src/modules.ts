@@ -8,7 +8,7 @@ import type { PolicyStatement } from './policy';
  * its reseller. Platform staff still see everything. Core areas (members, policies, API
  * tokens, audit log, settings, billing) are always available and not modules.
  */
-export const MODULES = ['servers', 'dns', 'webhosting'] as const;
+export const MODULES = ['servers', 'dns', 'webhosting', 'storage'] as const;
 export type ModuleKey = (typeof MODULES)[number];
 
 export interface ModuleDef {
@@ -42,6 +42,14 @@ export const MODULE_DEFS: Record<ModuleKey, ModuleDef> = {
       en: 'Web spaces with Plesk access, mailboxes and databases.',
     },
     actions: ['webspace:*'],
+  },
+  storage: {
+    label: { de: 'Cloud-Speicher', en: 'Cloud storage' },
+    description: {
+      de: 'Nextcloud-Konten für Dateien, Kalender und Kontakte, mit Speicherkontingent.',
+      en: 'Nextcloud accounts for files, calendars and contacts, with a storage allowance.',
+    },
+    actions: ['cloud:*'],
   },
 };
 

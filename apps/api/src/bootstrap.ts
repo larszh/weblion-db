@@ -10,6 +10,7 @@ import type {
   Fire24Config,
   HetznerConfig,
   JokerConfig,
+  NextcloudConfig,
   ProviderConfig,
   ProxmoxConfig,
 } from './providers/types';
@@ -93,6 +94,23 @@ function envProviders(env: Env): EnvProvider[] {
       // Each server reports its own location (Falkenstein, Nürnberg, Helsinki, ...).
       location: { country: 'DE', city: 'Hetzner', label: 'Hetzner Cloud' },
       config: { apiToken: env.HETZNER_API_TOKEN, baseUrl: env.HETZNER_BASE_URL } satisfies HetznerConfig,
+    });
+  }
+  if (env.NEXTCLOUD_URL && env.NEXTCLOUD_USER && env.NEXTCLOUD_APP_PASSWORD) {
+    list.push({
+      key: 'nextcloud',
+      type: 'nextcloud',
+      name: env.NEXTCLOUD_NAME,
+      location: {
+        country: env.NEXTCLOUD_COUNTRY,
+        city: env.NEXTCLOUD_CITY,
+        label: `${env.NEXTCLOUD_CITY} (Nextcloud)`,
+      },
+      config: {
+        baseUrl: env.NEXTCLOUD_URL,
+        username: env.NEXTCLOUD_USER,
+        appPassword: env.NEXTCLOUD_APP_PASSWORD,
+      } satisfies NextcloudConfig,
     });
   }
   if (env.JOKER_API_KEY || (env.JOKER_USERNAME && env.JOKER_PASSWORD)) {

@@ -7,3 +7,4 @@ export * from './dto';
 export * from './modules';
 export * from './billing';
 export * from './hosting';
+export * from './cloud';

@@ -558,6 +558,7 @@ export const de = {
   'perm.group.networking': 'Netzwerk',
   'perm.group.domains': 'Domains',
   'perm.group.webhosting': 'Webhosting',
+  'perm.group.storage': 'Cloud-Speicher',
   'perm.group.billing': 'Abrechnung',
   'perm.group.reseller': 'Reseller',
   'perm.group.platform': 'Plattform',

@@ -29,6 +29,7 @@ const READ_ACTIONS = [
   'server:firewall:read',
   'domain:read',
   'webspace:read',
+  'cloud:read',
   'reseller:customer:read',
 ];
 
@@ -175,6 +176,7 @@ export const TOKEN_SCOPE_POLICIES: Record<Exclude<TokenScope, 'custom'>, PolicyS
         'org:delete',
         'webspace:credentials',
         'domain:authcode',
+        'cloud:password',
       ],
     },
   ],
