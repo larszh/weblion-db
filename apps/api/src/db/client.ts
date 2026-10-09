@@ -5,7 +5,8 @@ import * as schema from './schema';
 export type Database = NodePgDatabase<typeof schema>;
 
 export function createDb(databaseUrl: string): { db: Database; pool: pg.Pool } {
-  const pool = new pg.Pool({ connectionString: databaseUrl, max: 10 });
+  // A request that waits this long for a connection fails instead of queueing forever.
+  const pool = new pg.Pool({ connectionString: databaseUrl, max: 10, connectionTimeoutMillis: 30_000 });
   const db = drizzle(pool, { schema });
   return { db, pool };
 }

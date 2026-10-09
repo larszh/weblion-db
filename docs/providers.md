@@ -618,6 +618,435 @@ Ausprobieren: `muster-shop.ch` nutzt Cloudflare-Nameserver (Hinweis "andere Name
 DNS nur lesend), `muster-ag.ch` hat einen DynDNS-Eintrag (nur lesen), `alpenblick-hotel.ch` Einträge für NAPTR,
 Weiterleitung und E-Mail-Weiterleitung.
 
+## Nextcloud (Cloud-Speicher)
+
+- API: OCS-API von Nextcloud (Provisioning API), Doku unter
+  <https://docs.nextcloud.com/server/latest/admin_manual/configuration_user/instruction_set_for_users.html>
+- Base URL: die Adresse der Instanz, z.B. `https://cloud.weblion.one`. Jeder Aufruf geht an
+  `<Base URL>/ocs/v2.php/...?format=json`, mit HTTP Basic Auth (Admin-Benutzer und App-Passwort)
+  und dem Header `OCS-APIRequest: true`. Bodys als `application/x-www-form-urlencoded`,
+  Antworten als `{ ocs: { meta, data } }`.
+- Konfiguration: `NEXTCLOUD_URL`, `NEXTCLOUD_USER` und `NEXTCLOUD_APP_PASSWORD` in der `.env` oder
+  im Admin-Bereich unter Provider > Provider hinzufügen > Nextcloud
+- Nextcloud liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der
+  Provider deshalb nicht auf.
+
+### Was das Modul macht
+
+weblion.one betreibt eine eigene Nextcloud und verkauft darauf Konten. Das Modul
+**Cloud-Speicher** (`storage`) bringt das in die Console:
+
+- **Kontingent pro Kunde:** weblion.one (oder ein Reseller für seine Kunden) gibt einer
+  Organisation ein Speicherkontingent auf einer Instanz: Speicher gesamt in GB und optional eine
+  Höchstzahl an Konten.
+- **Konten mit eigenem Kontingent:** Darin legt der Kunde selbst Nextcloud-Konten an, jedes mit
+  eigenem Kontingent in ganzen GB (mindestens 1 GB). Die Summe der Kontingente aller Konten darf
+  das gebuchte Kontingent nicht übersteigen.
+- **Selbstverwaltung:** Kunden ändern Anzeigename, E-Mail und Kontingent, deaktivieren und
+  aktivieren Konten, setzen Passwörter neu, senden Einladungen erneut und löschen Konten. In der
+  Console unter dem Menüpunkt "Cloud-Speicher", sobald das Modul aktiv ist.
+- **Verbrauch:** Der Sync holt belegten Speicher und letzte Anmeldung aus Nextcloud.
+
+Das Kontingent ist eine Obergrenze für die Verteilung, keine Reservierung auf der Platte. Die
+Konten belegen nur, was sie tatsächlich speichern. Wer mehr verkauft, als die Instanz Platz hat,
+muss den Platz der Instanz selbst überwachen: Die Console zeigt den belegten Speicher pro Konto
+und pro Kunde, den freien Platz der Instanz aber nicht.
+
+Wer darf was:
+
+| Wer                           | Darf                                                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Owner, Admin                  | Konten anlegen, ändern, löschen (`cloud:write`) und Passwörter neu setzen (`cloud:password`)                          |
+| Member, Nur lesen             | Konten und Verbrauch ansehen (`cloud:read`)                                                                           |
+| Eingeschränkt, Buchhaltung    | nichts, per Policy erweiterbar                                                                                        |
+| API-Token "Lesen & Schreiben" | was die Person darf, der das Token gehört, aber ohne Passwörter: Konten nur mit Einladung, kein "Passwort neu setzen" |
+| Mitarbeitende eines Resellers | im Panel seiner Kunden, was ihre Reseller-Rolle erlaubt, dazu Kontingente der Kunden (`reseller:customer:write`)      |
+| weblion.one Superadmin        | alles, dazu Kontingente, Übernehmen und Zuweisen                                                                      |
+| weblion.one Support           | alles ansehen, nichts ändern                                                                                          |
+
+Cloud-Konten haben keinen eigenen Ressourcenpfad. Eine Policy gilt immer für alle Konten der
+Organisation (Ressource `org` oder `*`).
+
+### Voraussetzungen
+
+1. **Eigene Nextcloud-Instanz.** Die Console legt keine Instanz an, sie verwaltet die Benutzer
+   einer bestehenden. Am einfachsten ist **Nextcloud All-in-One (AIO)** mit Docker auf einer
+   eigenen VM:
+   - in der Hetzner Cloud (Daten in Deutschland oder Finnland) oder auf dem eigenen Proxmox
+     (Daten in der Schweiz)
+   - mit eigener Domain und TLS, z.B. `cloud.weblion.one`. AIO holt das Zertifikat selbst.
+   - mit genug Platz für den verkauften Speicher. Für viel Speicher das Datenverzeichnis schon
+     bei der Installation auf eine eigene Disk oder ein Volume legen (AIO-Option
+     `NEXTCLOUD_DATADIR`). Später umziehen ist aufwendig.
+   - mit Backups ausser Haus, z.B. mit dem eingebauten BorgBackup von AIO. Es sichert die ganze
+     Instanz, ein einzelnes gelöschtes Konto lässt sich daraus nur von Hand zurückholen.
+
+   Eine Instanz trägt viele Kunden. Mehrere Instanzen (z.B. CH und DE) sind mehrere Provider.
+
+2. **E-Mail in Nextcloud.** Einladungen und Willkommensmails verschickt Nextcloud selbst, nicht
+   die Console. In Nextcloud unter Verwaltung > Grundeinstellungen > E-Mail-Server einen
+   SMTP-Server eintragen und die Test-Mail senden. Ohne funktionierenden Versand legt Nextcloud
+   ein Konto mit Einladung trotzdem an, die Mail geht aber verloren (Nextcloud schreibt den Fehler
+   nur ins eigene Log). Die Person kommt dann erst hinein, wenn jemand die Einladung erneut sendet
+   oder ein Passwort neu setzt. Die Einstellung `newUser.sendEmail` muss an bleiben (Standard),
+   sonst verschickt Nextcloud beim Anlegen keine Einladung.
+3. **Eigenes Admin-Konto für die Console**, nicht das persönliche. Es muss Mitglied der Gruppe
+   `admin` sein, sonst lehnt "Verbindung testen" ab. Delegierte Admins und Gruppen-Admins reichen
+   nicht. Für dieses Konto ein **App-Passwort** erstellen: als dieses Konto anmelden, dann
+   Persönliche Einstellungen > Sicherheit > Geräte & Sitzungen > Neues App-Passwort erstellen. Ein
+   App-Passwort funktioniert auch mit Zwei-Faktor-Anmeldung und lässt sich widerrufen, ohne das
+   Passwort des Kontos zu ändern. 2FA für dieses Konto deshalb einschalten.
+4. **Kunden auf einer Instanz trennen.** Standardmässig darf in Nextcloud jeder mit jedem teilen,
+   und der Teilen-Dialog schlägt alle Benutzer der Instanz vor. Kunden sähen so die Namen anderer
+   Kunden. Unter Verwaltung > Teilen das Teilen auf Mitglieder der eigenen Gruppen beschränken
+   und die Vervollständigung von Benutzernamen ebenso. Das Systemadressbuch zeigt sonst alle
+   Benutzer als Kontakte, auch das abschalten. Per `occ`:
+
+   ```bash
+   occ config:app:set core shareapi_only_share_with_group_members --value=yes
+   occ config:app:set core shareapi_restrict_user_enumeration_to_group --value=yes
+   occ config:app:set dav system_addressbook_exposed --value=no
+   ```
+
+   Bei AIO läuft `occ` im Container:
+   `docker exec --user www-data -it nextcloud-aio-nextcloud php occ ...`. Weil die Console alle
+   Konten einer Organisation in eine gemeinsame Gruppe legt, finden sich Kolleginnen und Kollegen
+   weiterhin. Links zum Teilen nach aussen bleiben möglich.
+
+5. **Erreichbarkeit.** Die Console ruft die Instanz unter der Base URL auf. Diese Adresse muss zu
+   den `trusted_domains` der Instanz gehören (bei AIO ist es die Domain), sonst antwortet
+   Nextcloud mit einer HTML-Fehlerseite. Die Console folgt keinen Weiterleitungen, damit die
+   Zugangsdaten nie an einen anderen Host gehen. Also `https://` angeben, und liegt Nextcloud in
+   einem Unterverzeichnis, dieses mit (`https://example.ch/nextcloud`).
+
+Nextcloud bremst Clients nach fehlgeschlagenen Anmeldungen (Brute-Force-Schutz, HTTP 429). Lief
+die Console eine Weile mit einem falschen App-Passwort, trifft das auch die Anfragen danach. Die
+IP der Console lässt sich in der App "Brute-force settings" ausnehmen.
+
+### Konfiguration
+
+Über die `.env` (Werte mit Sonderzeichen in einfache Anführungszeichen setzen):
+
+```env
+NEXTCLOUD_URL=https://cloud.weblion.one
+NEXTCLOUD_USER=weblion-console
+NEXTCLOUD_APP_PASSWORD='...'
+NEXTCLOUD_NAME=Nextcloud
+NEXTCLOUD_COUNTRY=CH
+NEXTCLOUD_CITY=Zürich
+```
+
+Sind URL, Benutzer und App-Passwort gesetzt, legt die Console den Provider beim Start an,
+speichert die Zugangsdaten verschlüsselt und übernimmt Änderungen beim nächsten Neustart. Die
+Zugangsdaten eines solchen Providers ändern Sie nur über die `.env`. Name, Land und Stadt (der
+Standort der Instanz) gelten beim ersten Start, danach ändern Sie sie im Admin-Bereich.
+
+Oder im Admin-Bereich unter Provider > Provider hinzufügen, Typ Nextcloud: URL der Instanz,
+Admin-Benutzer, App-Passwort und optional das Gruppen-Präfix. Beim Bearbeiten behält ein leeres
+Feld das gespeicherte App-Passwort. "Verbindung testen" prüft Adresse und App-Passwort, ob das
+Konto Admin ist, und meldet Version, Benutzer und Zahl der Benutzer. Die Seite des Providers zeigt
+Version, Zahl der Benutzer und der Gruppen mit dem Präfix sowie die Adresse zum Anmelden.
+
+**Gruppen-Präfix:** Standard `weblion-`. Erlaubt sind Kleinbuchstaben, Ziffern, Punkt, Binde-
+und Unterstrich, am Anfang ein Buchstabe oder eine Ziffer, höchstens 31 Zeichen. Es lässt sich
+nur im Admin-Bereich setzen. Für den Provider aus der `.env` gibt es keine Variable, er nutzt
+immer `weblion-`. Ein neues Präfix gilt nur für neue Konten, bestehende bleiben in ihren Gruppen.
+
+### Login-Namen und Gruppen
+
+- **Login-Name** ist `<Name>@<Kürzel der Organisation>`, z.B. `anna@muster-ag`. Das Kürzel ist
+  eindeutig, Namen verschiedener Kunden auf derselben Instanz kollidieren also nie. Der Kunde
+  wählt nur den Teil vor dem `@`: Kleinbuchstaben, Ziffern, Punkt, Binde- und Unterstrich, am
+  Anfang und Ende ein Buchstabe oder eine Ziffer, höchstens 32 Zeichen. Der ganze Login-Name darf
+  höchstens 64 Zeichen lang sein (Grenze von Nextcloud).
+- Nextcloud kann Login-Namen nicht ändern, das Kürzel einer Organisation ist ebenfalls fest. Wer
+  einen anderen Namen will, legt ein neues Konto an und verschiebt die Dateien. Anzeigename und
+  E-Mail lassen sich jederzeit ändern.
+- **Gruppe:** Jedes Konto kommt in die Gruppe `<Präfix><Kürzel>`, z.B. `weblion-muster-ag`.
+  Fehlt sie, legt die Console sie beim ersten Konto an. Über die Gruppe finden sich die Konten
+  einer Organisation im Teilen-Dialog.
+- **Sprache:** Ein neues Konto bekommt die Sprache der Person, die es in der Console anlegt
+  (Deutsch oder Englisch). Ändern lässt sie sich in Nextcloud.
+- **Anmelden** unter der Adresse der Instanz (Button "Nextcloud öffnen") oder in den Desktop- und
+  Mobil-Apps von Nextcloud, jeweils mit Login-Name und Passwort.
+
+### Konten anlegen
+
+Cloud-Speicher > Konto erstellen: Benutzername (die Console zeigt den ganzen Login-Name dazu),
+Anzeigename, E-Mail, Kontingent in GB und der Zugang:
+
+- **Passwort jetzt erzeugen:** Die Console erzeugt ein Passwort und zeigt es einmal an, mit
+  Login-Name und Adresse zum Weitergeben.
+- **Einladung per E-Mail:** Braucht eine E-Mail-Adresse. Nextcloud sendet einen Link, mit dem die
+  Person ihr Passwort selbst setzt. Die Console sieht kein Passwort.
+
+Vorher prüft die Console: Es gibt ein Kontingent (sonst 409 `no_allowance`), das neue Konto passt
+hinein (409 `allowance_exceeded`), die Höchstzahl an Konten ist nicht erreicht (409
+`account_limit`), und der Name ist gültig und frei (409, auch wenn es den Benutzer in Nextcloud
+schon gibt, ohne dass die Console ihn verwaltet). Das Anlegen läuft unter einer Sperre pro
+Kunde, parallele Anfragen können das Kontingent also nicht überziehen.
+
+In Nextcloud prüft die Console, dass es den Benutzer noch nicht gibt, legt bei Bedarf die Gruppe
+an und erstellt den Benutzer mit Gruppe, Kontingent und Sprache. Nextcloud setzt Kontingent und
+Sprache erst, nachdem der Benutzer angelegt ist. Schlägt einer dieser Schritte fehl, löscht die
+Console den halb angelegten Benutzer wieder, damit ein zweiter Versuch klappt.
+
+Hat das Konto eine E-Mail-Adresse, schickt Nextcloud auch beim erzeugten Passwort eine
+Willkommensmail (ohne Passwort, mit Link zur Anmeldung).
+
+Per API geht es nur mit Einladung, ein Token bekommt nie ein Passwort (sonst 400):
+
+```bash
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"name":"anna","displayName":"Anna Muster","email":"anna@muster.ch","quotaGb":50,"invite":true}' \
+  https://cp.weblion.cloud/api/v1/orgs/<org-id>/cloud/accounts
+```
+
+Die Antwort ist `{ "account": { ... }, "password": null }`. Im Audit-Log steht
+`cloud.account_create`.
+
+### Ändern, deaktivieren, Einladung
+
+- **Kontingent:** Grösser geht, solange es ins Kontingent des Kunden passt (sonst 409
+  `allowance_exceeded`). Kleiner geht immer, auch unter den belegten Speicher: Nextcloud behält
+  alle Dateien, nimmt aber keine neuen an, bis wieder Platz frei ist. Die Console warnt vorher und
+  zeigt die Belegung rot.
+- **Deaktivieren:** Die Person kann sich nicht mehr anmelden, ihre Geräte synchronisieren nicht
+  mehr. Dateien und Kontingent bleiben und zählen weiter zum Kontingent.
+- **E-Mail:** Benachrichtigungen und Einladungen gehen danach an die neue Adresse. Ein leeres
+  Feld entfernt sie.
+- **Einladung erneut senden:** Sendet die Willkommensmail von Nextcloud noch einmal, bei einer
+  offenen Einladung mit neuem Link. Geht nur mit E-Mail-Adresse (sonst 400).
+
+Nextcloud ändert pro Anfrage ein Feld, die Console schickt die Felder nacheinander. Im Audit-Log
+stehen `cloud.account_update` mit altem und neuem Wert sowie `cloud.invite`. Per API:
+`PATCH /api/v1/cloud/accounts/<id>` mit z.B. `{"quotaGb": 100}` oder `{"enabled": false}`,
+`POST /api/v1/cloud/accounts/<id>/invite`.
+
+### Passwörter
+
+- **Erzeugte Passwörter** haben 20 Zeichen ohne verwechselbare Zeichen (I, l, O, 0, 1), mit
+  Gross- und Kleinbuchstaben, Ziffern und Sonderzeichen, damit jede Passwort-Richtlinie von
+  Nextcloud passt. Die Console zeigt sie einmal an und speichert sie nirgends, weder in der
+  Datenbank noch im Audit-Log. Antworten mit Passwort tragen `Cache-Control: no-store`.
+- **Passwort neu setzen** (`cloud:password`, Owner und Admin) geht nur mit Login, nie per
+  API-Token, auch nicht mit "Lesen & Schreiben". Das bisherige Passwort gilt danach nicht mehr. Im
+  Audit-Log steht `cloud.password_reset` (wer und wann), das Passwort nicht. Per API nur mit
+  Session: `POST /api/v1/cloud/accounts/<id>/password`.
+- **Einladung:** Die Console sieht kein Passwort. Für API-Tokens ist das der einzige Weg.
+- Eigene Passwörter und Zwei-Faktor-Anmeldung richten die Nutzer in Nextcloud ein. Die Console
+  erfährt davon nichts.
+- **App-Passwort der Console:** verschlüsselt gespeichert (AES-256-GCM). Es ist ein volles
+  Passwort des Admin-Kontos, deshalb zeigt die Console davon auch im Admin-Bereich kein Zeichen,
+  und in Fehlermeldungen steht es nie.
+
+### Löschen
+
+- Löschen verlangt den Login-Namen als Bestätigung. Nextcloud löscht das Konto **sofort mit allen
+  Dateien**, Kalendern, Kontakten und Freigaben. Einen Papierkorb dafür gibt es nicht, nur ein
+  Backup der Instanz hilft.
+- Fehlt das Konto in Nextcloud schon (Status "In Nextcloud nicht gefunden"), entfernt Löschen nur
+  noch den Eintrag in der Console.
+- Ein Kunde mit Cloud-Konten oder Kontingent lässt sich nicht löschen. Ein Provider lässt sich
+  nicht löschen, solange darauf Kontingente oder zugewiesene Konten bestehen.
+- Im Audit-Log steht `cloud.account_delete` mit Kontingent und belegtem Speicher. Per API:
+  `DELETE /api/v1/cloud/accounts/<id>` mit `{"confirm": "<Login-Name>"}`.
+
+### Sync
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) liest die Console alle Benutzer der Instanz mit
+  `GET /cloud/users/details`, 100 pro Anfrage. Für die Konten, die sie verwaltet, übernimmt sie
+  Anzeigename, E-Mail, Kontingent, belegten Speicher, aktiv oder deaktiviert und die letzte
+  Anmeldung.
+- Fehlt ein Konto in Nextcloud, zeigt die Console "In Nextcloud nicht gefunden". Taucht es wieder
+  auf, verschwindet der Hinweis. Konten, die während des Laufs angelegt wurden, gelten nicht als
+  fehlend.
+- Kann Nextcloud den Speicher eines Benutzers nicht lesen, fehlen Kontingent und Belegung in der
+  Antwort. Die Console behält dann die gespeicherten Werte, statt das Konto als unbegrenzt zu
+  zählen. Ein Konto ohne Kontingent (unbegrenzt) mit gemeldeter Belegung übernimmt sie normal.
+- Benutzer, die die Console nicht kennt, legt der Sync nicht an. Sie erscheinen im Admin-Bereich
+  als nicht verwaltete Benutzer (siehe unten).
+- Was jemand direkt in Nextcloud ändert (z.B. ein Kontingent in der Benutzerverwaltung),
+  übernimmt der Sync, auch wenn es nicht mehr ins Kontingent des Kunden passt. Geprüft wird nur,
+  was über die Console läuft. Die Karte des Kunden zeigt dann mehr zugeteilt als gebucht.
+- Für jede Seite liest Nextcloud den Speicher jedes Benutzers. Bei vielen Benutzern dauert ein
+  Lauf entsprechend. Höchstens vier Anfragen laufen gleichzeitig, jede mit 30 Sekunden Timeout.
+- Von Hand: Admin > Provider > Nextcloud > "Jetzt synchronisieren", oder der Sync-Button im Tab
+  "Cloud-Konten".
+
+### Kontingente einrichten
+
+Admin > Kunden > Kunde, Karte "Cloud-Speicher" > Einrichten (Berechtigung `platform:org:write`):
+
+- **Instanz:** alle Nextcloud-Provider (und der Demo-Provider)
+- **Speicher gesamt** in GB
+- **Konten höchstens**, leer für unbegrenzt
+- **Modul "Cloud-Speicher" aktivieren** (Standard an). Bei einem Kunden eines Resellers nur, wenn
+  der Reseller das Modul selbst hat (sonst 409).
+
+Die Instanz lässt sich nur wechseln, solange darauf keine Konten bestehen (und bei einem Reseller
+keine Kontingente seiner Kunden). Senken geht nicht unter das, was schon vergeben ist (409
+`allowance_exceeded` bzw. `account_limit`). Entfernen geht nur ohne Konten und schaltet das Modul
+nicht ab. Im Audit-Log stehen `cloud.allowance_set` und `cloud.allowance_delete`.
+
+Per API nur mit Login (Session-Cookie), denn API-Tokens tragen keine Plattform-Rechte:
+`PUT /api/v1/admin/orgs/<org-id>/cloud-allowance` mit z.B.
+`{"providerId": "<provider-id>", "quotaGb": 500, "maxAccounts": 10, "enableModule": true}`,
+`DELETE` auf denselben Pfad entfernt das Kontingent.
+
+### Reseller
+
+- Ein Reseller bekommt von weblion.one ein Kontingent wie jeder Kunde, dazu das Modul
+  "Cloud-Speicher". Daraus legt er eigene Konten an und teilt seinen Kunden einen Teil zu:
+  Reseller > Meine Kunden > Kunde > Ressourcen, Karte "Cloud-Speicher". Die Instanz ist immer die
+  des Resellers. Speichern aktiviert beim Kunden auch das Modul.
+- Eigene Konten und alle Kundenkontingente zusammen müssen ins Kontingent des Resellers passen
+  (sonst 409 `allowance_exceeded`). Hat das Kontingent des Resellers eine Höchstzahl an Konten,
+  braucht auch jeder Kunde eine. Dann zählen die Höchstzahlen der Kunden gegen die des Resellers.
+- Auf seiner eigenen Seite "Cloud-Speicher" sieht der Reseller unter "Zugeteilt" auch, was an
+  Kunden ging.
+- "Kontingent entfernen" auf derselben Karte gibt den Speicher an den Reseller zurück, z.B. bevor
+  er den Kunden löscht. Das geht nur, solange der Kunde keine Konten hat. Per API:
+  `PUT` und `DELETE /api/v1/reseller/customers/<id>/cloud-allowance`, PUT mit
+  `{"quotaGb": 50, "maxAccounts": 5}`.
+- weblion.one kann einem Kunden eines Resellers auch direkt ein Kontingent geben. Dabei prüft die
+  Console das Kontingent des Resellers nicht.
+
+### Konten im Admin-Bereich
+
+Admin > Domains & Webspaces > Cloud-Konten:
+
+- Alle Konten aller Instanzen, mit Suche und Filter nach Kunde und Instanz. Die Karte beim Kunden
+  verlinkt direkt auf seine Konten.
+- **Zuweisen und lösen:** Ein Konto einem Kunden zuweisen oder von ihm lösen. Der Kunde braucht
+  ein Kontingent auf derselben Instanz. Summe und Höchstzahl prüft die Console dabei bewusst nicht,
+  das Konto zählt danach auch dann beim Kunden, wenn es nicht mehr hineinpasst. Ein gelöstes Konto
+  bleibt mit allen Dateien in Nextcloud.
+- **Nicht verwaltete Benutzer:** "Benutzer abrufen" liest live alle Benutzer der Instanz, die die
+  Console nicht verwaltet, z.B. aus der Zeit vor der Console. "Übernehmen" verwaltet sie danach,
+  auf Wunsch gleich bei einem Kunden. Name, Kontingent und Dateien bleiben. Benutzer ohne
+  Kontingent (unbegrenzt) zählen beim Kunden mit dem belegten Speicher, bis jemand ein Kontingent
+  setzt.
+- Mitglieder der Gruppe `admin` und das Konto der Console erscheinen nie und lassen sich nicht
+  übernehmen: Wer ein Konto verwaltet, kann sein Passwort setzen.
+- Übernehmen und Zuweisen ändern die Gruppen in Nextcloud nicht. Ein übernommenes Konto ist also
+  nicht automatisch in `weblion-<Kürzel>`. Das bei Bedarf in Nextcloud von Hand nachziehen.
+- Ändern, deaktivieren und löschen geht hier nicht, sondern im Panel des Kunden unter
+  "Cloud-Speicher". Ein Konto ohne Kunde dafür zuerst zuweisen, oder es in Nextcloud bearbeiten.
+
+Im Audit-Log stehen `cloud.account_import` und `cloud.account_assign`.
+
+### Was die Console nutzt
+
+Alle Pfade relativ zu `/ocs/v2.php`.
+
+| Funktion in der Console                       | Endpunkt                                                                                            | Berechtigung                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Verbindungstest                               | `GET /cloud/capabilities`, `GET /cloud/user`, `GET /cloud/users`                                    | Admin-Bereich                       |
+| Übersicht des Providers                       | `GET /cloud/capabilities`, `GET /cloud/users`, `GET /cloud/groups?search=<Präfix>`                  | Admin-Bereich                       |
+| Sync, nicht verwaltete Benutzer               | `GET /cloud/users/details?limit=100&offset=…`                                                       | Sync-Job, `platform:provider:read`  |
+| Benutzer lesen (nach dem Anlegen, Übernehmen) | `GET /cloud/users/{userid}`                                                                         | `cloud:write`, `platform:org:write` |
+| Konto erstellen                               | `GET /cloud/users/{userid}`, `GET /cloud/groups?search=`, `POST /cloud/groups`, `POST /cloud/users` | `cloud:write`                       |
+| Anzeigename, E-Mail, Kontingent ändern        | `PUT /cloud/users/{userid}` mit `key` und `value`                                                   | `cloud:write`                       |
+| Aktivieren, deaktivieren                      | `PUT /cloud/users/{userid}/enable`, `/disable`                                                      | `cloud:write`                       |
+| Passwort neu setzen                           | `PUT /cloud/users/{userid}` mit `key=password`                                                      | `cloud:password`, nur mit Login     |
+| Einladung erneut senden                       | `POST /cloud/users/{userid}/welcome`                                                                | `cloud:write`                       |
+| Löschen                                       | `DELETE /cloud/users/{userid}`                                                                      | `cloud:write`                       |
+| API Explorer                                  | jeder OCS-Pfad ausser den App-Passwort-Endpunkten                                                   | `platform:explorer`, nur mit Login  |
+
+Die User-ID (der Login-Name) steht kodiert im Pfad, `anna@muster-ag` als `anna%40muster-ag`. Die
+Console prüft sie vorher auf die Zeichen, die Nextcloud erlaubt. Fehler zeigt sie mit dem Text
+von Nextcloud, dem OCS-Statuscode und dem HTTP-Status. Bei 401 (App-Passwort falsch), 403 (Konto
+kein Admin), 429 (gebremst), 503 (Wartungsmodus) und Weiterleitungen (Base URL prüfen) kommt ein
+Hinweis dazu.
+
+### Fehler der API
+
+Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
+Cloud-Speicher:
+
+| HTTP | `code`               | Wann                                                                                                                                                                                                                               |
+| ---- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `bad_request`        | Ungültige Eingabe (`details` nennt das Feld), Einladung ohne E-Mail, API-Token ohne `"invite": true`, "Einladung erneut senden" ohne E-Mail, falsche Bestätigung beim Löschen, Login-Name, den Nextcloud nicht annimmt             |
+| 403  | `forbidden`          | Recht fehlt, Modul nicht aktiv, Kunde gesperrt (nur lesen), "Passwort neu setzen" mit API-Token                                                                                                                                    |
+| 404  | `not_found`          | Konto, Kunde oder Kontingent gibt es nicht, oder der Aufrufer sieht sie nicht                                                                                                                                                      |
+| 404  | `provider_error`     | Nextcloud kennt den Benutzer nicht (mehr)                                                                                                                                                                                          |
+| 409  | `no_allowance`       | Der Kunde (oder beim Zuteilen der Reseller) hat kein Kontingent                                                                                                                                                                    |
+| 409  | `allowance_exceeded` | Speicher reicht nicht, `details` mit `quotaBytes` und `allocatedBytes`                                                                                                                                                             |
+| 409  | `account_limit`      | Höchstzahl an Konten erreicht oder zu tief, `details` mit `maxAccounts` und `accounts`                                                                                                                                             |
+| 409  | `conflict`           | Login-Name vergeben (in der Console oder in Nextcloud), Konto schon verwaltet, Kontingent des Kunden auf einer anderen Instanz, Instanz wechseln oder Kontingent entfernen mit Konten, Reseller ohne Modul, Admin-Konto übernehmen |
+| 422  | `unsupported`        | Der Provider kann keine Cloud-Konten (z.B. Hetzner als Instanz gewählt)                                                                                                                                                            |
+| 502  | `provider_error`     | Nextcloud hat abgelehnt oder war nicht erreichbar. `message` mit dem Text von Nextcloud, OCS- und HTTP-Status, `details.statuscode` mit dem OCS-Status                                                                             |
+
+Schlägt Anlegen, Ändern, Passwort, Einladung oder Löschen bei Nextcloud fehl, steht das mit
+`status: failure` und der Fehlermeldung im Audit-Log.
+
+### API Explorer
+
+Für alles ohne eigenen Button: Admin > API Explorer, Provider Nextcloud wählen.
+
+- Der **Pfad** beginnt mit `/ocs/v2.php/` oder `/ocs/v1.php/`, z.B.
+  `/ocs/v2.php/cloud/users?search=anna`. Die Base URL davor ist erlaubt. Vorlagen: Benutzer mit
+  Details, Benutzerliste, ein Benutzer, Gruppen, Mitglieder einer Gruppe, Capabilities.
+- GET und DELETE senden die Parameter aus dem JSON-Feld als Query, POST und PUT als Formular, z.B.
+  `{ "key": "quota", "value": "10 GB" }`.
+- Gesperrt sind Pfade ausserhalb der OCS-API, `..` und kodierte Punkte oder Schrägstriche und die
+  App-Passwort-Endpunkte (`core/apppassword`, `core/getapppassword`). Passwörter, Tokens und
+  Secrets in Antworten sind ausgeblendet.
+- Ändernde Requests (POST, PUT, DELETE) stehen mit Pfad und Body im Audit-Log
+  (`provider.explorer`), lesende nicht. Werte von Feldern wie `password`, `token` oder `secret`
+  sind dort ausgeblendet, ebenso `value`, wenn `key` ein solches Feld ist
+  (`{"key": "password", "value": "..."}`), und gleichnamige Query-Parameter im Pfad.
+- Passwörter trotzdem mit "Passwort neu setzen" setzen: Das erzeugt ein starkes Passwort und
+  steht beim Konto im Audit-Log (`cloud.password_reset`).
+- Was über den Explorer geändert wird, prüft die Console nicht gegen Kontingente.
+
+### Grenzen
+
+- **Sperren:** Ein gesperrter Kunde sieht seine Konten in der Console nur noch lesend. In Nextcloud
+  bleiben sie aber aktiv: Die Leute melden sich weiter an und laden Dateien hoch. Wer den Zugang
+  sperren will, deaktiviert die Konten von Hand. Mitarbeitende von weblion.one (Superadmin) können
+  das auch beim gesperrten Kunden auf dessen Seite "Cloud-Speicher". Ebenso lassen ein
+  abgeschaltetes Modul und ein gekündigter Dienst die Konten in Nextcloud unberührt, der Kunde
+  sieht sie dann nur nicht mehr in der Console.
+- **Abrechnung:** Kontingent und Dienst sind getrennt, eine Abrechnung pro Konto oder pro
+  belegtem GB gibt es nicht. Siehe [billing.md](billing.md#cloud-speicher-nextcloud-verkaufen).
+- **Eine Instanz pro Kunde:** Alle Konten einer Organisation liegen auf der Instanz ihres
+  Kontingents.
+- **Gruppen:** Übernehmen und Zuweisen ändern Gruppen in Nextcloud nicht (siehe oben).
+- **Gruppen-Präfix** gibt es nicht als Variable in der `.env`.
+- **Reseller-Wechsel:** Wechselt ein Kunde den Reseller (Admin > Kunden), prüft die Console sein
+  Cloud-Kontingent nicht gegen das Kontingent des neuen Resellers.
+- Team-Ordner, Freigaben, Office im Browser und die Einstellungen der Instanz verwaltet die
+  Console nicht, das geht in Nextcloud.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen eine echte Nextcloud ist die Anbindung noch nicht getestet, nur gegen einen Mock-Server nach
+der Provisioning-API-Doku und dem Quellcode von Nextcloud. Vor dem ersten echten Einsatz mit einer
+Test-Instanz prüfen:
+
+- Anlegen mit Passwort und mit Einladung: Kommt die Einladung an, funktioniert der Link?
+- "Einladung erneut senden" bei einer offenen Einladung: Enthält die Mail wieder einen Link zum
+  Passwort setzen, oder nur den Link zur Anmeldung?
+- Kontingent, Sprache und Gruppe nach dem Anlegen
+- Kontingent und Belegung aus `/cloud/users/details`, auch für Benutzer, die sich noch nie
+  angemeldet haben. Wann liefert Nextcloud dort ein leeres Kontingent (siehe Sync)?
+- Dauer eines Sync-Laufs bei vielen Benutzern
+
+### Demo
+
+Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert eine Nextcloud im Speicher, mit
+denselben Prüfungen wie die echte Anbindung. Die Adresse `https://cloud.demo.weblion.one` gibt es
+nicht, "Nextcloud öffnen" führt ins Leere. Mit `pnpm db:seed` hat Muster AG 500 GB für höchstens
+10 Konten mit `anna@muster-ag` und `buchhaltung@muster-ag` (deaktiviert). `ben@muster-ag` und
+`dev@beispiel-gmbh` sind nicht verwaltet und lassen sich im Admin-Bereich übernehmen. Alpen
+Hosting (1000 GB) und Bäckerei Huber (100 GB mit `hanna@baeckerei-huber`) haben ein Kontingent,
+aber noch nicht das Modul. Zum Ausprobieren das Modul zuerst bei Alpen Hosting, dann bei Bäckerei
+Huber aktivieren.
+
 ## Weitere Provider anbinden
 
 Ein Provider ist eine Klasse, die `ProviderAdapter` aus
@@ -637,3 +1066,12 @@ Web halten `providerHasServers()` in `components/server-bits.tsx` und `HOSTING_P
 Verkauft ein Provider feste Grössen (wie Hetzner), liefert der Adapter `listPlans()` und
 `listLocations()`. Rescale und Server erstellen zeigen dann Typ und Standort statt freier
 Werte für CPU, RAM und Disk.
+
+Ein Provider für Cloud-Speicher wie Nextcloud liefert ebenfalls keine Server. Er implementiert
+`listCloudAccounts`, `getCloudAccount`, `createCloudAccount`, `updateCloudAccount`,
+`setCloudAccountPassword` und `deleteCloudAccount`. Erst mit allen sechs gilt er als
+Cloud-Provider (`supportsCloud()` in `apps/api/src/modules/cloud/service.ts`), sonst lehnt die API
+Kontingente auf ihm mit 422 (`unsupported`) ab. Optional sind `resendCloudInvite` (Einladung
+erneut senden) und `cloudLoginUrl` (Adresse zum Anmelden). Kontingente, Login-Namen, Gruppen und
+Passwörter erledigt das Modul `cloud`, der Adapter spricht nur mit der Instanz. Im Web hält
+`isCloudProvider()` in `pages/admin/cloud.tsx` fest, welche Typen Cloud-Konten haben.

@@ -76,11 +76,15 @@ export const storageEn: Record<keyof typeof storageDe, string> = {
   'storage.email': 'E-mail address',
   'storage.email.required': 'Required for the invitation.',
   'storage.email.invalid': 'Not a valid e-mail address.',
+  'storage.email.needsPassword':
+    'Changing it needs the right to set passwords: invitations and password reset links go to this address.',
   'storage.email.changeHint': 'Nextcloud sends notifications and invitations to the new address from now on.',
   'storage.quota': 'Quota',
   'storage.quota.freeHint': 'Still free in your allowance: {free}',
   'storage.quota.maxHint': 'At most {max} ({free} still free in your allowance)',
   'storage.quota.invalid': 'Enter a whole number of at least 1 GB.',
+  'storage.quota.step':
+    'From 1024 GB on only in steps of 512 GB (1024, 1536, 2048 …), Nextcloud rounds other values.',
   'storage.quota.tooLarge': 'At most {max} fit into the allowance.',
   'storage.quota.current': 'Currently {quota}. Leave empty to keep it.',
   'storage.quota.currentUnlimited': 'Currently unlimited. Leave empty to keep it that way.',
@@ -131,6 +135,8 @@ export const storageEn: Record<keyof typeof storageDe, string> = {
   'storage.allowance.dialogText': 'Total storage and number of accounts the organization distributes itself.',
   'storage.allowance.instanceHint': "All of the organization's accounts live on this Nextcloud instance.",
   'storage.allowance.instanceLocked': 'The instance can only change while no accounts exist on it.',
+  'storage.allowance.instanceLockedCustomers':
+    "The instance can only change while none of the reseller's customers has an allowance on it.",
   'storage.allowance.quota': 'Total storage',
   'storage.allowance.allocatedHint': 'Allocated already: {size}',
   'storage.allowance.belowAllocated': 'At least {size}, that much is allocated already.',
@@ -151,6 +157,8 @@ export const storageEn: Record<keyof typeof storageDe, string> = {
     'The organization can no longer create Nextcloud accounts. The module stays active until you switch it off.',
   'storage.allowance.removeBlocked':
     'Only possible without accounts. Delete the accounts or assign them to another organization.',
+  'storage.allowance.removeBlockedCustomers':
+    'Only possible without customer allowances. Remove the allowances of the {n} customers first.',
   'storage.allowance.removed': 'Storage allowance removed',
 
   // Admin

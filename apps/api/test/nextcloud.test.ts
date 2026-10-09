@@ -203,6 +203,8 @@ beforeEach(() => {
   mock.requests.length = 0;
 });
 
+const demoAdapter = () => new DemoAdapter('demo-quota-test', {});
+
 function adapter(extra: { groupPrefix?: string; baseUrl?: string; appPassword?: string } = {}) {
   return new NextcloudAdapter({
     baseUrl: extra.baseUrl ?? `${mock.url}/`,
@@ -602,6 +604,50 @@ describe('Nextcloud accounts', () => {
     const post = mock.requests.find((r) => r.method === 'POST' && r.path === `${OCS}/cloud/users`)!;
     expect(post.form.get('language')).toBe('de');
     expect(post.form.get('quota')).toBe(String(GiB));
+  });
+
+  it('only sends quotas Nextcloud stores exactly', async () => {
+    // Nextcloud keeps a quota as "<size> GB/TB" with one decimal: 2000 GB would read back as
+    // "2 TB" = 2048 GB, 1025 GB as 1024 GB. Whole GB below 1024 GB and steps of 512 GB are exact.
+    for (const gb of [1025, 1100, 1500, 2000]) {
+      const err = await caught(adapter().createCloudAccount(input({ quotaBytes: gb * GiB })));
+      expect(err.statusCode, String(gb)).toBe(400);
+      const edit = await caught(adapter().updateCloudAccount('anna@muster-ag', { quotaBytes: gb * GiB }));
+      expect(edit.statusCode, String(gb)).toBe(400);
+    }
+    expect((await caught(adapter().createCloudAccount(input({ quotaBytes: 1.5 * GiB })))).statusCode).toBe(
+      400,
+    );
+    expect(mock.requests).toHaveLength(0);
+    for (const gb of [1023, 1024, 1536, 2048]) {
+      await adapter().createCloudAccount(input({ username: `u${gb}@muster-ag`, quotaBytes: gb * GiB }));
+    }
+    expect(
+      (await caught(demoAdapter().createCloudAccount(input({ username: 'x', quotaBytes: 2000 * GiB }))))
+        .statusCode,
+    ).toBe(400);
+  });
+
+  it('keeps a created user when only reading it back fails', async () => {
+    nc.override = (req) =>
+      req.method === 'GET' &&
+      req.path === `${OCS}/cloud/users/anna%40muster-ag` &&
+      nc.users.has('anna@muster-ag')
+        ? { status: 503, body: '<html>Service Unavailable</html>' }
+        : undefined;
+    const created = await adapter().createCloudAccount(input({ password: undefined }));
+    expect(created).toEqual({
+      externalId: 'anna@muster-ag',
+      displayName: 'Anna Muster',
+      email: 'anna@muster.example',
+      quotaBytes: 10 * GiB,
+      usedBytes: 0,
+      enabled: true,
+      lastLoginAt: null,
+      groups: ['weblion-muster-ag'],
+    });
+    expect(nc.users.has('anna@muster-ag')).toBe(true);
+    expect(writes()).toEqual(['POST /cloud/groups', 'POST /cloud/users']);
   });
 
   it('answers 409 for an existing user', async () => {

@@ -240,7 +240,9 @@ export class SyncService {
           lastSyncedAt: now,
           missingSince: null,
         })
-        .where(eq(cloudAccounts.id, row.id));
+        // Changed in the panel while the list was on its way (e.g. a raised quota): the list
+        // has the old values, which would free room in the allowance. The next run catches up.
+        .where(and(eq(cloudAccounts.id, row.id), lt(cloudAccounts.updatedAt, started)));
     }
     if (missing.length > 0) {
       await this.db

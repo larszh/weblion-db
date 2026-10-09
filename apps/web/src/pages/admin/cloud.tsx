@@ -90,6 +90,14 @@ export function CloudAllowanceAdminCard({
     setRemoving(false),
   );
   const data = allowance.data ?? null;
+  // Like the API: only without accounts and, for a reseller, without customer allowances.
+  const removeBlocked = !data
+    ? null
+    : data.accounts > 0
+      ? t('storage.allowance.removeBlocked')
+      : data.customers > 0
+        ? t('storage.allowance.removeBlockedCustomers', { n: data.customers })
+        : null;
 
   return (
     <Card>
@@ -132,17 +140,15 @@ export function CloudAllowanceAdminCard({
                 variant="danger-soft"
                 className="ml-auto"
                 icon={<Trash2 className="size-3.5" />}
-                disabled={data.accounts > 0}
-                title={data.accounts > 0 ? t('storage.allowance.removeBlocked') : undefined}
+                disabled={!!removeBlocked}
+                title={removeBlocked ?? undefined}
                 onClick={() => setRemoving(true)}
               >
                 {t('storage.allowance.remove')}
               </Button>
             )}
           </div>
-          {canWrite && data.accounts > 0 && (
-            <p className="text-xs text-muted">{t('storage.allowance.removeBlocked')}</p>
-          )}
+          {canWrite && removeBlocked && <p className="text-xs text-muted">{removeBlocked}</p>}
         </CardBody>
       ) : (
         <EmptyState
@@ -192,8 +198,9 @@ function AdminAllowanceDialog({
   const hasModule = org.modules.includes('storage');
   const moduleLabel = MODULE_DEFS.storage.label[locale];
   const resellerLacks = !!parent && !parent.modules.includes('storage');
-  // The instance can only change while nothing lives on the current one.
-  const instanceLocked = !!current && current.accounts > 0;
+  // The instance can only change while nothing lives on the current one (no accounts and,
+  // for a reseller, no customer allowances).
+  const instanceLocked = !!current && (current.accounts > 0 || current.customers > 0);
   const minGb = current ? Math.max(1, Math.ceil(current.allocatedBytes / GIB)) : 1;
   const minAccounts = current?.accounts ?? 0;
 
@@ -267,7 +274,11 @@ function AdminAllowanceDialog({
             label={t('storage.instance')}
             htmlFor="ca-provider"
             hint={
-              instanceLocked ? t('storage.allowance.instanceLocked') : t('storage.allowance.instanceHint')
+              !instanceLocked
+                ? t('storage.allowance.instanceHint')
+                : current.accounts > 0
+                  ? t('storage.allowance.instanceLocked')
+                  : t('storage.allowance.instanceLockedCustomers')
             }
           >
             <Select

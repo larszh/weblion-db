@@ -187,7 +187,9 @@ function AccountsCard({
 }) {
   const { t, locale } = useI18n();
   const [q, setQ] = useState('');
-  const needle = q.trim().toLowerCase();
+  // The search only shows for longer lists. Below that, a leftover search must not hide accounts.
+  const searchable = accounts.length > 8;
+  const needle = searchable ? q.trim().toLowerCase() : '';
   const list = accounts.filter(
     (a) =>
       !needle ||
@@ -214,7 +216,7 @@ function AccountsCard({
             : t('storage.accountsText')
         }
         actions={
-          accounts.length > 8 && (
+          searchable && (
             <div className="relative w-64 max-w-full">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
               <Input

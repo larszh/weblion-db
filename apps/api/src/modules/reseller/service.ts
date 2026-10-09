@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, ne, notInArray, or } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, ne, notInArray, or } from 'drizzle-orm';
 import {
   formatMoney,
   type Currency,
@@ -42,11 +42,19 @@ export const RESOURCE_MODULES = {
   webspace: 'webhosting',
 } as const satisfies Record<string, ModuleKey>;
 
+/**
+ * A slug no organization has, nor had while it left cloud accounts behind: those outlive a
+ * deleted organization (unassigned, still in its Nextcloud group "<prefix><slug>" with their
+ * shares), and a new organization with the same slug would join that group.
+ */
 export async function uniqueSlug(db: DbOrTx, base: string): Promise<string> {
   const root = slugify(base) || 'org';
   for (let i = 0; i < 50; i++) {
     const slug = i === 0 ? root : `${root}-${i + 1}`;
-    const taken = await db.query.organizations.findFirst({ where: eq(organizations.slug, slug) });
+    const taken =
+      (await db.query.organizations.findFirst({ where: eq(organizations.slug, slug) })) ??
+      // Slugs are [a-z0-9-], nothing to escape. Login names are "<name>@<org slug>".
+      (await db.query.cloudAccounts.findFirst({ where: ilike(cloudAccounts.externalId, `%@${slug}`) }));
     if (!taken) return slug;
   }
   return `${root}-${randomToken(4).toLowerCase()}`;

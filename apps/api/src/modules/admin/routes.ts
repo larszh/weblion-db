@@ -174,26 +174,72 @@ const SECRET_KEY = /passw(or)?d|secret|token|auth_?code|api_?key/i;
 /**
  * An explorer request as it is audited: values of password-like keys blanked, including the
  * "value" of a Nextcloud user edit with key=password (PUT /ocs/v2.php/cloud/users/{id}).
+ * Nextcloud reads key and value from the query as well: `secretEdit` when the key is there.
  */
-export function redactExplorerBody(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactExplorerBody);
+export function redactExplorerBody(value: unknown, secretEdit = false): unknown {
+  if (Array.isArray(value)) return value.map((v) => redactExplorerBody(v));
   if (value === null || typeof value !== 'object') return value;
   const record = value as Record<string, unknown>;
-  const secretEdit = typeof record.key === 'string' && SECRET_KEY.test(record.key);
+  const secret = secretEdit || (typeof record.key === 'string' && SECRET_KEY.test(record.key));
   return Object.fromEntries(
     Object.entries(record).map(([k, v]) => [
       k,
-      SECRET_KEY.test(k) || (secretEdit && k === 'value') ? '[redacted]' : redactExplorerBody(v),
+      SECRET_KEY.test(k) || (secret && k === 'value') ? '[redacted]' : redactExplorerBody(v),
     ]),
   );
 }
 
-/** Query parameters with password-like names blanked in an explorer path. */
-export function redactExplorerPath(path: string): string {
-  return path.replace(
-    /([?&][^=&#]*(?:passw(?:or)?d|secret|token|auth_?code|api_?key)[^=&#]*=)[^&#]*/gi,
-    '$1[redacted]',
-  );
+/** Percent-decoded, like the server reads it. Malformed encodings stay as they are. */
+function decodeParam(raw: string): string {
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, ' '));
+  } catch {
+    return raw;
+  }
+}
+
+/** The query parameters of an explorer path, with decoded name and value. */
+function explorerParams(path: string): { part: string; name: string; value: string | null }[] {
+  const q = path.indexOf('?');
+  if (q < 0) return [];
+  return path
+    .slice(q + 1)
+    .split('#')[0]!
+    .split('&')
+    .map((part) => {
+      const eq = part.indexOf('=');
+      return {
+        part,
+        name: decodeParam(eq < 0 ? part : part.slice(0, eq)),
+        value: eq < 0 ? null : decodeParam(part.slice(eq + 1)),
+      };
+    });
+}
+
+/** Whether an explorer request sets a secret with key=password, in the query or the body. */
+export function explorerEditsSecret(path: string, body: unknown): boolean {
+  const key = body !== null && typeof body === 'object' ? (body as Record<string, unknown>).key : null;
+  if (typeof key === 'string' && SECRET_KEY.test(key)) return true;
+  return explorerParams(path).some((p) => p.name === 'key' && SECRET_KEY.test(p.value ?? ''));
+}
+
+/**
+ * Query parameters with password-like names blanked in an explorer path, and the "value" of a
+ * key=password edit (key in the query, or in the body: `secretEdit`).
+ */
+export function redactExplorerPath(path: string, secretEdit = false): string {
+  const q = path.indexOf('?');
+  if (q < 0) return path;
+  const hash = path.indexOf('#', q);
+  const secret = secretEdit || explorerEditsSecret(path, null);
+  const query = explorerParams(path)
+    .map(({ part, name, value }) =>
+      value !== null && (SECRET_KEY.test(name) || (secret && name === 'value'))
+        ? `${part.slice(0, part.indexOf('=') + 1)}[redacted]`
+        : part,
+    )
+    .join('&');
+  return `${path.slice(0, q + 1)}${query}${hash < 0 ? '' : path.slice(hash)}`;
 }
 
 export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -1176,14 +1222,15 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     // Reads are not audited to keep the log useful, every write is (without passwords).
     if (body.method !== 'GET') {
+      const secretEdit = explorerEditsSecret(body.path, body.body);
       await audit.record(req, {
         action: 'provider.explorer',
         resourceType: 'provider',
         resourceId: connection.id,
         details: {
           method: body.method,
-          path: redactExplorerPath(body.path),
-          body: body.body ? redactExplorerBody(body.body) : null,
+          path: redactExplorerPath(body.path, secretEdit),
+          body: body.body ? redactExplorerBody(body.body, secretEdit) : null,
           status: result.status,
         },
       });

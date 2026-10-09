@@ -3,6 +3,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   CLOUD_ACCOUNT_NAME_PATTERN,
+  CLOUD_QUOTA_TB_STEP_GB,
+  isExactCloudQuotaGb,
   normalizeModules,
   type CloudAccountDto,
   type CloudAccountSecretDto,
@@ -12,7 +14,7 @@ import {
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { orgScope, platformScope, requireAuth, requireSession } from '../../auth/access';
-import type { Tx } from '../../db/client';
+import type { DbOrTx, Tx } from '../../db/client';
 import {
   cloudAccounts,
   cloudAllowances,
@@ -23,7 +25,7 @@ import {
 } from '../../db/schema';
 import { AppError, badRequest, conflict, notFound, unsupported } from '../../lib/errors';
 import { parse } from '../../lib/validation';
-import type { CloudAccountPatch, RemoteCloudAccount } from '../../providers/types';
+import type { CloudAccountPatch, ProviderAdapter, RemoteCloudAccount } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
 import {
   CLOUD_MODULE,
@@ -56,6 +58,11 @@ const idParams = z.object({ id: z.uuid() });
 const orgParams = z.object({ orgId: z.uuid() });
 
 const quotaGb = z.number().int().min(1).max(1_000_000);
+/** Account quotas are stored at Nextcloud, which rounds some of them (see isExactCloudQuotaGb). */
+const accountQuotaGb = quotaGb.refine(
+  isExactCloudQuotaGb,
+  `From 1024 GB on, quotas go in steps of ${CLOUD_QUOTA_TB_STEP_GB} GB (Nextcloud rounds other values)`,
+);
 const maxAccounts = z.number().int().min(1).max(100_000).nullable();
 /** Empty strings from forms mean "none". */
 const optionalText = (schema: z.ZodString | z.ZodEmail) =>
@@ -74,13 +81,13 @@ const createBody = z.object({
     .regex(CLOUD_ACCOUNT_NAME_PATTERN, 'lower-case letters, digits, dot, dash, underscore'),
   displayName,
   email,
-  quotaGb,
+  quotaGb: accountQuotaGb,
   invite: z.boolean().default(false),
 });
 const patchBody = z.object({
   displayName,
   email,
-  quotaGb: quotaGb.optional(),
+  quotaGb: accountQuotaGb.optional(),
   enabled: z.boolean().optional(),
 });
 const deleteBody = z.object({ confirm: z.string().max(200) });
@@ -126,6 +133,35 @@ function remoteFields(remote: RemoteCloudAccount, now: Date) {
   };
 }
 
+/** Audit entry of a change at the instance. */
+interface InstanceEntry {
+  action: string;
+  orgId: string | null;
+  resourceId: string | null;
+  details: Record<string, unknown>;
+}
+
+/**
+ * A change at the instance that failed inside a transaction. It is audited only after the
+ * rollback: the audit needs a pool connection of its own, and awaiting one while the
+ * transaction holds a connection (and the org lock, which queued requests wait for on
+ * connections of their own) can exhaust the pool for good.
+ */
+class InstanceFailure extends Error {
+  constructor(readonly error: unknown) {
+    super(errorMessage(error));
+  }
+}
+
+/** Runs a change at the instance inside a transaction; a failure becomes an InstanceFailure. */
+async function inTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw new InstanceFailure(err);
+  }
+}
+
 /** Cloud storage: Nextcloud accounts of an organization, allowances, admin inventory. */
 export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db, access, audit, providers } = ctx;
@@ -143,8 +179,9 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
     return toCloudAccountDto(ctx, req, row);
   }
 
-  async function connectionById(id: string) {
-    const connection = await db.query.providerConnections.findFirst({
+  /** Inside a transaction pass `tx`: a second pool connection must never be awaited there. */
+  async function connectionById(id: string, from: DbOrTx = db) {
+    const connection = await from.query.providerConnections.findFirst({
       where: eq(providerConnections.id, id),
     });
     if (!connection) throw notFound('Provider');
@@ -157,32 +194,34 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
     return org;
   }
 
+  /** Audits a failed change at the instance. Returns the error to answer with (an AppError). */
+  async function failedAtInstance(
+    req: FastifyRequest,
+    entry: InstanceEntry,
+    err: unknown,
+  ): Promise<AppError> {
+    const error = err instanceof InstanceFailure ? err.error : err;
+    await audit.record(req, {
+      action: entry.action,
+      orgId: entry.orgId,
+      resourceType: 'cloud_account',
+      resourceId: entry.resourceId,
+      status: 'failure',
+      details: { ...entry.details, error: errorMessage(error) },
+    });
+    return error instanceof AppError ? error : new AppError(500, 'action_failed', errorMessage(error));
+  }
+
   /**
    * Runs a change at the instance. A failure is audited (the success is audited by the
-   * caller, once it knows the outcome) and surfaces as an AppError.
+   * caller, once it knows the outcome) and surfaces as an AppError. Inside a transaction use
+   * inTransaction instead.
    */
-  async function atInstance<T>(
-    req: FastifyRequest,
-    entry: {
-      action: string;
-      orgId: string | null;
-      resourceId: string | null;
-      details: Record<string, unknown>;
-    },
-    fn: () => Promise<T>,
-  ): Promise<T> {
+  async function atInstance<T>(req: FastifyRequest, entry: InstanceEntry, fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
     } catch (err) {
-      await audit.record(req, {
-        action: entry.action,
-        orgId: entry.orgId,
-        resourceType: 'cloud_account',
-        resourceId: entry.resourceId,
-        status: 'failure',
-        details: { ...entry.details, error: errorMessage(err) },
-      });
-      throw err instanceof AppError ? err : new AppError(500, 'action_failed', errorMessage(err));
+      throw await failedAtInstance(req, entry, err);
     }
   }
 
@@ -257,6 +296,18 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
         { accounts: committedAccounts(usage) },
       );
     }
+    // A reseller's maximum only binds when its customers have one too: one without counts with
+    // the accounts it has and can create more. Keeping an unchanged maximum stays possible.
+    if (
+      next.maxAccounts !== null &&
+      next.maxAccounts !== current?.maxAccounts &&
+      usage.customersWithoutMax > 0
+    ) {
+      throw accountLimit(
+        `${usage.customersWithoutMax} customers of this reseller have no maximum number of accounts. Give each of them one first.`,
+        { customersWithoutMax: usage.customersWithoutMax },
+      );
+    }
   }
 
   // --- Customer view ----------------------------------------------------------------
@@ -310,41 +361,46 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
       invite: body.invite,
     };
 
-    const id = await db.transaction(async (tx) => {
-      // Held until the account is stored, so parallel requests see each other's accounts.
-      await lockCloudOrg(tx, org);
-      const allowance = await tx.query.cloudAllowances.findFirst({ where: eq(cloudAllowances.orgId, orgId) });
-      if (!allowance) throw noAllowance();
-      const connection = await connectionById(allowance.providerConnectionId);
-      const adapter = providers.forConnection(connection);
-      requireCloudSupport(adapter);
-
-      const usage = await cloudCommitments(tx, org, connection.id);
-      if (allowance.maxAccounts !== null && committedAccounts(usage) + 1 > allowance.maxAccounts) {
-        throw accountLimit(`The allowance covers at most ${allowance.maxAccounts} accounts`, {
-          maxAccounts: allowance.maxAccounts,
-          accounts: committedAccounts(usage),
+    const entry = { action: 'cloud.account_create', orgId, resourceId: null, details };
+    // Set once the user exists at the instance, to remove it again if storing it fails.
+    let created = null as ProviderAdapter | null;
+    let id: string;
+    try {
+      id = await db.transaction(async (tx) => {
+        // Held until the account is stored, so parallel requests see each other's accounts.
+        // Everything in here goes through tx: no second pool connection while the lock is held.
+        await lockCloudOrg(tx, org);
+        const allowance = await tx.query.cloudAllowances.findFirst({
+          where: eq(cloudAllowances.orgId, orgId),
         });
-      }
-      const free = allowance.quotaBytes - committedBytes(usage);
-      if (quotaBytes > free) {
-        throw allowanceExceeded(
-          `Only ${formatGb(Math.max(free, 0))} of the allowance of ${formatGb(allowance.quotaBytes)} are left`,
-          { quotaBytes: allowance.quotaBytes, allocatedBytes: committedBytes(usage) },
-        );
-      }
-      const existing = await tx.query.cloudAccounts.findFirst({
-        where: and(
-          eq(cloudAccounts.providerConnectionId, connection.id),
-          eq(cloudAccounts.externalId, username),
-        ),
-      });
-      if (existing) throw conflict(`The account ${username} exists already`);
+        if (!allowance) throw noAllowance();
+        const connection = await connectionById(allowance.providerConnectionId, tx);
+        const adapter = providers.forConnection(connection);
+        requireCloudSupport(adapter);
 
-      const remote = await atInstance(
-        req,
-        { action: 'cloud.account_create', orgId, resourceId: null, details },
-        () =>
+        const usage = await cloudCommitments(tx, org, connection.id);
+        if (allowance.maxAccounts !== null && committedAccounts(usage) + 1 > allowance.maxAccounts) {
+          throw accountLimit(`The allowance covers at most ${allowance.maxAccounts} accounts`, {
+            maxAccounts: allowance.maxAccounts,
+            accounts: committedAccounts(usage),
+          });
+        }
+        const free = allowance.quotaBytes - committedBytes(usage);
+        if (quotaBytes > free) {
+          throw allowanceExceeded(
+            `Only ${formatGb(Math.max(free, 0))} of the allowance of ${formatGb(allowance.quotaBytes)} are left`,
+            { quotaBytes: allowance.quotaBytes, allocatedBytes: committedBytes(usage) },
+          );
+        }
+        const existing = await tx.query.cloudAccounts.findFirst({
+          where: and(
+            eq(cloudAccounts.providerConnectionId, connection.id),
+            eq(cloudAccounts.externalId, username),
+          ),
+        });
+        if (existing) throw conflict(`The account ${username} exists already`);
+
+        const remote = await inTransaction(() =>
           adapter.createCloudAccount!({
             username,
             ...(password ? { password } : {}),
@@ -354,22 +410,45 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
             groups: [cloudGroup(ctx, connection, org.slug)],
             language: auth.user.locale,
           }),
-      );
-      const [row] = await tx
-        .insert(cloudAccounts)
-        .values({
-          providerConnectionId: connection.id,
-          externalId: username,
-          orgId,
-          ...remoteFields(remote, new Date()),
-          // What was asked for, in case the instance reports the new user incompletely.
-          displayName: remote.displayName ?? body.displayName ?? null,
-          email: remote.email ?? body.email ?? null,
-          quotaBytes: remote.quotaBytes ?? quotaBytes,
-        })
-        .returning({ id: cloudAccounts.id });
-      return row!.id;
-    });
+        );
+        created = adapter;
+        const now = new Date();
+        const [row] = await tx
+          .insert(cloudAccounts)
+          .values({
+            providerConnectionId: connection.id,
+            externalId: username,
+            orgId,
+            ...remoteFields(remote, now),
+            // What was asked for, in case the instance reports the new user incompletely.
+            displayName: remote.displayName ?? body.displayName ?? null,
+            email: remote.email ?? body.email ?? null,
+            quotaBytes: remote.quotaBytes ?? quotaBytes,
+            // Now, not when the transaction began (before the instance had the user): the sync
+            // takes accounts created before it read the user list as missing.
+            createdAt: now,
+          })
+          .returning({ id: cloudAccounts.id });
+        return row!.id;
+      });
+    } catch (err) {
+      // After the rollback, so audit and cleanup do not wait for a connection while holding one.
+      if (err instanceof InstanceFailure) throw await failedAtInstance(req, entry, err);
+      if (created) {
+        // At the instance, but not stored: remove it, or it lives on outside every allowance.
+        const removed = await created.deleteCloudAccount!(username).then(
+          () => true,
+          () => false,
+        );
+        await audit.record(req, {
+          ...entry,
+          resourceType: 'cloud_account',
+          status: 'failure',
+          details: { ...details, error: errorMessage(err), removedAtInstance: removed },
+        });
+      }
+      throw err;
+    }
 
     await audit.record(req, {
       action: 'cloud.account_create',
@@ -396,6 +475,12 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
       patch.quotaBytes = body.quotaGb * GIB;
     }
     if (Object.keys(patch).length === 0) return toCloudAccountDto(ctx, req, loaded);
+    // Invitations and password reset links go to this address: changing it hands out access
+    // to the account like setting a password does (interactive session, cloud:password).
+    if (patch.email !== undefined) {
+      requireSession(req);
+      await access.assert(req, 'cloud:password', loaded.scope);
+    }
 
     const before = Object.fromEntries(
       Object.keys(patch).map((k) => [k, current[k as keyof CloudAccountPatch]]),
@@ -407,41 +492,47 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
       details: { username: current.externalId, before, after: patch },
     };
 
-    await db.transaction(async (tx) => {
-      const quota = patch.quotaBytes;
-      const counted = current.quotaBytes ?? current.usedBytes ?? 0;
-      // Only a larger quota needs room in the allowance. Smaller ones always fit; one below
-      // what the account uses just stops new uploads at Nextcloud.
-      if (quota !== undefined && quota > counted && loaded.org) {
-        await lockCloudOrg(tx, loaded.org);
-        const allowance = await tx.query.cloudAllowances.findFirst({
-          where: eq(cloudAllowances.orgId, loaded.org.id),
-        });
-        if (!allowance) throw noAllowance();
-        const [fresh] = await tx
-          .select({ quotaBytes: cloudAccounts.quotaBytes, usedBytes: cloudAccounts.usedBytes })
-          .from(cloudAccounts)
-          .where(eq(cloudAccounts.id, current.id));
-        const usage = await cloudCommitments(tx, loaded.org, allowance.providerConnectionId);
-        const others = committedBytes(usage) - (fresh?.quotaBytes ?? fresh?.usedBytes ?? 0);
-        if (others + quota > allowance.quotaBytes) {
-          throw allowanceExceeded(
-            `At most ${formatGb(Math.max(allowance.quotaBytes - others, 0))} fit into the allowance of ${formatGb(allowance.quotaBytes)}`,
-            { quotaBytes: allowance.quotaBytes, allocatedBytes: committedBytes(usage) },
-          );
+    try {
+      await db.transaction(async (tx) => {
+        const quota = patch.quotaBytes;
+        const counted = current.quotaBytes ?? current.usedBytes ?? 0;
+        // Only a larger quota needs room in the allowance. Smaller ones always fit; one below
+        // what the account uses just stops new uploads at Nextcloud.
+        if (quota !== undefined && quota > counted && loaded.org) {
+          await lockCloudOrg(tx, loaded.org);
+          const allowance = await tx.query.cloudAllowances.findFirst({
+            where: eq(cloudAllowances.orgId, loaded.org.id),
+          });
+          if (!allowance) throw noAllowance();
+          const [fresh] = await tx
+            .select({ quotaBytes: cloudAccounts.quotaBytes, usedBytes: cloudAccounts.usedBytes })
+            .from(cloudAccounts)
+            .where(eq(cloudAccounts.id, current.id));
+          const usage = await cloudCommitments(tx, loaded.org, allowance.providerConnectionId);
+          const others = committedBytes(usage) - (fresh?.quotaBytes ?? fresh?.usedBytes ?? 0);
+          if (others + quota > allowance.quotaBytes) {
+            throw allowanceExceeded(
+              `At most ${formatGb(Math.max(allowance.quotaBytes - others, 0))} fit into the allowance of ${formatGb(allowance.quotaBytes)}`,
+              { quotaBytes: allowance.quotaBytes, allocatedBytes: committedBytes(usage) },
+            );
+          }
         }
-      }
-      await atInstance(req, entry, () => loaded.adapter.updateCloudAccount!(current.externalId, patch));
-      await tx
-        .update(cloudAccounts)
-        .set({
-          ...(patch.displayName !== undefined ? { displayName: patch.displayName } : {}),
-          ...(patch.email !== undefined ? { email: patch.email } : {}),
-          ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-          ...(patch.quotaBytes !== undefined ? { quotaBytes: patch.quotaBytes } : {}),
-        })
-        .where(eq(cloudAccounts.id, current.id));
-    });
+        await inTransaction(() => loaded.adapter.updateCloudAccount!(current.externalId, patch));
+        await tx
+          .update(cloudAccounts)
+          .set({
+            ...(patch.displayName !== undefined ? { displayName: patch.displayName } : {}),
+            ...(patch.email !== undefined ? { email: patch.email } : {}),
+            ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+            ...(patch.quotaBytes !== undefined ? { quotaBytes: patch.quotaBytes } : {}),
+          })
+          .where(eq(cloudAccounts.id, current.id));
+      });
+    } catch (err) {
+      // After the rollback (see InstanceFailure).
+      if (err instanceof InstanceFailure) throw await failedAtInstance(req, entry, err);
+      throw err;
+    }
     await audit.record(req, { ...entry, resourceType: 'cloud_account' });
     return accountDto(req, current.id);
   });
@@ -467,7 +558,11 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.post('/cloud/accounts/:id/invite', async (req) => {
-    const loaded = await account(req, 'cloud:write');
+    const loaded = await account(req);
+    // With a pending invitation the mail carries a new set-password link: like setting a
+    // password, only in an interactive session with cloud:password.
+    requireSession(req);
+    await access.assert(req, 'cloud:password', loaded.scope);
     const { account: current } = loaded;
     if (!current.email) throw badRequest('This account has no e-mail address. Add one first.');
     const { adapter } = loaded;

@@ -53,15 +53,17 @@ der [Roadmap](roadmap.md).
 ## Module (Dienste freischalten)
 
 Module sind die Bereiche, die ein Kunde in der Console sieht: **Cloud Server**,
-**Domains & DNS**, **Webhosting**. Was nicht freigeschaltet ist, taucht weder in der
-Navigation auf noch ist es über die API erreichbar, auch nicht für den Owner des Kunden.
-Plattform-Admins sehen immer alles.
+**Domains & DNS**, **Webhosting**, **Cloud-Speicher**. Was nicht freigeschaltet ist, taucht
+weder in der Navigation auf noch ist es über die API erreichbar, auch nicht für den Owner des
+Kunden. Plattform-Admins sehen immer alles.
 
-Freischalten geht an drei Stellen:
+Freischalten geht an diesen Stellen:
 
 - Admin > Kunden > Kunde > Module
 - Reseller > Meine Kunden > Kunde (nur Module, die der Reseller selbst hat)
 - automatisch, wenn ein Dienst mit Modul angelegt oder eine Domain/ein Webspace zugewiesen wird
+- automatisch, wenn ein Kontingent für Cloud-Speicher eingerichtet wird (bei weblion.one
+  abschaltbar)
 
 ## Reseller
 
@@ -73,6 +75,7 @@ Ein Reseller ist eine Organisation vom Typ "Reseller". Seine Mitarbeitenden:
 - verschieben Server, Domains und Webspaces aus dem eigenen Bestand zu ihren Kunden (nicht,
   solange der bisherige Kunde dafür einen laufenden Dienst hat; was die Plattform dem
   Reseller selbst verrechnet, darf er weitergeben)
+- teilen ihren Kunden einen Teil ihres Cloud-Speicher-Kontingents zu (siehe unten)
 - erstellen Rechnungen, buchen Guthaben und verwalten Dienste und Preise ihrer Kunden
 
 Grenzen: Ein Reseller kann seinen Kunden nie mehr geben, als er selbst hat. Seine
@@ -85,6 +88,69 @@ Plattform-Admins legen Reseller unter Admin > Kunden an (Typ "Reseller") und kö
 Kunden einem Reseller zuordnen. Der Wechsel des Verkäufers ist gesperrt, solange beim Kunden
 noch Guthaben, offene Rechnungen, Entwürfe, ausstehende Zahlungen oder laufende Dienste
 existieren: Das Geld gehört jeweils dem bisherigen Verkäufer.
+
+## Cloud-Speicher (Nextcloud) verkaufen
+
+weblion.one verkauft Konten auf der eigenen Nextcloud. Was ein Kunde dabei bekommt, legen zwei
+getrennte Dinge fest:
+
+- Das **Kontingent** (Speicher gesamt, Konten höchstens) bestimmt, was technisch geht. Es hängt
+  am Kunden, nicht an einem Dienst. Darin legt der Kunde seine Konten mit je eigenem Kontingent
+  selbst an.
+- Der **Dienst** bestimmt, was der Kunde bezahlt.
+
+Die Console verknüpft beides nicht. Ein grösseres Kontingent ändert keinen Preis, ein gekündigter
+Dienst entfernt kein Kontingent und sperrt keine Konten. Wer das eine ändert, ändert das andere
+mit. Einrichtung der Instanz und alle Regeln in [providers.md](providers.md#nextcloud-cloud-speicher).
+
+### Einrichten
+
+Beispiel: Muster AG bekommt 100 GB für bis zu 10 Personen.
+
+1. **Produkt** unter Admin > Produkte & Preise, z.B. "Cloud-Speicher 100 GB", monatlich, Modul
+   "Cloud-Speicher". Zwei übliche Varianten:
+   - Pakete mit festem Speicher und fester Zahl an Konten (50 GB für 5 Konten, 200 GB für 20
+     Konten)
+   - ein Preis pro Einheit, z.B. "Cloud-Speicher pro 10 GB", und die Menge im Dienst (Menge 10 =
+     100 GB)
+2. **Dienst** beim Kunden aus dem Produkt anlegen (Admin > Kunden > Kunde > Abrechnung > Dienste >
+   Dienst hinzufügen), mit "Modul «Cloud-Speicher» freischalten".
+3. **Kontingent** beim Kunden einrichten: Admin > Kunden > Kunde, Karte "Cloud-Speicher": Instanz,
+   100 GB, 10 Konten.
+4. Der Kunde legt unter "Cloud-Speicher" seine Konten an und verteilt die 100 GB selbst.
+
+### Ändern und kündigen
+
+- **Mehr Speicher:** Kontingent erhöhen und den Dienst anpassen (Menge oder Preis ändern oder einen
+  zweiten Dienst anlegen).
+- **Weniger Speicher:** Das Kontingent lässt sich nicht unter das senken, was der Kunde schon an
+  Konten vergeben hat. Er verkleinert oder löscht zuerst Konten.
+- **Kündigen:** Zuerst die Konten löschen, der Kunde selbst oder weblion.one im Panel des Kunden
+  unter "Cloud-Speicher". Das löscht alle Dateien, also vorher mit dem Kunden klären, bis wann er
+  seine Daten sichert. Bis dahin lassen sich die Konten deaktivieren. Dann das Kontingent
+  entfernen (geht erst ohne Konten) und den Dienst kündigen, mit "Modul sperren". Das Modul allein
+  zu sperren reicht nicht: Es blendet den Cloud-Speicher nur in der Console aus, die Konten in
+  Nextcloud laufen weiter.
+- **Sperren** (z.B. wegen offener Rechnungen) macht die Console für den Kunden nur lesend. Die
+  Nextcloud-Konten bleiben nutzbar. Wer den Zugang wirklich sperren will, deaktiviert die Konten
+  von Hand und aktiviert sie nach dem Entsperren wieder.
+
+Eine Abrechnung nach tatsächlich belegtem Speicher oder pro Konto gibt es nicht. Die Belegung
+zeigt die Karte "Cloud-Speicher" beim Kunden. Ideen dazu in der [Roadmap](roadmap.md).
+
+### Über Reseller
+
+- weblion.one gibt dem Reseller ein Kontingent und das Modul "Cloud-Speicher" und rechnet es mit
+  einem Dienst bei ihm ab, wie oben.
+- Der Reseller legt in seinem Katalog (Reseller > Produkte & Preise) eigene Produkte mit Modul
+  "Cloud-Speicher" an und bei seinen Kunden Dienste.
+- Unter Reseller > Meine Kunden > Kunde > Ressourcen teilt er dem Kunden einen Teil seines
+  Kontingents zu. Speichern schaltet beim Kunden auch das Modul frei.
+- Eigene Konten und alle Kundenkontingente zusammen passen immer in das Kontingent des
+  Resellers. Mehr verteilen lehnt die Console ab.
+- Kündigt ein Kunde, löscht er (oder der Reseller im Panel des Kunden) zuerst die Konten. Danach
+  entfernt der Reseller das Kontingent auf derselben Karte, der Speicher geht in sein Kontingent
+  zurück. Erst dann lässt sich der Kunde löschen.
 
 ## Stripe (Karte und TWINT)
 

@@ -1,4 +1,4 @@
-import { CLOUD_MIN_QUOTA_BYTES } from '@weblion/shared';
+import { CLOUD_MIN_QUOTA_BYTES, CLOUD_QUOTA_TB_STEP_GB, isExactCloudQuotaGb } from '@weblion/shared';
 import { badRequest } from '../../lib/errors';
 import { isRecord, num, str } from '../http';
 import type { RemoteCloudAccount } from '../types';
@@ -74,10 +74,21 @@ export function assertGroupId(id: string): string {
   return id;
 }
 
-/** Quotas are whole bytes of at least CLOUD_MIN_QUOTA_BYTES. */
+/**
+ * Quotas are whole GB (CLOUD_MIN_QUOTA_BYTES each) that Nextcloud stores exactly: from 1024 GB
+ * on only multiples of 512 GB, as it rounds everything else to 0.1 TB (see isExactCloudQuotaGb).
+ * A rounded quota would differ from what the allowance counts.
+ */
 export function assertQuota(bytes: number): number {
-  if (!Number.isSafeInteger(bytes) || bytes < CLOUD_MIN_QUOTA_BYTES) {
-    throw badRequest(`The quota must be a whole number of bytes, at least ${CLOUD_MIN_QUOTA_BYTES}`);
+  if (
+    !Number.isSafeInteger(bytes) ||
+    bytes % CLOUD_MIN_QUOTA_BYTES !== 0 ||
+    !isExactCloudQuotaGb(bytes / CLOUD_MIN_QUOTA_BYTES)
+  ) {
+    throw badRequest(
+      `The quota must be whole GB (${CLOUD_MIN_QUOTA_BYTES} bytes each), at least 1 GB, from 1024 GB on ` +
+        `a multiple of ${CLOUD_QUOTA_TB_STEP_GB} GB: Nextcloud rounds other quotas`,
+    );
   }
   return bytes;
 }

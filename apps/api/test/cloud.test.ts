@@ -23,6 +23,7 @@ import {
 import { hashPassword } from '../src/lib/crypto';
 import { configSummary } from '../src/modules/admin/routes';
 import { generateCloudPassword } from '../src/modules/cloud/service';
+import { DemoAdapter } from '../src/providers/demo/adapter';
 import { DEMO_CLOUD_URL, demoCloudState } from '../src/providers/demo/cloud';
 import { ADMIN, Client, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
 
@@ -140,6 +141,35 @@ async function accountId(externalId: string) {
   return (await storedAccount(externalId))!.id;
 }
 
+/** Runs `during` while a sync of the demo instance holds on to the user list it has read. */
+async function duringSync(during: () => Promise<void>) {
+  const original = DemoAdapter.prototype.listCloudAccounts;
+  let listed!: () => void;
+  let release!: () => void;
+  const read = new Promise<void>((resolve) => (listed = resolve));
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  DemoAdapter.prototype.listCloudAccounts = async function (this: DemoAdapter) {
+    const users = await original.call(this);
+    listed();
+    await gate;
+    return users;
+  };
+  try {
+    const sync = admin.post(`/admin/providers/${demo.id}/sync`);
+    await read;
+    try {
+      await during();
+    } finally {
+      release();
+    }
+    const res = await sync;
+    expect(res.statusCode, res.body).toBe(200);
+    return json(res);
+  } finally {
+    DemoAdapter.prototype.listCloudAccounts = original;
+  }
+}
+
 beforeAll(async () => {
   t = await createTestApp();
   admin = new Client(t.app);
@@ -194,6 +224,7 @@ describe('seed and sync', () => {
       maxAccounts: 10,
       allocatedBytes: 60 * GiB,
       accounts: 2,
+      customers: 0,
     });
     expect(cloud.allowance!.usedBytes).toBe(Math.round(12.4 * GiB) + Math.round(9.6 * GiB));
     expect(cloud.accounts.map((a) => a.username)).toEqual(['anna@muster-ag', 'buchhaltung@muster-ag']);
@@ -218,6 +249,7 @@ describe('seed and sync', () => {
       maxAccounts: 50,
       allocatedBytes: 100 * GiB,
       accounts: 5,
+      customers: 1,
     });
     expect((await orgCloud(hanna, huberId)).accounts.map((a) => a.username)).toEqual([
       'hanna@baeckerei-huber',
@@ -249,6 +281,56 @@ describe('seed and sync', () => {
     }
     await admin.post(`/admin/providers/${demo.id}/sync`);
     expect((await storedAccount('buchhaltung@muster-ag'))!.missingSince).toBeNull();
+  });
+
+  it('does not undo a change made while the user list was on its way', async () => {
+    const id = await accountId('anna@muster-ag');
+    await duringSync(async () => {
+      const res = await anna.patch(`/cloud/accounts/${id}`, { quotaGb: 60 });
+      expect(res.statusCode, res.body).toBe(200);
+    });
+    // The list still had 50 GB: written back, it would free 10 GB of the allowance.
+    expect((await storedAccount('anna@muster-ag'))!.quotaBytes).toBe(60 * GiB);
+    expect(demoUsers().get('anna@muster-ag')!.quotaBytes).toBe(60 * GiB);
+    // The next run updates the row as usual.
+    const remote = demoUsers().get('anna@muster-ag')!;
+    remote.usedBytes += GiB;
+    await admin.post(`/admin/providers/${demo.id}/sync`);
+    expect((await storedAccount('anna@muster-ag'))!.usedBytes).toBe(remote.usedBytes);
+    expect((await anna.patch(`/cloud/accounts/${id}`, { quotaGb: 50 })).statusCode).toBe(200);
+  });
+
+  it('does not take an account created during a sync as missing', async () => {
+    const original = DemoAdapter.prototype.createCloudAccount;
+    let entered!: () => void;
+    let proceed!: () => void;
+    const atInstance = new Promise<void>((resolve) => (entered = resolve));
+    const go = new Promise<void>((resolve) => (proceed = resolve));
+    DemoAdapter.prototype.createCloudAccount = async function (this: DemoAdapter, input) {
+      entered();
+      await go;
+      return original.call(this, input);
+    };
+    let id = '';
+    try {
+      // The creation is on its way to the instance when the sync starts and reads the list.
+      const created = create(anna, musterId, { name: 'during-sync', quotaGb: 1 });
+      await atInstance;
+      const result = await duringSync(async () => {
+        proceed();
+        const res = await created;
+        expect(res.statusCode, res.body).toBe(200);
+        id = json<CloudAccountSecretDto>(res).account.id;
+      });
+      expect(result.cloudAccounts.missing).toBe(0);
+    } finally {
+      DemoAdapter.prototype.createCloudAccount = original;
+      proceed();
+    }
+    expect((await storedAccount('during-sync@muster-ag'))!.missingSince).toBeNull();
+    expect((await anna.del(`/cloud/accounts/${id}`, { confirm: 'during-sync@muster-ag' })).statusCode).toBe(
+      200,
+    );
   });
 
   it('keeps quota and usage when Nextcloud cannot read a user’s storage', async () => {
@@ -305,6 +387,18 @@ describe('accounts', () => {
     }
     expect((await create(anna, musterId, { name: 'ok', quotaGb: 0 })).statusCode).toBe(400);
     expect((await create(anna, musterId, { name: 'ok', quotaGb: 1.5 })).statusCode).toBe(400);
+    // Nextcloud keeps 2000 GB as "2 TB" (2048 GB): from 1024 GB on only steps of 512 GB.
+    for (const quotaGb of [1025, 1100, 2000]) {
+      const res = await create(anna, musterId, { name: 'ok', quotaGb });
+      expect(res.statusCode, String(quotaGb)).toBe(400);
+      expect(json(res).error.details[0].path).toBe('quotaGb');
+    }
+    expect(json(await create(anna, musterId, { name: 'ok', quotaGb: 1536 })).error.code).toBe(
+      'allowance_exceeded',
+    );
+    const max = await accountId('max@muster-ag');
+    expect((await anna.patch(`/cloud/accounts/${max}`, { quotaGb: 1500 })).statusCode).toBe(400);
+    expect(demoUsers().has('ok@muster-ag')).toBe(false);
     const dup = await create(anna, musterId, { name: 'max', quotaGb: 1 });
     expect(dup.statusCode).toBe(409);
     // ben@muster-ag exists at the instance, unmanaged.
@@ -370,6 +464,11 @@ describe('accounts', () => {
     // Tokens can manage accounts but never set passwords.
     expect(account.permissions.sort()).toEqual(['cloud:read', 'cloud:write']);
     expect((await bot.post(`/cloud/accounts/${account.id}/password`)).statusCode).toBe(403);
+    // Nor through the address that gets the invitation and password reset links.
+    const takeover = await bot.patch(`/cloud/accounts/${account.id}`, { email: 'evil@attacker.example' });
+    expect(takeover.statusCode).toBe(403);
+    expect((await bot.post(`/cloud/accounts/${account.id}/invite`)).statusCode).toBe(403);
+    expect(demoUsers().get('bot@muster-ag')).toMatchObject({ email: 'bot@muster.example', invites: 1 });
     expect((await bot.patch(`/cloud/accounts/${account.id}`, { quotaGb: 2 })).statusCode).toBe(200);
     expect((await bot.del(`/cloud/accounts/${account.id}`, { confirm: 'bot@muster-ag' })).statusCode).toBe(
       200,
@@ -445,6 +544,58 @@ describe('accounts', () => {
     for (const name of ['race-a', 'race-b', 'race-c', 'race-d']) {
       const row = await storedAccount(`${name}@muster-ag`);
       if (row) await anna.del(`/cloud/accounts/${row.id}`, { confirm: row.externalId });
+    }
+  });
+
+  it('creates many accounts in parallel without exhausting the database pool', async () => {
+    const org = await newOrg('Pool AG', 'pool-ag', { modules: ['servers', 'storage'] });
+    const body = { providerId: demo.id, quotaGb: 100, maxAccounts: null };
+    expect((await put(admin, `/admin/orgs/${org.id}/cloud-allowance`, body)).statusCode).toBe(200);
+    const owner = await newUser('owner@pool.example', { orgId: org.id, role: 'owner' });
+    // Some fail at the instance (taken there already): their audit must not wait in the lock either.
+    const ben = demoUsers().get('ben@muster-ag')!;
+    for (let i = 0; i < 5; i++) {
+      demoUsers().set(`taken${i}@pool-ag`, { ...ben, externalId: `taken${i}@pool-ag`, groups: [] });
+    }
+    // More requests than the pool has connections, each waiting for the org lock on one.
+    const names = [
+      ...Array.from({ length: 20 }, (_, i) => `p${i}`),
+      ...[0, 1, 2, 3, 4].map((i) => `taken${i}`),
+    ];
+    const results = await Promise.all(names.map((name) => create(owner, org.id, { name, quotaGb: 1 })));
+    expect(results.map((r) => r.statusCode)).toEqual([...Array(20).fill(200), ...Array(5).fill(409)]);
+    const failed = (await auditEntries('cloud.account_create')).filter(
+      (e) => e.status === 'failure' && e.orgId === org.id,
+    );
+    expect(failed).toHaveLength(5);
+    expect((await orgCloud(owner, org.id)).allowance).toMatchObject({
+      accounts: 20,
+      allocatedBytes: 20 * GiB,
+    });
+    for (let i = 0; i < 5; i++) demoUsers().delete(`taken${i}@pool-ag`);
+  });
+
+  it('removes the user at the instance again when storing the account fails', async () => {
+    const original = DemoAdapter.prototype.createCloudAccount;
+    DemoAdapter.prototype.createCloudAccount = async function (this: DemoAdapter, input) {
+      const remote = await original.call(this, input);
+      // A row with the same login name appears meanwhile: the insert fails on its unique index.
+      await t.db
+        .insert(cloudAccounts)
+        .values({ providerConnectionId: demo.id, externalId: input.username, orgId: null });
+      return remote;
+    };
+    try {
+      const res = await create(anna, musterId, { name: 'clash', quotaGb: 1 });
+      expect(res.statusCode).toBe(500);
+      expect(demoUsers().has('clash@muster-ag')).toBe(false);
+      const [entry] = (await auditEntries('cloud.account_create')).filter(
+        (e) => (e.details as any).username === 'clash@muster-ag',
+      );
+      expect(entry).toMatchObject({ status: 'failure', details: { removedAtInstance: true } });
+    } finally {
+      DemoAdapter.prototype.createCloudAccount = original;
+      await t.db.delete(cloudAccounts).where(eq(cloudAccounts.externalId, 'clash@muster-ag'));
     }
   });
 
@@ -837,6 +988,32 @@ describe('reseller allowances', () => {
     expect(demoUsers().get('laden@baeckerei-huber')!.groups).toEqual(['weblion-baeckerei-huber']);
   });
 
+  it('limits a reseller’s accounts only once every customer has a maximum', async () => {
+    const reseller = await newOrg('Max Reseller', 'max-reseller', {
+      kind: 'reseller',
+      modules: ['servers', 'storage'],
+    });
+    const customer = await newOrg('Max Kunde', 'max-kunde', { parentOrgId: reseller.id });
+    const owner = await newUser('owner@max-reseller.example', { orgId: reseller.id, role: 'owner' });
+    const setOwn = (maxAccounts: number | null) =>
+      put(admin, `/admin/orgs/${reseller.id}/cloud-allowance`, {
+        providerId: demo.id,
+        quotaGb: 100,
+        maxAccounts,
+      });
+    expect((await setOwn(null)).statusCode).toBe(200);
+    expect((await put(owner, url(customer.id), { quotaGb: 10, maxAccounts: null })).statusCode).toBe(200);
+    // Max Kunde counts with its 0 accounts and could create any number: 3 would not bind.
+    const capped = await setOwn(3);
+    expect(capped.statusCode).toBe(409);
+    expect(json(capped).error.code).toBe('account_limit');
+    expect(
+      json<CloudAllowanceDto>(await admin.get(`/admin/orgs/${reseller.id}/cloud-allowance`)),
+    ).toMatchObject({ maxAccounts: null, customers: 1 });
+    expect((await put(owner, url(customer.id), { quotaGb: 10, maxAccounts: 2 })).statusCode).toBe(200);
+    expect((await setOwn(3)).statusCode).toBe(200);
+  });
+
   it('activates the module for new customers and needs an allowance of its own', async () => {
     const { customer } = json(
       await reto.post(`/orgs/${alpenId}/customers`, { name: 'Neukunde Cloud', modules: ['servers'] }),
@@ -992,6 +1169,15 @@ describe('admin accounts', () => {
     expect(json(res).error.message).toMatch(/another instance/);
   });
 
+  it('does not reuse the slug of a deleted organization whose accounts live on', async () => {
+    // Unassigned before the organization was deleted: still in Nextcloud, in group weblion-alt-ag.
+    await t.db
+      .insert(cloudAccounts)
+      .values({ providerConnectionId: demo.id, externalId: 'anna@alt-ag', orgId: null });
+    const { customer } = json(await reto.post(`/orgs/${alpenId}/customers`, { name: 'Alt AG' }));
+    expect(customer.slug).toBe('alt-ag-2');
+  });
+
   it('refuses to delete organizations that still have cloud accounts', async () => {
     const org = await newOrg('Konto AG', 'konto-ag');
     await put(admin, `/admin/orgs/${org.id}/cloud-allowance`, {
@@ -1037,6 +1223,33 @@ describe('secrets', () => {
     });
     const [quota] = (await auditEntries('provider.explorer', demo.id)).slice(-1);
     expect(quota!.details).toMatchObject({ body: { key: 'quota', value: '10 GB' } });
+
+    // Nextcloud takes key and value from the query too, also mixed with the body.
+    const user = '/ocs/v2.php/cloud/users/anna@muster-ag';
+    const cases: [string, Record<string, unknown> | undefined, unknown][] = [
+      [`${user}?key=password&value=${secret}-1`, undefined, `${user}?key=password&value=[redacted]`],
+      [`${user}?k%65y=password&v%61lue=${secret}-2`, undefined, `${user}?k%65y=password&v%61lue=[redacted]`],
+      [`${user}?key=password`, { value: `${secret}-3` }, `${user}?key=password`],
+      [`${user}?value=${secret}-4`, { key: 'password' }, `${user}?value=[redacted]`],
+    ];
+    for (const [path, body, audited] of cases) {
+      await admin.post('/admin/explorer', {
+        providerId: demo.id,
+        method: 'PUT',
+        path,
+        ...(body ? { body } : {}),
+      });
+      const [entry] = (await auditEntries('provider.explorer', demo.id)).slice(-1);
+      expect(entry!.details).toMatchObject({ path: audited });
+      expect(JSON.stringify(entry), path).not.toContain(secret);
+    }
+    await admin.post('/admin/explorer', {
+      providerId: demo.id,
+      method: 'PUT',
+      path: `${user}?key=quota&value=5%20GB`,
+    });
+    const [plain] = (await auditEntries('provider.explorer', demo.id)).slice(-1);
+    expect(plain!.details).toMatchObject({ path: `${user}?key=quota&value=5%20GB` });
   });
 
   it('shows no part of a Nextcloud app password in the provider summary', async () => {

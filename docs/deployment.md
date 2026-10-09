@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -44,6 +44,19 @@ neben MySQL auf demselben Server (anderer Port, 5432 statt 3306).
    Anbieter (DSG/DSGVO), und die App muss immer laufen (kein Schlafmodus). Für einen
    Schweizer Hoster würde ich das nicht als erste Wahl nehmen.
 
+### Nextcloud für den Cloud-Speicher
+
+Die Nextcloud, auf der die Console Konten verkauft, ist ein eigener Dienst und gehört nicht auf
+den Server der Console. Empfehlung: Nextcloud All-in-One (AIO) auf einer eigenen VM, in der
+Hetzner Cloud oder auf dem eigenen Proxmox (Daten in der Schweiz), mit eigener Domain wie
+`cloud.weblion.one`, genug Platz für den verkauften Speicher und Backups ausser Haus. Die Console
+braucht nur HTTPS zur Instanz und ein Admin-Konto mit App-Passwort. Voraussetzungen und
+Einstellungen (E-Mail, Teilen nur innerhalb der Gruppen) in
+[providers.md](providers.md#nextcloud-cloud-speicher).
+
+Den freien Platz der Instanz zeigt die Console nicht. Die Disk der Nextcloud-VM deshalb selbst
+überwachen, vor allem wenn mehr Speicher verkauft ist, als die Disk hat.
+
 ## Mit Docker Compose
 
 ```bash
@@ -74,6 +87,11 @@ Optional, je nachdem was genutzt wird (Details in [billing.md](billing.md) und
 ```env
 # Domains bei Joker.com: API-Key des Reseller-Kontos (oder JOKER_USERNAME und JOKER_PASSWORD)
 JOKER_API_KEY='...'
+
+# Cloud-Speicher: eigene Nextcloud, Admin-Konto der Console und ein App-Passwort davon
+NEXTCLOUD_URL=https://cloud.weblion.one
+NEXTCLOUD_USER=weblion-console
+NEXTCLOUD_APP_PASSWORD='...'
 
 # E-Mail. Alternativ im Admin-Bereich unter Einstellungen > E-Mail eintragen.
 SMTP_HOST=smtp.example.ch
@@ -284,6 +302,9 @@ docker compose exec db pg_dump -U weblion weblion | gzip > weblion-$(date +%F).s
 Den `ENCRYPTION_KEY` separat und sicher aufbewahren (Passwort-Manager). Ohne ihn lassen sich
 gespeicherte Provider-Zugangsdaten, SMTP-Passwort und 2FA-Secrets aus einem Backup nicht mehr
 lesen.
+
+Die Dateien der Cloud-Konten liegen in Nextcloud, nicht in der Datenbank der Console. Dafür
+braucht es ein eigenes Backup der Nextcloud-Instanz (bei AIO das eingebaute BorgBackup).
 
 Rechnungen sind buchhaltungsrelevant (in der Schweiz 10 Jahre Aufbewahrung). Die Datenbank
 ist ihre Quelle, deshalb das Backup regelmässig und ausser Haus ablegen. Kunden mit

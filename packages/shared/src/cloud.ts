@@ -17,6 +17,18 @@ import type { Permission } from './permissions';
 /** Smallest quota of one account. */
 export const CLOUD_MIN_QUOTA_BYTES = 1024 ** 3;
 
+/** From 1024 GB on, account quotas go in steps of this many GB (see isExactCloudQuotaGb). */
+export const CLOUD_QUOTA_TB_STEP_GB = 512;
+
+/**
+ * Whether Nextcloud keeps an account quota of `gb` GB (GiB) exactly. It stores quotas as a size
+ * with one decimal (Util::humanFileSize: "500 GB", "1.5 TB"), so from 1024 GB on it rounds to
+ * 0.1 TB. Of whole GB only multiples of 512 GB survive that; 2000 GB would become 2048 GB.
+ */
+export function isExactCloudQuotaGb(gb: number): boolean {
+  return Number.isSafeInteger(gb) && gb >= 1 && (gb < 1024 || gb % CLOUD_QUOTA_TB_STEP_GB === 0);
+}
+
 /** Local part of a login name: what the customer types before "@<org slug>". */
 export const CLOUD_ACCOUNT_NAME_PATTERN = /^[a-z0-9]([a-z0-9._-]{0,30}[a-z0-9])?$/;
 
@@ -33,6 +45,8 @@ export interface CloudAllowanceDto {
   /** Sum of what the accounts actually use (as last synced). */
   usedBytes: number;
   accounts: number;
+  /** Allowances a reseller handed to its customers on the instance (0 for everyone else). */
+  customers: number;
   updatedAt: string | null;
 }
 

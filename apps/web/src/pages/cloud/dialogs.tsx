@@ -1,6 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { KeyRound, Mail, MoreHorizontal, Pencil, Power, PowerOff, Trash2 } from 'lucide-react';
-import { CLOUD_ACCOUNT_NAME_PATTERN, type CloudAccountDto, type CloudAllowanceDto } from '@weblion/shared';
+import {
+  CLOUD_ACCOUNT_NAME_PATTERN,
+  isExactCloudQuotaGb,
+  type CloudAccountDto,
+  type CloudAllowanceDto,
+} from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { formatBytes } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -138,7 +143,9 @@ export function CreateAccountDialog({
         ? t('storage.quota.invalid')
         : quotaGb > free
           ? t('storage.quota.tooLarge', { max: formatQuota(free * GIB, locale) })
-          : null;
+          : !isExactCloudQuotaGb(quotaGb)
+            ? t('storage.quota.step')
+            : null;
   const emailError = email && !EMAIL_PATTERN.test(email.trim()) ? t('storage.email.invalid') : null;
   const inviteBlocked = delivery === 'invite' && !email.trim();
   const blocked = !name || !!nameError || quotaGb === null || !!quotaError || !!emailError || inviteBlocked;
@@ -349,6 +356,8 @@ export function EditAccountDialog({
   const [displayName, setDisplayName] = useState(account.displayName ?? '');
   const [email, setEmail] = useState(account.email ?? '');
   const [quota, setQuota] = useState(currentGb !== null ? String(currentGb) : '');
+  // Invitations and password reset links go to the address: changing it needs cloud:password.
+  const canEmail = account.permissions.includes('cloud:password');
   const update = useUpdateCloudAccount({
     success: (a) => t('storage.updated', { username: a.username }),
     onSuccess: onClose,
@@ -364,7 +373,9 @@ export function EditAccountDialog({
       ? t('storage.quota.invalid')
       : quotaBytes !== null && maxBytes !== null && quotaBytes > counted && quotaBytes > maxBytes
         ? t('storage.quota.tooLarge', { max: formatQuota(Math.floor(maxBytes / GIB) * GIB, locale) })
-        : null;
+        : quotaGb !== null && quotaBytes !== account.quotaBytes && !isExactCloudQuotaGb(quotaGb)
+          ? t('storage.quota.step')
+          : null;
   const belowUsage = quotaBytes !== null && account.usedBytes !== null && quotaBytes < account.usedBytes;
   const emailError = email.trim() && !EMAIL_PATTERN.test(email.trim()) ? t('storage.email.invalid') : null;
 
@@ -416,13 +427,19 @@ export function EditAccountDialog({
               maxLength={64}
             />
           </Field>
-          <Field label={t('storage.email')} error={emailError} htmlFor="ce-email">
+          <Field
+            label={t('storage.email')}
+            error={emailError}
+            hint={canEmail ? undefined : t('storage.email.needsPassword')}
+            htmlFor="ce-email"
+          >
             <Input
               id="ce-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               maxLength={200}
+              disabled={!canEmail}
             />
           </Field>
         </div>
@@ -548,7 +565,7 @@ export function AccountActions({
             {t('storage.resetPassword')}
           </MenuItem>
         )}
-        {canWrite && account.email && (
+        {canPassword && account.email && (
           <MenuItem
             icon={<Mail />}
             onSelect={() => invite.mutate(account)}

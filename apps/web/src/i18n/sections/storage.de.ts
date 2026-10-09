@@ -81,12 +81,16 @@ export const storageDe = {
   'storage.email': 'E-Mail-Adresse',
   'storage.email.required': 'Erforderlich für die Einladung.',
   'storage.email.invalid': 'Keine gültige E-Mail-Adresse.',
+  'storage.email.needsPassword':
+    'Ändern nur mit dem Recht, Passwörter neu zu setzen: An die Adresse gehen Einladungen und Links zum Zurücksetzen des Passworts.',
   'storage.email.changeHint':
     'Nextcloud sendet Benachrichtigungen und Einladungen künftig an die neue Adresse.',
   'storage.quota': 'Speicherkontingent',
   'storage.quota.freeHint': 'Im Kontingent noch frei: {free}',
   'storage.quota.maxHint': 'Höchstens {max} (im Kontingent noch frei: {free})',
   'storage.quota.invalid': 'Geben Sie eine ganze Zahl ab 1 GB ein.',
+  'storage.quota.step':
+    'Ab 1024 GB nur in Schritten von 512 GB (1024, 1536, 2048 …), andere Werte rundet Nextcloud.',
   'storage.quota.tooLarge': 'Höchstens {max} passen ins Kontingent.',
   'storage.quota.current': 'Aktuell {quota}. Leer lassen, um es zu behalten.',
   'storage.quota.currentUnlimited': 'Aktuell unbegrenzt. Leer lassen, um es so zu belassen.',
@@ -139,6 +143,8 @@ export const storageDe = {
   'storage.allowance.instanceHint': 'Alle Konten der Organisation liegen auf dieser Nextcloud-Instanz.',
   'storage.allowance.instanceLocked':
     'Die Instanz lässt sich nur ändern, solange keine Konten darauf bestehen.',
+  'storage.allowance.instanceLockedCustomers':
+    'Die Instanz lässt sich nur ändern, solange keine Kunden des Resellers ein Kontingent darauf haben.',
   'storage.allowance.quota': 'Speicher gesamt',
   'storage.allowance.allocatedHint': 'Bereits vergeben: {size}',
   'storage.allowance.belowAllocated': 'Mindestens {size}, so viel ist bereits vergeben.',
@@ -159,6 +165,8 @@ export const storageDe = {
     'Die Organisation kann danach keine Nextcloud-Konten mehr erstellen. Das Modul bleibt aktiv, bis Sie es abschalten.',
   'storage.allowance.removeBlocked':
     'Nur ohne Konten möglich. Löschen Sie die Konten oder weisen Sie sie einer anderen Organisation zu.',
+  'storage.allowance.removeBlockedCustomers':
+    'Nur ohne Kundenkontingente möglich. Entfernen Sie zuerst die Kontingente der {n} Kunden.',
   'storage.allowance.removed': 'Speicherkontingent entfernt',
 
   // Admin

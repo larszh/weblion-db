@@ -209,6 +209,7 @@ export class NextcloudAdapter implements ProviderAdapter {
    * Nextcloud mails the user a link to set one, so an e-mail address is required then.
    * Nextcloud sets quota and language after it created the user; when such a step fails,
    * the half-created user is removed again so a retry does not run into "already exists".
+   * Once the user is created, a failed read-back does not fail the creation.
    */
   async createCloudAccount(input: CloudAccountInput): Promise<RemoteCloudAccount> {
     const username = assertUserId(input.username);
@@ -246,7 +247,22 @@ export class NextcloudAdapter implements ProviderAdapter {
       await this.removeHalfCreated(username);
       throw err;
     }
-    return this.getCloudAccount(username);
+    try {
+      return await this.getCloudAccount(username);
+    } catch {
+      // The user exists now: failing here would leave it behind, invited and unmanaged. The
+      // panel stores what was asked for instead; the next sync reads the user's real values.
+      return {
+        externalId: username,
+        displayName,
+        email: email || null,
+        quotaBytes: quota,
+        usedBytes: 0,
+        enabled: true,
+        lastLoginAt: null,
+        groups,
+      };
+    }
   }
 
   /** Changes field by field (Nextcloud edits one key per request). Everything is checked first. */

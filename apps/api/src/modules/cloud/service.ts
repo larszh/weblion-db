@@ -158,6 +158,8 @@ export interface CloudCommitments {
   customerBytes: number;
   /** Accounts the customers may create: their maximum, or what they have without one. */
   customerAccounts: number;
+  /** Customer allowances without a maximum number of accounts. */
+  customersWithoutMax: number;
 }
 
 /** What an organization has committed of its allowance. Call lockCloudOrg first when acting on it. */
@@ -184,6 +186,7 @@ export async function cloudCommitments(
     customers: 0,
     customerBytes: 0,
     customerAccounts: 0,
+    customersWithoutMax: 0,
   };
   if (org.kind !== 'reseller' || !providerId) return result;
   const [customers] = await db
@@ -193,6 +196,7 @@ export async function cloudCommitments(
       accounts: sql<
         string | null
       >`sum(coalesce(${cloudAllowances.maxAccounts}, (select count(*) from ${cloudAccounts} where ${cloudAccounts.orgId} = ${cloudAllowances.orgId})))`,
+      withoutMax: sql<string>`count(*) filter (where ${cloudAllowances.maxAccounts} is null)`,
     })
     .from(cloudAllowances)
     .innerJoin(organizations, eq(organizations.id, cloudAllowances.orgId))
@@ -206,6 +210,7 @@ export async function cloudCommitments(
   result.customers = customers?.customers ?? 0;
   result.customerBytes = Number(customers?.bytes ?? 0);
   result.customerAccounts = Number(customers?.accounts ?? 0);
+  result.customersWithoutMax = Number(customers?.withoutMax ?? 0);
   return result;
 }
 
@@ -251,6 +256,7 @@ export async function toAllowanceDto(
     allocatedBytes: committedBytes(usage),
     usedBytes: usage.usedBytes,
     accounts: committedAccounts(usage),
+    customers: usage.customers,
     updatedAt: allowance.updatedAt.toISOString(),
   };
 }

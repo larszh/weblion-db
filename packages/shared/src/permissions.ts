@@ -137,8 +137,8 @@ export const PERMISSIONS = {
   ),
   'cloud:password': def(
     'storage',
-    'Passwort von Cloud-Konten neu setzen',
-    'Set a new password for cloud accounts',
+    'Zugang zu Cloud-Konten: Passwort neu setzen, E-Mail-Adresse ändern, Einladung senden',
+    'Access to cloud accounts: set a new password, change the e-mail address, resend the invitation',
     { dangerous: true },
   ),
 
