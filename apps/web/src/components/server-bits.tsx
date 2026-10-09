@@ -107,6 +107,9 @@ const PROVIDER_LABEL: Record<ProviderType, string> = {
   demo: 'Demo',
 };
 
+/** Registrars (Joker.com) only have domains: keep them out of server pickers and filters. */
+export const providerHasServers = (type: ProviderType): boolean => type !== 'joker';
+
 export function ProviderBadge({
   type,
   name,

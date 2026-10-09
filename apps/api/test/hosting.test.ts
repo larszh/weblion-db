@@ -1,8 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_CUSTOMER_BOUNDARY,
   DEFAULT_RESELLER_BOUNDARY,
+  DNS_RECORD_TYPES,
+  DOMAIN_CAPABILITIES,
   type DnsRecord,
   type DomainDetailDto,
   type DomainDto,
@@ -11,9 +13,20 @@ import {
   type WebspaceDetailDto,
   type WebspaceDto,
 } from '@weblion/shared';
-import { auditLogs, domains, organizations, providerConnections, webspaces } from '../src/db/schema';
+import {
+  auditLogs,
+  domains,
+  memberships,
+  organizations,
+  providerConnections,
+  users,
+  webspaces,
+} from '../src/db/schema';
+import { hashPassword } from '../src/lib/crypto';
+import { DemoAdapter } from '../src/providers/demo/adapter';
 import { demoHostingState } from '../src/providers/demo/hosting';
-import { ADMIN, Client, createTestApp, json, type TestApp } from './helpers';
+import type { RemoteDomain } from '../src/providers/types';
+import { ADMIN, Client, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
 import { startMockServer } from './mock-server';
 
 let t: TestApp;
@@ -38,6 +51,44 @@ async function auditEntries(action: string, resourceId: string) {
     .from(auditLogs)
     .where(and(eq(auditLogs.action, action), eq(auditLogs.resourceId, resourceId)));
 }
+
+async function demoConnection() {
+  const demo = await t.db.query.providerConnections.findFirst({
+    where: eq(providerConnections.type, 'demo'),
+  });
+  return demo!;
+}
+
+async function storedDomain(externalId: string) {
+  const row = await t.db.query.domains.findFirst({ where: eq(domains.externalId, externalId) });
+  return row!;
+}
+
+/** Signs in a new user, optionally with a platform role or as member of an organization. */
+async function newUser(
+  email: string,
+  options: { platformRole?: 'support'; orgId?: string; role?: 'member' } = {},
+): Promise<Client> {
+  const [user] = await t.db
+    .insert(users)
+    .values({
+      email,
+      name: email.split('@')[0]!,
+      passwordHash: await hashPassword(DEMO_PASSWORD),
+      platformRole: options.platformRole ?? null,
+    })
+    .returning();
+  if (options.orgId) {
+    await t.db
+      .insert(memberships)
+      .values({ orgId: options.orgId, userId: user!.id, role: options.role ?? 'member' });
+  }
+  const client = new Client(t.app);
+  await client.login(email);
+  return client;
+}
+
+const put = (client: Client, url: string, body: unknown) => client.request('PUT', url, body);
 
 async function waitFor<T>(fn: () => Promise<T | null | undefined>, timeoutMs = 5000): Promise<T> {
   const until = Date.now() + timeoutMs;
@@ -113,6 +164,65 @@ describe('sync', () => {
     const row = await t.db.query.domains.findFirst({ where: eq(domains.externalId, 'demo-dom-2') });
     expect(row!.missingSince).toBeNull();
     expect(row!.orgId).toBe(musterOrgId);
+  });
+
+  it('keeps stored facts a partial domain list does not report', async () => {
+    const demo = await demoConnection();
+    const state = demoHostingState(demo.id);
+    const expiresAt = '2031-01-15T00:00:00.000Z';
+    // Like Joker's domain list: expiry and a few flags, no name servers, handle or status.
+    const partial = (): RemoteDomain[] => [
+      ...[...state.domains.values()].map((d) => ({
+        externalId: d.externalId,
+        name: d.info.name,
+        status: null,
+        info: { name: d.info.name, expiresAt, autoRenew: null, nameservers: undefined },
+      })),
+      {
+        externalId: 'partial-new.ch',
+        name: 'partial-new.ch',
+        status: 'production',
+        info: { expiresAt, locked: true },
+      },
+    ];
+    const spy = vi.spyOn(DemoAdapter.prototype, 'listDomains').mockImplementation(async () => partial());
+    try {
+      const result = json(await admin.post(`/admin/providers/${demo.id}/sync`));
+      expect(result.domains).toEqual({ seen: 5, missing: 0 });
+      const known = await storedDomain('demo-dom-1');
+      expect(known.status).toBe('OK');
+      expect(known.info).toMatchObject({
+        name: 'muster-ag.ch',
+        status: 'OK',
+        nameservers: ['ns1.fireapi.de', 'ns2.fireapi.de'],
+        handle: 'WLDEMO1',
+        autoRenew: true,
+        locked: true,
+        providerDns: true,
+        registrant: { organization: 'Muster AG' },
+        expiresAt,
+      });
+      // Seen for the first time: the gaps are filled with "unknown".
+      expect((await storedDomain('partial-new.ch')).info).toEqual({
+        name: 'partial-new.ch',
+        status: 'production',
+        terminated: false,
+        nameservers: [],
+        handle: null,
+        createdAt: null,
+        expiresAt,
+        autoRenew: null,
+        locked: true,
+      });
+    } finally {
+      spy.mockRestore();
+      await t.db.delete(domains).where(eq(domains.externalId, 'partial-new.ch'));
+    }
+    // A complete list overwrites again.
+    await admin.post(`/admin/providers/${demo.id}/sync`);
+    expect((await storedDomain('demo-dom-1')).info!.expiresAt).toBe(
+      state.domains.get('demo-dom-1')!.info.expiresAt,
+    );
   });
 });
 
@@ -264,6 +374,28 @@ describe('DNS records', () => {
     expect((await add({ type: 'TXT', name: '@', data: '' })).statusCode).toBe(400);
     expect((await add({ type: 'TXT', name: 'bad name!', data: 'x' })).statusCode).toBe(400);
     expect((await add({ type: 'BOGUS', name: '@', data: 'x' })).statusCode).toBe(400);
+    const invalid = [
+      { type: 'SRV', name: '_sip._tls', data: '100 1 443' },
+      { type: 'SRV', name: '_sip._tls', data: '100 1 70000 sip.example.ch' },
+      { type: 'SRV', name: '_sip._tls', data: '100 1 443 not a host' },
+      { type: 'CAA', name: '@', data: '256 issue "letsencrypt.org"' },
+      { type: 'CAA', name: '@', data: '0 is-sue "letsencrypt.org"' },
+      { type: 'CAA', name: '@', data: '0 issue "letsencrypt.org" extra' },
+      { type: 'NAPTR', name: '@', data: '100 10 u E2U+sip !^.*$!sip:info@example.ch! .' },
+      { type: 'NAPTR', name: '@', data: '100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!"' },
+      { type: 'HTTP_REDIRECT', name: 'go', data: 'ftp://files.example.ch' },
+      { type: 'HTTP_FRAME', name: 'go', data: 'www.example.ch' },
+      { type: 'MAILFW', name: 'info', data: 'not-an-address' },
+      { type: 'MAILFW', name: 'info', data: 'info@' },
+    ];
+    for (const body of invalid) {
+      const res = await add(body);
+      expect(res.statusCode, JSON.stringify(body)).toBe(400);
+      expect(json(res).error.details[0]).toMatchObject({
+        path: 'data',
+        message: expect.stringContaining(body.type),
+      });
+    }
 
     const valid = [
       { type: 'AAAA', name: 'v6', data: '2001:db8::1' },
@@ -271,7 +403,14 @@ describe('DNS records', () => {
       { type: 'MX', name: '@', data: '20 mx2.example.ch' },
       { type: 'TXT', name: '_dmarc', data: 'v=DMARC1; p=none' },
       { type: 'SRV', name: '_sip._tls', data: '100 1 443 sip.example.ch' },
+      { type: 'SRV', name: '_imap._tcp', data: '0 0 0 .' },
       { type: 'CAA', name: '@', data: '0 issue "letsencrypt.org"' },
+      { type: 'CAA', name: '@', data: '128 iodef mailto:security@example.ch' },
+      { type: 'NAPTR', name: '@', data: '100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .' },
+      { type: 'NAPTR', name: '@', data: '100 20 "S" "SIP+D2U" "" _sip._udp.example.ch.' },
+      { type: 'HTTP_REDIRECT', name: 'go', data: 'https://www.example.ch/landing?ref=dns' },
+      { type: 'HTTP_FRAME', name: 'frame', data: 'http://shop.example.net' },
+      { type: 'MAILFW', name: 'info', data: 'info@example.net' },
     ];
     for (const body of valid) {
       const res = await add(body);
@@ -288,6 +427,317 @@ describe('DNS records', () => {
     ).toBe(403);
     const [record] = json<DnsRecord[]>(await carla.get(`/domains/${id}/dns`));
     expect((await carla.del(`/domains/${id}/dns/${record!.id}`)).statusCode).toBe(403);
+  });
+
+  it('takes a TTL where the provider has one and keeps it on updates', async () => {
+    const id = domainId('muster-shop.ch');
+    const add = (body: Record<string, unknown>) => anna.post(`/domains/${id}/dns`, body);
+    const created = json<DnsRecord>(await add({ type: 'TXT', name: 'ttl', data: 'one', ttl: 600 }));
+    expect(created).toMatchObject({ data: 'one', ttl: 600 });
+    const byDefault = json<DnsRecord>(await add({ type: 'TXT', name: 'ttl', data: 'two', ttl: null }));
+    expect(byDefault.ttl).toBe(3600);
+
+    const kept = json<DnsRecord>(await anna.patch(`/domains/${id}/dns/${created.id}`, { data: 'uno' }));
+    expect(kept).toMatchObject({ data: 'uno', ttl: 600 });
+    const changed = json<DnsRecord>(await anna.patch(`/domains/${id}/dns/${created.id}`, { ttl: 900 }));
+    expect(changed).toMatchObject({ data: 'uno', ttl: 900 });
+    expect((await anna.patch(`/domains/${id}/dns/${created.id}`, { ttl: null })).statusCode).toBe(400);
+    const [update] = (await auditEntries('domain.dns_update', id)).filter(
+      (e) => e.details?.recordId === created.id && e.details?.ttl === 900,
+    );
+    expect(update!.details).toMatchObject({ before: { ttl: 600 } });
+
+    for (const ttl of [-1, 1.5, 604_801, '600']) {
+      expect((await add({ type: 'TXT', name: 'ttl', data: 'x', ttl })).statusCode, String(ttl)).toBe(400);
+    }
+    // The demo registrar wants at least 300 s like Joker, except for SRV and NAPTR.
+    const short = await add({ type: 'A', name: 'ttl', data: '192.0.2.20', ttl: 60 });
+    expect(short.statusCode).toBe(400);
+    expect(json(short).error.message).toMatch(/at least 300/);
+    const srv = json<DnsRecord>(await add({ type: 'SRV', name: '_x._tcp', data: '0 0 0 .', ttl: 0 }));
+    expect(srv.ttl).toBe(0);
+
+    for (const record of [created, byDefault, srv]) {
+      expect((await anna.del(`/domains/${id}/dns/${record.id}`)).statusCode).toBe(200);
+    }
+  });
+
+  it('lists DynDNS records read only: they can be deleted, not changed', async () => {
+    const id = domainId('muster-ag.ch');
+    const records = json<DnsRecord[]>(await anna.get(`/domains/${id}/dns`));
+    const dyn = records.find((r) => r.readOnly)!;
+    expect(dyn).toMatchObject({ type: 'DYNA', name: 'home', readOnly: true });
+    expect(records.filter((r) => r.readOnly)).toHaveLength(1);
+
+    const patched = await anna.patch(`/domains/${id}/dns/${dyn.id}`, { data: '203.0.113.8' });
+    expect(patched.statusCode).toBe(400);
+    expect(json(patched).error.message).toMatch(/only deleted/);
+    expect(json<DnsRecord[]>(await anna.get(`/domains/${id}/dns`))).toContainEqual(dyn);
+
+    const state = demoHostingState((await demoConnection()).id).domains.get('demo-dom-1')!;
+    const original = state.records.find((r) => r.id === dyn.id)!;
+    try {
+      expect((await anna.del(`/domains/${id}/dns/${dyn.id}`)).statusCode).toBe(200);
+      const [entry] = (await auditEntries('domain.dns_delete', id)).filter(
+        (e) => e.details?.recordId === dyn.id,
+      );
+      expect(entry!.details).toMatchObject({ type: 'DYNA', data: '203.0.113.7' });
+    } finally {
+      if (!state.records.includes(original)) state.records.push(original);
+    }
+  });
+});
+
+describe('domain management', () => {
+  let mia: Client;
+
+  beforeAll(async () => {
+    mia = await newUser('mia@muster.example', { orgId: musterOrgId, role: 'member' });
+  });
+
+  it('reports the provider’s features and the registrar facts', async () => {
+    const id = domainId('muster-shop.ch');
+    const detail = json<DomainDetailDto>(await anna.get(`/domains/${id}`));
+    expect(detail.capabilities).toEqual([...DOMAIN_CAPABILITIES]);
+    expect(detail.dnsRecordTypes).toEqual([...DNS_RECORD_TYPES]);
+    expect(detail.info).toMatchObject({
+      nameservers: ['ana.ns.cloudflare.com', 'bob.ns.cloudflare.com'],
+      locked: true,
+      privacy: 'none',
+      dnssec: false,
+      providerDns: false,
+      registrant: { name: 'Anna Muster', organization: 'Muster AG', email: 'it@muster.example' },
+    });
+    expect(json<DomainDetailDto>(await anna.get(`/domains/${domainId('muster-ag.ch')}`)).info).toMatchObject({
+      providerDns: true,
+    });
+    expect(json<DomainDetailDto>(await mia.get(`/domains/${id}`)).permissions).toEqual([
+      'domain:read',
+      'domain:dns:write',
+    ]);
+    const all = json<DomainDto[]>(await admin.get('/admin/domains'));
+    for (const row of all) expect(row.capabilities, row.name).toEqual([...DOMAIN_CAPABILITIES]);
+  });
+
+  it('merges live details into the stored info field by field', async () => {
+    const id = domainId('muster-ag.ch');
+    // A registrar whose detail call knows less than the sync stored (unknown = null).
+    const spy = vi.spyOn(DemoAdapter.prototype, 'getDomain').mockImplementation(async () => ({
+      name: 'muster-ag.ch',
+      status: 'LOCKED',
+      terminated: false,
+      nameservers: ['ns1.fireapi.de', 'ns2.fireapi.de'],
+      handle: null,
+      createdAt: null,
+      expiresAt: null,
+      autoRenew: null,
+      locked: null,
+      registrant: null,
+    }));
+    try {
+      const detail = json<DomainDetailDto>(await anna.get(`/domains/${id}`));
+      expect(detail.status).toBe('LOCKED');
+      const kept = {
+        status: 'LOCKED',
+        handle: 'WLDEMO1',
+        createdAt: '2019-04-02T09:30:00.000Z',
+        expiresAt: expect.any(String),
+        autoRenew: true,
+        locked: true,
+        registrant: { organization: 'Muster AG' },
+      };
+      expect(detail.info).toMatchObject(kept);
+      expect((await storedDomain('demo-dom-1')).info).toMatchObject(kept);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(json<DomainDetailDto>(await anna.get(`/domains/${id}`)).status).toBe('OK');
+  });
+
+  it('changes name servers for owners and audits it', async () => {
+    const id = domainId('muster-shop.ch');
+    const original = ['ana.ns.cloudflare.com', 'bob.ns.cloudflare.com'];
+    const res = await put(anna, `/domains/${id}/nameservers`, {
+      nameservers: [' NS1.FireAPI.de. ', 'ns2.fireapi.de'],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(json(res)).toEqual({ ok: true, message: 'Name servers changed', providerRef: expect.any(String) });
+
+    const detail = json<DomainDetailDto>(await anna.get(`/domains/${id}`));
+    expect(detail.info).toMatchObject({
+      nameservers: ['ns1.fireapi.de', 'ns2.fireapi.de'],
+      providerDns: true,
+    });
+    const [entry] = await auditEntries('domain.nameservers_update', id);
+    expect(entry).toMatchObject({ orgId: musterOrgId, status: 'success' });
+    expect(entry!.details).toMatchObject({
+      domain: 'muster-shop.ch',
+      before: original,
+      after: ['ns1.fireapi.de', 'ns2.fireapi.de'],
+    });
+
+    // API tokens may do it too, it is a customer action.
+    const { token } = json(
+      await anna.post(`/orgs/${musterOrgId}/tokens`, { name: 'ns-bot', scope: 'read_write' }),
+    );
+    const bot = new Client(t.app);
+    bot.bearer = token;
+    expect((await put(bot, `/domains/${id}/nameservers`, { nameservers: original })).statusCode).toBe(200);
+    expect(json<DomainDetailDto>(await anna.get(`/domains/${id}`)).info).toMatchObject({
+      nameservers: original,
+      providerDns: false,
+    });
+  });
+
+  it('validates name servers', async () => {
+    const id = domainId('muster-shop.ch');
+    const cases: [unknown, string][] = [
+      [{ nameservers: ['ns1.example.net'] }, 'nameservers'],
+      [{ nameservers: Array.from({ length: 14 }, (_, i) => `ns${i}.example.net`) }, 'nameservers'],
+      [{ nameservers: ['ns1.example.net', 'NS1.example.net.'] }, 'nameservers.1'],
+      [{ nameservers: ['ns1.example.net', 'not a host'] }, 'nameservers.1'],
+      [{ nameservers: ['ns1.example.net', 'localhost'] }, 'nameservers.1'],
+      [{ nameservers: 'ns1.example.net' }, 'nameservers'],
+      [{}, 'nameservers'],
+    ];
+    for (const [body, path] of cases) {
+      const res = await put(anna, `/domains/${id}/nameservers`, body);
+      expect(res.statusCode, JSON.stringify(body)).toBe(400);
+      expect(json(res).error.details[0].path, JSON.stringify(body)).toBe(path);
+    }
+    expect(await auditEntries('domain.nameservers_update', id)).toHaveLength(2);
+  });
+
+  it('switches the transfer lock and shows it right away', async () => {
+    const id = domainId('muster-ag.ch');
+    const res = await put(anna, `/domains/${id}/lock`, { locked: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(json(res)).toEqual({
+      ok: true,
+      message: 'Transfer lock disabled',
+      providerRef: expect.any(String),
+    });
+    expect((await storedDomain('demo-dom-1')).info!.locked).toBe(false);
+    const [unlock] = await auditEntries('domain.unlock', id);
+    expect(unlock!.details).toMatchObject({ domain: 'muster-ag.ch', before: true, after: false });
+
+    expect((await put(anna, `/domains/${id}/lock`, { locked: true })).statusCode).toBe(200);
+    expect((await storedDomain('demo-dom-1')).info!.locked).toBe(true);
+    expect(await auditEntries('domain.lock', id)).toHaveLength(1);
+
+    for (const body of [{}, { locked: 'yes' }, { locked: null }]) {
+      expect((await put(anna, `/domains/${id}/lock`, body)).statusCode, JSON.stringify(body)).toBe(400);
+    }
+  });
+
+  it('keeps members, viewers and other organizations out', async () => {
+    const id = domainId('muster-ag.ch');
+    const nameservers = { nameservers: ['ns1.example.net', 'ns2.example.net'] };
+    for (const client of [mia, carla]) {
+      expect((await put(client, `/domains/${id}/nameservers`, nameservers)).statusCode).toBe(403);
+      expect((await put(client, `/domains/${id}/lock`, { locked: false })).statusCode).toBe(403);
+    }
+    expect((await put(dev, `/domains/${id}/nameservers`, nameservers)).statusCode).toBe(404);
+    expect((await put(dev, `/domains/${id}/lock`, { locked: false })).statusCode).toBe(404);
+    // A member still edits DNS records.
+    const created = await mia.post(`/domains/${id}/dns`, { type: 'TXT', name: 'mia', data: 'hello' });
+    expect(created.statusCode).toBe(200);
+    expect((await mia.del(`/domains/${id}/dns/${json<DnsRecord>(created).id}`)).statusCode).toBe(200);
+    expect((await storedDomain('demo-dom-1')).info!.locked).toBe(true);
+  });
+
+  it('audits changes the provider refuses', async () => {
+    const id = domainId('muster-ag.ch');
+    const state = demoHostingState((await demoConnection()).id);
+    const removed = state.domains.get('demo-dom-1')!;
+    state.domains.delete('demo-dom-1');
+    try {
+      const res = await put(anna, `/domains/${id}/lock`, { locked: false });
+      expect(res.statusCode).toBe(404);
+      const [failure] = (await auditEntries('domain.unlock', id)).filter((e) => e.status === 'failure');
+      expect(failure!.details).toMatchObject({ error: 'Demo domain not found' });
+      expect((await storedDomain('demo-dom-1')).info!.locked).toBe(true);
+    } finally {
+      state.domains.set('demo-dom-1', removed);
+    }
+  });
+});
+
+describe('renewals', () => {
+  let support: Client;
+
+  beforeAll(async () => {
+    support = await newUser('support@weblion.test', { platformRole: 'support' });
+  });
+
+  it('lets platform staff with platform:domain:write switch auto-renew', async () => {
+    const id = domainId('muster-ag.ch');
+    const res = await admin.post(`/admin/domains/${id}/auto-renew`, { enabled: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(json(res)).toEqual({ ok: true, message: 'Auto-renew disabled', providerRef: expect.any(String) });
+    expect((await storedDomain('demo-dom-1')).info!.autoRenew).toBe(false);
+    expect(
+      json<DomainDto[]>(await anna.get(`/orgs/${musterOrgId}/domains`)).find((d) => d.id === id)!.autoRenew,
+    ).toBe(false);
+    const [entry] = await auditEntries('domain.auto_renew', id);
+    expect(entry).toMatchObject({ orgId: musterOrgId, status: 'success' });
+    expect(entry!.details).toMatchObject({ domain: 'muster-ag.ch', enabled: false, before: true });
+
+    expect((await admin.post(`/admin/domains/${id}/auto-renew`, { enabled: true })).statusCode).toBe(200);
+    expect((await storedDomain('demo-dom-1')).info!.autoRenew).toBe(true);
+    for (const body of [{}, { enabled: 'no' }]) {
+      expect((await admin.post(`/admin/domains/${id}/auto-renew`, body)).statusCode).toBe(400);
+    }
+  });
+
+  it('renews by whole years and audits the expiry before', async () => {
+    const id = domainId('muster-ag.ch');
+    const before = (await storedDomain('demo-dom-1')).info!.expiresAt!;
+    for (const years of [0, 11, 1.5, '2', null]) {
+      const res = await admin.post(`/admin/domains/${id}/renew`, { years });
+      expect(res.statusCode, String(years)).toBe(400);
+    }
+    const res = await admin.post(`/admin/domains/${id}/renew`, { years: 2 });
+    expect(res.statusCode, res.body).toBe(200);
+    const expected = new Date(before);
+    expected.setUTCFullYear(expected.getUTCFullYear() + 2);
+    expect(json(res)).toEqual({
+      ok: true,
+      message: `Renewed until ${expected.toISOString().slice(0, 10)}`,
+      providerRef: expect.any(String),
+    });
+    // The stored expiry follows right away.
+    expect((await storedDomain('demo-dom-1')).info!.expiresAt).toBe(expected.toISOString());
+    const entries = await auditEntries('domain.renew', id);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.details).toMatchObject({ domain: 'muster-ag.ch', years: 2, expiresAtBefore: before });
+  });
+
+  it('keeps support staff, customers and API tokens out', async () => {
+    const id = domainId('muster-ag.ch');
+    const calls = (client: Client) => [
+      client.post(`/admin/domains/${id}/auto-renew`, { enabled: false }),
+      client.post(`/admin/domains/${id}/renew`, { years: 1 }),
+    ];
+    for (const client of [support, anna]) {
+      for (const res of await Promise.all(calls(client))) expect(res.statusCode).toBe(403);
+    }
+    // Even a token with every organization permission: renewals need an interactive login.
+    const { token } = json(
+      await anna.post(`/orgs/${musterOrgId}/tokens`, { name: 'renew-bot', scope: 'read_write' }),
+    );
+    const bot = new Client(t.app);
+    bot.bearer = token;
+    for (const res of await Promise.all(calls(bot))) {
+      expect(res.statusCode).toBe(403);
+      expect(json(res).error.message).toMatch(/interactive login/);
+    }
+    expect(await auditEntries('domain.renew', id)).toHaveLength(1);
+    expect((await storedDomain('demo-dom-1')).info!.autoRenew).toBe(true);
+    expect(
+      (await admin.post('/admin/domains/00000000-0000-4000-8000-000000000000/renew', { years: 1 }))
+        .statusCode,
+    ).toBe(404);
   });
 });
 
@@ -573,6 +1023,50 @@ describe('24fire provider', () => {
     expect(json(res).error.code).toBe('plus_required');
     const [failure] = await auditEntries('domain.dns_add', domain!.id);
     expect(failure!.status).toBe('failure');
+  });
+
+  it('offers only what 24fire supports', async () => {
+    const [domain] = json<DomainDto[]>(await admin.get(`/admin/domains?providerId=${providerId}`));
+    expect(domain!.capabilities).toEqual(['dns', 'authcode']);
+    const detail = json<DomainDetailDto>(await admin.get(`/domains/${domain!.id}`));
+    expect(detail.dnsRecordTypes).toHaveLength(15);
+    expect(detail.dnsRecordTypes).not.toContain('NAPTR');
+    expect(detail.dnsRecordTypes).not.toContain('MAILFW');
+
+    const id = domain!.id;
+    const refused = [
+      await put(admin, `/domains/${id}/nameservers`, { nameservers: ['ns1.example.net', 'ns2.example.net'] }),
+      await put(admin, `/domains/${id}/lock`, { locked: true }),
+      await admin.post(`/admin/domains/${id}/auto-renew`, { enabled: false }),
+      await admin.post(`/admin/domains/${id}/renew`, { years: 1 }),
+    ];
+    for (const res of refused) {
+      expect(res.statusCode).toBe(422);
+      expect(json(res).error.code).toBe('unsupported');
+    }
+
+    // Types 24fire does not take never reach it; a TTL is dropped before the provider sees it.
+    const naptr = await admin.post(`/domains/${id}/dns`, {
+      type: 'NAPTR',
+      name: '@',
+      data: '100 10 "u" "E2U+sip" "!^.*$!sip:info@fire-test.de!" .',
+    });
+    expect(naptr.statusCode).toBe(400);
+    expect(json(naptr).error.details[0]).toMatchObject({ path: 'type' });
+    const withTtl = await admin.post(`/domains/${id}/dns`, {
+      type: 'A',
+      name: 'ttl',
+      data: '192.0.2.3',
+      ttl: 600,
+    });
+    expect(json(withTtl).error.code).toBe('plus_required');
+    const [failure] = (await auditEntries('domain.dns_add', id)).filter((e) => e.details?.name === 'ttl');
+    expect(failure!.status).toBe('failure');
+    expect(failure!.details).not.toHaveProperty('ttl');
+    const [record] = json<DnsRecord[]>(await admin.get(`/domains/${id}/dns`));
+    const ttlOnly = await admin.patch(`/domains/${id}/dns/${record!.id}`, { ttl: 600 });
+    expect(ttlOnly.statusCode).toBe(400);
+    expect(json(ttlOnly).error.message).toBe('Nothing to change');
   });
 
   it('reveals the 24fire secrets only through the reveal routes', async () => {

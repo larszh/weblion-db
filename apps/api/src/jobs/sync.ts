@@ -108,7 +108,8 @@ export class SyncService {
           target: [domains.providerConnectionId, domains.externalId],
           set: {
             name: sql`excluded.name`,
-            status: sql`excluded.status`,
+            // Like the info fields: a list without the status keeps the stored one.
+            status: sql`coalesce(excluded.status, ${domains.status})`,
             info: known
               ? sql`coalesce(${domains.info}, ${JSON.stringify(complete)}::jsonb) || ${JSON.stringify(known)}::jsonb`
               : sql`${domains.info}`,

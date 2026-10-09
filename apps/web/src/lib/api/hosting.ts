@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, type QueryKey } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import type {
   DnsRecord,
   DnsRecordInput,
@@ -8,7 +9,7 @@ import type {
   WebspaceDetailDto,
   WebspaceDto,
 } from '@weblion/shared';
-import { api } from '@/lib/api';
+import { ApiError, api, errorMessage } from '@/lib/api';
 import { qk, useApiMutation } from '@/lib/queries';
 
 /** Query hooks for domains/DNS and web spaces (customer views and admin inventory). */
@@ -117,9 +118,72 @@ export function useDnsMutations(
 /**
  * Secrets are fetched on demand through mutations, so they never land in the query cache.
  * Call reset() on the returned mutation to forget the value again.
+ *
+ * Registrars like Joker create the auth code asynchronously and answer 409 authcode_pending
+ * until it is ready. That is no error for the user: the card shows a "try again" notice
+ * instead of a toast (see isAuthcodePending).
  */
 export const useRevealAuthcode = (domainId: string) =>
-  useApiMutation(() => api.get<{ authcode: string | null }>(`/domains/${domainId}/authcode`));
+  useMutation({
+    mutationFn: () => api.get<{ authcode: string | null }>(`/domains/${domainId}/authcode`),
+    onError: (err) => {
+      if (!isAuthcodePending(err)) toast.error(errorMessage(err));
+    },
+  });
+
+export const isAuthcodePending = (err: unknown) => err instanceof ApiError && err.code === 'authcode_pending';
+
+/**
+ * Answer of the domain management routes (name servers, transfer lock, renewals). The
+ * registrar may apply the change later: `providerRef` is its job reference (Joker: Proc-ID),
+ * `message` its English status text.
+ */
+export interface DomainActionResult {
+  ok: true;
+  message: string | null;
+  providerRef: string | null;
+}
+
+interface DomainActionOptions<TVars> {
+  success: (result: DomainActionResult, vars: TVars) => string;
+  onSuccess?: (result: DomainActionResult, vars: TVars) => void;
+}
+
+/** Detail view plus every list that shows expiry and auto-renew. */
+const domainEverywhere = (domainId: string): QueryKey[] => [
+  hostingKeys.domain(domainId),
+  ['hosting', 'domains'],
+  ['hosting', 'admin', 'domains'],
+];
+
+export const useSetNameservers = (domainId: string, options: DomainActionOptions<string[]>) =>
+  useApiMutation(
+    (nameservers: string[]) =>
+      api.put<DomainActionResult>(`/domains/${domainId}/nameservers`, { nameservers }),
+    { ...options, invalidate: [hostingKeys.domain(domainId)] },
+  );
+
+export const useSetDomainLock = (domainId: string, options: DomainActionOptions<boolean>) =>
+  useApiMutation((locked: boolean) => api.put<DomainActionResult>(`/domains/${domainId}/lock`, { locked }), {
+    ...options,
+    invalidate: [hostingKeys.domain(domainId)],
+  });
+
+/** Platform staff only (permission platform:domain:write, interactive session). */
+export const useSetAutoRenew = (options: DomainActionOptions<{ domainId: string; enabled: boolean }>) =>
+  useApiMutation(
+    ({ domainId, enabled }: { domainId: string; enabled: boolean }) =>
+      api.post<DomainActionResult>(`/admin/domains/${domainId}/auto-renew`, { enabled }),
+    { ...options, invalidate: ({ domainId }) => domainEverywhere(domainId) },
+  );
+
+/** Platform staff only. Charged by the registrar right away. */
+export const useRenewDomain = (options: DomainActionOptions<{ domainId: string; years: number }>) =>
+  useApiMutation(
+    ({ domainId, years }: { domainId: string; years: number }) =>
+      api.post<DomainActionResult>(`/admin/domains/${domainId}/renew`, { years }),
+    { ...options, invalidate: ({ domainId }) => domainEverywhere(domainId) },
+  );
 
 export const useRevealWebspaceCredentials = (webspaceId: string) =>
   useApiMutation(() => api.get<WebspaceCredentials>(`/webspaces/${webspaceId}/credentials`));

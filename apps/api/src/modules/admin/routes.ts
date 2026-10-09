@@ -289,13 +289,17 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     let configEnc: string | undefined;
     if (body.config) {
-      // Empty secret fields keep the stored value so the UI never needs to know it.
+      // Empty secret fields keep the stored value so the UI never needs to know it; null
+      // removes it (e.g. a Joker API key when switching to username and password).
       const current = providers.decryptConfig<ProviderConfig>(connection) as unknown as Record<
         string,
         unknown
       >;
       const merged = { ...current };
-      for (const [k, v] of Object.entries(body.config)) if (v !== '' && v !== undefined) merged[k] = v;
+      for (const [k, v] of Object.entries(body.config)) {
+        if (v === null) delete merged[k];
+        else if (v !== '' && v !== undefined) merged[k] = v;
+      }
       configEnc = box.encryptJson(parseProviderConfig(connection.type, merged));
     }
     const [updated] = await db

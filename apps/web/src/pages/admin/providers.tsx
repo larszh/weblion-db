@@ -37,7 +37,7 @@ import {
   UsageBar,
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
-import { Flag, ProviderBadge } from '@/components/server-bits';
+import { Flag, ProviderBadge, providerHasServers } from '@/components/server-bits';
 
 interface ProviderForm {
   type: ProviderType;
@@ -53,22 +53,44 @@ interface ProviderForm {
   verifyTls: boolean;
   caCert: string;
   backupStorage: string;
+  /** Joker.com: API key (recommended) or reseller username and password. */
+  jokerAuth: 'apiKey' | 'password';
+  username: string;
+  password: string;
 }
+
+const DEFAULT_NAME: Record<ProviderType, string> = {
+  fire24: '24fire',
+  proxmox: 'Proxmox',
+  joker: 'Joker.com',
+  demo: 'Demo',
+};
+
+const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
+  fire24: 'https://manage.24fire.de',
+  joker: 'https://dmapi.joker.com/request',
+};
+
+/** Joker's test system (OT&E), separate account and no costs. */
+const JOKER_OTE_URL = 'https://dmapi.ote.joker.com/request';
 
 const emptyForm = (type: ProviderType): ProviderForm => ({
   type,
-  name: type === 'fire24' ? '24fire' : type === 'proxmox' ? 'Proxmox' : 'Demo',
+  name: DEFAULT_NAME[type],
   country: type === 'proxmox' ? 'CH' : 'DE',
   city: '',
   label: '',
   enabled: true,
   apiKey: '',
-  baseUrl: type === 'fire24' ? 'https://manage.24fire.de' : '',
+  baseUrl: DEFAULT_BASE_URL[type] ?? '',
   tokenId: '',
   tokenSecret: '',
   verifyTls: true,
   caCert: '',
   backupStorage: '',
+  jokerAuth: 'apiKey',
+  username: '',
+  password: '',
 });
 
 function configFromForm(f: ProviderForm, editing: boolean) {
@@ -84,9 +106,34 @@ function configFromForm(f: ProviderForm, editing: boolean) {
         ...(f.caCert ? { caCert: f.caCert } : {}),
         ...(f.backupStorage ? { backupStorage: f.backupStorage } : {}),
       };
+    case 'joker':
+      // Empty secrets on edit keep the stored ones (the API merges), null removes the
+      // credentials of the other sign-in method so a stored API key cannot win.
+      return {
+        baseUrl: f.baseUrl,
+        ...(f.jokerAuth === 'apiKey'
+          ? {
+              ...(f.apiKey || !editing ? { apiKey: f.apiKey } : {}),
+              ...(editing ? { username: null, password: null } : {}),
+            }
+          : {
+              username: f.username,
+              ...(f.password || !editing ? { password: f.password } : {}),
+              ...(editing ? { apiKey: null } : {}),
+            }),
+      };
     default:
       return {};
   }
+}
+
+/** Joker needs an API key or username and password, unless the stored ones are kept. */
+function jokerIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'joker') return false;
+  const storedKey = !!existing?.summary.apiKey;
+  const storedPassword = !!existing && !storedKey && !!existing.summary.username;
+  if (f.jokerAuth === 'apiKey') return !f.apiKey && !storedKey;
+  return !f.username || (!f.password && !storedPassword);
 }
 
 function ProviderDialog({
@@ -113,6 +160,8 @@ function ProviderDialog({
           tokenId: existing.summary.tokenId ?? '',
           verifyTls: existing.summary.verifyTls !== 'false',
           backupStorage: existing.summary.backupStorage ?? '',
+          jokerAuth: existing.type === 'joker' && !existing.summary.apiKey ? 'password' : 'apiKey',
+          username: existing.summary.username ?? '',
         }
       : emptyForm('proxmox'),
   );
@@ -163,7 +212,7 @@ function ProviderDialog({
             variant="primary"
             loading={save.isPending}
             onClick={() => save.mutate(undefined)}
-            disabled={!form.name}
+            disabled={!form.name || (!envManaged && jokerIncomplete(form, existing))}
           >
             {t('common.save')}
           </Button>
@@ -234,6 +283,8 @@ function ProviderDialog({
               />
             </Field>
           </>
+        ) : form.type === 'joker' ? (
+          <JokerFields form={form} set={set} existing={existing} />
         ) : form.type === 'proxmox' ? (
           <>
             <Field label="URL" hint="https://pve.example.ch:8006" htmlFor="p-url" className="sm:col-span-2">
@@ -313,6 +364,124 @@ function ProviderDialog({
   );
 }
 
+function JokerFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const storedKey = !!existing?.summary.apiKey;
+  const keepHint = existing ? t('providers.keepSecret') : undefined;
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.joker.help')}
+      </Notice>
+      <Field
+        label={t('providers.joker.auth')}
+        htmlFor="p-joker-auth"
+        hint={
+          form.jokerAuth === 'apiKey' ? t('providers.joker.apiKeyHint') : t('providers.joker.passwordHint')
+        }
+        className="sm:col-span-2"
+      >
+        <Select
+          id="p-joker-auth"
+          value={form.jokerAuth}
+          onChange={(e) => set('jokerAuth', e.target.value as ProviderForm['jokerAuth'])}
+        >
+          <option value="apiKey">{t('providers.joker.authApiKey')}</option>
+          <option value="password">{t('providers.joker.authPassword')}</option>
+        </Select>
+      </Field>
+      {form.jokerAuth === 'apiKey' ? (
+        <Field
+          label="API Key"
+          hint={storedKey ? keepHint : undefined}
+          htmlFor="p-joker-key"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="p-joker-key"
+            type="password"
+            value={form.apiKey}
+            onChange={(e) => set('apiKey', e.target.value)}
+            className="font-mono"
+            autoComplete="off"
+          />
+        </Field>
+      ) : (
+        <>
+          <Field label={t('providers.joker.username')} htmlFor="p-joker-user">
+            <Input
+              id="p-joker-user"
+              value={form.username}
+              onChange={(e) => set('username', e.target.value)}
+              autoComplete="off"
+            />
+          </Field>
+          <Field
+            label={t('providers.joker.password')}
+            hint={existing && !storedKey ? keepHint : undefined}
+            htmlFor="p-joker-password"
+          >
+            <Input
+              id="p-joker-password"
+              type="password"
+              value={form.password}
+              onChange={(e) => set('password', e.target.value)}
+              autoComplete="new-password"
+            />
+          </Field>
+          {storedKey && (
+            <Notice tone="warning" className="sm:col-span-2">
+              {t('providers.joker.apiKeyRemoved')}
+            </Notice>
+          )}
+        </>
+      )}
+      <Field
+        label="API Base URL"
+        htmlFor="p-joker-base"
+        className="sm:col-span-2"
+        hint={
+          <>
+            {t('providers.joker.baseUrlHint', { url: DEFAULT_BASE_URL.joker! })}{' '}
+            {form.baseUrl !== JOKER_OTE_URL ? (
+              <button
+                type="button"
+                className="font-medium text-primary-text underline underline-offset-2"
+                onClick={() => set('baseUrl', JOKER_OTE_URL)}
+              >
+                {t('providers.joker.useOte')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="font-medium text-primary-text underline underline-offset-2"
+                onClick={() => set('baseUrl', DEFAULT_BASE_URL.joker!)}
+              >
+                {t('providers.joker.useLive')}
+              </button>
+            )}
+          </>
+        }
+      >
+        <Input
+          id="p-joker-base"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          className="font-mono"
+        />
+      </Field>
+    </>
+  );
+}
+
 function useProviderActions(id: string) {
   const { t } = useI18n();
   const test = useApiMutation(
@@ -326,10 +495,17 @@ function useProviderActions(id: string) {
     },
   );
   const sync = useApiMutation(
-    () => api.post<{ seen: number; missing: number }>(`/admin/providers/${id}/sync`),
+    () =>
+      api.post<{ seen: number; missing: number; domains?: { seen: number; missing: number } }>(
+        `/admin/providers/${id}/sync`,
+      ),
     {
-      success: (r) => t('providers.synced', { seen: r.seen, missing: r.missing }),
-      invalidate: [qk.admin('providers'), qk.admin('servers'), qk.admin('stats')],
+      // Registrars (Joker.com) only have domains.
+      success: (r) =>
+        r.seen === 0 && r.missing === 0 && r.domains
+          ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
+          : t('providers.synced', { seen: r.seen, missing: r.missing }),
+      invalidate: [qk.admin('providers'), qk.admin('servers'), qk.admin('stats'), ['hosting', 'admin']],
     },
   );
   return { test, sync };
@@ -361,10 +537,12 @@ function ProviderCard({ p }: { p: ProviderConnectionDto }) {
         </Badge>
       </div>
       <div className="px-5 py-4 text-sm">
-        <div className="flex justify-between py-1">
-          <span className="text-muted">{t('nav.servers')}</span>
-          <span className="tabular">{p.serverCount}</span>
-        </div>
+        {providerHasServers(p.type) && (
+          <div className="flex justify-between py-1">
+            <span className="text-muted">{t('nav.servers')}</span>
+            <span className="tabular">{p.serverCount}</span>
+          </div>
+        )}
         <div className="flex justify-between py-1">
           <span className="text-muted">{t('providers.lastSync')}</span>
           <span>{formatRelative(p.lastSyncAt, locale)}</span>

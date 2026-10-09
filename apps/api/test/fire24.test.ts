@@ -599,6 +599,26 @@ describe('24fire adapter: domains and DNS', () => {
     expect((await adapter.listDnsRecords(DOMAIN_ID)).map((r) => r.id)).toEqual(['7498384', '7498387']);
   });
 
+  it('offers its record types and leaves the TTL to 24fire', async () => {
+    expect(adapter.domainCapabilities()).toEqual(['dns', 'authcode']);
+    const types = adapter.dnsRecordTypes();
+    expect(types).toHaveLength(15);
+    expect(types).not.toContain('NAPTR');
+    expect(types).not.toContain('MAILFW');
+
+    await adapter.addDnsRecord(DOMAIN_ID, { type: 'TXT', name: 'ttl', data: 'hello', ttl: 600 });
+    expect(Object.fromEntries(lastRequest('/dns/add').form)).toEqual({
+      type: 'TXT',
+      name: 'ttl',
+      data: 'hello',
+    });
+    await adapter.updateDnsRecord(DOMAIN_ID, '7498384', { data: '192.168.100.31', ttl: 600 });
+    expect(Object.fromEntries(lastRequest('/dns/edit').form)).toEqual({
+      record_id: '7498384',
+      data: '192.168.100.31',
+    });
+  });
+
   it('allows DNS changes only with 24fire+', async () => {
     expect(await adapter.dnsWritable()).toBe(true);
     account.plus = false;

@@ -2,8 +2,9 @@
 
 Kunden- und Admin-Panel von weblion.one. Ein Panel für Cloud-Server im Rechenzentrum in
 Deutschland (24fire) und auf eigener Proxmox-Infrastruktur in der Schweiz, dazu Domains mit
-DNS, Webhosting, Abrechnung mit QR-Rechnung, Stripe/TWINT und Zoho Books, ein Reseller-Modell
-sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Console.
+DNS (24fire und Joker.com), Webhosting, Abrechnung mit QR-Rechnung, Stripe/TWINT und Zoho
+Books, ein Reseller-Modell sowie Rollen, Access Policies und Audit-Log. Inspiriert von der
+Hetzner Cloud Console.
 
 ![Server-Übersicht](docs/screenshots/server-overview.png)
 
@@ -15,7 +16,9 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
   Snapshots, Netzwerk (rDNS, DDoS), Firewall, Energie, ISO-Images, Rescale, Rebuild,
   Aktivität, Einstellungen (Name, Labels, Schutz, Projekt), Löschen
 - Browser-Konsole (noVNC) über eine Websocket-Bridge, ohne dass der Browser Provider-Zugangsdaten sieht
-- Domains & DNS (24fire): DNS-Einträge bearbeiten, Nameserver, Auth-Code für Transfers
+- Domains & DNS (24fire, Joker.com): DNS-Einträge bearbeiten (bei Joker.com mit TTL,
+  Weiterleitungen und E-Mail-Weiterleitung), Nameserver ändern, Transfersperre, Auth-Code für
+  Transfers
 - Webhosting (24fire/Plesk): Ressourcen, Plesk-Zugang, Hinweise für Mail-Programme
 - Abrechnung: Rechnungen als PDF mit QR-Rechnung, Guthaben, Dienste, online bezahlen mit
   Karte oder TWINT, Rechnungsadresse
@@ -33,14 +36,16 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
   Berechtigungsgrenze pro Kunde
 - Abrechnung: Rechnungen erstellen und abschliessen, Guthaben buchen, Dienste freischalten,
   Produkte und Preise, wiederkehrende Abrechnung, Übersicht über offene und überfällige Beträge
-- Domains und Webspaces aus 24fire Kunden zuweisen
+- Domains (24fire, Joker.com) und Webspaces (24fire) Kunden zuweisen
+- Domains verlängern und die automatische Verlängerung schalten (Joker.com, nur mit Login)
 - Einstellungen: SMTP, Rechnungssteller (Adresse, IBAN, MWST, Nummernkreis), Status von
   Stripe und Zoho Books, Mail-Log
 - Benutzerverwaltung inkl. Plattform-Rollen (Superadmin, Support)
 - Server-Inventar: neue Server werden automatisch synchronisiert und Kunden zugewiesen
 - Provider verwalten, Verbindung testen, Infrastruktur (Nodes, Storages) ansehen
 - Server bei Proxmox aus Templates erstellen
-- API Explorer: Rohzugriff auf die 24fire- und Proxmox-API für alles ohne eigenen Button
+- API Explorer: Rohzugriff auf die 24fire-, Proxmox- und Joker.com-API (DMAPI) für alles ohne
+  eigenen Button
 
 **Für Reseller**
 - Eigene Kunden anlegen und sperren, Module freischalten (bis zum eigenen Umfang)
@@ -57,12 +62,15 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 
 ## Stand
 
-- Gegen echte 24fire-, Proxmox-, Stripe- und Zoho-Systeme ist die Console noch **nicht live
-  getestet**: Die Build-Umgebung hatte keinen Netzzugriff darauf. Alle Anbindungen sind gegen
-  Mock-Server getestet, die die dokumentierten Antworten nachbilden. Die 24fire-Endpunkte
-  folgen der offiziellen v2-Doku, die Proxmox-Aufrufe der API-Referenz.
+- Gegen echte 24fire-, Proxmox-, Joker.com-, Stripe- und Zoho-Systeme ist die Console noch
+  **nicht live getestet**: Die Build-Umgebung hatte keinen Netzzugriff darauf. Alle
+  Anbindungen sind gegen Mock-Server getestet, die die dokumentierten Antworten nachbilden. Die
+  24fire-Endpunkte folgen der offiziellen v2-Doku, die Proxmox-Aufrufe der API-Referenz, die
+  Joker-Requests der DMAPI-Spezifikation.
 - Webspaces kann die 24fire-API nur lesen: Neue Webspaces werden im 24fire-Panel bestellt und
   erscheinen nach dem nächsten Sync in der Console, wo sie einem Kunden zugewiesen werden.
+- Domains registrieren und zu Joker.com transferieren geht noch im Joker-Panel. Die Domains
+  erscheinen danach ebenso beim nächsten Sync.
 
 ## Schnellstart (Entwicklung)
 
@@ -92,7 +100,7 @@ Demo-Benutzer, Passwort `demo-password-123`:
 | `reseller@alpen.example` | Owner des Resellers Alpen Hosting |
 | `huber@baeckerei.example` | Owner von Bäckerei Huber (Kunde von Alpen Hosting) |
 
-## Zugangsdaten (24fire, Proxmox)
+## Zugangsdaten (24fire, Proxmox, Joker.com)
 
 Zugangsdaten gehören **nicht** ins Git-Repo, auch nicht in ein privates. Sie kommen aus
 Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start verschlüsselt
@@ -104,10 +112,12 @@ Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start v
 | `PROXMOX_URL` | z.B. `https://pve01-zrh.weblion.cloud:2096` |
 | `PROXMOX_TOKEN_ID` | `user@realm!tokenid` |
 | `PROXMOX_TOKEN_SECRET` | Token-Secret (UUID) |
+| `JOKER_API_KEY` | API-Key des Reseller-Kontos bei Joker.com (alternativ `JOKER_USERNAME` und `JOKER_PASSWORD`) |
+| `JOKER_BASE_URL` | Standard `https://dmapi.joker.com/request`, Testsystem `https://dmapi.ote.joker.com/request` |
 | `ENCRYPTION_KEY` | `openssl rand -base64 32`, gut aufbewahren |
 
-Weitere Provider lassen sich im Admin-Bereich hinzufügen. Details und Hinweise zum
-Proxmox-Token in [docs/providers.md](docs/providers.md).
+Weitere Provider lassen sich im Admin-Bereich hinzufügen. Details, Hinweise zum
+Proxmox-Token und zum Joker-Reseller-Konto in [docs/providers.md](docs/providers.md).
 
 Für E-Mail (SMTP), Stripe/TWINT und Zoho Books kommen weitere Variablen dazu, alle in
 `.env.example` beschrieben. SMTP lässt sich statt in der `.env` auch im Admin-Bereich
@@ -158,6 +168,6 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
 
 - [docs/architecture.md](docs/architecture.md): Aufbau, Rechte-Modell, neue Provider anbinden
 - [docs/billing.md](docs/billing.md): Abrechnung, Reseller, Module, Stripe/TWINT, Zoho Books, E-Mail
-- [docs/providers.md](docs/providers.md): 24fire und Proxmox einrichten, offene Punkte
+- [docs/providers.md](docs/providers.md): 24fire, Proxmox und Joker.com einrichten, offene Punkte
 - [docs/deployment.md](docs/deployment.md): Betrieb, Backups, Updates
 - [docs/roadmap.md](docs/roadmap.md): Ideen für die nächsten Ausbaustufen

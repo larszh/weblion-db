@@ -39,6 +39,17 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
     "The domain has been missing from the provider's list since {date}. Was it cancelled or transferred?",
   'hosting.missing.webspace':
     "The web space has been missing from the provider's list since {date}. Was it cancelled?",
+  'hosting.lock.title': 'Transfer lock',
+  'hosting.lock.on': 'Locked',
+  'hosting.lock.off': 'Unlocked',
+  'hosting.lock.onLong': 'Transfer lock on',
+  'hosting.lock.offLong': 'No transfer lock',
+  'hosting.action.ref': 'Job reference',
+  'hosting.action.refShort': 'Job {ref}',
+  'hosting.action.providerMessage': 'Reply from {provider}',
+  'hosting.tab.label': 'Domain sections',
+  'hosting.tab.overview': 'Overview',
+  'hosting.tab.dns': 'DNS',
 
   // Domains
   'hosting.domains.subtitle': 'Your domains with expiry date, name servers and DNS records.',
@@ -63,6 +74,98 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
   'hosting.authcode.confirmTitle': 'Show the auth code for {name}?',
   'hosting.authcode.confirmText':
     'Anyone with the auth code can transfer the domain to another provider. The view is recorded in the audit log.',
+  'hosting.authcode.newCode':
+    'Joker.com creates a new code on every request. A code fetched earlier stops working.',
+  'hosting.authcode.pendingTitle': 'Auth code is being generated',
+  'hosting.authcode.pending':
+    'The registrar is generating the auth code right now. Please try again in a minute.',
+  'hosting.authcode.retry': 'Fetch again',
+  'hosting.authcode.lockedHint':
+    'The transfer lock is on. Remove it before the new provider starts the transfer.',
+  'hosting.domain.privacy': 'Whois privacy',
+  'hosting.domain.privacyNone': 'None',
+  'hosting.domain.dnssecOn': 'Active',
+  'hosting.domain.dnssecOff': 'Not active',
+  'hosting.transfer.text':
+    'The transfer lock protects against an unwanted move. Use the auth code to move the domain to another provider.',
+  'hosting.lock.onText': 'The domain cannot be transferred to another provider.',
+  'hosting.lock.offText': 'The domain can be transferred to another provider with the auth code.',
+  'hosting.lock.unknownText': 'The registrar did not report the status.',
+  'hosting.lock.lock': 'Turn on lock',
+  'hosting.lock.unlock': 'Remove lock',
+  'hosting.lock.lockTitle': 'Turn on the transfer lock for {name}?',
+  'hosting.lock.unlockTitle': 'Remove the transfer lock for {name}?',
+  'hosting.lock.lockText':
+    'The domain can then no longer be transferred to another provider until you remove the lock again.',
+  'hosting.lock.unlockText':
+    'Without the transfer lock, anyone with the auth code can transfer the domain to another provider. Only remove the lock if you are planning a transfer.',
+  'hosting.lock.lockedToast': 'Transfer lock is being turned on',
+  'hosting.lock.unlockedToast': 'Transfer lock is being removed',
+  'hosting.lock.processing': 'The registry usually applies the change within a few minutes.',
+  'hosting.ns.change': 'Change name servers',
+  'hosting.ns.dialogText': 'New name servers for {name}.',
+  'hosting.ns.label': 'Name server {n}',
+  'hosting.ns.add': 'Add name server',
+  'hosting.ns.count': '{min} to {max} name servers',
+  'hosting.ns.presetJoker': 'Joker name servers',
+  'hosting.ns.presetJokerHint':
+    'a.ns.joker.com, b.ns.joker.com and c.ns.joker.com. Required for the DNS records at Joker.com to take effect.',
+  'hosting.ns.usePreset': 'Apply',
+  'hosting.ns.warning':
+    'Wrong name servers take the website and e-mail of the domain offline. Make sure the new servers already know the zone.',
+  'hosting.ns.processing':
+    'The registry processes the change. It can take a few hours until it is applied and visible worldwide.',
+  'hosting.ns.submitted': 'Name server change submitted',
+  'hosting.ns.pending':
+    'New name servers: {list}. Until the registry has applied the change, the previous ones are still shown here.',
+  'hosting.ns.atProvider':
+    'The domain uses the name servers of {provider}. The DNS records in the "DNS" tab are live.',
+  'hosting.ns.external':
+    'The domain uses other name servers. The DNS records at {provider} are therefore not active.',
+  'hosting.ns.invalid.host': 'Please enter a full host name, e.g. ns1.example.ch.',
+  'hosting.ns.invalid.duplicate': 'This name server is already in the list.',
+  'hosting.registrant.title': 'Registrant',
+  'hosting.registrant.text': 'The registrant as recorded at the registrar.',
+  'hosting.registrant.name': 'Name',
+  'hosting.registrant.organization': 'Organization',
+  'hosting.registrant.email': 'E-mail',
+  'hosting.registrant.none': 'The registrar did not report registrant details.',
+  'hosting.renewal.title': 'Renewal',
+  'hosting.renewal.text':
+    'Renewals cost money at the registrar and are therefore reserved for weblion staff.',
+  'hosting.renewal.staffOnly': 'Internal',
+  'hosting.renewal.autoOnText':
+    'The registrar renews the domain before it expires and charges the weblion account.',
+  'hosting.renewal.autoOffText': 'The domain expires on its expiry date unless someone renews it.',
+  'hosting.renewal.autoUnknownText': 'The registrar did not report the setting.',
+  'hosting.renewal.enable': 'Turn on',
+  'hosting.renewal.disable': 'Turn off',
+  'hosting.renewal.enableTitle': 'Turn on auto renew for {name}?',
+  'hosting.renewal.disableTitle': 'Turn off auto renew for {name}?',
+  'hosting.renewal.enableText':
+    '{provider} then renews the domain automatically before it expires and charges the weblion account.',
+  'hosting.renewal.disableText':
+    'The domain then expires on {date} unless someone renews it manually. The website and e-mail stop working afterwards.',
+  'hosting.renewal.enabledToast': 'Auto renew turned on for {name}',
+  'hosting.renewal.disabledToast': 'Auto renew turned off for {name}',
+  'hosting.renewal.manual': 'Renew manually',
+  'hosting.renewal.expiresOn': 'Expires on {date}',
+  'hosting.renewal.renew': 'Renew now',
+  'hosting.renewal.renewTitle': 'Renew {name}',
+  'hosting.renewal.renewText': 'The term is extended from the current expiry date.',
+  'hosting.renewal.years': 'Renew for',
+  'hosting.renewal.year1': '1 year',
+  'hosting.renewal.yearsN': '{n} years',
+  'hosting.renewal.current': 'Current expiry date',
+  'hosting.renewal.new': 'New expiry date',
+  'hosting.renewal.unknownExpiry':
+    'The current expiry date is unknown. The registrar extends from the expiry date it has on record.',
+  'hosting.renewal.targetYear':
+    'Joker.com receives the target year {year}, so an accidentally repeated request does not renew twice.',
+  'hosting.renewal.charge':
+    '{provider} charges the renewal fee to the weblion account right away. This cannot be undone.',
+  'hosting.renewal.confirm': 'Renew for {years}',
+  'hosting.renewal.renewedToast': 'Renewal of {name} requested',
 
   // DNS
   'hosting.dns.title': 'DNS records',
@@ -102,6 +205,36 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
   'hosting.dns.invalid.ipv6': 'Please enter an IPv6 address, e.g. 2a0e:3e9::10.',
   'hosting.dns.invalid.host': 'Please enter a full host name, e.g. target.example.ch.',
   'hosting.dns.invalid.mx': 'Please enter priority and mail server, e.g. "10 mail.example.ch".',
+  'hosting.dns.invalid.srv':
+    'Please enter priority, weight, port and target, e.g. "10 5 5060 sip.example.ch".',
+  'hosting.dns.invalid.caa': 'Please enter flag, tag and value, e.g. 0 issue "letsencrypt.org".',
+  'hosting.dns.invalid.naptr':
+    'Please enter order, preference, "flags", "service", "regexp" and replacement, e.g. 100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .',
+  'hosting.dns.invalid.txtQuotes': 'Please enter the text without surrounding quotes.',
+  'hosting.dns.invalid.url':
+    'Please enter an address starting with http:// or https://, e.g. https://www.example.ch.',
+  'hosting.dns.invalid.email': 'Please enter an e-mail address, e.g. reception@example.ch.',
+  'hosting.dns.cnameApexNoAlias': 'A CNAME is not allowed for the domain itself. Use an A or AAAA record.',
+  'hosting.dns.typeUnsupported': 'The provider does not accept this type. Please choose another type.',
+  'hosting.dns.nameHintMailfw': 'The part before the @, e.g. info for info@{zone}.',
+  'hosting.dns.mailfwResult': 'Forwards mail for {address}',
+  'hosting.dns.ttl': 'TTL',
+  'hosting.dns.ttl.seconds': '{n} seconds',
+  'hosting.dns.ttl.minute': '1 minute',
+  'hosting.dns.ttl.minutes': '{n} minutes',
+  'hosting.dns.ttl.hour': '1 hour',
+  'hosting.dns.ttl.hours': '{n} hours',
+  'hosting.dns.ttl.day': '1 day',
+  'hosting.dns.ttl.days': '{n} days',
+  'hosting.dns.readOnly': 'Read-only',
+  'hosting.dns.readOnlyHint': 'This record (e.g. DynDNS) cannot be edited in the console, only deleted.',
+  'hosting.dns.typeLabel.HTTP_REDIRECT': 'Redirect (URL)',
+  'hosting.dns.typeLabel.HTTP_FRAME': 'Frame redirect',
+  'hosting.dns.typeLabel.MAILFW': 'E-mail forwarding',
+  'hosting.dns.externalTitle': 'The domain uses other name servers',
+  'hosting.dns.externalText':
+    'The DNS records of this domain are not managed at {provider} but wherever its name servers point. To edit them here, switch the name servers to {provider} in the overview.',
+  'hosting.dns.externalNameservers': 'Current name servers:',
   'hosting.dns.hint.A': 'IPv4 address of the server.',
   'hosting.dns.hint.AAAA': 'IPv6 address of the server.',
   'hosting.dns.hint.CNAME': 'Full host name this name points to. Not for the domain itself.',
@@ -109,15 +242,21 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
   'hosting.dns.hint.MX': 'Priority and mail server, separated by a space. The lower number is tried first.',
   'hosting.dns.hint.SRV':
     'Priority, weight, port and target. The name holds service and protocol, e.g. _sip._tls.',
-  'hosting.dns.hint.TXT': 'Free text, e.g. SPF, DKIM, DMARC or a verification from Google or Microsoft.',
-  'hosting.dns.hint.CAA': 'Flag, tag and value. Defines who may issue certificates for the domain.',
+  'hosting.dns.hint.TXT':
+    'Free text without quotes, e.g. SPF, DKIM, DMARC or a verification from Google or Microsoft.',
+  'hosting.dns.hint.CAA':
+    'Flag, tag and quoted value, e.g. 0 issue "letsencrypt.org". Defines who may issue certificates for the domain.',
   'hosting.dns.hint.PTR': 'Host name for reverse lookups.',
   'hosting.dns.hint.NS': 'Name server a subdomain is delegated to.',
   'hosting.dns.hint.TLSA': 'Usage, selector, matching type and hash (DANE).',
   'hosting.dns.hint.DS': 'Key tag, algorithm, digest type and digest (DNSSEC).',
   'hosting.dns.hint.DNSKEY': 'Flags, protocol, algorithm and public key (DNSSEC).',
-  'hosting.dns.hint.HTTP_REDIRECT': 'Address the provider redirects visitors to.',
-  'hosting.dns.hint.HTTP_FRAME': 'Address the provider shows in a frame.',
+  'hosting.dns.hint.HTTP_REDIRECT': 'Address with http:// or https:// the provider redirects visitors to.',
+  'hosting.dns.hint.HTTP_FRAME':
+    'Address with http:// or https:// the provider shows in a frame. The address bar keeps showing your domain.',
+  'hosting.dns.hint.NAPTR':
+    'Order, preference, flags, service and regexp (quoted) plus replacement, e.g. for ENUM or SIP.',
+  'hosting.dns.hint.MAILFW': 'Address that mail for this name is forwarded to.',
   'hosting.dns.hint.other': 'Value as delivered by the provider.',
   'hosting.dns.ph.A': '185.101.20.10',
   'hosting.dns.ph.AAAA': '2a0e:3e9::10',
@@ -134,6 +273,8 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
   'hosting.dns.ph.DNSKEY': '257 3 13 AwEAA…',
   'hosting.dns.ph.HTTP_REDIRECT': 'https://www.example.ch',
   'hosting.dns.ph.HTTP_FRAME': 'https://www.example.ch',
+  'hosting.dns.ph.NAPTR': '100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .',
+  'hosting.dns.ph.MAILFW': 'reception@example.ch',
   'hosting.dns.ph.other': '',
 
   // Web spaces
@@ -190,7 +331,7 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
   'hosting.admin.syncWhich': 'Sync provider',
   'hosting.admin.synced': '{domains} domains, {webspaces} web spaces and {servers} servers synced',
   'hosting.admin.orderDomains':
-    'Register new domains in the 24fire panel. After the next sync they show up here and can be assigned to a customer.',
+    'Register new domains at the registrar (24fire panel or Joker.com). After the next sync they show up here and can be assigned to a customer.',
   'hosting.admin.orderWebspaces':
     'Order new web spaces in the 24fire panel. After the next sync they show up here and can be assigned to a customer.',
   'hosting.admin.toProviders': 'Go to providers',
@@ -230,6 +371,9 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
     'Without the module "{module}" the customer does not see the web space, even though it is assigned.',
   'hosting.admin.assigned': '{name} assigned',
   'hosting.admin.unassign': 'Remove assignment',
+  'hosting.admin.autoRenewOn': 'Turn on auto renew',
+  'hosting.admin.autoRenewOff': 'Turn off auto renew',
+  'hosting.admin.renewNow': 'Renew now…',
   'hosting.admin.unassignedDone': 'Assignment of {name} removed',
   'hosting.admin.unassignTitle': 'Remove the assignment of {name}?',
   'hosting.admin.unassignText':

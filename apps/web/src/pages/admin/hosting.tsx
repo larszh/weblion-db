@@ -1,6 +1,16 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Globe, Layers, Link2, RefreshCw, Search, Unlink } from 'lucide-react';
+import {
+  CalendarPlus,
+  Globe,
+  Layers,
+  Link2,
+  MoreHorizontal,
+  RefreshCw,
+  RotateCw,
+  Search,
+  Unlink,
+} from 'lucide-react';
 import {
   MODULE_DEFS,
   type AdminOrgDto,
@@ -17,10 +27,11 @@ import {
   useAssignHosting,
   useProviderSync,
   type AdminHostingFilters,
+  type DomainActionResult,
 } from '@/lib/api/hosting';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
-import { Menu, MenuItem, MenuLabel } from '@/components/ui/menu';
+import { Menu, MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/menu';
 import {
   Badge,
   Card,
@@ -35,15 +46,22 @@ import {
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { Flag, ProviderBadge } from '@/components/server-bits';
-import { DomainStatusBadge, ExpiryText, resourceItems } from '@/pages/hosting/bits';
+import { AutoRenewBadge, DomainStatusBadge, ExpiryText, resourceItems } from '@/pages/hosting/bits';
+import {
+  ActionResultNotice,
+  AutoRenewDialog,
+  RenewDialog,
+  useCanRenew,
+  type RenewalTarget,
+} from '@/pages/hosting/domain-actions';
 
 type Tab = 'domains' | 'webspaces';
 type Item = { type: 'domain'; row: DomainDto } | { type: 'webspace'; row: WebspaceDto };
 
 const MODULE_OF: Record<Item['type'], ModuleKey> = { domain: 'dns', webspace: 'webhosting' };
 
-/** Provider types that have domains and web spaces. Proxmox has neither. */
-const HOSTING_PROVIDERS = new Set(['fire24', 'demo']);
+/** Provider types that have domains or web spaces. Proxmox has neither, Joker.com only domains. */
+const HOSTING_PROVIDERS = new Set(['fire24', 'joker', 'demo']);
 
 export function AdminHostingPage() {
   const { t } = useI18n();
@@ -266,6 +284,19 @@ function DomainInventory({
   const { t } = useI18n();
   const navigate = useNavigate();
   const domains = useAdminDomains(filters);
+  const canRenew = useCanRenew();
+  /** Open renewal dialog: auto-renew switch (with the target state) or a manual renewal. */
+  const [renewal, setRenewal] = useState<
+    | { kind: 'auto'; domain: RenewalTarget; enabled: boolean }
+    | { kind: 'renew'; domain: RenewalTarget }
+    | null
+  >(null);
+  const [done, setDone] = useState<{ title: string; result: DomainActionResult; provider: string } | null>(
+    null,
+  );
+  const renewable = (d: DomainDto) =>
+    canRenew && (d.capabilities.includes('autoRenew') || d.capabilities.includes('renew'));
+  const showActions = canAssign || (domains.data ?? []).some(renewable);
   if (!domains.data || domains.data.length === 0) {
     return (
       <InventoryState
@@ -279,56 +310,160 @@ function DomainInventory({
     );
   }
   return (
-    <Table>
-      <THead>
-        <tr>
-          <TH>{t('hosting.col.domain')}</TH>
-          <TH className="hidden sm:table-cell">{t('hosting.col.status')}</TH>
-          <TH className="hidden md:table-cell">{t('hosting.col.expires')}</TH>
-          <TH>{t('hosting.col.customer')}</TH>
-          <TH className="hidden lg:table-cell">{t('hosting.col.location')}</TH>
-          {canAssign && <TH />}
-        </tr>
-      </THead>
-      <TBody>
-        {domains.data.map((d) => (
-          <TR key={d.id} onClick={d.org ? () => navigate(`/o/${d.org!.slug}/domains/${d.id}`) : undefined}>
-            <TD>
-              <div className="flex items-center gap-3">
-                <Globe className="size-4 shrink-0 text-muted" aria-hidden />
-                <div className="min-w-0">
-                  <div className="truncate font-medium text-text">{d.name}</div>
-                  <div className="mt-0.5 flex items-center gap-1.5">
-                    <ProviderBadge type={d.provider.type} name={d.provider.name} />
-                    {d.missingSince && <Badge tone="danger">{t('hosting.status.missing')}</Badge>}
+    <>
+      {done && (
+        <div className="border-b border-border px-4 py-3">
+          <ActionResultNotice title={done.title} result={done.result} provider={done.provider} />
+        </div>
+      )}
+      <Table>
+        <THead>
+          <tr>
+            <TH>{t('hosting.col.domain')}</TH>
+            <TH className="hidden sm:table-cell">{t('hosting.col.status')}</TH>
+            <TH className="hidden md:table-cell">{t('hosting.col.expires')}</TH>
+            <TH className="hidden xl:table-cell">{t('hosting.col.autoRenew')}</TH>
+            <TH>{t('hosting.col.customer')}</TH>
+            <TH className="hidden lg:table-cell">{t('hosting.col.location')}</TH>
+            {showActions && <TH />}
+          </tr>
+        </THead>
+        <TBody>
+          {domains.data.map((d) => (
+            <TR key={d.id} onClick={d.org ? () => navigate(`/o/${d.org!.slug}/domains/${d.id}`) : undefined}>
+              <TD>
+                <div className="flex items-center gap-3">
+                  <Globe className="size-4 shrink-0 text-muted" aria-hidden />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-text">{d.name}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <ProviderBadge type={d.provider.type} name={d.provider.name} />
+                      {d.missingSince && <Badge tone="danger">{t('hosting.status.missing')}</Badge>}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </TD>
-            <TD className="hidden sm:table-cell">
-              <DomainStatusBadge domain={d} />
-            </TD>
-            <TD className="hidden whitespace-nowrap md:table-cell">
-              <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
-            </TD>
-            <TD>
-              <CustomerCell org={d.org} />
-            </TD>
-            <TD className="hidden lg:table-cell">
-              <span className="inline-flex items-center gap-2 text-sm">
-                <Flag country={d.location.country} />
-                <span className="truncate">{d.location.city ?? d.location.label}</span>
-              </span>
-            </TD>
-            {canAssign && (
-              <TD className="text-right" onClick={(e) => e.stopPropagation()}>
-                <AssignButton assigned={!!d.org} onClick={() => onAssign(d)} />
               </TD>
-            )}
-          </TR>
-        ))}
-      </TBody>
-    </Table>
+              <TD className="hidden sm:table-cell">
+                <DomainStatusBadge domain={d} />
+              </TD>
+              <TD className="hidden whitespace-nowrap md:table-cell">
+                <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+              </TD>
+              <TD className="hidden xl:table-cell">
+                <AutoRenewBadge value={d.autoRenew} />
+              </TD>
+              <TD>
+                <CustomerCell org={d.org} />
+              </TD>
+              <TD className="hidden lg:table-cell">
+                <span className="inline-flex items-center gap-2 text-sm">
+                  <Flag country={d.location.country} />
+                  <span className="truncate">{d.location.city ?? d.location.label}</span>
+                </span>
+              </TD>
+              {showActions && (
+                <TD className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                  <div className="inline-flex items-center gap-1">
+                    {canAssign && <AssignButton assigned={!!d.org} onClick={() => onAssign(d)} />}
+                    {renewable(d) && (
+                      <RenewalMenu
+                        domain={d}
+                        onAutoRenew={(enabled) =>
+                          setRenewal({ kind: 'auto', domain: renewalTarget(d), enabled })
+                        }
+                        onRenew={() => setRenewal({ kind: 'renew', domain: renewalTarget(d) })}
+                      />
+                    )}
+                  </div>
+                </TD>
+              )}
+            </TR>
+          ))}
+        </TBody>
+      </Table>
+      {renewal?.kind === 'auto' && (
+        <AutoRenewDialog
+          domain={renewal.domain}
+          enabled={renewal.enabled}
+          onClose={() => setRenewal(null)}
+          onDone={(result) =>
+            setDone({
+              title: renewal.enabled
+                ? t('hosting.renewal.enabledToast', { name: renewal.domain.name })
+                : t('hosting.renewal.disabledToast', { name: renewal.domain.name }),
+              result,
+              provider: renewal.domain.provider.name,
+            })
+          }
+        />
+      )}
+      {renewal?.kind === 'renew' && (
+        <RenewDialog
+          domain={renewal.domain}
+          onClose={() => setRenewal(null)}
+          onDone={(result) =>
+            setDone({
+              title: t('hosting.renewal.renewedToast', { name: renewal.domain.name }),
+              result,
+              provider: renewal.domain.provider.name,
+            })
+          }
+        />
+      )}
+    </>
+  );
+}
+
+const renewalTarget = (d: DomainDto): RenewalTarget => ({
+  id: d.id,
+  name: d.name,
+  expiresAt: d.expiresAt,
+  provider: d.provider,
+});
+
+/** Platform staff only (platform:domain:write): registrar renewals cost money. */
+function RenewalMenu({
+  domain,
+  onAutoRenew,
+  onRenew,
+}: {
+  domain: DomainDto;
+  onAutoRenew: (enabled: boolean) => void;
+  onRenew: () => void;
+}) {
+  const { t } = useI18n();
+  const caps = domain.capabilities;
+  return (
+    <Menu
+      trigger={
+        <Button size="icon" variant="ghost" aria-label={t('common.actions')} title={t('common.actions')}>
+          <MoreHorizontal className="size-4" />
+        </Button>
+      }
+    >
+      <MenuLabel>{t('hosting.renewal.title')}</MenuLabel>
+      {caps.includes('autoRenew') && (
+        <MenuItem
+          icon={<RotateCw />}
+          onSelect={() => onAutoRenew(domain.autoRenew !== true)}
+          hint={
+            domain.autoRenew === true
+              ? t('hosting.autoRenew.onLong')
+              : domain.autoRenew === false
+                ? t('hosting.autoRenew.offLong')
+                : undefined
+          }
+        >
+          {domain.autoRenew === true ? t('hosting.admin.autoRenewOff') : t('hosting.admin.autoRenewOn')}
+        </MenuItem>
+      )}
+      {caps.includes('autoRenew') && caps.includes('renew') && <MenuSeparator />}
+      {caps.includes('renew') && (
+        <MenuItem icon={<CalendarPlus />} onSelect={onRenew}>
+          {t('hosting.admin.renewNow')}
+        </MenuItem>
+      )}
+    </Menu>
   );
 }
 

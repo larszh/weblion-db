@@ -293,6 +293,36 @@ describe('administration', () => {
     expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
   });
 
+  it('removes a stored credential when an edit sends null', async () => {
+    type Provider = { id: string; summary: Record<string, string> };
+    const created = json<Provider>(
+      await admin.post('/admin/providers', {
+        type: 'joker',
+        name: 'Joker Test',
+        location: { country: 'DE', label: 'Test' },
+        // Nothing listens there: the initial background sync fails right away.
+        config: { apiKey: 'joker-test-api-key', baseUrl: 'http://127.0.0.1:9/request' },
+      }),
+    );
+    expect(created.summary.apiKey).toMatch(/…/);
+    // Without a replacement nothing is left to sign in with.
+    const empty = await admin.patch(`/admin/providers/${created.id}`, { config: { apiKey: null } });
+    expect(empty.statusCode).toBe(400);
+    const switched = json<Provider>(
+      await admin.patch(`/admin/providers/${created.id}`, {
+        config: { apiKey: null, username: 'reseller', password: 'joker-password' },
+      }),
+    );
+    expect(switched.summary).toMatchObject({ username: 'reseller' });
+    expect(switched.summary.apiKey).toBeUndefined();
+    // Empty values still keep what is stored.
+    const kept = json<Provider>(
+      await admin.patch(`/admin/providers/${created.id}`, { config: { username: 'reseller', password: '' } }),
+    );
+    expect(kept.summary).toMatchObject({ username: 'reseller' });
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+  });
+
   it('keeps customers out of the admin area', async () => {
     const anna = new Client(t.app);
     await anna.login('anna@muster.example');

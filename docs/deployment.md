@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire, Proxmox, Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire, Proxmox, Joker.com (`dmapi.joker.com`), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -66,9 +66,13 @@ PROXMOX_TOKEN_ID=weblion@pve!console
 PROXMOX_TOKEN_SECRET=...
 ```
 
-Optional, je nachdem was genutzt wird (Details in [billing.md](billing.md)):
+Optional, je nachdem was genutzt wird (Details in [billing.md](billing.md) und
+[providers.md](providers.md)):
 
 ```env
+# Domains bei Joker.com: API-Key des Reseller-Kontos (oder JOKER_USERNAME und JOKER_PASSWORD)
+JOKER_API_KEY='...'
+
 # E-Mail. Alternativ im Admin-Bereich unter Einstellungen > E-Mail eintragen.
 SMTP_HOST=smtp.example.ch
 SMTP_PORT=587

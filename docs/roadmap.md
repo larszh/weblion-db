@@ -5,8 +5,9 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
 
 ## Als Nächstes
 
-- **Live-Test gegen 24fire und Proxmox** mit den echten Zugangsdaten (die Build-Umgebung hatte
-  keinen Zugriff), offene Detailfragen stehen in docs/providers.md
+- **Live-Test gegen 24fire, Proxmox und Joker.com** mit den echten Zugangsdaten (die
+  Build-Umgebung hatte keinen Zugriff), bei Joker.com zuerst im Testsystem (OT&E). Offene
+  Detailfragen stehen in docs/providers.md
 - **Stripe Connect für Reseller**, damit auch Reseller-Kunden online zahlen können
 - **Mahnwesen**: Zahlungserinnerungen und Mahnstufen für überfällige Rechnungen (die
   Mail-Vorlage `invoice_reminder` ist schon da)
@@ -18,11 +19,28 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
 - **OpenAPI-Doku** der REST-API, danach Terraform-Provider und eine kleine CLI
 - **SSO und Passkeys**: Login mit Microsoft/Google (OIDC), WebAuthn statt nur TOTP
 
+## Domains (Joker.com)
+
+Die Anbindung deckt heute DNS, Nameserver, Transfersperre, Auth-Code und Verlängerung ab.
+Als Nächstes:
+
+- **Registrieren und Transfer zu Joker** aus der Console: Verfügbarkeit prüfen, Kontakte
+  (Handles) pro Kunde anlegen und wiederverwenden, Preise pro Endung im Produktkatalog
+- **Verlängerungen weiterverrechnen**: Verlängert Joker eine Domain (automatisch oder von
+  Hand), entsteht automatisch eine Rechnungszeile für den Kunden. Heute bezahlt weblion.one
+  die Verlängerung, und die Abrechnung läuft getrennt über einen Dienst an der Domain
+- **DNSSEC**: Signieren bei Joker einschalten bzw. DS-Einträge für fremde Nameserver
+  hinterlegen, statt den Status nur anzuzeigen
+- **Whois-Datenschutz** bestellen und verlängern
+- **Inhaberwechsel** und Kontaktdaten pflegen, mit den Fristen und Bestätigungen, die
+  einzelne Registries verlangen
+
 ## Neue Dienste
 
 - **Webhosting-Bereitstellung**: Die 24fire-API kann Webspaces nur lesen. Neue Webspaces
   aus der Console anlegen ginge mit einem eigenen Plesk/KeyHelp-Server und dessen API
-- **DNS bei Cloudflare** als zweiter DNS-Provider, z.B. für Domains ausserhalb von 24fire
+- **DNS bei Cloudflare** als weiterer DNS-Provider, z.B. für Domains mit
+  Cloudflare-Nameservern
 - **Grafana pro Kunde**: automatisch angelegte Grafana-Organisationen mit Dashboards für die
   eigenen Server, eingebettet im Panel
 - **Uptime- und Statusseiten**: externe Checks (z.B. Uptime Kuma) und eine Statusseite pro Kunde

@@ -27,6 +27,7 @@ import {
   PageHeader,
   Select,
 } from '@/components/ui/primitives';
+import { providerHasServers } from '@/components/server-bits';
 import { ServerTable } from '@/components/server-table';
 
 function AssignDialog({ server, onClose }: { server: ServerDto | null; onClose: () => void }) {
@@ -121,6 +122,7 @@ function AssignDialog({ server, onClose }: { server: ServerDto | null; onClose: 
 function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { t } = useI18n();
   const providers = useAdminProviders();
+  const serverProviders = providers.data?.filter((p) => providerHasServers(p.type)) ?? [];
   const [providerId, setProviderId] = useState('');
   const [externalId, setExternalId] = useState('');
   const imp = useApiMutation(() => api.post('/admin/servers/import', { providerId, externalId }), {
@@ -158,7 +160,7 @@ function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
         <Field label={t('overview.provider')} htmlFor="imp-provider">
           <Select id="imp-provider" value={providerId} onChange={(e) => setProviderId(e.target.value)}>
             <option value="">–</option>
-            {providers.data?.map((p) => (
+            {serverProviders.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
@@ -321,6 +323,7 @@ export function InventoryPage() {
   const providerId = params.get('provider') ?? undefined;
   const [q, setQ] = useState('');
   const providers = useAdminProviders();
+  const serverProviders = providers.data?.filter((p) => providerHasServers(p.type)) ?? [];
   const servers = useAdminServers({ assigned, providerId, q: q || undefined });
   const [assigning, setAssigning] = useState<ServerDto | null>(null);
   const [importing, setImporting] = useState(false);
@@ -376,7 +379,7 @@ export function InventoryPage() {
             className="w-auto"
           >
             <option value="">{t('inventory.allProviders')}</option>
-            {providers.data?.map((p) => (
+            {serverProviders.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>

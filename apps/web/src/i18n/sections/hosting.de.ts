@@ -39,6 +39,17 @@ export const hostingDe = {
     'Die Domain fehlt seit {date} in der Liste des Providers. Wurde sie gekündigt oder übertragen?',
   'hosting.missing.webspace':
     'Der Webspace fehlt seit {date} in der Liste des Providers. Wurde er gekündigt?',
+  'hosting.lock.title': 'Transfersperre',
+  'hosting.lock.on': 'Gesperrt',
+  'hosting.lock.off': 'Offen',
+  'hosting.lock.onLong': 'Transfersperre aktiv',
+  'hosting.lock.offLong': 'Keine Transfersperre',
+  'hosting.action.ref': 'Auftragsnummer',
+  'hosting.action.refShort': 'Auftrag {ref}',
+  'hosting.action.providerMessage': 'Antwort von {provider}',
+  'hosting.tab.label': 'Bereiche der Domain',
+  'hosting.tab.overview': 'Übersicht',
+  'hosting.tab.dns': 'DNS',
 
   // Domains
   'hosting.domains.subtitle': 'Ihre Domains mit Ablaufdatum, Nameservern und DNS-Einträgen.',
@@ -64,6 +75,98 @@ export const hostingDe = {
   'hosting.authcode.confirmTitle': 'Auth-Code für {name} anzeigen?',
   'hosting.authcode.confirmText':
     'Wer den Auth-Code kennt, kann die Domain zu einem anderen Anbieter übertragen. Der Abruf wird im Audit-Log festgehalten.',
+  'hosting.authcode.newCode':
+    'Joker.com erstellt bei jedem Abruf einen neuen Code. Ein früher abgerufener Code wird damit ungültig.',
+  'hosting.authcode.pendingTitle': 'Auth-Code wird erstellt',
+  'hosting.authcode.pending':
+    'Der Registrar erstellt den Auth-Code gerade. Bitte versuchen Sie es in einer Minute erneut.',
+  'hosting.authcode.retry': 'Erneut abrufen',
+  'hosting.authcode.lockedHint':
+    'Die Transfersperre ist aktiv. Heben Sie sie auf, bevor der neue Anbieter den Transfer startet.',
+  'hosting.domain.privacy': 'Whois-Datenschutz',
+  'hosting.domain.privacyNone': 'Keiner',
+  'hosting.domain.dnssecOn': 'Aktiv',
+  'hosting.domain.dnssecOff': 'Nicht aktiv',
+  'hosting.transfer.text':
+    'Die Transfersperre schützt vor einem ungewollten Umzug. Mit dem Auth-Code ziehen Sie die Domain zu einem anderen Anbieter um.',
+  'hosting.lock.onText': 'Die Domain kann nicht zu einem anderen Anbieter übertragen werden.',
+  'hosting.lock.offText': 'Die Domain kann mit dem Auth-Code zu einem anderen Anbieter übertragen werden.',
+  'hosting.lock.unknownText': 'Der Registrar hat den Status nicht gemeldet.',
+  'hosting.lock.lock': 'Sperre aktivieren',
+  'hosting.lock.unlock': 'Sperre aufheben',
+  'hosting.lock.lockTitle': 'Transfersperre für {name} aktivieren?',
+  'hosting.lock.unlockTitle': 'Transfersperre für {name} aufheben?',
+  'hosting.lock.lockText':
+    'Danach lässt sich die Domain nicht mehr zu einem anderen Anbieter übertragen, bis Sie die Sperre wieder aufheben.',
+  'hosting.lock.unlockText':
+    'Ohne Transfersperre kann jeder mit dem Auth-Code die Domain zu einem anderen Anbieter übertragen. Heben Sie die Sperre nur auf, wenn Sie einen Transfer planen.',
+  'hosting.lock.lockedToast': 'Transfersperre wird aktiviert',
+  'hosting.lock.unlockedToast': 'Transfersperre wird aufgehoben',
+  'hosting.lock.processing': 'Die Registry übernimmt die Änderung in der Regel innerhalb weniger Minuten.',
+  'hosting.ns.change': 'Nameserver ändern',
+  'hosting.ns.dialogText': 'Neue Nameserver für {name}.',
+  'hosting.ns.label': 'Nameserver {n}',
+  'hosting.ns.add': 'Nameserver hinzufügen',
+  'hosting.ns.count': '{min} bis {max} Nameserver',
+  'hosting.ns.presetJoker': 'Joker-Nameserver',
+  'hosting.ns.presetJokerHint':
+    'a.ns.joker.com, b.ns.joker.com und c.ns.joker.com. Nötig, damit die DNS-Einträge bei Joker.com gelten.',
+  'hosting.ns.usePreset': 'Übernehmen',
+  'hosting.ns.warning':
+    'Falsche Nameserver legen Website und E-Mail der Domain lahm. Prüfen Sie vorher, dass die neuen Server die Zone bereits kennen.',
+  'hosting.ns.processing':
+    'Die Registry verarbeitet die Änderung. Bis sie übernommen und weltweit sichtbar ist, kann es einige Stunden dauern.',
+  'hosting.ns.submitted': 'Nameserver-Änderung übermittelt',
+  'hosting.ns.pending':
+    'Neue Nameserver: {list}. Bis die Registry die Änderung übernommen hat, werden hier noch die bisherigen angezeigt.',
+  'hosting.ns.atProvider':
+    'Die Domain nutzt die Nameserver von {provider}. Die DNS-Einträge im Tab "DNS" sind live.',
+  'hosting.ns.external':
+    'Die Domain nutzt andere Nameserver. Die DNS-Einträge bei {provider} sind deshalb nicht aktiv.',
+  'hosting.ns.invalid.host': 'Bitte einen vollständigen Hostnamen eingeben, z. B. ns1.example.ch.',
+  'hosting.ns.invalid.duplicate': 'Dieser Nameserver steht bereits in der Liste.',
+  'hosting.registrant.title': 'Inhaber',
+  'hosting.registrant.text': 'So ist der Inhaber beim Registrar eingetragen.',
+  'hosting.registrant.name': 'Name',
+  'hosting.registrant.organization': 'Organisation',
+  'hosting.registrant.email': 'E-Mail',
+  'hosting.registrant.none': 'Der Registrar hat keine Inhaberdaten gemeldet.',
+  'hosting.renewal.title': 'Verlängerung',
+  'hosting.renewal.text':
+    'Verlängerungen kosten beim Registrar Geld und sind deshalb weblion-Mitarbeitern vorbehalten.',
+  'hosting.renewal.staffOnly': 'Intern',
+  'hosting.renewal.autoOnText':
+    'Der Registrar verlängert die Domain vor dem Ablauf und belastet das weblion-Konto.',
+  'hosting.renewal.autoOffText': 'Die Domain läuft am Ablaufdatum aus, wenn sie niemand verlängert.',
+  'hosting.renewal.autoUnknownText': 'Der Registrar hat die Einstellung nicht gemeldet.',
+  'hosting.renewal.enable': 'Einschalten',
+  'hosting.renewal.disable': 'Ausschalten',
+  'hosting.renewal.enableTitle': 'Automatische Verlängerung für {name} einschalten?',
+  'hosting.renewal.disableTitle': 'Automatische Verlängerung für {name} ausschalten?',
+  'hosting.renewal.enableText':
+    '{provider} verlängert die Domain dann vor dem Ablauf automatisch und belastet das weblion-Konto.',
+  'hosting.renewal.disableText':
+    'Die Domain läuft dann am {date} aus, wenn sie niemand von Hand verlängert. Website und E-Mail funktionieren danach nicht mehr.',
+  'hosting.renewal.enabledToast': 'Automatische Verlängerung für {name} eingeschaltet',
+  'hosting.renewal.disabledToast': 'Automatische Verlängerung für {name} ausgeschaltet',
+  'hosting.renewal.manual': 'Manuell verlängern',
+  'hosting.renewal.expiresOn': 'Läuft ab am {date}',
+  'hosting.renewal.renew': 'Jetzt verlängern',
+  'hosting.renewal.renewTitle': '{name} verlängern',
+  'hosting.renewal.renewText': 'Die Laufzeit wird ab dem aktuellen Ablaufdatum verlängert.',
+  'hosting.renewal.years': 'Verlängern um',
+  'hosting.renewal.year1': '1 Jahr',
+  'hosting.renewal.yearsN': '{n} Jahre',
+  'hosting.renewal.current': 'Aktuelles Ablaufdatum',
+  'hosting.renewal.new': 'Neues Ablaufdatum',
+  'hosting.renewal.unknownExpiry':
+    'Das aktuelle Ablaufdatum ist nicht bekannt. Der Registrar verlängert ab dem Ablaufdatum, das bei ihm gespeichert ist.',
+  'hosting.renewal.targetYear':
+    'Joker.com erhält das Zieljahr {year}. Ein versehentlich wiederholter Auftrag verlängert deshalb nicht doppelt.',
+  'hosting.renewal.charge':
+    '{provider} belastet das weblion-Konto sofort mit der Verlängerungsgebühr. Das lässt sich nicht rückgängig machen.',
+  'hosting.renewal.confirm': 'Um {years} verlängern',
+  'hosting.renewal.renewedToast': 'Verlängerung von {name} beauftragt',
 
   // DNS
   'hosting.dns.title': 'DNS-Einträge',
@@ -104,6 +207,38 @@ export const hostingDe = {
   'hosting.dns.invalid.ipv6': 'Bitte eine IPv6-Adresse eingeben, z. B. 2a0e:3e9::10.',
   'hosting.dns.invalid.host': 'Bitte einen vollständigen Hostnamen eingeben, z. B. ziel.example.ch.',
   'hosting.dns.invalid.mx': 'Bitte Priorität und Mailserver eingeben, z. B. "10 mail.example.ch".',
+  'hosting.dns.invalid.srv':
+    'Bitte Priorität, Gewicht, Port und Ziel eingeben, z. B. "10 5 5060 sip.example.ch".',
+  'hosting.dns.invalid.caa': 'Bitte Flag, Tag und Wert eingeben, z. B. 0 issue "letsencrypt.org".',
+  'hosting.dns.invalid.naptr':
+    'Bitte Order, Preference, "Flags", "Service", "Regexp" und Ersatz eingeben, z. B. 100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .',
+  'hosting.dns.invalid.txtQuotes': 'Bitte den Text ohne umschliessende Anführungszeichen eingeben.',
+  'hosting.dns.invalid.url':
+    'Bitte eine Adresse mit http:// oder https:// eingeben, z. B. https://www.example.ch.',
+  'hosting.dns.invalid.email': 'Bitte eine E-Mail-Adresse eingeben, z. B. empfang@example.ch.',
+  'hosting.dns.cnameApexNoAlias':
+    'Ein CNAME ist für die Domain selbst nicht erlaubt. Verwenden Sie einen A- oder AAAA-Eintrag.',
+  'hosting.dns.typeUnsupported': 'Diesen Typ nimmt der Provider nicht an. Wählen Sie einen anderen Typ.',
+  'hosting.dns.nameHintMailfw': 'Der Teil vor dem @, z. B. info für info@{zone}.',
+  'hosting.dns.mailfwResult': 'Weiterleitung für {address}',
+  'hosting.dns.ttl': 'TTL',
+  'hosting.dns.ttl.seconds': '{n} Sekunden',
+  'hosting.dns.ttl.minute': '1 Minute',
+  'hosting.dns.ttl.minutes': '{n} Minuten',
+  'hosting.dns.ttl.hour': '1 Stunde',
+  'hosting.dns.ttl.hours': '{n} Stunden',
+  'hosting.dns.ttl.day': '1 Tag',
+  'hosting.dns.ttl.days': '{n} Tage',
+  'hosting.dns.readOnly': 'Nur lesen',
+  'hosting.dns.readOnlyHint':
+    'Diesen Eintrag (z. B. DynDNS) können Sie in der Console nicht bearbeiten, nur löschen.',
+  'hosting.dns.typeLabel.HTTP_REDIRECT': 'Weiterleitung (URL)',
+  'hosting.dns.typeLabel.HTTP_FRAME': 'Frame-Weiterleitung',
+  'hosting.dns.typeLabel.MAILFW': 'E-Mail-Weiterleitung',
+  'hosting.dns.externalTitle': 'Die Domain nutzt andere Nameserver',
+  'hosting.dns.externalText':
+    'Die DNS-Einträge dieser Domain werden nicht bei {provider} verwaltet, sondern dort, wohin die Nameserver zeigen. Um sie hier zu bearbeiten, stellen Sie in der Übersicht die Nameserver auf {provider} um.',
+  'hosting.dns.externalNameservers': 'Aktuelle Nameserver:',
   'hosting.dns.hint.A': 'IPv4-Adresse des Servers.',
   'hosting.dns.hint.AAAA': 'IPv6-Adresse des Servers.',
   'hosting.dns.hint.CNAME':
@@ -114,15 +249,21 @@ export const hostingDe = {
   'hosting.dns.hint.SRV':
     'Priorität, Gewicht, Port und Ziel. Der Name enthält Dienst und Protokoll, z. B. _sip._tls.',
   'hosting.dns.hint.TXT':
-    'Freier Text, z. B. SPF, DKIM, DMARC oder eine Bestätigung von Google oder Microsoft.',
-  'hosting.dns.hint.CAA': 'Flag, Tag und Wert. Legt fest, wer Zertifikate für die Domain ausstellen darf.',
+    'Freier Text ohne Anführungszeichen, z. B. SPF, DKIM, DMARC oder eine Bestätigung von Google oder Microsoft.',
+  'hosting.dns.hint.CAA':
+    'Flag, Tag und Wert in Anführungszeichen, z. B. 0 issue "letsencrypt.org". Legt fest, wer Zertifikate für die Domain ausstellen darf.',
   'hosting.dns.hint.PTR': 'Hostname für die Rückwärtsauflösung.',
   'hosting.dns.hint.NS': 'Nameserver, an den eine Subdomain delegiert wird.',
   'hosting.dns.hint.TLSA': 'Usage, Selector, Matching-Type und Hash (DANE).',
   'hosting.dns.hint.DS': 'Key-Tag, Algorithmus, Digest-Typ und Digest (DNSSEC).',
   'hosting.dns.hint.DNSKEY': 'Flags, Protokoll, Algorithmus und öffentlicher Schlüssel (DNSSEC).',
-  'hosting.dns.hint.HTTP_REDIRECT': 'Adresse, auf die der Provider Besucher weiterleitet.',
-  'hosting.dns.hint.HTTP_FRAME': 'Adresse, die der Provider in einem Frame anzeigt.',
+  'hosting.dns.hint.HTTP_REDIRECT':
+    'Adresse mit http:// oder https://, auf die der Provider Besucher weiterleitet.',
+  'hosting.dns.hint.HTTP_FRAME':
+    'Adresse mit http:// oder https://, die der Provider in einem Frame anzeigt. In der Adresszeile bleibt Ihre Domain stehen.',
+  'hosting.dns.hint.NAPTR':
+    'Order, Preference, Flags, Service und Regexp (in Anführungszeichen) sowie Ersatz, z. B. für ENUM oder SIP.',
+  'hosting.dns.hint.MAILFW': 'Adresse, an die E-Mails für diesen Namen weitergeleitet werden.',
   'hosting.dns.hint.other': 'Wert, wie ihn der Provider liefert.',
   'hosting.dns.ph.A': '185.101.20.10',
   'hosting.dns.ph.AAAA': '2a0e:3e9::10',
@@ -139,6 +280,8 @@ export const hostingDe = {
   'hosting.dns.ph.DNSKEY': '257 3 13 AwEAA…',
   'hosting.dns.ph.HTTP_REDIRECT': 'https://www.example.ch',
   'hosting.dns.ph.HTTP_FRAME': 'https://www.example.ch',
+  'hosting.dns.ph.NAPTR': '100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .',
+  'hosting.dns.ph.MAILFW': 'empfang@example.ch',
   'hosting.dns.ph.other': '',
 
   // Web spaces
@@ -195,7 +338,7 @@ export const hostingDe = {
   'hosting.admin.syncWhich': 'Provider synchronisieren',
   'hosting.admin.synced': '{domains} Domains, {webspaces} Webspaces und {servers} Server synchronisiert',
   'hosting.admin.orderDomains':
-    'Neue Domains registrieren Sie im 24fire-Panel. Nach der nächsten Synchronisation erscheinen sie hier und lassen sich einem Kunden zuweisen.',
+    'Neue Domains registrieren Sie beim Registrar (24fire-Panel oder Joker.com). Nach der nächsten Synchronisation erscheinen sie hier und lassen sich einem Kunden zuweisen.',
   'hosting.admin.orderWebspaces':
     'Neue Webspaces bestellen Sie im 24fire-Panel. Nach der nächsten Synchronisation erscheinen sie hier und lassen sich einem Kunden zuweisen.',
   'hosting.admin.toProviders': 'Zu den Providern',
@@ -236,6 +379,9 @@ export const hostingDe = {
     'Ohne das Modul "{module}" sieht der Kunde den Webspace nicht, auch wenn er ihm zugewiesen ist.',
   'hosting.admin.assigned': '{name} zugewiesen',
   'hosting.admin.unassign': 'Zuweisung aufheben',
+  'hosting.admin.autoRenewOn': 'Automatische Verlängerung einschalten',
+  'hosting.admin.autoRenewOff': 'Automatische Verlängerung ausschalten',
+  'hosting.admin.renewNow': 'Jetzt verlängern…',
   'hosting.admin.unassignedDone': 'Zuweisung von {name} aufgehoben',
   'hosting.admin.unassignTitle': 'Zuweisung von {name} aufheben?',
   'hosting.admin.unassignText':

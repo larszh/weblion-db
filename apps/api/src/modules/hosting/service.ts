@@ -7,6 +7,7 @@ import {
   type DnsRecordType,
   type DomainCapability,
   type DomainDto,
+  type DomainInfo,
   type ModuleKey,
   type Permission,
   type WebspaceDto,
@@ -134,6 +135,51 @@ export function domainCapabilities(adapter: ProviderAdapter): DomainCapability[]
 /** Record types a provider accepts for new or changed records. */
 export function dnsRecordTypes(adapter: ProviderAdapter): DnsRecordType[] {
   return adapter.dnsRecordTypes?.() ?? [...DNS_RECORD_TYPES];
+}
+
+/**
+ * Throws 422 unless the provider implements a domain operation and also announces the
+ * matching capability, which is what the UI goes by.
+ */
+export function requireDomainCapability(
+  adapter: ProviderAdapter,
+  capability: DomainCapability,
+  method: keyof ProviderAdapter,
+  what: string,
+): void {
+  requireSupport(adapter, method, what);
+  if (!domainCapabilities(adapter).includes(capability)) {
+    throw unsupported(`This provider does not support ${what}`);
+  }
+}
+
+/** Domain info for a domain nothing is known about yet. */
+export function emptyDomainInfo(name: string): DomainInfo {
+  return {
+    name,
+    status: null,
+    terminated: false,
+    nameservers: [],
+    handle: null,
+    createdAt: null,
+    expiresAt: null,
+    autoRenew: null,
+  };
+}
+
+/**
+ * Merges provider facts into the stored info field by field: what the provider leaves out
+ * or reports as null keeps its stored value (e.g. the renewal setting only the list knows).
+ */
+export function mergeDomainInfo(
+  name: string,
+  stored: DomainInfo | null,
+  update: Partial<DomainInfo>,
+): DomainInfo {
+  const known = Object.fromEntries(
+    Object.entries(update).filter(([, value]) => value !== undefined && value !== null),
+  ) as Partial<DomainInfo>;
+  return { ...(stored ?? emptyDomainInfo(name)), ...known };
 }
 
 export async function toDomainDto(ctx: AppContext, req: FastifyRequest, row: DomainRow): Promise<DomainDto> {

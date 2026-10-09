@@ -7,7 +7,8 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
                                        │    ├─ Auth: Session-Cookie oder API-Token
                                        │    ├─ IAM: Rollen + Policies + Kundengrenze
                                        │    └─ Provider-Adapter ──> 24fire API (DE)
-                                       │                       └─> Proxmox API (CH)
+                                       │                       ├─> Proxmox API (CH)
+                                       │                       └─> Joker.com DMAPI (Domains)
                                        │    ├─ Abrechnung ──> Stripe (Karte, TWINT), Zoho Books
                                        │    └─ E-Mail (SMTP)
                                        ├─ Websocket-Bridge für die Konsole (noVNC)
@@ -31,10 +32,11 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
   (Berechtigungsgrenze), `modules` (freigeschaltete Module) und `parent_org_id` (Reseller)
 - `memberships`: Benutzer in Organisationen mit Rolle, `membership_policies` hängt Policies an
 - `projects`: gruppieren Server innerhalb einer Organisation
-- `provider_connections`: 24fire, Proxmox, ... mit verschlüsselten Zugangsdaten
+- `provider_connections`: 24fire, Proxmox, Joker.com, ... mit verschlüsselten Zugangsdaten
 - `servers`: Cache der Provider-Server, `project_id` leer heisst "noch nicht zugewiesen"
 - `domains`, `webspaces`: Cache der Domains und Webspaces aus Provider-Konten, wie Server
-  einem Kunden zugewiesen oder nicht
+  einem Kunden zugewiesen oder nicht. `domains.info` hält Status, Ablauf, Nameserver,
+  Transfersperre, Inhaber usw. und wird Feld für Feld aktualisiert
 - `server_actions`: über die Console ausgelöste Aktionen mit Provider-Task-Referenz
 - `products`, `services`, `invoices`, `invoice_lines`, `payments`, `credit_transactions`,
   `billing_profiles`, `number_sequences`: Abrechnung, siehe [billing.md](billing.md)
@@ -70,17 +72,27 @@ Auswertung einer Anfrage:
 Server, die man nicht sehen darf, liefern 404 statt 403, damit ihre Existenz nicht verraten
 wird.
 
+Einige Aktionen gehen nur mit Login, nie per API-Token: Auth-Codes und Plesk-Passwörter
+ansehen, Domains verlängern und die automatische Verlängerung schalten (kostet beim
+Registrar Geld, Berechtigung `platform:domain:write`) und der API Explorer.
+
 ## Provider-Schicht
 
 `ProviderAdapter` beschreibt alles, was ein Provider können kann. Jeder Adapter meldet
-seine Fähigkeiten (`capabilities()`), die Console zeigt nur Passendes an. Neue Plattformen
-(Hetzner, Webhosting-Panels, Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich
-Rechte, UI-Grundgerüst oder API ändern.
+seine Fähigkeiten (`capabilities()`), die Console zeigt nur Passendes an. Für Domains
+meldet er zusätzlich `domainCapabilities()` (DNS, TTL, Nameserver, Transfersperre,
+Verlängerung, Auth-Code) und die DNS-Typen, die er annimmt (`dnsRecordTypes()`). Joker.com
+ist so ein reiner Domain-Provider ohne Server. Neue Plattformen (Hetzner, Webhosting-Panels,
+Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich Rechte, UI-Grundgerüst oder
+API ändern.
 
 Der Sync-Job holt alle `SYNC_INTERVAL_SECONDS` das Inventar jedes Providers, legt neue
-Server als "nicht zugewiesen" an und markiert verschwundene als `missing`. Ein zweiter Job
-verfolgt laufende Provider-Tasks (z.B. Proxmox-UPIDs) und schliesst Aktionen ab. Beide
-laufen hinter Postgres-Advisory-Locks, also auch mit mehreren API-Instanzen nur einmal.
+Server, Domains und Webspaces als "nicht zugewiesen" an und markiert verschwundene als
+`missing`. Liefert ein Provider in der Liste nicht alle Felder (Joker.com z.B. keine
+Nameserver, die kommen erst live beim Öffnen der Domain), bleibt der gespeicherte Wert.
+Ein zweiter Job verfolgt laufende Provider-Tasks (z.B. Proxmox-UPIDs) und schliesst
+Aktionen ab. Beide laufen hinter Postgres-Advisory-Locks, also auch mit mehreren
+API-Instanzen nur einmal.
 
 ## Sicherheit
 

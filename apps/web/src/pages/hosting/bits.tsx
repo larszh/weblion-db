@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ExternalLink, PackageX, SearchX } from 'lucide-react';
+import { ExternalLink, Lock, LockOpen, PackageX, SearchX } from 'lucide-react';
 import { MODULE_DEFS, type ModuleKey, type WebspaceResources } from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -90,6 +90,23 @@ export function AutoRenewBadge({ value, long }: { value: boolean | null; long?: 
     <Badge tone="success">{long ? t('hosting.autoRenew.onLong') : t('hosting.autoRenew.on')}</Badge>
   ) : (
     <Badge tone="warning">{long ? t('hosting.autoRenew.offLong') : t('hosting.autoRenew.off')}</Badge>
+  );
+}
+
+/** Transfer lock. Providers that do not report it show "–" (or nothing with `long`). */
+export function LockBadge({ locked, long }: { locked: boolean | null | undefined; long?: boolean }) {
+  const { t } = useI18n();
+  if (locked === null || locked === undefined) return long ? null : <span className="text-subtle">–</span>;
+  return locked ? (
+    <Badge tone="success">
+      <Lock className="size-3" aria-hidden />
+      {long ? t('hosting.lock.onLong') : t('hosting.lock.on')}
+    </Badge>
+  ) : (
+    <Badge tone="warning">
+      <LockOpen className="size-3" aria-hidden />
+      {long ? t('hosting.lock.offLong') : t('hosting.lock.off')}
+    </Badge>
   );
 }
 

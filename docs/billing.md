@@ -41,6 +41,15 @@ Kontrolle, mit "Wiederkehrende Rechnungen automatisch abschliessen" gehen sie di
 Abschalten mit `BILLING_JOB_ENABLED=false`. Manuell geht es pro Kunde mit "Fällige Dienste
 abrechnen".
 
+### Domain-Verlängerungen
+
+Verlängert Joker.com eine Domain (automatisch oder über "Jetzt verlängern" im Admin-Bereich),
+belastet Joker sofort das Reseller-Konto von weblion.one. Eine Rechnung an den Kunden entsteht
+dabei nicht. Wer die Domain weiterverrechnen will, legt beim Kunden einen Dienst mit einem
+jährlichen Produkt an und verknüpft ihn mit der Domain, die wiederkehrende Abrechnung stellt
+ihn dann jedes Jahr in Rechnung. Die direkte Kopplung von Verlängerung und Rechnung steht auf
+der [Roadmap](roadmap.md).
+
 ## Module (Dienste freischalten)
 
 Module sind die Bereiche, die ein Kunde in der Console sieht: **Cloud Server**,

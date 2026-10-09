@@ -5,6 +5,8 @@ import type {
   DdosSettings,
   DnsRecord,
   DnsRecordInput,
+  DnsRecordType,
+  DomainCapability,
   DomainInfo,
   FirewallInfo,
   FirewallRule,
@@ -23,6 +25,7 @@ import type {
   WebspaceCredentials,
   WebspaceInfo,
 } from '@weblion/shared';
+import { DNS_RECORD_TYPES, DOMAIN_CAPABILITIES } from '@weblion/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import type {
   ActionResult,
@@ -631,6 +634,15 @@ export class DemoAdapter implements ProviderAdapter {
 
   // --- Domains & web spaces -------------------------------------------------------
 
+  /** Everything, so the dev stack shows every domain feature. */
+  domainCapabilities(): DomainCapability[] {
+    return [...DOMAIN_CAPABILITIES];
+  }
+
+  dnsRecordTypes(): DnsRecordType[] {
+    return [...DNS_RECORD_TYPES];
+  }
+
   async listDomains(): Promise<RemoteDomain[]> {
     return this.hosting.listDomains();
   }
@@ -661,6 +673,22 @@ export class DemoAdapter implements ProviderAdapter {
 
   async dnsWritable(): Promise<boolean> {
     return true;
+  }
+
+  async setNameservers(externalId: string, nameservers: string[]): Promise<ActionResult> {
+    return this.hosting.setNameservers(externalId, nameservers);
+  }
+
+  async setDomainLock(externalId: string, locked: boolean): Promise<ActionResult> {
+    return this.hosting.setDomainLock(externalId, locked);
+  }
+
+  async setDomainAutoRenew(externalId: string, enabled: boolean): Promise<ActionResult> {
+    return this.hosting.setDomainAutoRenew(externalId, enabled);
+  }
+
+  async renewDomain(externalId: string, years: number): Promise<ActionResult> {
+    return this.hosting.renewDomain(externalId, years);
   }
 
   async listWebspaces(): Promise<RemoteWebspace[]> {
