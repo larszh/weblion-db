@@ -33,7 +33,23 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/api/account/services', label: 'Account services' },
     { method: 'GET', path: '/api/account/donations', label: 'Donations' },
   ],
+  // Relative to /v1. Lists are paginated (?page=&per_page=, at most 50).
+  hetzner: [
+    { method: 'GET', path: '/servers', label: 'Servers' },
+    { method: 'GET', path: '/server_types', label: 'Server types' },
+    { method: 'GET', path: '/locations', label: 'Locations' },
+    { method: 'GET', path: '/images?type=system', label: 'System images' },
+    { method: 'GET', path: '/isos', label: 'ISOs' },
+    { method: 'GET', path: '/pricing', label: 'Pricing' },
+    { method: 'GET', path: '/servers/<id>/actions', label: 'Actions of a server' },
+  ],
   demo: [{ method: 'GET', path: '/echo', label: 'Echo' }],
+};
+
+const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
+  proxmox: { path: '/nodes/pve01/qemu/100/status/current', body: '{ "vmid": 100 }' },
+  fire24: { path: '/api/kvm/<id>/config', body: '{ "mode": "start" }' },
+  hetzner: { path: '/servers/<id>', body: '{ "server_type": "cx32", "upgrade_disk": false }' },
 };
 
 interface Result {
@@ -53,6 +69,7 @@ export function ExplorerPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const provider = providers.data?.find((p) => p.id === providerId) ?? providers.data?.[0];
+  const placeholder = PLACEHOLDERS[provider?.type ?? 'proxmox'] ?? PLACEHOLDERS.proxmox!;
 
   const run = async () => {
     if (!provider) return;
@@ -112,11 +129,7 @@ export function ExplorerPage() {
                     id="ex-path"
                     value={path}
                     onChange={(e) => setPath(e.target.value)}
-                    placeholder={
-                      provider?.type === 'fire24'
-                        ? '/api/kvm/<id>/config'
-                        : '/nodes/pve01/qemu/100/status/current'
-                    }
+                    placeholder={placeholder.path}
                     className="font-mono"
                     onKeyDown={(e) => e.key === 'Enter' && void run()}
                   />
@@ -131,15 +144,22 @@ export function ExplorerPage() {
                   {t('explorer.send')}
                 </Button>
               </div>
+              {provider?.type === 'hetzner' && (
+                <p className="text-xs text-muted">{t('explorer.hetznerPath')}</p>
+              )}
               {method !== 'GET' && (
-                <Field label={t('explorer.body')} hint={t('explorer.bodyHint')} htmlFor="ex-body">
+                <Field
+                  label={t('explorer.body')}
+                  hint={provider?.type === 'hetzner' ? t('explorer.bodyHintJson') : t('explorer.bodyHint')}
+                  htmlFor="ex-body"
+                >
                   <Textarea
                     id="ex-body"
                     rows={5}
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
                     className="font-mono text-xs"
-                    placeholder='{ "vmid": 100 }'
+                    placeholder={placeholder.body}
                   />
                 </Field>
               )}

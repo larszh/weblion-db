@@ -53,22 +53,37 @@ interface ProviderForm {
   verifyTls: boolean;
   caCert: string;
   backupStorage: string;
+  apiToken: string;
 }
+
+const HETZNER_BASE_URL = 'https://api.hetzner.cloud/v1';
+
+const DEFAULT_NAMES: Partial<Record<ProviderType, string>> = {
+  fire24: '24fire',
+  proxmox: 'Proxmox',
+  hetzner: 'Hetzner Cloud',
+};
+
+const DEFAULT_BASE_URLS: Partial<Record<ProviderType, string>> = {
+  fire24: 'https://manage.24fire.de',
+  hetzner: HETZNER_BASE_URL,
+};
 
 const emptyForm = (type: ProviderType): ProviderForm => ({
   type,
-  name: type === 'fire24' ? '24fire' : type === 'proxmox' ? 'Proxmox' : 'Demo',
+  name: DEFAULT_NAMES[type] ?? 'Demo',
   country: type === 'proxmox' ? 'CH' : 'DE',
   city: '',
   label: '',
   enabled: true,
   apiKey: '',
-  baseUrl: type === 'fire24' ? 'https://manage.24fire.de' : '',
+  baseUrl: DEFAULT_BASE_URLS[type] ?? '',
   tokenId: '',
   tokenSecret: '',
   verifyTls: true,
   caCert: '',
   backupStorage: '',
+  apiToken: '',
 });
 
 function configFromForm(f: ProviderForm, editing: boolean) {
@@ -83,6 +98,11 @@ function configFromForm(f: ProviderForm, editing: boolean) {
         verifyTls: f.verifyTls,
         ...(f.caCert ? { caCert: f.caCert } : {}),
         ...(f.backupStorage ? { backupStorage: f.backupStorage } : {}),
+      };
+    case 'hetzner':
+      return {
+        baseUrl: f.baseUrl || HETZNER_BASE_URL,
+        ...(f.apiToken || !editing ? { apiToken: f.apiToken } : {}),
       };
     default:
       return {};
@@ -203,6 +223,9 @@ function ProviderDialog({
             <option value="DE">Deutschland (DE)</option>
             <option value="AT">Österreich (AT)</option>
             <option value="NL">Niederlande (NL)</option>
+            <option value="FI">Finnland (FI)</option>
+            <option value="US">USA (US)</option>
+            <option value="SG">Singapur (SG)</option>
           </Select>
         </Field>
         <Field label={t('providers.city')} htmlFor="p-city">
@@ -231,6 +254,41 @@ function ProviderDialog({
                 onChange={(e) => set('apiKey', e.target.value)}
                 className="font-mono"
                 autoComplete="off"
+              />
+            </Field>
+          </>
+        ) : form.type === 'hetzner' ? (
+          <>
+            <Notice tone="info" className="sm:col-span-2">
+              {t('providers.hetzner.help')}
+            </Notice>
+            <Field
+              label={t('providers.hetzner.token')}
+              hint={existing ? t('providers.keepSecret') : t('providers.hetzner.tokenHint')}
+              htmlFor="p-hz-token"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="p-hz-token"
+                type="password"
+                value={form.apiToken}
+                onChange={(e) => set('apiToken', e.target.value)}
+                className="font-mono"
+                autoComplete="off"
+              />
+            </Field>
+            <Field
+              label="API Base URL"
+              hint={t('providers.baseUrlDefault', { url: HETZNER_BASE_URL })}
+              htmlFor="p-hz-base"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="p-hz-base"
+                value={form.baseUrl}
+                onChange={(e) => set('baseUrl', e.target.value)}
+                placeholder={HETZNER_BASE_URL}
+                className="font-mono"
               />
             </Field>
           </>

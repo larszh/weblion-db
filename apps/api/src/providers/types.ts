@@ -176,7 +176,8 @@ export interface ProviderAdapter {
   rename?(ref: ServerRef, name: string): Promise<ActionResult>;
   rescale?(ref: ServerRef, request: RescaleRequest): Promise<ActionResult>;
   listImages?(ref?: ServerRef): Promise<ImageOption[]>;
-  rebuild?(ref: ServerRef, imageId: string): Promise<ActionResult>;
+  /** `password`: a new root password the provider set (Hetzner system images). Shown once, never stored. */
+  rebuild?(ref: ServerRef, imageId: string): Promise<ActionResult & { password?: string }>;
   resetPassword?(ref: ServerRef): Promise<ActionResult & { password?: string }>;
   deleteServer?(ref: ServerRef): Promise<ActionResult>;
   createServer?(request: CreateServerRequest): Promise<ActionResult & { externalId?: string }>;

@@ -1,7 +1,8 @@
 # weblion.one Console
 
 Kunden- und Admin-Panel von weblion.one. Ein Panel für Cloud-Server im Rechenzentrum in
-Deutschland (24fire) und auf eigener Proxmox-Infrastruktur in der Schweiz, dazu Domains mit
+Deutschland (24fire), in der Hetzner Cloud (DE, FI, USA, SG) und auf eigener
+Proxmox-Infrastruktur in der Schweiz, dazu Domains mit
 DNS, Webhosting, Abrechnung mit QR-Rechnung, Stripe/TWINT und Zoho Books, ein Reseller-Modell
 sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Console.
 
@@ -10,10 +11,13 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 ## Was drin ist
 
 **Für Kunden**
-- Projekte und Server in einer Übersicht, Standort (DE/CH) und Provider auf einen Blick
+- Projekte und Server in einer Übersicht, Standort (Land und Stadt pro Server) und Provider auf
+  einen Blick
 - Server-Detail mit Tabs: Übersicht, Graphen (CPU, RAM, Netzwerk, Disk I/O, Ping), Backups,
-  Snapshots, Netzwerk (rDNS, DDoS), Firewall, Energie, ISO-Images, Rescale, Rebuild,
-  Aktivität, Einstellungen (Name, Labels, Schutz, Projekt), Löschen
+  Snapshots, Netzwerk (rDNS, DDoS), Firewall, Energie, ISO-Images, Rescale (freie Werte oder
+  feste Server-Typen wie bei Hetzner), Rebuild, Aktivität, Einstellungen (Name, Labels, Schutz,
+  Projekt, Root-Passwort), Löschen. Jeder Tab erscheint nur, wenn der Provider die Funktion
+  anbietet
 - Browser-Konsole (noVNC) über eine Websocket-Bridge, ohne dass der Browser Provider-Zugangsdaten sieht
 - Domains & DNS (24fire): DNS-Einträge bearbeiten, Nameserver, Auth-Code für Transfers
 - Webhosting (24fire/Plesk): Ressourcen, Plesk-Zugang, Hinweise für Mail-Programme
@@ -39,8 +43,10 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 - Benutzerverwaltung inkl. Plattform-Rollen (Superadmin, Support)
 - Server-Inventar: neue Server werden automatisch synchronisiert und Kunden zugewiesen
 - Provider verwalten, Verbindung testen, Infrastruktur (Nodes, Storages) ansehen
-- Server bei Proxmox aus Templates erstellen
-- API Explorer: Rohzugriff auf die 24fire- und Proxmox-API für alles ohne eigenen Button
+- Server bei Proxmox aus Templates erstellen, bei Hetzner Cloud mit Server-Typ, Standort und
+  Image (Einkaufspreise nur für weblion.one sichtbar)
+- API Explorer: Rohzugriff auf die 24fire-, Proxmox- und Hetzner-Cloud-API für alles ohne
+  eigenen Button
 
 **Für Reseller**
 - Eigene Kunden anlegen und sperren, Module freischalten (bis zum eigenen Umfang)
@@ -57,10 +63,14 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 
 ## Stand
 
-- Gegen echte 24fire-, Proxmox-, Stripe- und Zoho-Systeme ist die Console noch **nicht live
-  getestet**: Die Build-Umgebung hatte keinen Netzzugriff darauf. Alle Anbindungen sind gegen
-  Mock-Server getestet, die die dokumentierten Antworten nachbilden. Die 24fire-Endpunkte
-  folgen der offiziellen v2-Doku, die Proxmox-Aufrufe der API-Referenz.
+- Gegen echte 24fire-, Proxmox-, Hetzner-, Stripe- und Zoho-Systeme ist die Console noch
+  **nicht live getestet**: Die Build-Umgebung hatte keinen Netzzugriff darauf. Alle Anbindungen
+  sind gegen Mock-Server getestet, die die dokumentierten Antworten nachbilden. Die
+  24fire-Endpunkte folgen der offiziellen v2-Doku, die Proxmox-Aufrufe der API-Referenz, die
+  Hetzner-Aufrufe der API-Doku und dem offiziellen Go-Client hcloud-go.
+- Hetzner Cloud: Firewalls, Volumes, Load Balancer, Floating/Primary IPs, Storage Boxes,
+  DNS-Zonen und dedizierte Server (Robot) sind noch nicht angebunden, siehe
+  [docs/providers.md](docs/providers.md#hetzner-cloud).
 - Webspaces kann die 24fire-API nur lesen: Neue Webspaces werden im 24fire-Panel bestellt und
   erscheinen nach dem nächsten Sync in der Console, wo sie einem Kunden zugewiesen werden.
 
@@ -92,7 +102,7 @@ Demo-Benutzer, Passwort `demo-password-123`:
 | `reseller@alpen.example` | Owner des Resellers Alpen Hosting |
 | `huber@baeckerei.example` | Owner von Bäckerei Huber (Kunde von Alpen Hosting) |
 
-## Zugangsdaten (24fire, Proxmox)
+## Zugangsdaten (24fire, Proxmox, Hetzner Cloud)
 
 Zugangsdaten gehören **nicht** ins Git-Repo, auch nicht in ein privates. Sie kommen aus
 Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start verschlüsselt
@@ -104,10 +114,12 @@ Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start v
 | `PROXMOX_URL` | z.B. `https://pve01-zrh.weblion.cloud:2096` |
 | `PROXMOX_TOKEN_ID` | `user@realm!tokenid` |
 | `PROXMOX_TOKEN_SECRET` | Token-Secret (UUID) |
+| `HETZNER_API_TOKEN` | API-Token eines Hetzner-Cloud-Projekts ("Lesen & Schreiben"), eine Verbindung pro Projekt |
+| `HETZNER_BASE_URL` | optional, Standard `https://api.hetzner.cloud/v1` |
 | `ENCRYPTION_KEY` | `openssl rand -base64 32`, gut aufbewahren |
 
-Weitere Provider lassen sich im Admin-Bereich hinzufügen. Details und Hinweise zum
-Proxmox-Token in [docs/providers.md](docs/providers.md).
+Weitere Provider (z.B. weitere Hetzner-Projekte) lassen sich im Admin-Bereich hinzufügen.
+Details und Hinweise zum Proxmox- und Hetzner-Token in [docs/providers.md](docs/providers.md).
 
 Für E-Mail (SMTP), Stripe/TWINT und Zoho Books kommen weitere Variablen dazu, alle in
 `.env.example` beschrieben. SMTP lässt sich statt in der `.env` auch im Admin-Bereich
@@ -158,6 +170,7 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
 
 - [docs/architecture.md](docs/architecture.md): Aufbau, Rechte-Modell, neue Provider anbinden
 - [docs/billing.md](docs/billing.md): Abrechnung, Reseller, Module, Stripe/TWINT, Zoho Books, E-Mail
-- [docs/providers.md](docs/providers.md): 24fire und Proxmox einrichten, offene Punkte
+- [docs/providers.md](docs/providers.md): 24fire, Proxmox und Hetzner Cloud einrichten, Kosten,
+  offene Punkte
 - [docs/deployment.md](docs/deployment.md): Betrieb, Backups, Updates
 - [docs/roadmap.md](docs/roadmap.md): Ideen für die nächsten Ausbaustufen

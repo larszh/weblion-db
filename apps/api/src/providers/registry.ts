@@ -45,7 +45,7 @@ export function serverRef(server: Pick<Server, 'externalId' | 'kind' | 'node' | 
 
 /** Builds and caches one adapter per provider connection. Credentials are decrypted on demand. */
 export class ProviderRegistry {
-  private readonly cache = new Map<string, { version: number; adapter: ProviderAdapter }>();
+  private readonly cache = new Map<string, { version: string; adapter: ProviderAdapter }>();
 
   constructor(
     private readonly db: Database,
@@ -53,7 +53,9 @@ export class ProviderRegistry {
   ) {}
 
   forConnection(connection: ProviderConnection): ProviderAdapter {
-    const version = connection.updatedAt.getTime();
+    // Rebuilt when the credentials change. Not on updatedAt: every sync touches the row, and
+    // adapters keep caches worth more than one sync interval (Hetzner: server types, action polling).
+    const version = connection.configEnc;
     const cached = this.cache.get(connection.id);
     if (cached && cached.version === version) return cached.adapter;
     const config = this.box.decryptJson<ProviderConfig>(connection.configEnc);

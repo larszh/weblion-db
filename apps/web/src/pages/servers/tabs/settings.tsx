@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import { KeyRound, Plus, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { qk, useApiMutation, useProjects, useServerConfig } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
 import {
   Card,
@@ -17,6 +18,47 @@ import {
   Select,
 } from '@/components/ui/primitives';
 import { useServerContext } from '../context';
+import { NewPasswordDialog } from '../password-dialog';
+
+/** New root password from the provider. Shown once, never stored by the console. */
+function PasswordResetCard() {
+  const t = useT();
+  const { server } = useServerContext();
+  const [confirming, setConfirming] = useState(false);
+  const [result, setResult] = useState<{ password: string | null } | null>(null);
+  const reset = useApiMutation(
+    () => api.post<{ password?: string }>(`/servers/${server.id}/password-reset`),
+    {
+      invalidate: [qk.serverSub(server.id, 'tasks')],
+      onSuccess: (r) => {
+        setConfirming(false);
+        setResult({ password: r.password ?? null });
+      },
+    },
+  );
+  return (
+    <Card>
+      <CardHeader title={t('password.title')} description={t('password.subtitle')} />
+      <CardBody className="space-y-3">
+        <p className="text-xs text-muted">{t('password.hint')}</p>
+        <Button icon={<KeyRound className="size-4" />} onClick={() => setConfirming(true)}>
+          {t('password.reset')}
+        </Button>
+      </CardBody>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t('password.confirmTitle', { name: server.name })}
+        description={t('password.confirmText')}
+        confirmLabel={t('password.reset')}
+        danger={false}
+        loading={reset.isPending}
+        onConfirm={() => reset.mutate(undefined)}
+      />
+      <NewPasswordDialog result={result} onClose={() => setResult(null)} />
+    </Card>
+  );
+}
 
 export function SettingsTab() {
   const t = useT();
@@ -171,6 +213,8 @@ export function SettingsTab() {
           </CardBody>
         </Card>
       )}
+
+      {has('passwordReset') && can('server:password-reset') && <PasswordResetCard />}
 
       {has('config') && can('server:config:read') && (
         <Card className="xl:col-span-2">

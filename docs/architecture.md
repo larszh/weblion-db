@@ -7,7 +7,8 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
                                        │    ├─ Auth: Session-Cookie oder API-Token
                                        │    ├─ IAM: Rollen + Policies + Kundengrenze
                                        │    └─ Provider-Adapter ──> 24fire API (DE)
-                                       │                       └─> Proxmox API (CH)
+                                       │                       ├─> Proxmox API (CH)
+                                       │                       └─> Hetzner Cloud API (DE, FI, US, SG)
                                        │    ├─ Abrechnung ──> Stripe (Karte, TWINT), Zoho Books
                                        │    └─ E-Mail (SMTP)
                                        ├─ Websocket-Bridge für die Konsole (noVNC)
@@ -31,7 +32,8 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
   (Berechtigungsgrenze), `modules` (freigeschaltete Module) und `parent_org_id` (Reseller)
 - `memberships`: Benutzer in Organisationen mit Rolle, `membership_policies` hängt Policies an
 - `projects`: gruppieren Server innerhalb einer Organisation
-- `provider_connections`: 24fire, Proxmox, ... mit verschlüsselten Zugangsdaten
+- `provider_connections`: 24fire, Proxmox, Hetzner Cloud (ein Projekt pro Verbindung), ... mit
+  verschlüsselten Zugangsdaten
 - `servers`: Cache der Provider-Server, `project_id` leer heisst "noch nicht zugewiesen"
 - `domains`, `webspaces`: Cache der Domains und Webspaces aus Provider-Konten, wie Server
   einem Kunden zugewiesen oder nicht
@@ -74,8 +76,22 @@ wird.
 
 `ProviderAdapter` beschreibt alles, was ein Provider können kann. Jeder Adapter meldet
 seine Fähigkeiten (`capabilities()`), die Console zeigt nur Passendes an. Neue Plattformen
-(Hetzner, Webhosting-Panels, Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich
-Rechte, UI-Grundgerüst oder API ändern.
+(Webhosting-Panels, Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich Rechte,
+UI-Grundgerüst oder API ändern.
+
+Angebundene Server-Provider:
+
+| Provider      | Adapter             | Server            | Besonderheiten                                                                                                        |
+| ------------- | ------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 24fire        | `providers/fire24`  | KVM               | Domains, DNS und Webspaces, manche Funktionen nur mit 24fire+                                                         |
+| Proxmox VE    | `providers/proxmox` | VMs und Container | Firewall, Erstellen aus Templates, Konsole über `vncwebsocket`                                                        |
+| Hetzner Cloud | `providers/hetzner` | Cloud-Server      | Feste Server-Typen (`listPlans`) und Standorte (`listLocations`), Konsole über `request_console`, Standort pro Server |
+| Demo          | `providers/demo`    | simuliert         | Für Entwicklung und Tests, inkl. Server-Typen und Standorten                                                          |
+
+Provider mit festen Grössen (Hetzner) liefern `listPlans()` und `listLocations()`. Rescale und
+Server erstellen zeigen dann Server-Typen und Standorte statt freier Werte. Meldet ein Provider
+den Standort pro Server (`meta.datacenter` mit Stadt und ISO-Ländercode), zeigt die Console
+diesen statt des Standorts der Verbindung.
 
 Der Sync-Job holt alle `SYNC_INTERVAL_SECONDS` das Inventar jedes Providers, legt neue
 Server als "nicht zugewiesen" an und markiert verschwundene als `missing`. Ein zweiter Job

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Cpu, HardDrive, MemoryStick, Timer } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { ServerDto } from '@weblion/shared';
 import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { formatDate, formatDuration, formatMemoryMb, formatPercent, formatRelative } from '@/lib/format';
@@ -44,6 +45,12 @@ function UsageTile({
       {percent !== undefined && <UsageBar value={percent} className="mt-3" />}
     </Card>
   );
+}
+
+/** "Falkenstein · Hetzner Cloud" when the provider reports the city per server. */
+function locationText(location: ServerDto['location']): string {
+  const { city, label } = location;
+  return city && !label.includes(city) ? `${city} · ${label}` : label;
 }
 
 export function OverviewTab() {
@@ -168,7 +175,7 @@ export function OverviewTab() {
                     label: t('overview.location'),
                     value: (
                       <span className="inline-flex items-center gap-2">
-                        <Flag country={server.location.country} /> {server.location.label}
+                        <Flag country={server.location.country} /> {locationText(server.location)}
                       </span>
                     ),
                   },

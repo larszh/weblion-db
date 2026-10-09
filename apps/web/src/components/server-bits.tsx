@@ -90,6 +90,35 @@ export function Flag({ country, className }: { country: string; className?: stri
       </svg>
     );
   }
+  // Hetzner Cloud locations outside the DACH region.
+  if (c === 'FI') {
+    return (
+      <svg viewBox="0 0 18 11" className={base} role="img" aria-label="Finnland">
+        <rect width="18" height="11" fill="#fff" />
+        <rect x="5" width="3" height="11" fill="#002f6c" />
+        <rect y="4" width="18" height="3" fill="#002f6c" />
+      </svg>
+    );
+  }
+  if (c === 'US') {
+    return (
+      <svg viewBox="0 0 19 10" className={base} role="img" aria-label="USA">
+        <rect width="19" height="10" fill="#fff" />
+        {[0, 2, 4, 6, 8].map((y) => (
+          <rect key={y} y={y} width="19" height="1" fill="#b22234" />
+        ))}
+        <rect width="8" height="5" fill="#3c3b6e" />
+      </svg>
+    );
+  }
+  if (c === 'SG') {
+    return (
+      <svg viewBox="0 0 3 2" className={base} role="img" aria-label="Singapur">
+        <rect width="3" height="1" fill="#ef3340" />
+        <rect width="3" height="1" y="1" fill="#fff" />
+      </svg>
+    );
+  }
   return <span className="rounded bg-surface-3 px-1 text-[10px] font-semibold text-muted">{c}</span>;
 }
 

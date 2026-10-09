@@ -75,10 +75,22 @@ export async function loadServer(
   return { ...row, scope, adapter: ctx.providers.forConnection(row.connection), ref: serverRef(row.server) };
 }
 
+/**
+ * The connection's location, refined by what the provider reports per server
+ * (meta.datacenter). One Hetzner project spans several countries, so an ISO country code
+ * there wins. 24fire stores the country name ("Deutschland"), which keeps the connection's.
+ */
 export function locationOf(row: Pick<ServerRow, 'server' | 'connection'>): Location {
   const base = row.connection.location;
-  const dc = row.server.meta.datacenter as { city?: string | null } | null | undefined;
-  return dc?.city ? { ...base, city: dc.city } : base;
+  const dc = row.server.meta.datacenter as { city?: string | null; country?: unknown } | null | undefined;
+  if (!dc) return base;
+  const country =
+    typeof dc.country === 'string' && /^[a-z]{2}$/i.test(dc.country) ? dc.country.toUpperCase() : null;
+  return {
+    ...base,
+    ...(country ? { country } : {}),
+    ...(dc.city ? { city: dc.city } : {}),
+  };
 }
 
 /** Capabilities the adapter declares and actually implements. */

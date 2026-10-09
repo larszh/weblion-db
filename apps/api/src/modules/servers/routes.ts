@@ -1,9 +1,15 @@
 import { and, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { METRIC_RANGES, POWER_ACTIONS, type Permission, type ServerActionDto } from '@weblion/shared';
+import {
+  METRIC_RANGES,
+  POWER_ACTIONS,
+  type IsoOption,
+  type Permission,
+  type ServerActionDto,
+} from '@weblion/shared';
 import type { AppContext } from '../../context';
-import { requireSession } from '../../auth/access';
+import { platformScope, requireSession } from '../../auth/access';
 import { projects, serverActions, servers, users } from '../../db/schema';
 import { badRequest, forbidden, locked, notFound, unsupported } from '../../lib/errors';
 import { labelsSchema, paginationQuery, parse } from '../../lib/validation';
@@ -49,6 +55,39 @@ const firewallRuleBody = z
     path: ['protocol'],
     message: 'Ports need the protocol tcp or udp',
   });
+
+/**
+ * The inserted ISO as the id of its option where possible, so the console can mark it.
+ * Proxmox: ide2 "local:iso/x.iso,media=cdrom". 24fire and demo: a string in "iso".
+ * Hetzner: an object in the raw server. Without live config the value the last sync stored
+ * in meta.iso (live config wins, it already knows about an ISO ejected a second ago).
+ */
+function mountedIso(
+  isos: IsoOption[],
+  config: Record<string, unknown> | null,
+  meta: Record<string, unknown>,
+): string | null {
+  const live = !!config && ('iso' in config || 'ide2' in config);
+  const iso = live ? config.iso : meta.iso;
+  const candidates: unknown[] = [
+    typeof config?.ide2 === 'string' ? config.ide2.split(',')[0] : undefined,
+    ...(iso && typeof iso === 'object'
+      ? [
+          (iso as { id?: unknown }).id,
+          (iso as { name?: unknown }).name,
+          (iso as { description?: unknown }).description,
+        ]
+      : [iso]),
+  ];
+  const values = candidates
+    .map((c) => (typeof c === 'number' ? String(c) : c))
+    .filter((c): c is string => typeof c === 'string' && c !== '' && c !== 'none');
+  for (const value of values) {
+    const option = isos.find((o) => o.id === value || o.label === value);
+    if (option) return option.id;
+  }
+  return values[0] ?? null;
+}
 
 export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db, access } = ctx;
@@ -350,6 +389,26 @@ export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
     return loaded.adapter.getConfig!(loaded.ref);
   });
 
+  /**
+   * Fixed sizes this server can change to (Hetzner server types). `current` marks the type
+   * the last sync stored (meta.serverType, demo: meta.plan). Prices only for staff.
+   */
+  app.get('/servers/:id/plans', async (req) => {
+    const loaded = await load(req, 'server:rescale');
+    requireCapability(loaded, 'rescale');
+    if (!loaded.adapter.listPlans) throw unsupported("This server's provider has no plans");
+    const plans = await loaded.adapter.listPlans(loaded.ref);
+    const meta = loaded.server.meta;
+    const currentId = [meta.serverType, meta.plan].find((v): v is string => typeof v === 'string') ?? null;
+    // The price is what weblion pays the provider, customers with rescale rights must not see it.
+    const staff = await access.can(req, 'platform:access', platformScope);
+    return plans.map((plan) => ({
+      ...plan,
+      priceMonthly: staff ? plan.priceMonthly : null,
+      current: plan.id === currentId,
+    }));
+  });
+
   app.post('/servers/:id/rescale', async (req) => {
     const loaded = await load(req, 'server:rescale');
     requireCapability(loaded, 'rescale');
@@ -364,10 +423,23 @@ export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
             .max(4 * 1024 * 1024)
             .optional(),
           diskGb: z.number().int().min(1).max(100_000).optional(),
+          plan: z.string().trim().min(1).max(100).optional(),
+          upgradeDisk: z.boolean().optional(),
         })
-        .refine((b) => b.cores || b.memoryMb || b.diskGb, 'Nothing to change'),
+        .refine((b) => b.cores || b.memoryMb || b.diskGb || b.plan, 'Nothing to change')
+        .refine((b) => !b.plan || (!b.cores && !b.memoryMb && !b.diskGb), {
+          message: 'Either a plan or cores, memory and disk',
+          path: ['plan'],
+        })
+        .refine((b) => b.upgradeDisk === undefined || !!b.plan, {
+          message: 'upgradeDisk needs a plan',
+          path: ['upgradeDisk'],
+        }),
       req.body,
     );
+    // The adapter checks the plan itself (architecture, location, disk size), with the
+    // provider's reasons. Listing the plans here would only cost another provider request.
+    if (body.plan && !loaded.adapter.listPlans) throw unsupported("This server's provider has no plans");
     return runServerAction(ctx, req, loaded, 'rescale', body, () =>
       loaded.adapter.rescale!(loaded.ref, body),
     );
@@ -384,9 +456,12 @@ export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
     requireCapability(loaded, 'rebuild');
     if (loaded.server.protection.rebuild) throw locked('Rebuild protection is enabled for this server');
     const { imageId } = parse(z.object({ imageId: z.string().min(1).max(200) }), req.body);
-    return runServerAction(ctx, req, loaded, 'rebuild', { imageId }, () =>
+    const { password, ...result } = await runServerAction(ctx, req, loaded, 'rebuild', { imageId }, () =>
       loaded.adapter.rebuild!(loaded.ref, imageId),
     );
+    // A root password the provider set (Hetzner) only reaches interactive logins, like the
+    // password reset. API tokens can't read it, a reset in the console sets a new one.
+    return password && req.auth?.sessionId ? { ...result, password } : result;
   });
 
   app.post('/servers/:id/password-reset', async (req) => {
@@ -470,11 +545,7 @@ export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
       loaded.adapter.listIsos!(loaded.ref),
       loaded.adapter.getConfig?.(loaded.ref).catch(() => null) ?? Promise.resolve(null),
     ]);
-    const mounted =
-      (config?.ide2 as string | undefined)?.split(',')[0] ??
-      (config?.iso as string | null | undefined) ??
-      null;
-    return { isos, mounted: mounted && mounted !== 'none' ? mounted : null };
+    return { isos, mounted: mountedIso(isos, config, loaded.server.meta) };
   });
 
   app.post('/servers/:id/iso', async (req) => {
