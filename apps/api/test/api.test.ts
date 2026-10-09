@@ -1,5 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Secret, TOTP } from 'otpauth';
+import { eq } from 'drizzle-orm';
+import { auditLogs, providerConnections } from '../src/db/schema';
+import { DemoAdapter } from '../src/providers/demo/adapter';
 import { ADMIN, Client, createTestApp, json, type TestApp } from './helpers';
 
 let t: TestApp;
@@ -179,6 +182,34 @@ describe('api tokens', () => {
       200,
     );
   });
+
+  it('hands a root password from a rebuild only to interactive logins', async () => {
+    // Hetzner answers a rebuild from a system image with a new root password.
+    const answer = { message: 'Rebuild started', password: 'new-root-password' };
+    const rebuild = vi.spyOn(DemoAdapter.prototype, 'rebuild').mockResolvedValue(answer);
+    try {
+      const anna = new Client(t.app);
+      await anna.login('anna@muster.example');
+      const id = serverId('web-02');
+      const interactive = await anna.post(`/servers/${id}/rebuild`, { imageId: 'debian-12' });
+      expect(interactive.statusCode).toBe(200);
+      expect(json<{ password?: string }>(interactive).password).toBe('new-root-password');
+
+      const { token } = json(
+        await anna.post(`/orgs/${musterOrgId}/tokens`, { name: 'rebuild', scope: 'read_write' }),
+      );
+      const bot = new Client(t.app);
+      bot.bearer = token;
+      const viaToken = await bot.post(`/servers/${id}/rebuild`, { imageId: 'debian-12' });
+      expect(viaToken.statusCode).toBe(200);
+      expect(viaToken.body).not.toContain('new-root-password');
+
+      const audit = await t.db.select().from(auditLogs);
+      expect(JSON.stringify(audit)).not.toContain('new-root-password');
+    } finally {
+      rebuild.mockRestore();
+    }
+  });
 });
 
 describe('server operations', () => {
@@ -336,5 +367,22 @@ describe('administration', () => {
       await admin.get('/admin/audit?action=auth.login&status=failure'),
     );
     expect(log.items.some((i) => i.actor.name === 'ghost@nowhere.example')).toBe(true);
+  });
+});
+
+describe('provider adapters', () => {
+  it('keeps the adapter (and its caches) across syncs, but not across new credentials', async () => {
+    const load = async () =>
+      (await t.db.query.providerConnections.findFirst({ where: eq(providerConnections.type, 'demo') }))!;
+    const before = await load();
+    const adapter = t.ctx.providers.forConnection(before);
+    await t.ctx.sync.syncConnection(before);
+    const after = await load();
+    expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+    expect(t.ctx.providers.forConnection(after)).toBe(adapter);
+    expect(t.ctx.providers.forConnection({ ...after, configEnc: t.ctx.box.encryptJson({}) })).not.toBe(
+      adapter,
+    );
+    t.ctx.providers.invalidate(after.id);
   });
 });

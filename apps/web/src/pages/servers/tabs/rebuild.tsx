@@ -16,6 +16,7 @@ import {
   Notice,
 } from '@/components/ui/primitives';
 import { useServerContext } from '../context';
+import { NewPasswordDialog } from '../password-dialog';
 
 export function RebuildTab() {
   const t = useT();
@@ -23,11 +24,19 @@ export function RebuildTab() {
   const images = useImages(server.id);
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const rebuild = useApiMutation(() => api.post(`/servers/${server.id}/rebuild`, { imageId: selected }), {
-    success: t('rebuild.started'),
-    invalidate: [qk.server(server.id), qk.serverSub(server.id, 'tasks')],
-    onSuccess: () => setConfirming(false),
-  });
+  // Hetzner sets a new root password when it installs a system image.
+  const [password, setPassword] = useState<string | null>(null);
+  const rebuild = useApiMutation(
+    () => api.post<{ password?: string }>(`/servers/${server.id}/rebuild`, { imageId: selected }),
+    {
+      success: t('rebuild.started'),
+      invalidate: [qk.server(server.id), qk.serverSub(server.id, 'tasks')],
+      onSuccess: (r) => {
+        setConfirming(false);
+        if (r.password) setPassword(r.password);
+      },
+    },
+  );
 
   if (server.protection.rebuild) {
     return (
@@ -85,6 +94,7 @@ export function RebuildTab() {
         loading={rebuild.isPending}
         onConfirm={() => rebuild.mutate(undefined)}
       />
+      <NewPasswordDialog result={password ? { password } : null} onClose={() => setPassword(null)} />
     </Card>
   );
 }

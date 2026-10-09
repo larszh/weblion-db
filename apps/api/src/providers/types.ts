@@ -16,10 +16,12 @@ import type {
   MetricsResult,
   MonitoringInfo,
   PowerAction,
+  ProviderLocation,
   ProviderTask,
   ProviderType,
   RescaleRequest,
   ServerKind,
+  ServerPlan,
   ServerSpecs,
   ServerStatus,
   ServerUsage,
@@ -106,6 +108,10 @@ export interface CreateServerRequest {
   imageId?: string;
   storage?: string;
   start?: boolean;
+  /** Providers with fixed sizes (Hetzner): plan id instead of cores/memory/disk. */
+  plan?: string;
+  /** Provider location id (Hetzner "fsn1", ...). */
+  location?: string;
 }
 
 export interface RawResponse {
@@ -170,10 +176,15 @@ export interface ProviderAdapter {
   rename?(ref: ServerRef, name: string): Promise<ActionResult>;
   rescale?(ref: ServerRef, request: RescaleRequest): Promise<ActionResult>;
   listImages?(ref?: ServerRef): Promise<ImageOption[]>;
-  rebuild?(ref: ServerRef, imageId: string): Promise<ActionResult>;
+  /** `password`: a new root password the provider set (Hetzner system images). Shown once, never stored. */
+  rebuild?(ref: ServerRef, imageId: string): Promise<ActionResult & { password?: string }>;
   resetPassword?(ref: ServerRef): Promise<ActionResult & { password?: string }>;
   deleteServer?(ref: ServerRef): Promise<ActionResult>;
   createServer?(request: CreateServerRequest): Promise<ActionResult & { externalId?: string }>;
+  /** Fixed sizes for rescale and create (Hetzner server types). With a ref: what this server can change to. */
+  listPlans?(ref?: ServerRef): Promise<ServerPlan[]>;
+  /** Locations for createServer. */
+  listLocations?(): Promise<ProviderLocation[]>;
 
   setRdns?(ref: ServerRef, ip: string, hostname: string): Promise<ActionResult>;
   getDdos?(ref: ServerRef): Promise<DdosSettings[]>;
@@ -246,6 +257,14 @@ export interface ProxmoxConfig {
   backupStorage?: string;
 }
 
+/** Hetzner Cloud API, one project per connection. */
+export interface HetznerConfig {
+  /** Project API token (read & write). */
+  apiToken: string;
+  /** https://api.hetzner.cloud/v1 */
+  baseUrl: string;
+}
+
 /** Joker.com DMAPI. Either an API key (recommended) or reseller username and password. */
 export interface JokerConfig {
   apiKey?: string;
@@ -260,4 +279,4 @@ export interface DemoConfig {
   servers?: number;
 }
 
-export type ProviderConfig = Fire24Config | ProxmoxConfig | JokerConfig | DemoConfig;
+export type ProviderConfig = Fire24Config | ProxmoxConfig | HetznerConfig | JokerConfig | DemoConfig;

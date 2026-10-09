@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire, Proxmox, Joker.com (`dmapi.joker.com`), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -64,6 +64,8 @@ FIRE24_API_KEY='...'
 PROXMOX_URL=https://pve01-zrh.weblion.cloud:2096
 PROXMOX_TOKEN_ID=weblion@pve!console
 PROXMOX_TOKEN_SECRET=...
+# Hetzner Cloud, ein Projekt. Weitere Projekte im Admin-Bereich unter Provider.
+HETZNER_API_TOKEN=...
 ```
 
 Optional, je nachdem was genutzt wird (Details in [billing.md](billing.md) und

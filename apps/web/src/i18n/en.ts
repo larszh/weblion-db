@@ -2,11 +2,13 @@ import type { TranslationKey } from './de';
 import { billingEn } from './sections/billing.en';
 import { adminEn } from './sections/admin.en';
 import { hostingEn } from './sections/hosting.en';
+import { cloudEn } from './sections/cloud.en';
 
 export const en: Record<TranslationKey, string> = {
   ...billingEn,
   ...adminEn,
   ...hostingEn,
+  ...cloudEn,
   'common.actions': 'Actions',
   'common.add': 'Add',
   'common.cancel': 'Cancel',

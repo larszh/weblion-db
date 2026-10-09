@@ -33,6 +33,16 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/api/account/services', label: 'Account services' },
     { method: 'GET', path: '/api/account/donations', label: 'Donations' },
   ],
+  // Relative to /v1. Lists are paginated (?page=&per_page=, at most 50).
+  hetzner: [
+    { method: 'GET', path: '/servers', label: 'Servers' },
+    { method: 'GET', path: '/server_types', label: 'Server types' },
+    { method: 'GET', path: '/locations', label: 'Locations' },
+    { method: 'GET', path: '/images?type=system', label: 'System images' },
+    { method: 'GET', path: '/isos', label: 'ISOs' },
+    { method: 'GET', path: '/pricing', label: 'Pricing' },
+    { method: 'GET', path: '/servers/<id>/actions', label: 'Actions of a server' },
+  ],
   // DMAPI request names; the method is derived from the request (see jokerMethod).
   joker: [
     { method: 'DMAPI', path: '/query-domain-list?showstatus=1&showjokerns=1', label: 'Domain list' },
@@ -54,6 +64,13 @@ const JOKER_READ = /^\/*(query-[a-z-]+|dns-zone-(list|get)|result-(list|retrieve
  */
 const jokerMethod = (path: string) => (JOKER_READ.test(path.trim()) ? 'GET' : 'POST');
 
+const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
+  proxmox: { path: '/nodes/pve01/qemu/100/status/current', body: '{ "vmid": 100 }' },
+  fire24: { path: '/api/kvm/<id>/config', body: '{ "mode": "start" }' },
+  hetzner: { path: '/servers/<id>', body: '{ "server_type": "cx32", "upgrade_disk": false }' },
+  joker: { path: '/query-whois?domain=example.com', body: '{ "domain": "example.com" }' },
+};
+
 interface Result {
   status: number;
   data: unknown;
@@ -74,6 +91,7 @@ export function ExplorerPage() {
   const isJoker = provider?.type === 'joker';
   /** Joker takes parameters with every request, the others only with a body method. */
   const withBody = isJoker || method !== 'GET';
+  const placeholder = PLACEHOLDERS[provider?.type ?? 'proxmox'] ?? PLACEHOLDERS.proxmox!;
 
   const run = async () => {
     if (!provider) return;
@@ -140,13 +158,7 @@ export function ExplorerPage() {
                     id="ex-path"
                     value={path}
                     onChange={(e) => setPath(e.target.value)}
-                    placeholder={
-                      provider?.type === 'fire24'
-                        ? '/api/kvm/<id>/config'
-                        : isJoker
-                          ? '/query-whois?domain=example.com'
-                          : '/nodes/pve01/qemu/100/status/current'
-                    }
+                    placeholder={placeholder.path}
                     className="font-mono"
                     onKeyDown={(e) => e.key === 'Enter' && void run()}
                   />
@@ -162,10 +174,19 @@ export function ExplorerPage() {
                 </Button>
               </div>
               {isJoker && <p className="text-xs text-muted">{t('explorer.jokerHint')}</p>}
+              {provider?.type === 'hetzner' && (
+                <p className="text-xs text-muted">{t('explorer.hetznerPath')}</p>
+              )}
               {withBody && (
                 <Field
                   label={t('explorer.body')}
-                  hint={isJoker ? t('explorer.jokerBodyHint') : t('explorer.bodyHint')}
+                  hint={
+                    isJoker
+                      ? t('explorer.jokerBodyHint')
+                      : provider?.type === 'hetzner'
+                        ? t('explorer.bodyHintJson')
+                        : t('explorer.bodyHint')
+                  }
                   htmlFor="ex-body"
                 >
                   <Textarea
@@ -174,7 +195,7 @@ export function ExplorerPage() {
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
                     className="font-mono text-xs"
-                    placeholder={isJoker ? '{ "domain": "example.com" }' : '{ "vmid": 100 }'}
+                    placeholder={placeholder.body}
                   />
                 </Field>
               )}

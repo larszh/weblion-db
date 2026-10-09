@@ -17,6 +17,7 @@ import {
   Input,
   LoadingBlock,
   Mono,
+  Notice,
 } from '@/components/ui/primitives';
 import { Switch } from '@/components/ui/menu';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
@@ -199,7 +200,9 @@ export function SnapshotsTab() {
               maxLength={200}
             />
           </Field>
-          {server.kind === 'vm' && (
+          {server.provider.type === 'hetzner' && <Notice tone="info">{t('snapshots.hetznerHint')}</Notice>}
+          {/* Hetzner snapshots hold the disk only. */}
+          {server.kind === 'vm' && server.provider.type !== 'hetzner' && (
             <label className="flex items-center justify-between gap-4 rounded-lg border border-border px-3 py-2.5">
               <span>
                 <span className="block text-sm font-medium">{t('snapshots.includeRam')}</span>

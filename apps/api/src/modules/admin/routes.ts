@@ -31,11 +31,13 @@ import {
 } from '../../db/schema';
 import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
-import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors';
+import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
 import type {
+  CreateServerRequest,
   DemoConfig,
   Fire24Config,
+  HetznerConfig,
   JokerConfig,
   ProviderConfig,
   ProxmoxConfig,
@@ -72,6 +74,10 @@ const proxmoxConfigSchema = z.object({
   caCert: z.string().max(20_000).optional(),
   backupStorage: z.string().max(100).optional(),
 });
+const hetznerConfigSchema = z.object({
+  apiToken: z.string().trim().min(32).max(200),
+  baseUrl: z.url().default('https://api.hetzner.cloud/v1'),
+});
 /** An API key wins over username and password when both are stored. */
 const jokerConfigSchema = z
   .object({
@@ -95,6 +101,8 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(fire24ConfigSchema, raw) as Fire24Config;
     case 'proxmox':
       return parse(proxmoxConfigSchema, raw) as ProxmoxConfig;
+    case 'hetzner':
+      return parse(hetznerConfigSchema, raw) as HetznerConfig;
     case 'joker':
       return parse(jokerConfigSchema, raw) as JokerConfig;
     case 'demo':
@@ -117,6 +125,10 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         verifyTls: String(c.verifyTls),
         ...(c.backupStorage ? { backupStorage: c.backupStorage } : {}),
       };
+    }
+    case 'hetzner': {
+      const c = config as HetznerConfig;
+      return { baseUrl: c.baseUrl, apiToken: `${c.apiToken.slice(0, 4)}…${c.apiToken.slice(-3)}` };
     }
     case 'joker': {
       const c = config as JokerConfig;
@@ -406,6 +418,24 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     return adapter.listImages ? adapter.listImages() : [];
   });
 
+  // Plans and locations exist only at providers with fixed sizes (Hetzner). 422 tells the
+  // create dialog to ask for cores, memory and disk instead.
+  app.get('/admin/providers/:id/plans', async (req) => {
+    await can(req, 'platform:server:create');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const adapter = providers.forConnection(connection);
+    if (!adapter.listPlans) throw unsupported('This provider has no plans');
+    return adapter.listPlans();
+  });
+
+  app.get('/admin/providers/:id/locations', async (req) => {
+    await can(req, 'platform:server:create');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const adapter = providers.forConnection(connection);
+    if (!adapter.listLocations) throw unsupported('This provider has no locations');
+    return adapter.listLocations();
+  });
+
   // --- Server inventory -----------------------------------------------------------
 
   app.get('/admin/servers', async (req) => {
@@ -519,32 +549,67 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     const auth = requireSession(req);
     await can(req, 'platform:server:create');
     const body = parse(
-      z.object({
-        providerId: z.uuid(),
-        name: z.string().trim().min(1).max(63),
-        node: z.string().max(100).optional(),
-        cores: z.number().int().min(1).max(128),
-        memoryMb: z
-          .number()
-          .int()
-          .min(512)
-          .max(1024 * 1024),
-        diskGb: z.number().int().min(5).max(20_000),
-        imageId: z.string().max(200).optional(),
-        storage: z.string().max(100).optional(),
-        projectId: z.uuid().nullish(),
-      }),
+      z
+        .object({
+          providerId: z.uuid(),
+          name: z.string().trim().min(1).max(63),
+          node: z.string().max(100).optional(),
+          cores: z.number().int().min(1).max(128).optional(),
+          memoryMb: z
+            .number()
+            .int()
+            .min(512)
+            .max(1024 * 1024)
+            .optional(),
+          diskGb: z.number().int().min(5).max(20_000).optional(),
+          plan: z.string().trim().min(1).max(100).optional(),
+          location: z.string().trim().min(1).max(100).optional(),
+          imageId: z.string().max(200).optional(),
+          storage: z.string().max(100).optional(),
+          projectId: z.uuid().nullish(),
+        })
+        .refine((b) => !!b.plan || (!!b.cores && !!b.memoryMb && !!b.diskGb), {
+          message: 'Either a plan or cores, memory and disk are required',
+          path: ['plan'],
+        }),
       req.body,
     );
     const connection = await loadConnection(body.providerId);
     const adapter = providers.forConnection(connection);
     if (!adapter.createServer) throw badRequest('This provider cannot create servers from the panel');
 
+    if (body.location) {
+      if (!adapter.listLocations) throw unsupported('This provider has no locations');
+      const locations = await adapter.listLocations();
+      if (!locations.some((l) => l.id === body.location)) throw badRequest('Unknown location');
+    }
+    // With a plan (Hetzner server type) the plan decides cores, memory and disk.
+    let size = { cores: body.cores ?? 0, memoryMb: body.memoryMb ?? 0, diskGb: body.diskGb ?? 0 };
+    if (body.plan) {
+      if (!adapter.listPlans) throw unsupported('This provider has no plans');
+      const plan = (await adapter.listPlans()).find((p) => p.id === body.plan);
+      if (!plan) throw badRequest('Unknown plan');
+      if (plan.deprecated) throw badRequest('This plan can no longer be ordered');
+      if (body.location && plan.locations.length > 0 && !plan.locations.includes(body.location)) {
+        throw badRequest('The plan is not available in this location');
+      }
+      size = { cores: plan.cores, memoryMb: plan.memoryMb, diskGb: plan.diskGb };
+    }
+    const request: CreateServerRequest = {
+      name: body.name,
+      node: body.node,
+      ...size,
+      imageId: body.imageId,
+      storage: body.storage,
+      plan: body.plan,
+      location: body.location,
+    };
+
     // Cloning can take minutes, so it runs in the background and reports through the audit log.
     const jobId = randomToken(8);
     void (async () => {
       try {
-        const result = await adapter.createServer!(body);
+        const result = await adapter.createServer!(request);
         await ctx.sync.syncConnection(connection);
         if (result.externalId && body.projectId) {
           await db

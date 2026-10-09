@@ -22,9 +22,11 @@ import type {
   PolicyStatement,
   ProjectDto,
   ProviderConnectionDto,
+  ProviderLocation,
   ProviderTask,
   ServerActionDto,
   ServerDto,
+  ServerPlan,
   SessionDto,
   SnapshotInfo,
   TrafficInfo,
@@ -34,7 +36,7 @@ import type {
   ProviderType,
   UserDto,
 } from '@weblion/shared';
-import { api, errorMessage } from './api';
+import { api, ApiError, errorMessage } from './api';
 
 export const qk = {
   me: ['me'] as const,
@@ -206,6 +208,21 @@ export const useImages = (id: string, enabled = true) =>
     enabled,
   });
 
+/** 422 from the API: the provider does not offer this (e.g. plans at Proxmox). */
+export const isUnsupported = (err: unknown) => err instanceof ApiError && err.status === 422;
+
+/** A plan of a server. `current`: the server has this type (as far as the last sync knows). */
+export type PlanOption = ServerPlan & { current?: boolean };
+
+/** Fixed sizes the server can change to (Hetzner server types). 422 = rescale by numbers. */
+export const useServerPlans = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: qk.serverSub(id, 'plans'),
+    queryFn: () => api.get<PlanOption[]>(`/servers/${id}/plans`),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+
 export const useServerConfig = (id: string, enabled = true) =>
   useQuery({
     queryKey: qk.serverSub(id, 'config'),
@@ -346,6 +363,23 @@ export const useProviderOverview = (id: string) =>
     queryKey: qk.admin('provider-overview', { id }),
     queryFn: () => api.get<InfraOverview>(`/admin/providers/${id}/overview`),
     retry: false,
+  });
+
+/** Plans of a provider for the create dialog. 422 = the provider takes cores, memory and disk. */
+export const useProviderPlans = (providerId: string) =>
+  useQuery({
+    queryKey: qk.admin('provider-plans', { providerId }),
+    queryFn: () => api.get<ServerPlan[]>(`/admin/providers/${providerId}/plans`),
+    enabled: !!providerId,
+    staleTime: 5 * 60_000,
+  });
+
+export const useProviderLocations = (providerId: string, enabled = true) =>
+  useQuery({
+    queryKey: qk.admin('provider-locations', { providerId }),
+    queryFn: () => api.get<ProviderLocation[]>(`/admin/providers/${providerId}/locations`),
+    enabled: !!providerId && enabled,
+    staleTime: 5 * 60_000,
   });
 
 export const useAdminActions = () =>

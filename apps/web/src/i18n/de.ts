@@ -1,12 +1,14 @@
 import { billingDe } from './sections/billing.de';
 import { adminDe } from './sections/admin.de';
 import { hostingDe } from './sections/hosting.de';
+import { cloudDe } from './sections/cloud.de';
 
 /** German is the source language. English (en.ts) must provide every key. */
 export const de = {
   ...billingDe,
   ...adminDe,
   ...hostingDe,
+  ...cloudDe,
   // Common
   'common.actions': 'Aktionen',
   'common.add': 'Hinzufügen',
@@ -428,7 +430,8 @@ export const de = {
   'rebuild.confirmTitle': '{name} neu installieren?',
   'rebuild.started': 'Neuinstallation gestartet',
   'rebuild.protectedTitle': 'Rebuild-Schutz aktiv',
-  'rebuild.protectedText': 'Deaktiviere den Schutz unter Einstellungen, um den Server neu zu installieren.',
+  'rebuild.protectedText':
+    'Deaktivieren Sie den Schutz unter Einstellungen, um den Server neu zu installieren.',
   'delete.title': 'Server löschen',
   'delete.subtitle': 'Entfernt den Server beim Provider endgültig.',
   'delete.warning': 'Server, Disks und Snapshots werden gelöscht. Das lässt sich nicht rückgängig machen.',
@@ -437,7 +440,7 @@ export const de = {
   'delete.confirmTitle': '{name} endgültig löschen?',
   'delete.done': 'Server wird gelöscht',
   'delete.protectedTitle': 'Löschschutz aktiv',
-  'delete.protectedText': 'Deaktiviere den Schutz unter Einstellungen, um den Server zu löschen.',
+  'delete.protectedText': 'Deaktivieren Sie den Schutz unter Einstellungen, um den Server zu löschen.',
 
   // Activity
   'activity.actions': 'Aktionen in der Console',

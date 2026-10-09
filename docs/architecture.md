@@ -8,6 +8,7 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
                                        │    ├─ IAM: Rollen + Policies + Kundengrenze
                                        │    └─ Provider-Adapter ──> 24fire API (DE)
                                        │                       ├─> Proxmox API (CH)
+                                       │                       ├─> Hetzner Cloud API (DE, FI, US, SG)
                                        │                       └─> Joker.com DMAPI (Domains)
                                        │    ├─ Abrechnung ──> Stripe (Karte, TWINT), Zoho Books
                                        │    └─ E-Mail (SMTP)
@@ -32,7 +33,8 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
   (Berechtigungsgrenze), `modules` (freigeschaltete Module) und `parent_org_id` (Reseller)
 - `memberships`: Benutzer in Organisationen mit Rolle, `membership_policies` hängt Policies an
 - `projects`: gruppieren Server innerhalb einer Organisation
-- `provider_connections`: 24fire, Proxmox, Joker.com, ... mit verschlüsselten Zugangsdaten
+- `provider_connections`: 24fire, Proxmox, Hetzner Cloud (ein Projekt pro Verbindung),
+  Joker.com, ... mit verschlüsselten Zugangsdaten
 - `servers`: Cache der Provider-Server, `project_id` leer heisst "noch nicht zugewiesen"
 - `domains`, `webspaces`: Cache der Domains und Webspaces aus Provider-Konten, wie Server
   einem Kunden zugewiesen oder nicht. `domains.info` hält Status, Ablauf, Nameserver,
@@ -81,10 +83,24 @@ Registrar Geld, Berechtigung `platform:domain:write`) und der API Explorer.
 `ProviderAdapter` beschreibt alles, was ein Provider können kann. Jeder Adapter meldet
 seine Fähigkeiten (`capabilities()`), die Console zeigt nur Passendes an. Für Domains
 meldet er zusätzlich `domainCapabilities()` (DNS, TTL, Nameserver, Transfersperre,
-Verlängerung, Auth-Code) und die DNS-Typen, die er annimmt (`dnsRecordTypes()`). Joker.com
-ist so ein reiner Domain-Provider ohne Server. Neue Plattformen (Hetzner, Webhosting-Panels,
-Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich Rechte, UI-Grundgerüst oder
-API ändern.
+Verlängerung, Auth-Code) und die DNS-Typen, die er annimmt (`dnsRecordTypes()`). Neue
+Plattformen (Webhosting-Panels, Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich
+Rechte, UI-Grundgerüst oder API ändern.
+
+Angebundene Provider:
+
+| Provider      | Adapter             | Server            | Besonderheiten                                                                                                        |
+| ------------- | ------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 24fire        | `providers/fire24`  | KVM               | Domains, DNS und Webspaces, manche Funktionen nur mit 24fire+                                                         |
+| Proxmox VE    | `providers/proxmox` | VMs und Container | Firewall, Erstellen aus Templates, Konsole über `vncwebsocket`                                                        |
+| Hetzner Cloud | `providers/hetzner` | Cloud-Server      | Feste Server-Typen (`listPlans`) und Standorte (`listLocations`), Konsole über `request_console`, Standort pro Server |
+| Joker.com     | `providers/joker`   | keine             | Reiner Domain-Provider: DNS-Zone, Nameserver, Transfersperre, Verlängerung, Auth-Code                                 |
+| Demo          | `providers/demo`    | simuliert         | Für Entwicklung und Tests, inkl. Server-Typen, Standorten und allen Domain-Funktionen                                 |
+
+Provider mit festen Grössen (Hetzner) liefern `listPlans()` und `listLocations()`. Rescale und
+Server erstellen zeigen dann Server-Typen und Standorte statt freier Werte. Meldet ein Provider
+den Standort pro Server (`meta.datacenter` mit Stadt und ISO-Ländercode), zeigt die Console
+diesen statt des Standorts der Verbindung.
 
 Der Sync-Job holt alle `SYNC_INTERVAL_SECONDS` das Inventar jedes Providers, legt neue
 Server, Domains und Webspaces als "nicht zugewiesen" an und markiert verschwundene als
