@@ -398,11 +398,14 @@ export function useApiMutation<TVars, TResult = unknown>(
     success?: string | ((result: TResult, vars: TVars) => string | null);
     invalidate?: QueryKey[] | ((vars: TVars) => QueryKey[]);
     onSuccess?: (result: TResult, vars: TVars) => void;
+    /** 0 for answers with secrets: dropped from the mutation cache as soon as nobody shows them. */
+    gcTime?: number;
   } = {},
 ) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
+    ...(options.gcTime !== undefined ? { gcTime: options.gcTime } : {}),
     onSuccess: (result, vars) => {
       const message = typeof options.success === 'function' ? options.success(result, vars) : options.success;
       if (message) toast.success(message);

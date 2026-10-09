@@ -7,6 +7,7 @@ import {
   CirclePlay,
   FolderKanban,
   Globe,
+  HardDrive,
   Layers,
   PackageX,
   Plus,
@@ -21,6 +22,7 @@ import { useAudit, useProjects, useServers } from '@/lib/queries';
 import { formatRelative } from '@/lib/format';
 import { useBillingSummary, useResellerCustomers } from '@/lib/api/admin';
 import { useDomains, useWebspaces } from '@/lib/api/hosting';
+import { useOrgCloud } from '@/lib/api/cloud';
 import {
   Card,
   CardBody,
@@ -36,6 +38,7 @@ import { Button } from '@/components/ui/button';
 import { Flag, StatusDot } from '@/components/server-bits';
 import { DomainStatusBadge, ExpiryText } from '@/pages/hosting/bits';
 import { ModuleBadges, StatusBadge } from '@/pages/reseller/bits';
+import { formatQuota } from '@/pages/cloud/bits';
 import { ProjectDialog } from './projects';
 import { ActivityList } from './audit';
 
@@ -306,9 +309,12 @@ export function OrgDashboard() {
   const hasServers = hasModule('servers');
   const showDomains = hasModule('dns') && can('domain:read');
   const showWebspaces = hasModule('webhosting') && can('webspace:read');
+  const showCloud = hasModule('storage') && can('cloud:read');
   const showCustomers = org.kind === 'reseller' && can('reseller:customer:read');
   const projects = useProjects(hasServers ? org.id : undefined);
   const servers = useServers(hasServers ? org.id : undefined);
+  const cloud = useOrgCloud(org.id, showCloud);
+  const allowance = cloud.data?.allowance ?? null;
   const audit = useAudit(`/orgs/${org.id}/audit`, { page: 1, perPage: 8 }, can('audit:read'));
   const [creating, setCreating] = useState(false);
 
@@ -337,7 +343,7 @@ export function OrgDashboard() {
   ) : null;
 
   // Servers only: the classic tiles. With more modules one tile per service instead.
-  const serversOnly = hasServers && !showDomains && !showWebspaces && !showCustomers;
+  const serversOnly = hasServers && !showDomains && !showWebspaces && !showCloud && !showCustomers;
   const tiles: ReactNode[] = serversOnly
     ? [
         <StatTile
@@ -396,6 +402,24 @@ export function OrgDashboard() {
             value={counts?.webspaces ?? '–'}
             tone="bg-primary-soft text-primary-text"
             to={`${base}/webhosting`}
+          />
+        ),
+        showCloud && (
+          <StatTile
+            key="cloud"
+            icon={<HardDrive />}
+            label={t('storage.admin.tab')}
+            value={cloud.data ? cloud.data.accounts.length : '–'}
+            sub={
+              allowance
+                ? t('storage.dashboardSub', {
+                    allocated: formatQuota(allowance.allocatedBytes, locale),
+                    quota: formatQuota(allowance.quotaBytes, locale),
+                  })
+                : undefined
+            }
+            tone="bg-primary-soft text-primary-text"
+            to={`${base}/cloud`}
           />
         ),
         showCustomers && (

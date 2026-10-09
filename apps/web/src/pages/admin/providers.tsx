@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { formatBytes, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { qk, useAdminProviders, useApiMutation, useMe, useMeta, useProviderOverview } from '@/lib/queries';
+import type { ProviderSyncResult } from '@/lib/api/hosting';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
@@ -59,6 +60,10 @@ interface ProviderForm {
   password: string;
   /** Hetzner Cloud project token. */
   apiToken: string;
+  /** Nextcloud: app password of the admin account (username above). */
+  appPassword: string;
+  /** Nextcloud: prefix of the per-organization groups, empty = "weblion-". */
+  groupPrefix: string;
 }
 
 const HETZNER_BASE_URL = 'https://api.hetzner.cloud/v1';
@@ -78,13 +83,17 @@ const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
   joker: 'https://dmapi.joker.com/request',
 };
 
+/** Nextcloud groups are "<prefix><org slug>" unless the connection sets another prefix. */
+const NEXTCLOUD_GROUP_PREFIX = 'weblion-';
+const GROUP_PREFIX_PATTERN = /^[a-z0-9][a-z0-9._-]{0,30}$/;
+
 /** Joker's test system (OT&E), separate account and no costs. */
 const JOKER_OTE_URL = 'https://dmapi.ote.joker.com/request';
 
 const emptyForm = (type: ProviderType): ProviderForm => ({
   type,
   name: DEFAULT_NAME[type],
-  country: type === 'proxmox' ? 'CH' : 'DE',
+  country: type === 'proxmox' || type === 'nextcloud' ? 'CH' : 'DE',
   city: '',
   label: '',
   enabled: true,
@@ -99,6 +108,8 @@ const emptyForm = (type: ProviderType): ProviderForm => ({
   username: '',
   password: '',
   apiToken: '',
+  appPassword: '',
+  groupPrefix: '',
 });
 
 function configFromForm(f: ProviderForm, editing: boolean) {
@@ -135,9 +146,28 @@ function configFromForm(f: ProviderForm, editing: boolean) {
               ...(editing ? { apiKey: null } : {}),
             }),
       };
+    case 'nextcloud':
+      // An empty app password keeps the stored one; an empty prefix falls back to the default.
+      return {
+        baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
+        username: f.username.trim(),
+        ...(f.appPassword || !editing ? { appPassword: f.appPassword } : {}),
+        ...(f.groupPrefix.trim()
+          ? { groupPrefix: f.groupPrefix.trim() }
+          : editing
+            ? { groupPrefix: null }
+            : {}),
+      };
     default:
       return {};
   }
+}
+
+/** Nextcloud needs URL, admin user and app password (kept on edit when left empty). */
+function nextcloudIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'nextcloud') return false;
+  if (f.groupPrefix.trim() && !GROUP_PREFIX_PATTERN.test(f.groupPrefix.trim())) return true;
+  return !/^https?:\/\/\S+$/i.test(f.baseUrl.trim()) || !f.username.trim() || (!f.appPassword && !existing);
 }
 
 /** Joker needs an API key or username and password, unless the stored ones are kept. */
@@ -175,6 +205,7 @@ function ProviderDialog({
           backupStorage: existing.summary.backupStorage ?? '',
           jokerAuth: existing.type === 'joker' && !existing.summary.apiKey ? 'password' : 'apiKey',
           username: existing.summary.username ?? '',
+          groupPrefix: existing.summary.groupPrefix ?? '',
         }
       : emptyForm('proxmox'),
   );
@@ -225,7 +256,10 @@ function ProviderDialog({
             variant="primary"
             loading={save.isPending}
             onClick={() => save.mutate(undefined)}
-            disabled={!form.name || (!envManaged && jokerIncomplete(form, existing))}
+            disabled={
+              !form.name ||
+              (!envManaged && (jokerIncomplete(form, existing) || nextcloudIncomplete(form, existing)))
+            }
           >
             {t('common.save')}
           </Button>
@@ -336,6 +370,8 @@ function ProviderDialog({
           </>
         ) : form.type === 'joker' ? (
           <JokerFields form={form} set={set} existing={existing} />
+        ) : form.type === 'nextcloud' ? (
+          <NextcloudFields form={form} set={set} existing={existing} />
         ) : form.type === 'proxmox' ? (
           <>
             <Field label="URL" hint="https://pve.example.ch:8006" htmlFor="p-url" className="sm:col-span-2">
@@ -533,6 +569,88 @@ function JokerFields({
   );
 }
 
+function NextcloudFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const prefix = form.groupPrefix.trim();
+  const prefixInvalid = !!prefix && !GROUP_PREFIX_PATTERN.test(prefix);
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.nextcloud.help')}
+      </Notice>
+      <Field
+        label={t('providers.nextcloud.url')}
+        hint={t('providers.nextcloud.urlHint')}
+        htmlFor="p-nc-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-nc-url"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder="https://cloud.weblion.one"
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.nextcloud.username')}
+        hint={t('providers.nextcloud.usernameHint')}
+        htmlFor="p-nc-user"
+      >
+        <Input
+          id="p-nc-user"
+          value={form.username}
+          onChange={(e) => set('username', e.target.value)}
+          placeholder="weblion-panel"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.nextcloud.appPassword')}
+        hint={existing ? t('providers.keepSecret') : t('providers.nextcloud.appPasswordHint')}
+        htmlFor="p-nc-password"
+      >
+        <Input
+          id="p-nc-password"
+          type="password"
+          value={form.appPassword}
+          onChange={(e) => set('appPassword', e.target.value)}
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+      <Field
+        label={t('providers.nextcloud.groupPrefix')}
+        hint={
+          existing
+            ? t('providers.nextcloud.groupPrefixChange', { prefix: NEXTCLOUD_GROUP_PREFIX })
+            : t('providers.nextcloud.groupPrefixHint', { prefix: NEXTCLOUD_GROUP_PREFIX })
+        }
+        error={prefixInvalid ? t('providers.nextcloud.groupPrefixInvalid') : undefined}
+        htmlFor="p-nc-prefix"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-nc-prefix"
+          value={form.groupPrefix}
+          onChange={(e) => set('groupPrefix', e.target.value.toLowerCase())}
+          placeholder={NEXTCLOUD_GROUP_PREFIX}
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+    </>
+  );
+}
+
 function useProviderActions(id: string) {
   const { t } = useI18n();
   const test = useApiMutation(
@@ -545,20 +663,22 @@ function useProviderActions(id: string) {
       invalidate: [qk.admin('providers')],
     },
   );
-  const sync = useApiMutation(
-    () =>
-      api.post<{ seen: number; missing: number; domains?: { seen: number; missing: number } }>(
-        `/admin/providers/${id}/sync`,
-      ),
-    {
-      // Registrars (Joker.com) only have domains.
-      success: (r) =>
-        r.seen === 0 && r.missing === 0 && r.domains
+  const sync = useApiMutation(() => api.post<ProviderSyncResult>(`/admin/providers/${id}/sync`), {
+    // Registrars (Joker.com) only have domains, Nextcloud instances only cloud accounts.
+    success: (r) =>
+      r.seen === 0 && r.missing === 0 && r.cloudAccounts
+        ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
+        : r.seen === 0 && r.missing === 0 && r.domains
           ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
           : t('providers.synced', { seen: r.seen, missing: r.missing }),
-      invalidate: [qk.admin('providers'), qk.admin('servers'), qk.admin('stats'), ['hosting', 'admin']],
-    },
-  );
+    invalidate: [
+      qk.admin('providers'),
+      qk.admin('servers'),
+      qk.admin('stats'),
+      ['hosting', 'admin'],
+      ['cloud'],
+    ],
+  });
   return { test, sync };
 }
 
@@ -874,10 +994,28 @@ export function ProviderDetailPage() {
                   </Table>
                 </Card>
               )}
-              {overview.data.nodes.length === 0 && overview.data.storages.length === 0 && (
+              {provider.type === 'nextcloud' ? (
                 <Card>
-                  <EmptyState title={t('providers.noInfra')} />
+                  <CardHeader
+                    title={t('storage.admin.tab')}
+                    description={t('providers.nextcloud.accountsText')}
+                    actions={
+                      <Link
+                        to={`/admin/hosting?tab=cloud&provider=${provider.id}`}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-primary-text hover:bg-surface-3"
+                      >
+                        {t('providers.nextcloud.toAccounts')}
+                      </Link>
+                    }
+                  />
                 </Card>
+              ) : (
+                overview.data.nodes.length === 0 &&
+                overview.data.storages.length === 0 && (
+                  <Card>
+                    <EmptyState title={t('providers.noInfra')} />
+                  </Card>
+                )
               )}
             </>
           )}

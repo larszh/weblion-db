@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CalendarPlus,
   Globe,
+  HardDrive,
   Layers,
   Link2,
   MoreHorizontal,
@@ -54,8 +55,9 @@ import {
   useCanRenew,
   type RenewalTarget,
 } from '@/pages/hosting/domain-actions';
+import { AdminCloudTab, isCloudProvider } from './cloud';
 
-type Tab = 'domains' | 'webspaces';
+type Tab = 'domains' | 'webspaces' | 'cloud';
 type Item = { type: 'domain'; row: DomainDto } | { type: 'webspace'; row: WebspaceDto };
 
 const MODULE_OF: Record<Item['type'], ModuleKey> = { domain: 'dns', webspace: 'webhosting' };
@@ -67,23 +69,32 @@ export function AdminHostingPage() {
   const { t } = useI18n();
   const me = useMe();
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get('tab') === 'webspaces' ? 'webspaces' : 'domains';
+  const tabParam = params.get('tab');
+  const tab: Tab = tabParam === 'webspaces' || tabParam === 'cloud' ? tabParam : 'domains';
   const assignedParam = params.get('assigned');
   const assigned = assignedParam === 'true' || assignedParam === 'false' ? assignedParam : undefined;
   const providerId = params.get('provider') ?? undefined;
   const [q, setQ] = useState('');
   const filters: AdminHostingFilters = { q: q.trim() || undefined, assigned, providerId };
   const providers = useAdminProviders();
-  const hostingProviders = (providers.data ?? []).filter((p) => HOSTING_PROVIDERS.has(p.type));
+  // The sync button covers what the tab shows: cloud instances on the cloud tab.
+  const hostingProviders = (providers.data ?? []).filter((p) =>
+    tab === 'cloud' ? isCloudProvider(p) : HOSTING_PROVIDERS.has(p.type),
+  );
   const perms = me.data?.platformPermissions ?? [];
   const canAssign = perms.includes('platform:server:assign');
   const [assigning, setAssigning] = useState<Item | null>(null);
   const sync = useProviderSync((r) =>
-    t('hosting.admin.synced', {
-      domains: r.domains?.seen ?? 0,
-      webspaces: r.webspaces?.seen ?? 0,
-      servers: r.seen,
-    }),
+    tab === 'cloud'
+      ? t('storage.admin.synced', {
+          seen: r.cloudAccounts?.seen ?? 0,
+          missing: r.cloudAccounts?.missing ?? 0,
+        })
+      : t('hosting.admin.synced', {
+          domains: r.domains?.seen ?? 0,
+          webspaces: r.webspaces?.seen ?? 0,
+          servers: r.seen,
+        }),
   );
 
   const set = (key: string, value: string) => {
@@ -137,6 +148,7 @@ export function AdminHostingPage() {
             [
               ['domains', 'hosting.admin.tab.domains', <Globe key="d" className="size-4" />],
               ['webspaces', 'hosting.admin.tab.webspaces', <Layers key="w" className="size-4" />],
+              ['cloud', 'storage.admin.tab', <HardDrive key="c" className="size-4" />],
             ] as const
           ).map(([value, label, icon]) => (
             <button
@@ -158,67 +170,73 @@ export function AdminHostingPage() {
         </nav>
       </div>
 
-      <Notice tone="info" className="mb-4">
-        {tab === 'domains' ? t('hosting.admin.orderDomains') : t('hosting.admin.orderWebspaces')}{' '}
-        <Link to="/admin/providers" className="font-medium underline underline-offset-2">
-          {t('hosting.admin.toProviders')}
-        </Link>
-      </Notice>
+      {tab === 'cloud' ? (
+        <AdminCloudTab />
+      ) : (
+        <>
+          <Notice tone="info" className="mb-4">
+            {tab === 'domains' ? t('hosting.admin.orderDomains') : t('hosting.admin.orderWebspaces')}{' '}
+            <Link to="/admin/providers" className="font-medium underline underline-offset-2">
+              {t('hosting.admin.toProviders')}
+            </Link>
+          </Notice>
 
-      <Card>
-        <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <div className="relative min-w-[200px] flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={
-                tab === 'domains' ? t('hosting.admin.searchDomains') : t('hosting.admin.searchWebspaces')
-              }
-              className="pl-9"
-              aria-label={t('common.search')}
-            />
-          </div>
-          <Select
-            value={assigned ?? 'all'}
-            onChange={(e) => set('assigned', e.target.value)}
-            className="w-auto"
-            aria-label={t('hosting.admin.filterAssigned')}
-          >
-            <option value="all">{t('hosting.admin.all')}</option>
-            <option value="false">{t('hosting.admin.onlyUnassigned')}</option>
-            <option value="true">{t('hosting.admin.onlyAssigned')}</option>
-          </Select>
-          {hostingProviders.length > 1 && (
-            <Select
-              value={providerId ?? ''}
-              onChange={(e) => set('provider', e.target.value)}
-              className="w-auto"
-              aria-label={t('hosting.admin.filterProvider')}
-            >
-              <option value="">{t('hosting.admin.allProviders')}</option>
-              {hostingProviders.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          )}
-        </div>
-        {tab === 'domains' ? (
-          <DomainInventory
-            filters={filters}
-            canAssign={canAssign}
-            onAssign={(row) => setAssigning({ type: 'domain', row })}
-          />
-        ) : (
-          <WebspaceInventory
-            filters={filters}
-            canAssign={canAssign}
-            onAssign={(row) => setAssigning({ type: 'webspace', row })}
-          />
-        )}
-      </Card>
+          <Card>
+            <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+              <div className="relative min-w-[200px] flex-1">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder={
+                    tab === 'domains' ? t('hosting.admin.searchDomains') : t('hosting.admin.searchWebspaces')
+                  }
+                  className="pl-9"
+                  aria-label={t('common.search')}
+                />
+              </div>
+              <Select
+                value={assigned ?? 'all'}
+                onChange={(e) => set('assigned', e.target.value)}
+                className="w-auto"
+                aria-label={t('hosting.admin.filterAssigned')}
+              >
+                <option value="all">{t('hosting.admin.all')}</option>
+                <option value="false">{t('hosting.admin.onlyUnassigned')}</option>
+                <option value="true">{t('hosting.admin.onlyAssigned')}</option>
+              </Select>
+              {hostingProviders.length > 1 && (
+                <Select
+                  value={providerId ?? ''}
+                  onChange={(e) => set('provider', e.target.value)}
+                  className="w-auto"
+                  aria-label={t('hosting.admin.filterProvider')}
+                >
+                  <option value="">{t('hosting.admin.allProviders')}</option>
+                  {hostingProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </div>
+            {tab === 'domains' ? (
+              <DomainInventory
+                filters={filters}
+                canAssign={canAssign}
+                onAssign={(row) => setAssigning({ type: 'domain', row })}
+              />
+            ) : (
+              <WebspaceInventory
+                filters={filters}
+                canAssign={canAssign}
+                onAssign={(row) => setAssigning({ type: 'webspace', row })}
+              />
+            )}
+          </Card>
+        </>
+      )}
       {assigning && (
         <AssignDialog key={assigning.row.id} item={assigning} onClose={() => setAssigning(null)} />
       )}

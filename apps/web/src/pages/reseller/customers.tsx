@@ -68,6 +68,7 @@ import {
   TabBar,
   useTabParam,
 } from './bits';
+import { ResellerCloudAllowanceCard } from './cloud-allowance';
 
 /** Resource types a reseller hands out, with the module each one belongs to. */
 const RESOURCE_TYPES: {
@@ -600,13 +601,15 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
   const [assigning, setAssigning] = useState<ResourceType | null>(null);
   const [releasing, setReleasing] = useState<{ type: ResourceType; id: string; name: string } | null>(null);
   const types = RESOURCE_TYPES.filter((r) => org.modules.includes(r.module));
+  // Cloud storage is no resource that moves, the customer gets a share of the allowance.
+  const cloud = org.modules.includes('storage');
 
   if (resources.isPending) return <LoadingBlock rows={6} />;
   if (resources.isError) {
     return <ErrorState error={resources.error} onRetry={() => void resources.refetch()} />;
   }
   const data = resources.data;
-  if (types.length === 0) {
+  if (types.length === 0 && !cloud) {
     return <EmptyState title={t('admin.reseller.noModules')} />;
   }
 
@@ -665,6 +668,7 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
           </Card>
         );
       })}
+      {cloud && <ResellerCloudAllowanceCard customer={customer} />}
       <AssignDialog
         type={assigning}
         customer={customer}

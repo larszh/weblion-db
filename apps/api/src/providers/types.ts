@@ -281,6 +281,8 @@ export interface ProviderAdapter {
   setCloudAccountPassword?(externalId: string, password: string): Promise<void>;
   /** Deletes the user and all of its files. */
   deleteCloudAccount?(externalId: string): Promise<void>;
+  /** Sends the instance's welcome mail again (with a set-password link while none is set). Needs an email. */
+  resendCloudInvite?(externalId: string): Promise<void>;
   /** Where users log in, e.g. https://cloud.weblion.ch. */
   cloudLoginUrl?(): string;
 

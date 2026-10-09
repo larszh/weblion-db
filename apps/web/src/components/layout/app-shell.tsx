@@ -11,6 +11,7 @@ import {
   FolderKanban,
   Gauge,
   Globe,
+  HardDrive,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -282,6 +283,12 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
                   label: 'nav.webhosting',
                   icon: <Layers />,
                   show: orgCtx.hasModule('webhosting') && orgCtx.can('webspace:read'),
+                },
+                {
+                  to: `${base}/cloud`,
+                  label: 'nav.cloud',
+                  icon: <HardDrive />,
+                  show: orgCtx.hasModule('storage') && orgCtx.can('cloud:read'),
                 },
               ]}
             />

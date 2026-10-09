@@ -12,6 +12,7 @@ import {
 } from './schema';
 import { hashPassword } from '../lib/crypto';
 import { seedBillingDemo } from './seed-billing';
+import { seedCloudDemo } from './seed-cloud';
 import { seedHostingDemo } from './seed-hosting';
 import { seedResellerDemo } from './seed-reseller';
 
@@ -155,6 +156,7 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
   // Area specific demo data. Order matters: resellers create organizations the other two use.
   await seedResellerDemo(db, log, hash);
   await seedHostingDemo(db, log);
+  await seedCloudDemo(db, log);
   await seedBillingDemo(db, log);
   return log;
 }

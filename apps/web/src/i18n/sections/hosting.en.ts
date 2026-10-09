@@ -324,7 +324,7 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
 
   // Admin inventory
   'hosting.admin.subtitle':
-    'Domains and web spaces of all provider accounts. Assign them to customers so they see them in the console.',
+    'Domains, web spaces and cloud accounts of all provider accounts. Assign them to customers so they see them in the console.',
   'hosting.admin.tab.domains': 'Domains',
   'hosting.admin.tab.webspaces': 'Web spaces',
   'hosting.admin.sync': 'Sync now',

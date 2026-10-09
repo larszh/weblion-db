@@ -16,6 +16,8 @@ import {
 import type { AppContext } from '../../context';
 import { platformScope, requireSession } from '../../auth/access';
 import {
+  cloudAccounts,
+  cloudAllowances,
   domains,
   memberships,
   organizations,
@@ -157,13 +159,41 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
       return {
         baseUrl: c.baseUrl,
         username: c.username,
-        appPassword: `${c.appPassword.slice(0, 4)}…`,
+        // An app password is a full password of the admin account: not even a part of it leaves.
+        appPassword: '••••••',
         ...(c.groupPrefix ? { groupPrefix: c.groupPrefix } : {}),
       };
     }
     case 'demo':
       return { servers: String((config as DemoConfig).servers ?? 6) };
   }
+}
+
+const SECRET_KEY = /passw(or)?d|secret|token|auth_?code|api_?key/i;
+
+/**
+ * An explorer request as it is audited: values of password-like keys blanked, including the
+ * "value" of a Nextcloud user edit with key=password (PUT /ocs/v2.php/cloud/users/{id}).
+ */
+export function redactExplorerBody(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactExplorerBody);
+  if (value === null || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  const secretEdit = typeof record.key === 'string' && SECRET_KEY.test(record.key);
+  return Object.fromEntries(
+    Object.entries(record).map(([k, v]) => [
+      k,
+      SECRET_KEY.test(k) || (secretEdit && k === 'value') ? '[redacted]' : redactExplorerBody(v),
+    ]),
+  );
+}
+
+/** Query parameters with password-like names blanked in an explorer path. */
+export function redactExplorerPath(path: string): string {
+  return path.replace(
+    /([?&][^=&#]*(?:passw(?:or)?d|secret|token|auth_?code|api_?key)[^=&#]*=)[^&#]*/gi,
+    '$1[redacted]',
+  );
 }
 
 export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -379,6 +409,20 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .where(and(eq(webspaces.providerConnectionId, id), isNotNull(webspaces.orgId)));
     if ((assignedDomains?.n ?? 0) + (assignedWebspaces?.n ?? 0) > 0) {
       throw conflict('Unassign all domains and web spaces of this provider first');
+    }
+    // Allowances reference the instance (restrict), and accounts would vanish from their organizations.
+    const [allowances] = await db
+      .select({ n: count() })
+      .from(cloudAllowances)
+      .where(eq(cloudAllowances.providerConnectionId, id));
+    const [assignedAccounts] = await db
+      .select({ n: count() })
+      .from(cloudAccounts)
+      .where(and(eq(cloudAccounts.providerConnectionId, id), isNotNull(cloudAccounts.orgId)));
+    if ((allowances?.n ?? 0) + (assignedAccounts?.n ?? 0) > 0) {
+      throw conflict(
+        'Remove the cloud storage allowances on this instance and unassign or delete its cloud accounts first',
+      );
     }
     await db.delete(providerConnections).where(eq(providerConnections.id, id));
     providers.invalidate(id);
@@ -1130,13 +1174,18 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         data: { error: err instanceof Error ? err.message : String(err) },
       };
     }
-    // Reads are not audited to keep the log useful, every write is.
+    // Reads are not audited to keep the log useful, every write is (without passwords).
     if (body.method !== 'GET') {
       await audit.record(req, {
         action: 'provider.explorer',
         resourceType: 'provider',
         resourceId: connection.id,
-        details: { method: body.method, path: body.path, body: body.body ?? null, status: result.status },
+        details: {
+          method: body.method,
+          path: redactExplorerPath(body.path),
+          body: body.body ? redactExplorerBody(body.body) : null,
+          status: result.status,
+        },
       });
     }
     return { ...result, durationMs: Date.now() - started };

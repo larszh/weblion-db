@@ -90,6 +90,7 @@ const WebspaceDetailPage = lazy(() =>
 const AdminHostingPage = lazy(() =>
   import('@/pages/admin/hosting').then((m) => ({ default: m.AdminHostingPage })),
 );
+const CloudPage = lazy(() => import('@/pages/cloud/cloud').then((m) => ({ default: m.CloudPage })));
 
 function FullScreenSpinner() {
   return (
@@ -229,6 +230,7 @@ export function App() {
             <Route path="domains/:domainId" element={<DomainDetailPage />} />
             <Route path="webhosting" element={<WebspacesPage />} />
             <Route path="webhosting/:webspaceId" element={<WebspaceDetailPage />} />
+            <Route path="cloud" element={<CloudPage />} />
             <Route path="customers" element={<ResellerCustomersPage />} />
             <Route path="customers/:customerId" element={<ResellerCustomerPage />} />
             <Route path="products" element={<ResellerProductsPage />} />

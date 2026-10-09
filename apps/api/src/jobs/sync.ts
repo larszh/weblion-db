@@ -1,9 +1,10 @@
-import { and, eq, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
 import type { DomainInfo } from '@weblion/shared';
 import type { Database } from '../db/client';
 import {
+  cloudAccounts,
   domains,
   providerConnections,
   serverActions,
@@ -13,17 +14,25 @@ import {
 } from '../db/schema';
 import { settlePending } from '../modules/hosting/pending';
 import { serverRef, type ProviderRegistry } from '../providers/registry';
-import type { ProviderAdapter, RemoteDomain, RemoteServer, RemoteWebspace } from '../providers/types';
+import type {
+  ProviderAdapter,
+  RemoteCloudAccount,
+  RemoteDomain,
+  RemoteServer,
+  RemoteWebspace,
+} from '../providers/types';
 
 export interface SyncCounts {
   seen: number;
   missing: number;
 }
 
-/** Servers on the top level; domains and web spaces only for providers that have them. */
+/** Servers on the top level; domains, web spaces and cloud accounts only for providers that have them. */
 export interface SyncResult extends SyncCounts {
   domains?: SyncCounts;
   webspaces?: SyncCounts;
+  /** `seen`: accounts the panel manages that the instance reported. */
+  cloudAccounts?: SyncCounts;
 }
 
 /** Postgres advisory lock ids, so only one API instance runs each job at a time. */
@@ -187,6 +196,61 @@ export class SyncService {
     return { seen: remote.length, missing: missing.length };
   }
 
+  /**
+   * Usage and settings of the cloud accounts the panel manages. Users the panel does not
+   * know are left alone (staff import them from the "unmanaged" list), so no row is created.
+   */
+  private async syncCloudAccounts(
+    connection: ProviderConnection,
+    adapter: ProviderAdapter,
+  ): Promise<SyncCounts> {
+    const started = new Date();
+    const remote: RemoteCloudAccount[] = await adapter.listCloudAccounts!();
+    const byId = new Map(remote.map((r) => [r.externalId, r]));
+    const rows = await this.db
+      .select({
+        id: cloudAccounts.id,
+        externalId: cloudAccounts.externalId,
+        createdAt: cloudAccounts.createdAt,
+      })
+      .from(cloudAccounts)
+      .where(eq(cloudAccounts.providerConnectionId, connection.id));
+    const now = new Date();
+    let seen = 0;
+    const missing: string[] = [];
+    for (const row of rows) {
+      const account = byId.get(row.externalId);
+      if (!account) {
+        // Created through the panel while the list was on its way: not missing.
+        if (row.createdAt < started) missing.push(row.id);
+        continue;
+      }
+      seen++;
+      // Neither quota nor usage means Nextcloud could not read the user's storage (an empty
+      // quota object), not "unlimited": keep what is stored, or the allowance looks freer.
+      const storageUnknown = account.quotaBytes === null && account.usedBytes === null;
+      await this.db
+        .update(cloudAccounts)
+        .set({
+          displayName: account.displayName,
+          email: account.email,
+          ...(storageUnknown ? {} : { quotaBytes: account.quotaBytes, usedBytes: account.usedBytes }),
+          enabled: account.enabled,
+          lastLoginAt: account.lastLoginAt ? new Date(account.lastLoginAt) : null,
+          lastSyncedAt: now,
+          missingSince: null,
+        })
+        .where(eq(cloudAccounts.id, row.id));
+    }
+    if (missing.length > 0) {
+      await this.db
+        .update(cloudAccounts)
+        .set({ missingSince: sql`coalesce(${cloudAccounts.missingSince}, now())` })
+        .where(inArray(cloudAccounts.id, missing));
+    }
+    return { seen, missing: missing.length };
+  }
+
   async syncConnection(connection: ProviderConnection): Promise<SyncResult> {
     if (this.running.has(connection.id)) return { seen: 0, missing: 0 };
     this.running.add(connection.id);
@@ -210,6 +274,7 @@ export class SyncService {
       const result: SyncResult = { seen: remote.length, missing: missing.length };
       if (adapter.listDomains) result.domains = await this.syncDomains(connection, adapter);
       if (adapter.listWebspaces) result.webspaces = await this.syncWebspaces(connection, adapter);
+      if (adapter.listCloudAccounts) result.cloudAccounts = await this.syncCloudAccounts(connection, adapter);
 
       await this.db
         .update(providerConnections)

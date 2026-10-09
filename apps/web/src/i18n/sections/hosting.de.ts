@@ -331,7 +331,7 @@ export const hostingDe = {
 
   // Admin inventory
   'hosting.admin.subtitle':
-    'Domains und Webspaces aller Provider-Konten. Weisen Sie sie Kunden zu, damit diese sie in der Console sehen.',
+    'Domains, Webspaces und Cloud-Konten aller Provider-Konten. Weisen Sie sie Kunden zu, damit diese sie in der Console sehen.',
   'hosting.admin.tab.domains': 'Domains',
   'hosting.admin.tab.webspaces': 'Webspaces',
   'hosting.admin.sync': 'Jetzt synchronisieren',

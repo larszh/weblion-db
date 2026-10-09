@@ -9,6 +9,8 @@ import {
 import type { AppContext } from '../../context';
 import type { DbOrTx, Tx } from '../../db/client';
 import {
+  cloudAccounts,
+  cloudAllowances,
   creditTransactions,
   domains,
   invitations,
@@ -105,6 +107,9 @@ export interface DeleteBlockers {
   servers: number;
   domains: number;
   webspaces: number;
+  cloudAccounts: number;
+  /** 0 or 1: a cloud storage allowance (Nextcloud accounts would lose their organization). */
+  cloudAllowances: number;
   invoices: number;
   payments: number;
   creditTransactions: number;
@@ -116,6 +121,8 @@ const BLOCKER_LABELS: Record<keyof DeleteBlockers, string> = {
   servers: 'servers',
   domains: 'domains',
   webspaces: 'web spaces',
+  cloudAccounts: 'cloud accounts',
+  cloudAllowances: 'cloud storage allowance',
   invoices: 'invoices',
   payments: 'payments',
   creditTransactions: 'credit transactions',
@@ -139,6 +146,12 @@ export async function deleteBlockers(db: DbOrTx, orgId: string): Promise<DeleteB
     ),
     domains: n(await db.select({ n: count() }).from(domains).where(eq(domains.orgId, orgId))),
     webspaces: n(await db.select({ n: count() }).from(webspaces).where(eq(webspaces.orgId, orgId))),
+    cloudAccounts: n(
+      await db.select({ n: count() }).from(cloudAccounts).where(eq(cloudAccounts.orgId, orgId)),
+    ),
+    cloudAllowances: n(
+      await db.select({ n: count() }).from(cloudAllowances).where(eq(cloudAllowances.orgId, orgId)),
+    ),
     // Invoices it received and, for resellers, invoices it issued.
     invoices: n(
       await db

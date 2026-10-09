@@ -52,6 +52,15 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'DMAPI', path: '/dns-zone-get?domain=example.com', label: 'DNS zone' },
     { method: 'DMAPI', path: '/result-list', label: 'Job results (Proc-IDs)' },
   ],
+  // OCS provisioning API. Answers come as JSON, passwords in them are blanked out.
+  nextcloud: [
+    { method: 'GET', path: '/ocs/v2.php/cloud/users/details', label: 'Users with details' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/users', label: 'User ids' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/users/<userid>', label: 'User (quota, usage)' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/groups', label: 'Groups' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/groups/<groupid>/users', label: 'Members of a group' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/capabilities', label: 'Capabilities (version)' },
+  ],
   demo: [{ method: 'GET', path: '/echo', label: 'Echo' }],
 };
 
@@ -69,6 +78,7 @@ const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
   fire24: { path: '/api/kvm/<id>/config', body: '{ "mode": "start" }' },
   hetzner: { path: '/servers/<id>', body: '{ "server_type": "cx32", "upgrade_disk": false }' },
   joker: { path: '/query-whois?domain=example.com', body: '{ "domain": "example.com" }' },
+  nextcloud: { path: '/ocs/v2.php/cloud/users/<userid>', body: '{ "key": "quota", "value": "10 GB" }' },
 };
 
 interface Result {
@@ -177,6 +187,9 @@ export function ExplorerPage() {
               {provider?.type === 'hetzner' && (
                 <p className="text-xs text-muted">{t('explorer.hetznerPath')}</p>
               )}
+              {provider?.type === 'nextcloud' && (
+                <p className="text-xs text-muted">{t('explorer.nextcloudPath')}</p>
+              )}
               {withBody && (
                 <Field
                   label={t('explorer.body')}
@@ -185,7 +198,9 @@ export function ExplorerPage() {
                       ? t('explorer.jokerBodyHint')
                       : provider?.type === 'hetzner'
                         ? t('explorer.bodyHintJson')
-                        : t('explorer.bodyHint')
+                        : provider?.type === 'nextcloud'
+                          ? t('explorer.nextcloudBodyHint')
+                          : t('explorer.bodyHint')
                   }
                   htmlFor="ex-body"
                 >

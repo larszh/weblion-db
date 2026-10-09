@@ -29,12 +29,14 @@ export interface AdminHostingFilters {
   providerId?: string;
 }
 
-/** POST /admin/providers/:id/sync, extended with domains and web spaces. */
+/** POST /admin/providers/:id/sync, extended with domains, web spaces and cloud accounts. */
 export interface ProviderSyncResult {
   seen: number;
   missing: number;
   domains?: { seen: number; missing: number };
   webspaces?: { seen: number; missing: number };
+  /** Nextcloud: accounts the panel manages that the instance reported. */
+  cloudAccounts?: { seen: number; missing: number };
 }
 
 export const useDomains = (orgId: string, enabled = true) =>
@@ -228,6 +230,12 @@ export const useProviderSync = (success: (result: ProviderSyncResult) => string)
     (providerId: string) => api.post<ProviderSyncResult>(`/admin/providers/${providerId}/sync`),
     {
       success,
-      invalidate: [['hosting', 'admin'], qk.admin('providers'), qk.admin('servers'), qk.admin('stats')],
+      invalidate: [
+        ['hosting', 'admin'],
+        ['cloud'],
+        qk.admin('providers'),
+        qk.admin('servers'),
+        qk.admin('stats'),
+      ],
     },
   );

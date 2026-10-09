@@ -53,6 +53,7 @@ import {
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { ServerTable } from '@/components/server-table';
 import { SellerBillingPanel } from '@/pages/billing/seller-panel';
+import { CloudAllowanceAdminCard } from './cloud';
 import {
   DeleteError,
   InviteResult,
@@ -892,6 +893,7 @@ function OverviewTab({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
       <div className="min-w-0 space-y-6">
         {org.kind === 'reseller' && <ResellerCustomersCard org={org} canWrite={canWrite} />}
         <ModulesCard org={org} parent={parent} canWrite={canWrite} />
+        <CloudAllowanceAdminCard org={org} parent={parent} canWrite={canWrite} />
         <Card>
           <CardHeader
             title={t('nav.servers')}

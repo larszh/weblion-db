@@ -48,6 +48,8 @@ export const adminEn: Record<keyof typeof adminDe, string> = {
   'admin.blocker.servers': 'Servers: {n}',
   'admin.blocker.domains': 'Domains: {n}',
   'admin.blocker.webspaces': 'Web spaces: {n}',
+  'admin.blocker.cloudAccounts': 'Cloud accounts: {n}',
+  'admin.blocker.cloudAllowances': 'Cloud storage allowance',
   'admin.blocker.invoices': 'Invoices: {n}',
   'admin.blocker.payments': 'Payments: {n}',
   'admin.blocker.creditTransactions': 'Credit bookings: {n}',

@@ -2,6 +2,7 @@ import { billingDe } from './sections/billing.de';
 import { adminDe } from './sections/admin.de';
 import { hostingDe } from './sections/hosting.de';
 import { cloudDe } from './sections/cloud.de';
+import { storageDe } from './sections/storage.de';
 
 /** German is the source language. English (en.ts) must provide every key. */
 export const de = {
@@ -9,6 +10,7 @@ export const de = {
   ...adminDe,
   ...hostingDe,
   ...cloudDe,
+  ...storageDe,
   // Common
   'common.actions': 'Aktionen',
   'common.add': 'Hinzufügen',

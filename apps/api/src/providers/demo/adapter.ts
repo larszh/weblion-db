@@ -31,17 +31,21 @@ import { DNS_RECORD_TYPES, DOMAIN_CAPABILITIES } from '@weblion/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import type {
   ActionResult,
+  CloudAccountInput,
+  CloudAccountPatch,
   CreateServerRequest,
   DemoConfig,
   DnsRecordPatch,
   InfraOverview,
   ProviderAdapter,
   RawResponse,
+  RemoteCloudAccount,
   RemoteDomain,
   RemoteServer,
   RemoteWebspace,
   ServerRef,
 } from '../types';
+import { DemoCloud, demoCloudState, resetDemoCloud } from './cloud';
 import { DemoHosting, demoHostingState, resetDemoHosting } from './hosting';
 
 /**
@@ -139,6 +143,7 @@ export class DemoAdapter implements ProviderAdapter {
   readonly type = 'demo' as const;
   private readonly servers: Map<string, DemoServer>;
   private readonly hosting: DemoHosting;
+  private readonly cloud: DemoCloud;
 
   constructor(
     private readonly connectionId: string,
@@ -151,12 +156,14 @@ export class DemoAdapter implements ProviderAdapter {
     }
     this.servers = state;
     this.hosting = new DemoHosting(demoHostingState(connectionId));
+    this.cloud = new DemoCloud(demoCloudState(connectionId));
   }
 
   /** Test helper: forget all simulated state. */
   static reset() {
     STATE.clear();
     resetDemoHosting();
+    resetDemoCloud();
   }
 
   private generate(): Map<string, DemoServer> {
@@ -793,6 +800,40 @@ export class DemoAdapter implements ProviderAdapter {
 
   async getWebspaceCredentials(externalId: string): Promise<WebspaceCredentials> {
     return this.hosting.getWebspaceCredentials(externalId);
+  }
+
+  // --- Cloud storage (simulated Nextcloud) ----------------------------------------
+
+  async listCloudAccounts(): Promise<RemoteCloudAccount[]> {
+    return this.cloud.listCloudAccounts();
+  }
+
+  async getCloudAccount(externalId: string): Promise<RemoteCloudAccount> {
+    return this.cloud.getCloudAccount(externalId);
+  }
+
+  async createCloudAccount(input: CloudAccountInput): Promise<RemoteCloudAccount> {
+    return this.cloud.createCloudAccount(input);
+  }
+
+  async updateCloudAccount(externalId: string, patch: CloudAccountPatch): Promise<void> {
+    this.cloud.updateCloudAccount(externalId, patch);
+  }
+
+  async setCloudAccountPassword(externalId: string, password: string): Promise<void> {
+    this.cloud.setCloudAccountPassword(externalId, password);
+  }
+
+  async deleteCloudAccount(externalId: string): Promise<void> {
+    this.cloud.deleteCloudAccount(externalId);
+  }
+
+  async resendCloudInvite(externalId: string): Promise<void> {
+    this.cloud.resendCloudInvite(externalId);
+  }
+
+  cloudLoginUrl(): string {
+    return this.cloud.cloudLoginUrl();
   }
 
   async rawRequest(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse> {

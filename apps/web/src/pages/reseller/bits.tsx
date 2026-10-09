@@ -302,6 +302,8 @@ const BLOCKERS = [
   'servers',
   'domains',
   'webspaces',
+  'cloudAccounts',
+  'cloudAllowances',
   'invoices',
   'payments',
   'creditTransactions',

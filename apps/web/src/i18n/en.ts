@@ -3,12 +3,14 @@ import { billingEn } from './sections/billing.en';
 import { adminEn } from './sections/admin.en';
 import { hostingEn } from './sections/hosting.en';
 import { cloudEn } from './sections/cloud.en';
+import { storageEn } from './sections/storage.en';
 
 export const en: Record<TranslationKey, string> = {
   ...billingEn,
   ...adminEn,
   ...hostingEn,
   ...cloudEn,
+  ...storageEn,
   'common.actions': 'Actions',
   'common.add': 'Add',
   'common.cancel': 'Cancel',
