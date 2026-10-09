@@ -7,7 +7,7 @@ import type {
   DomainInfo,
   PowerAction,
 } from '@weblion/shared';
-import { AppError, ProviderError, badRequest, notFound, unsupported } from '../../lib/errors';
+import { AppError, ProviderError, badRequest, conflict, notFound, unsupported } from '../../lib/errors';
 import type {
   ActionResult,
   DnsRecordPatch,
@@ -95,6 +95,15 @@ function domainParam(externalId: string): string {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** DMAPI status "Object does not exist": result-retrieve has no result for the Proc-ID yet. */
+const NO_RESULT_YET = 2303;
+
+/** Whether result-retrieve itself answered "no result yet" (DmapiClient.call's error details). */
+function isNoResultYet(err: unknown): boolean {
+  if (!(err instanceof ProviderError) || err.upstreamStatus !== 200) return false;
+  return (err.details as { statusCode?: number | null } | undefined)?.statusCode === NO_RESULT_YET;
+}
 
 function procRef(res: DmapiResponse): string | null {
   return headerValue(res, 'Proc-ID');
@@ -276,19 +285,30 @@ export class JokerAdapter implements ProviderAdapter {
   }
 
   /**
-   * Renews up to a target year (expyear) instead of by a period: a repeated request cannot
-   * renew twice, Joker skips it once the domain runs until that year.
+   * Renews up to a target year (expyear) instead of by a period: Joker skips a renewal once
+   * the domain runs until that year. The year counts from `expiresAt`, the expiry the
+   * operator saw. If the whois shows another expiry year by now (the first request went
+   * through, but its answer got lost), nothing is sent: a repeated request would otherwise
+   * count from the new expiry and renew a second time.
    */
-  async renewDomain(externalId: string, years: number): Promise<ActionResult> {
+  async renewDomain(externalId: string, years: number, expiresAt?: string | null): Promise<ActionResult> {
     const domain = domainParam(externalId);
     if (!Number.isInteger(years) || years < 1 || years > 10) {
       throw badRequest('A renewal covers 1 to 10 years');
     }
+    const seenYear = expiresAt ? new Date(expiresAt).getUTCFullYear() : null;
+    if (Number.isNaN(seenYear)) throw badRequest(`Invalid expiry date "${expiresAt}"`);
     const whois = parseWhois((await this.client.call('query-whois', { domain })).body, domain);
     if (!whois.expiresAt) {
       throw new ProviderError(PROVIDER, `the expiry date of ${domain} is unknown, renewal not sent`);
     }
-    const expyear = new Date(whois.expiresAt).getUTCFullYear() + years;
+    const liveYear = new Date(whois.expiresAt).getUTCFullYear();
+    if (seenYear !== null && seenYear !== liveYear) {
+      throw conflict(
+        `${domain} expires on ${whois.expiresAt.slice(0, 10)} by now, not in ${seenYear}. It may have been renewed already: reload and check before renewing again.`,
+      );
+    }
+    const expyear = liveYear + years;
     const res = await this.client.call('domain-renew', { domain, expyear });
     return { providerRef: procRef(res), message: `Renewal until ${expyear} submitted` };
   }
@@ -307,12 +327,13 @@ export class JokerAdapter implements ProviderAdapter {
     };
     const deadline = Date.now() + this.authcodeWaitMs;
     for (;;) {
-      // Until the job is done result-retrieve may answer with a DMAPI error: keep waiting.
-      // Network and HTTP errors (e.g. a failed new login) are real failures.
+      // Until the job is done result-retrieve has no result for the Proc-ID: keep waiting.
+      // Any other DMAPI error, a failed new login (no Status-Code of result-retrieve) and
+      // network or HTTP errors are real failures, not "still generating".
       const result = await this.client
         .call('result-retrieve', { 'proc-id': procId })
         .then(parseAuthcodeResult, (err: unknown) => {
-          if (err instanceof ProviderError && err.upstreamStatus === 200) return null;
+          if (isNoResultYet(err)) return null;
           throw err;
         });
       if (result?.authcode) {

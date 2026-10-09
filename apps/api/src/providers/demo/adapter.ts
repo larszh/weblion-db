@@ -779,8 +779,8 @@ export class DemoAdapter implements ProviderAdapter {
     return this.hosting.setDomainAutoRenew(externalId, enabled);
   }
 
-  async renewDomain(externalId: string, years: number): Promise<ActionResult> {
-    return this.hosting.renewDomain(externalId, years);
+  async renewDomain(externalId: string, years: number, expiresAt?: string | null): Promise<ActionResult> {
+    return this.hosting.renewDomain(externalId, years, expiresAt);
   }
 
   async listWebspaces(): Promise<RemoteWebspace[]> {

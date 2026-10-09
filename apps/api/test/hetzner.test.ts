@@ -781,7 +781,9 @@ describe('Hetzner client', () => {
       'RateLimit-Reset': String(Math.floor(Date.now() / 1000) + 3600),
     };
     const before = mock.requests.length;
-    expect((await adapter.getServer(web)).externalId).toBe('42');
+    // A new adapter: server reads are shared for a few seconds.
+    const fresh = new HetznerAdapter({ apiToken: TOKEN, baseUrl: `${mock.url}/v1` });
+    expect((await fresh.getServer(web)).externalId).toBe('42');
     expect(countSince(before, (r) => r.path === '/v1/servers/42')).toBe(2);
   });
 
@@ -794,7 +796,8 @@ describe('Hetzner client', () => {
       'RateLimit-Reset': String(reset),
     };
     const before = mock.requests.length;
-    const err = (await adapter.getServer(web).catch((e: unknown) => e)) as ProviderError;
+    const fresh = new HetznerAdapter({ apiToken: TOKEN, baseUrl: `${mock.url}/v1` });
+    const err = (await fresh.getServer(web).catch((e: unknown) => e)) as ProviderError;
     expect(err.message).toContain('rate_limit_exceeded: Rate limit exceeded');
     expect(err.message).toContain('Hetzner allows 60 API requests per hour per project');
     expect(err.message).toContain(new Date(reset * 1000).toISOString());
@@ -1001,6 +1004,54 @@ describe('Hetzner power, metrics, tasks', () => {
     expect(taskPollInterval(30_000)).toBe(0);
     expect(taskPollInterval(5 * 60_000)).toBe(15_000);
     expect(taskPollInterval(30 * 60_000)).toBe(60_000);
+  });
+
+  it('shares polled reads per server for a few seconds, until an action or a finished task', async () => {
+    const fresh = new HetznerAdapter({ apiToken: TOKEN, baseUrl: `${mock.url}/v1` });
+    const reads = (before: number) => ({
+      server: countSince(before, (r) => r.method === 'GET' && r.path === '/v1/servers/42'),
+      tasks: countSince(before, (r) => r.method === 'GET' && r.path === '/v1/servers/42/actions'),
+      metrics: countSince(before, (r) => r.path === '/v1/servers/42/metrics'),
+    });
+    const view = () => Promise.all([fresh.getServer(web), fresh.listTasks(web)]);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const t0 = Date.parse('2026-10-08T10:00:00Z');
+      vi.setSystemTime(t0);
+      let before = mock.requests.length;
+      // Several viewers, or a script polling the API, cost one request per read.
+      for (let i = 0; i < 5; i++) {
+        await Promise.all([view(), fresh.getMetrics(web, 'hour'), fresh.getTraffic(web)]);
+      }
+      expect(reads(before)).toEqual({ server: 1, tasks: 1, metrics: 1 });
+      // Other servers and ranges are read on their own.
+      await fresh.getServer(db);
+      await fresh.getMetrics(web, 'day');
+      expect(countSince(before, (r) => r.path === '/v1/servers/43')).toBe(1);
+      expect(reads(before).metrics).toBe(2);
+
+      vi.setSystemTime(t0 + 16_000);
+      before = mock.requests.length;
+      await Promise.all([view(), fresh.getMetrics(web, 'hour')]);
+      expect(reads(before)).toEqual({ server: 1, tasks: 1, metrics: 0 });
+      vi.setSystemTime(t0 + 61_000);
+      await Promise.all([view(), fresh.getMetrics(web, 'hour')]);
+      expect(reads(before)).toEqual({ server: 2, tasks: 2, metrics: 1 });
+
+      // An action changes the server: the next view reads it anew.
+      before = mock.requests.length;
+      await fresh.power(web, 'start');
+      await view();
+      expect(reads(before)).toEqual({ server: 1, tasks: 1, metrics: 0 });
+      await view();
+      expect(reads(before)).toEqual({ server: 1, tasks: 1, metrics: 0 });
+      // So does a task the action tracker sees finish.
+      await fresh.getTaskStatus(web, '1002');
+      await view();
+      expect(reads(before)).toEqual({ server: 2, tasks: 2, metrics: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('opens the VNC console over the request_console websocket', async () => {

@@ -6,7 +6,7 @@ import type {
   WebspaceCredentials,
   WebspaceInfo,
 } from '@weblion/shared';
-import { badRequest, notFound } from '../../lib/errors';
+import { badRequest, conflict, notFound } from '../../lib/errors';
 import type { ActionResult, DnsRecordPatch, RemoteDomain, RemoteWebspace } from '../types';
 
 /**
@@ -373,9 +373,16 @@ export class DemoHosting {
     return this.done(enabled ? 'Auto-renew enabled' : 'Auto-renew disabled');
   }
 
-  /** Extends the registration from the current expiry by whole years. */
-  renewDomain(externalId: string, years: number): ActionResult {
+  /**
+   * Extends the registration from the current expiry by whole years. Like Joker, refuses when
+   * the expiry the operator saw is outdated (a renewal went through meanwhile).
+   */
+  renewDomain(externalId: string, years: number, expiresAt?: string | null): ActionResult {
     const info = this.domain(externalId).info;
+    const year = (date: string) => new Date(date).getUTCFullYear();
+    if (expiresAt && info.expiresAt && year(expiresAt) !== year(info.expiresAt)) {
+      throw conflict(`${info.name} expires on ${info.expiresAt.slice(0, 10)} by now, renewal not sent`);
+    }
     const until = info.expiresAt ? new Date(info.expiresAt) : new Date();
     until.setUTCFullYear(until.getUTCFullYear() + years);
     info.expiresAt = until.toISOString();

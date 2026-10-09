@@ -252,8 +252,10 @@ aus.
 - **ISO:** Zur Wahl stehen die öffentlichen ISOs von Hetzner mit passender Architektur.
   Private ISOs, die jemand ins Projekt hochgeladen hat, blendet die Console aus. Der Server
   bootet nach dem nächsten Neustart von der ISO.
-- **Reverse DNS:** Für die IPv4-Adresse des Servers und jede Adresse aus seinem IPv6-Netz
-  (/64). Ein leerer Name setzt den Eintrag auf den Standard von Hetzner zurück.
+- **Reverse DNS:** Für die Adressen, die der Tab Netzwerk zeigt: die IPv4-Adresse und die
+  erste Adresse des IPv6-Netzes (`::1`), jeweils mit einem Hostnamen. Weitere Adressen aus dem
+  /64 und das Zurücksetzen auf den Standard von Hetzner (`dns_ptr: null`) gehen nur über den
+  API Explorer im Admin-Bereich (`POST /servers/{id}/actions/change_dns_ptr`).
 - **Löschen:** Hetzner löscht auch laufende Server sofort und mit allen Daten. Lösch- und
   Rebuild-Schutz bei Hetzner beachtet die Console zusätzlich zum Schutz in der Console.
   Löschen ist wie bei Proxmox in der Standard-Grenze für Kunden nur für weblion.one
@@ -265,12 +267,16 @@ aus.
   Erstellen zurückgibt, reicht die Console nicht weiter. Ein Passwort setzt man danach in den
   Einstellungen des Servers (Root-Passwort zurücksetzen), dann sieht es nur, wer den Server
   bekommt.
-- **Rate-Limit:** Hetzner erlaubt 3600 Anfragen pro Stunde und Projekt. Der Sync holt alle
-  Server mit einer paginierten Liste (eine Anfrage pro 50 Server) und fragt nichts pro Server
-  nach. Server-Typen, Standorte und die Währung hält die Console 10 Minuten im Speicher.
-  Laufende Aktionen fragt sie umso seltener ab, je länger sie dauern. Antwortet Hetzner mit
-  429, versucht die Console es einmal neu, wenn das Limit innerhalb von 5 Sekunden wieder
-  frei ist, sonst kommt eine klare Fehlermeldung. `SYNC_INTERVAL_SECONDS` nicht zu tief
+- **Rate-Limit:** Hetzner erlaubt 3600 Anfragen pro Stunde und Projekt, für alle Kunden auf
+  derselben Verbindung zusammen. Der Sync holt alle Server mit einer paginierten Liste (eine
+  Anfrage pro 50 Server) und fragt nichts pro Server nach. Server-Typen, Standorte und die
+  Währung hält die Console 10 Minuten im Speicher. Was die Server-Ansicht abfragt (Details,
+  Traffic, Rohkonfiguration, Aktivität), hält sie pro Server 15 Sekunden, Graphen 60 Sekunden.
+  Weitere Betrachter oder ein Skript, das die API in einer Schleife abfragt, kosten so keine
+  zusätzlichen Anfragen. Nach einer Aktion und sobald eine Aktion fertig ist, liest die Console
+  den Server neu. Laufende Aktionen fragt sie umso seltener ab, je länger sie dauern. Antwortet
+  Hetzner mit 429, versucht die Console es einmal neu, wenn das Limit innerhalb von 5 Sekunden
+  wieder frei ist, sonst kommt eine klare Fehlermeldung. `SYNC_INTERVAL_SECONDS` nicht zu tief
   setzen, 120 Sekunden sind pro Projekt rund 30 Anfragen pro Stunde (bis 50 Server).
 
 ### Kosten
@@ -470,7 +476,10 @@ per API-Token mit Schreibrecht. In der Console: Domains & DNS > Domain > Übersi
   Vorlage "Joker-Nameserver" trägt `a.ns.joker.com`, `b.ns.joker.com` und `c.ns.joker.com` ein.
   Die Registry übernimmt die Änderung später, je nach Endung nach Minuten bis Stunden. Bis
   dahin zeigt die Console die bisherigen Nameserver, die neuen speichert sie nicht vorab.
-- **Transfersperre:** Die Console speichert den neuen Zustand sofort. Kennt eine Endung keine
+- **Transfersperre:** Die Console speichert den neuen Zustand sofort und zeigt ihn, bis Joker
+  ihn meldet. Solange `query-whois` und die Domainliste noch den alten Zustand zeigen, setzen
+  Detailansicht und Sync ihn nicht zurück, höchstens 30 Minuten lang. Danach gilt wieder, was
+  Joker meldet (z.B. wenn der Auftrag nicht durchging). Kennt eine Endung keine
   Transfersperre, lehnt Joker den Auftrag ab, und die Console zeigt die Meldung.
 
 Im Audit-Log stehen `domain.nameservers_update` und `domain.lock` bzw. `domain.unlock` mit
@@ -497,27 +506,34 @@ der Domain, Karte "Verlängerung" (Kunden sehen sie nicht).
 
 - **Automatische Verlängerung:** `domain-set-property` mit `pname=autorenew` und `pvalue=1`
   bzw. `0`. Joker verlängert die Domain dann vor dem Ablauf selbst. Die Console speichert die
-  Einstellung sofort.
+  Einstellung sofort und hält sie wie die Transfersperre, bis Joker sie meldet (höchstens 30
+  Minuten).
 - **Jetzt verlängern:** 1 bis 10 Jahre. Die Console liest zuerst das aktuelle Ablaufdatum per
   `query-whois` und sendet `domain-renew` mit `expyear` = Ablaufjahr plus Jahre, also ein
-  Zieljahr statt einer Laufzeit. Joker verlängert nur bis zu diesem Jahr, ein doppelter Klick
-  oder ein wiederholter Request verlängert deshalb nicht doppelt. Danach liest die Console die
-  Domain neu, damit das neue Ablaufdatum sichtbar ist.
+  Zieljahr statt einer Laufzeit. Joker verlängert nur bis zu diesem Jahr. Dazu schickt der
+  Dialog das Ablaufdatum mit, das er angezeigt hat. Zeigt `query-whois` inzwischen ein anderes
+  Ablaufjahr (der erste Auftrag ist durch, nur seine Antwort ging verloren), sendet die
+  Console nichts und antwortet mit 409. Ein doppelter Klick oder ein wiederholter Request
+  verlängert deshalb nicht doppelt. Danach liest die Console die Domain neu, damit das neue
+  Ablaufdatum sichtbar ist.
 
 Im Audit-Log stehen `domain.auto_renew` und `domain.renew`. Per API (nur mit Session):
 `POST /api/v1/admin/domains/<id>/auto-renew` mit `{"enabled": true}` und
-`POST /api/v1/admin/domains/<id>/renew` mit `{"years": 1}`. Dem Kunden stellt die Console
-Verlängerungen nicht automatisch in Rechnung, siehe
+`POST /api/v1/admin/domains/<id>/renew` mit `{"years": 1, "expiresAt": "<Ablaufdatum>"}`.
+`expiresAt` ist das Ablaufdatum, ab dem verlängert werden soll, ohne gilt das gespeicherte.
+Dem Kunden stellt die Console Verlängerungen nicht automatisch in Rechnung, siehe
 [billing.md](billing.md#domain-verlängerungen).
 
 ### Auth-Code
 
 Joker erzeugt den Auth-Code asynchron: `domain-transfer-get-auth-id` startet einen Auftrag mit
 Proc-ID, den Code liefert später `result-retrieve`. Die Console fragt bis zu rund 12 Sekunden
-nach. Ist der Code dann noch nicht da, meldet sie "Auth-Code wird erstellt" (409,
-`authcode_pending`). Der nächste Klick fragt denselben Auftrag erneut ab, statt einen neuen zu
-starten. Die Proc-ID merkt sich die Console 30 Minuten pro Domain, nur im Speicher des
-API-Prozesses. Nach einem Neustart startet der nächste Klick einen neuen Auftrag.
+nach. Hat Joker dann noch kein Ergebnis (Status 2303 "Object does not exist" oder
+Completion-Status `?`), meldet sie "Auth-Code wird erstellt" (409, `authcode_pending`). Jede
+andere Fehlermeldung von Joker, auch ein abgelehnter Login, kommt als Fehler an. Der nächste
+Klick fragt denselben Auftrag erneut ab, statt einen neuen zu starten. Die Proc-ID merkt sich
+die Console 30 Minuten pro Domain, nur im Speicher des API-Prozesses. Nach einem Neustart
+startet der nächste Klick einen neuen Auftrag.
 
 Wichtig: Jeder neue Auftrag erzeugt bei Joker einen neuen Code, ein früher abgerufener wird
 damit ungültig. Den Code also erst abrufen, wenn der neue Anbieter ihn braucht, und immer den

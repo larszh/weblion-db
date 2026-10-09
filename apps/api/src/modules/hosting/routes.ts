@@ -21,6 +21,7 @@ import type { ActionResult, DnsRecordPatch, ProviderAdapter } from '../../provid
 import { loadOrg } from '../orgs/routes';
 import { assertNoLinkedService } from '../reseller/service';
 import { dnsDataIssue, dnsRecordBody, dnsRecordPatchBody, nameserversBody } from './dns';
+import { pendingChanges, settlePending, type PendingField } from './pending';
 import {
   HOSTING_MODULES,
   dnsRecordTypes,
@@ -56,7 +57,16 @@ const adminListQuery = z.object({
 const assignBody = z.object({ orgId: z.uuid().nullable(), enableModule: z.boolean().default(true) });
 const lockBody = z.object({ locked: z.boolean() });
 const autoRenewBody = z.object({ enabled: z.boolean() });
-const renewBody = z.object({ years: z.number().int().min(1).max(10) });
+const renewBody = z.object({
+  years: z.number().int().min(1).max(10),
+  /** The expiry the operator saw. Without it the stored one counts (see renewDomain). */
+  expiresAt: z
+    .string()
+    .max(40)
+    .refine((v) => !Number.isNaN(Date.parse(v)), 'invalid date')
+    .nullable()
+    .optional(),
+});
 
 const like = (q: string) => `%${q.replace(/[%_]/g, '')}%`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -146,24 +156,39 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Live info from the provider, merged into and stored with what the panel knows. */
   async function refreshInfo(loaded: LoadedDomain): Promise<DomainInfo> {
     const live = await loaded.adapter.getDomain!(loaded.domain.externalId);
+    // A lock or auto-renew change the registrar has not applied yet is not undone.
+    const settled = settlePending(live, loaded.domain.meta);
     // Field by field: what the live call does not know (e.g. 24fire's renewal setting, which
     // only the sync sees) keeps its stored value.
-    const info = mergeDomainInfo(loaded.domain.name, loaded.domain.info, live);
+    const info = mergeDomainInfo(loaded.domain.name, loaded.domain.info, settled.info);
     await db
       .update(domains)
-      .set({ info, status: info.status, lastSyncedAt: new Date() })
+      .set({
+        info,
+        status: info.status,
+        lastSyncedAt: new Date(),
+        ...(settled.meta !== loaded.domain.meta ? { meta: settled.meta } : {}),
+      })
       .where(eq(domains.id, loaded.domain.id));
-    loaded.domain = { ...loaded.domain, info, status: info.status };
+    loaded.domain = { ...loaded.domain, info, meta: settled.meta, status: info.status };
     return info;
   }
 
-  /** Stores what a successful change implies, until the next sync or detail view confirms it. */
-  async function storeInfo(loaded: LoadedDomain, patch: Partial<DomainInfo>): Promise<void> {
+  /**
+   * Stores what a successful change implies. Registrars like Joker apply it later: until live
+   * data reports it (or PENDING_TTL_MS passed), detail views and the sync keep this value.
+   */
+  async function storeInfo(
+    loaded: LoadedDomain,
+    patch: Partial<Record<PendingField, boolean>>,
+  ): Promise<void> {
     const base = emptyDomainInfo(loaded.domain.name);
+    const pending = pendingChanges(patch);
     await db
       .update(domains)
       .set({
         info: sql`coalesce(${domains.info}, ${JSON.stringify(base)}::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+        meta: sql`${domains.meta} || jsonb_build_object('pending', coalesce(${domains.meta} -> 'pending', '{}'::jsonb) || ${JSON.stringify(pending)}::jsonb)`,
       })
       .where(eq(domains.id, loaded.domain.id));
   }
@@ -475,13 +500,18 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     await access.assert(req, 'platform:domain:write', platformScope);
     const loaded = await adminDomain(req);
     requireDomainCapability(loaded.adapter, 'renew', 'renewDomain', 'renewals');
-    const { years } = parse(renewBody, req.body);
+    const body = parse(renewBody, req.body);
+    const { years } = body;
+    // The renewal counts from the expiry the operator saw. A repeated request (lost answer,
+    // second click) still carries the old one, so the provider refuses instead of renewing
+    // from the new expiry a second time.
+    const expiresAt = body.expiresAt !== undefined ? body.expiresAt : (loaded.domain.info?.expiresAt ?? null);
     const result = await domainChange(
       req,
       loaded,
       'renew',
-      { years, expiresAtBefore: loaded.domain.info?.expiresAt ?? null },
-      () => loaded.adapter.renewDomain!(loaded.domain.externalId, years),
+      { years, expiresAtBefore: loaded.domain.info?.expiresAt ?? null, expiresAtSeen: expiresAt },
+      () => loaded.adapter.renewDomain!(loaded.domain.externalId, years, expiresAt),
     );
     // Best effort, so the inventory shows the new expiry; the sync catches up otherwise.
     if (loaded.adapter.getDomain) {

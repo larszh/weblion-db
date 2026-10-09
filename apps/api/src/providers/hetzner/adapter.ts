@@ -65,6 +65,14 @@ const POWER_ACTIONS = Object.keys(POWER) as PowerAction[];
 
 /** Server types, locations and the currency rarely change. Caching them saves rate limit. */
 const CATALOG_TTL_MS = 10 * 60_000;
+/**
+ * Server views poll details and activity every few seconds, graphs every 30 s, per viewer
+ * (and any API client as often as it likes). Their answers are shared per server for this
+ * long, so polling cannot use up the project's rate limit, which every customer on the
+ * connection shares. Actions on the server and finished tasks clear them.
+ */
+const SERVER_READ_TTL_MS = 15_000;
+const METRICS_TTL_MS = 60_000;
 
 const HOSTNAME = /^(?=.{1,63}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
 const RDNS_HOSTNAME = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -92,6 +100,37 @@ class Cached<T> {
   }
 }
 
+/** Values per key, each shared until its TTL is over. Failed loads are not kept. */
+class ReadCache {
+  private readonly entries = new Map<string, { at: number; value: Promise<unknown> }>();
+
+  get<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+    const now = Date.now();
+    const hit = this.entries.get(key);
+    if (hit && now - hit.at < ttlMs) return hit.value as Promise<T>;
+    if (this.entries.size >= 500) this.prune(now);
+    const value = load();
+    const entry = { at: now, value };
+    this.entries.set(key, entry);
+    value.catch(() => {
+      if (this.entries.get(key) === entry) this.entries.delete(key);
+    });
+    return value;
+  }
+
+  /** Forgets everything read for one server (keys start with "<server id>:"). */
+  forget(serverKey: string) {
+    for (const key of this.entries.keys()) if (key.startsWith(`${serverKey}:`)) this.entries.delete(key);
+  }
+
+  /** Drops what no TTL would serve anymore (the longest is METRICS_TTL_MS). */
+  private prune(now: number) {
+    for (const [key, entry] of this.entries) {
+      if (now - entry.at >= METRICS_TTL_MS) this.entries.delete(key);
+    }
+  }
+}
+
 export class HetznerAdapter implements ProviderAdapter {
   readonly type = 'hetzner' as const;
   readonly client: HetznerClient;
@@ -105,6 +144,8 @@ export class HetznerAdapter implements ProviderAdapter {
     string,
     { firstAt: number; checkedAt: number; task: ProviderTask }
   >();
+  /** Server details, activity and graphs for views, see SERVER_READ_TTL_MS. */
+  private readonly reads = new ReadCache();
   /** Hetzner bills in EUR. Read from /pricing anyway so a change would not go unnoticed. */
   private readonly currency = new Cached(() =>
     this.client
@@ -147,18 +188,29 @@ export class HetznerAdapter implements ProviderAdapter {
   // ---------------------------------------------------------------------------
   // Lookup helpers
 
+  /** The server as Hetzner has it right now, for checks before an action. */
   private async server(ref: ServerRef): Promise<HetznerServer> {
     const { server } = await this.client.get<{ server: HetznerServer }>(`/servers/${serverId(ref)}`);
     return server;
   }
 
+  /** The server for views, shared for a few seconds (see SERVER_READ_TTL_MS). */
+  private viewedServer(ref: ServerRef): Promise<HetznerServer> {
+    return this.reads.get(`${ref.externalId}:server`, SERVER_READ_TTL_MS, () => this.server(ref));
+  }
+
   /** Starts a server action. The answer carries the action plus extras (root_password, wss_url). */
-  private serverAction(
+  private async serverAction(
     ref: ServerRef,
     name: string,
     body?: Record<string, unknown>,
   ): Promise<{ action: HetznerAction } & Record<string, unknown>> {
-    return this.client.post(`/servers/${serverId(ref)}/actions/${name}`, body);
+    try {
+      return await this.client.post(`/servers/${serverId(ref)}/actions/${name}`, body);
+    } finally {
+      // The server changes: views read it anew.
+      this.reads.forget(ref.externalId);
+    }
   }
 
   /**
@@ -211,12 +263,16 @@ export class HetznerAdapter implements ProviderAdapter {
   }
 
   async getServer(ref: ServerRef): Promise<RemoteServer> {
-    return parseServer(await this.server(ref));
+    return parseServer(await this.viewedServer(ref));
   }
 
   async rename(ref: ServerRef, name: string): Promise<ActionResult> {
     if (!HOSTNAME.test(name)) return { message: 'Name kept locally (not a valid hostname for Hetzner)' };
-    await this.client.put(`/servers/${serverId(ref)}`, { name });
+    try {
+      await this.client.put(`/servers/${serverId(ref)}`, { name });
+    } finally {
+      this.reads.forget(ref.externalId);
+    }
     return { message: 'Renamed' };
   }
 
@@ -249,10 +305,16 @@ export class HetznerAdapter implements ProviderAdapter {
       const type = (await this.serverTypes.get()).find((t) => t.name === typeName);
       if (type) return num(type.cores);
     }
-    return num((await this.server(ref)).server_type?.cores);
+    return num((await this.viewedServer(ref)).server_type?.cores);
   }
 
-  async getMetrics(ref: ServerRef, range: MetricRange): Promise<MetricsResult> {
+  getMetrics(ref: ServerRef, range: MetricRange): Promise<MetricsResult> {
+    return this.reads.get(`${ref.externalId}:metrics:${range}`, METRICS_TTL_MS, () =>
+      this.loadMetrics(ref, range),
+    );
+  }
+
+  private async loadMetrics(ref: ServerRef, range: MetricRange): Promise<MetricsResult> {
     const step = metricStep(range);
     const end = new Date();
     const start = new Date(end.getTime() - RANGE_SECONDS[range] * 1000);
@@ -279,7 +341,7 @@ export class HetznerAdapter implements ProviderAdapter {
 
   /** Traffic of the current billing period. Only outgoing traffic counts against the quota. */
   async getTraffic(ref: ServerRef): Promise<TrafficInfo> {
-    const server = await this.server(ref);
+    const server = await this.viewedServer(ref);
     let included = num(server.included_traffic);
     if (!included) {
       // Hetzner moved the included traffic into the per location server type prices.
@@ -296,12 +358,14 @@ export class HetznerAdapter implements ProviderAdapter {
     };
   }
 
-  async listTasks(ref: ServerRef): Promise<ProviderTask[]> {
-    const { actions } = await this.client.get<{ actions?: HetznerAction[] }>(
-      `/servers/${serverId(ref)}/actions`,
-      { sort: 'id:desc', per_page: 25 },
-    );
-    return (actions ?? []).map(toTask);
+  listTasks(ref: ServerRef): Promise<ProviderTask[]> {
+    return this.reads.get(`${ref.externalId}:tasks`, SERVER_READ_TTL_MS, async () => {
+      const { actions } = await this.client.get<{ actions?: HetznerAction[] }>(
+        `/servers/${serverId(ref)}/actions`,
+        { sort: 'id:desc', per_page: 25 },
+      );
+      return (actions ?? []).map(toTask);
+    });
   }
 
   /**
@@ -331,6 +395,8 @@ export class HetznerAdapter implements ProviderAdapter {
       this.pruneRunningTasks(now);
     } else {
       this.runningTasks.delete(key);
+      // Done: details and activity of the server show the outcome on the next read.
+      this.reads.forget(ref.externalId);
     }
     return task;
   }
@@ -419,7 +485,7 @@ export class HetznerAdapter implements ProviderAdapter {
   // Configuration & lifecycle
 
   async getConfig(ref: ServerRef): Promise<Record<string, unknown>> {
-    return redactSecrets(await this.server(ref)) as unknown as Record<string, unknown>;
+    return redactSecrets(await this.viewedServer(ref)) as unknown as Record<string, unknown>;
   }
 
   /**
@@ -570,7 +636,9 @@ export class HetznerAdapter implements ProviderAdapter {
   async deleteServer(ref: ServerRef): Promise<ActionResult> {
     const server = await this.server(ref);
     if (server.protection?.delete) throw conflict('Delete protection is enabled for this server at Hetzner');
-    const res = await this.client.delete<{ action?: HetznerAction }>(`/servers/${server.id}`);
+    const res = await this.client
+      .delete<{ action?: HetznerAction }>(`/servers/${server.id}`)
+      .finally(() => this.reads.forget(ref.externalId));
     return { providerRef: res?.action ? String(res.action.id) : null, message: 'Deletion started' };
   }
 

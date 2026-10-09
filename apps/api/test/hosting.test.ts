@@ -23,6 +23,7 @@ import {
   webspaces,
 } from '../src/db/schema';
 import { hashPassword } from '../src/lib/crypto';
+import { PENDING_TTL_MS } from '../src/modules/hosting/pending';
 import { DemoAdapter } from '../src/providers/demo/adapter';
 import { demoHostingState } from '../src/providers/demo/hosting';
 import type { RemoteDomain } from '../src/providers/types';
@@ -661,6 +662,59 @@ describe('domain management', () => {
       state.domains.set('demo-dom-1', removed);
     }
   });
+
+  it('keeps a change the registrar applies later until the registrar reports it', async () => {
+    const id = domainId('muster-shop.ch');
+    const demo = await demoConnection();
+    const { externalId } = (await t.db.query.domains.findFirst({ where: eq(domains.id, id) }))!;
+    const registrar = demoHostingState(demo.id).domains.get(externalId)!.info;
+    const shown = async () => json<DomainDetailDto>(await anna.get(`/domains/${id}`)).info!;
+    const stored = () => storedDomain(externalId);
+    expect(registrar).toMatchObject({ locked: true, autoRenew: true });
+    // Like Joker: the jobs are accepted, whois and domain list keep the old state for a while.
+    const lock = vi
+      .spyOn(DemoAdapter.prototype, 'setDomainLock')
+      .mockResolvedValue({ providerRef: '9001', message: 'Transfer unlock requested' });
+    const autoRenew = vi
+      .spyOn(DemoAdapter.prototype, 'setDomainAutoRenew')
+      .mockResolvedValue({ providerRef: '9002', message: 'Auto-renew disabled' });
+    try {
+      expect((await put(anna, `/domains/${id}/lock`, { locked: false })).statusCode).toBe(200);
+      expect((await admin.post(`/admin/domains/${id}/auto-renew`, { enabled: false })).statusCode).toBe(200);
+      // The UI reloads the details right away, and a sync may run before the registrar is done.
+      expect(await shown()).toMatchObject({ locked: false, autoRenew: false });
+      await admin.post(`/admin/providers/${demo.id}/sync`);
+      expect((await stored()).info).toMatchObject({ locked: false, autoRenew: false });
+      expect(await shown()).toMatchObject({ locked: false, autoRenew: false });
+
+      // Done at the registrar: settled, from then on its state counts.
+      registrar.locked = false;
+      expect(await shown()).toMatchObject({ locked: false, autoRenew: false });
+      expect((await stored()).meta.pending).toEqual({ autoRenew: { value: false, at: expect.any(String) } });
+      registrar.autoRenew = false;
+      await admin.post(`/admin/providers/${demo.id}/sync`);
+      expect((await stored()).meta).not.toHaveProperty('pending');
+      registrar.locked = true;
+      registrar.autoRenew = true;
+      expect(await shown()).toMatchObject({ locked: true, autoRenew: true });
+
+      // A job that never goes through: after PENDING_TTL_MS the registrar's state counts again.
+      expect((await put(anna, `/domains/${id}/lock`, { locked: false })).statusCode).toBe(200);
+      expect((await shown()).locked).toBe(false);
+      const row = await stored();
+      const expired = new Date(Date.now() - PENDING_TTL_MS - 1000).toISOString();
+      await t.db
+        .update(domains)
+        .set({ meta: { ...row.meta, pending: { locked: { value: false, at: expired } } } })
+        .where(eq(domains.id, id));
+      expect((await shown()).locked).toBe(true);
+      expect((await stored()).meta).not.toHaveProperty('pending');
+    } finally {
+      lock.mockRestore();
+      autoRenew.mockRestore();
+      Object.assign(registrar, { locked: true, autoRenew: true });
+    }
+  });
 });
 
 describe('renewals', () => {
@@ -738,6 +792,33 @@ describe('renewals', () => {
       (await admin.post('/admin/domains/00000000-0000-4000-8000-000000000000/renew', { years: 1 }))
         .statusCode,
     ).toBe(404);
+  });
+
+  it('does not renew twice when a request is repeated with the expiry seen before', async () => {
+    const id = domainId('muster-shop.ch');
+    const expiry = async () =>
+      (await t.db.query.domains.findFirst({ where: eq(domains.id, id) }))!.info!.expiresAt;
+    const seen = (await expiry())!;
+    const first = await admin.post(`/admin/domains/${id}/renew`, { years: 1, expiresAt: seen });
+    expect(first.statusCode, first.body).toBe(200);
+    const renewed = await expiry();
+    expect(renewed).not.toBe(seen);
+
+    // The answer got lost and the dialog still shows the old expiry: nothing is renewed.
+    const again = await admin.post(`/admin/domains/${id}/renew`, { years: 1, expiresAt: seen });
+    expect(again.statusCode).toBe(409);
+    expect(json(again).error.message).toMatch(/by now/);
+    expect(await expiry()).toBe(renewed);
+    const entries = await auditEntries('domain.renew', id);
+    expect(entries.map((e) => e.status).sort()).toEqual(['failure', 'success']);
+    expect(entries.find((e) => e.status === 'failure')!.details).toMatchObject({ expiresAtSeen: seen });
+
+    // Without it the stored expiry counts, which the first renewal already moved on.
+    expect((await admin.post(`/admin/domains/${id}/renew`, { years: 1 })).statusCode).toBe(200);
+    for (const expiresAt of ['soon', 42]) {
+      const res = await admin.post(`/admin/domains/${id}/renew`, { years: 1, expiresAt });
+      expect(res.statusCode, String(expiresAt)).toBe(400);
+    }
   });
 });
 

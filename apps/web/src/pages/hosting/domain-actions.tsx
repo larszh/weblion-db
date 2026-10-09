@@ -168,7 +168,7 @@ export function RenewDialog({
             variant="primary"
             icon={<CalendarPlus className="size-4" />}
             loading={mutation.isPending}
-            onClick={() => mutation.mutate({ domainId: domain.id, years })}
+            onClick={() => mutation.mutate({ domainId: domain.id, years, expiresAt: domain.expiresAt })}
           >
             {t('hosting.renewal.confirm', { years: yearsLabel(years) })}
           </Button>

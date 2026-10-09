@@ -228,8 +228,12 @@ export interface ProviderAdapter {
   setDomainLock?(externalId: string, locked: boolean): Promise<ActionResult>;
   /** Charged to the provider account on expiry. Platform staff only. */
   setDomainAutoRenew?(externalId: string, enabled: boolean): Promise<ActionResult>;
-  /** Extends the registration by whole years, charged right away. Platform staff only. */
-  renewDomain?(externalId: string, years: number): Promise<ActionResult>;
+  /**
+   * Extends the registration by whole years, charged right away. Platform staff only.
+   * `expiresAt` is the expiry the renewal counts from, as the operator saw it: when the
+   * domain runs longer by now (a renewal went through meanwhile), nothing is sent (409).
+   */
+  renewDomain?(externalId: string, years: number, expiresAt?: string | null): Promise<ActionResult>;
 
   // Web spaces (module "webhosting"). Read only: providers offer no provisioning API.
   listWebspaces?(): Promise<RemoteWebspace[]>;

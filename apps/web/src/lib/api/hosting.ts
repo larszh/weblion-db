@@ -177,11 +177,18 @@ export const useSetAutoRenew = (options: DomainActionOptions<{ domainId: string;
     { ...options, invalidate: ({ domainId }) => domainEverywhere(domainId) },
   );
 
+export interface RenewVars {
+  domainId: string;
+  years: number;
+  /** The expiry shown in the dialog. The API refuses if the domain runs longer by now. */
+  expiresAt: string | null;
+}
+
 /** Platform staff only. Charged by the registrar right away. */
-export const useRenewDomain = (options: DomainActionOptions<{ domainId: string; years: number }>) =>
+export const useRenewDomain = (options: DomainActionOptions<RenewVars>) =>
   useApiMutation(
-    ({ domainId, years }: { domainId: string; years: number }) =>
-      api.post<DomainActionResult>(`/admin/domains/${domainId}/renew`, { years }),
+    ({ domainId, years, expiresAt }: RenewVars) =>
+      api.post<DomainActionResult>(`/admin/domains/${domainId}/renew`, { years, expiresAt }),
     { ...options, invalidate: ({ domainId }) => domainEverywhere(domainId) },
   );
 

@@ -11,6 +11,7 @@ import {
   webspaces,
   type ProviderConnection,
 } from '../db/schema';
+import { settlePending } from '../modules/hosting/pending';
 import { serverRef, type ProviderRegistry } from '../providers/registry';
 import type { ProviderAdapter, RemoteDomain, RemoteServer, RemoteWebspace } from '../providers/types';
 
@@ -89,9 +90,22 @@ export class SyncService {
   private async syncDomains(connection: ProviderConnection, adapter: ProviderAdapter): Promise<SyncCounts> {
     const remote: RemoteDomain[] = await adapter.listDomains!();
     const now = new Date();
+    // Lock and auto-renew changes the registrar has not applied yet: the list does not undo
+    // them, and the meta keeps them until it reports them (see settlePending).
+    const pendingRows = await this.db
+      .select({ externalId: domains.externalId, meta: domains.meta })
+      .from(domains)
+      .where(
+        and(eq(domains.providerConnectionId, connection.id), sql`${domains.meta} -> 'pending' is not null`),
+      );
+    const pending = new Map(pendingRows.map((r) => [r.externalId, r.meta.pending]));
     for (const domain of remote) {
+      const settled = pending.has(domain.externalId)
+        ? settlePending(domain.info ?? {}, { ...domain.meta, pending: pending.get(domain.externalId) })
+        : null;
+      const reported = settled && domain.info ? settled.info : domain.info;
       // Only the fields the provider reported overwrite what is stored (see RemoteDomain.info).
-      const known = domain.info ? knownFields(domain.info) : null;
+      const known = reported ? knownFields(reported) : null;
       const complete = known ? completeDomainInfo(domain, known) : null;
       await this.db
         .insert(domains)
@@ -101,7 +115,7 @@ export class SyncService {
           name: domain.name,
           status: domain.status,
           info: complete,
-          meta: domain.meta ?? {},
+          meta: settled?.meta ?? domain.meta ?? {},
           lastSyncedAt: now,
         })
         .onConflictDoUpdate({

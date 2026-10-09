@@ -925,15 +925,36 @@ describe('JokerAdapter', () => {
 
     it('renews up to a target year so a repeated request cannot renew twice', async () => {
       const a = adapter();
-      const result = await a.renewDomain('example.com', 2);
+      const seen = '2027-01-01T00:00:00.000Z';
+      const result = await a.renewDomain('example.com', 2, seen);
       expect(result).toEqual({ providerRef: '5000', message: 'Renewal until 2029 submitted' });
       const [renew] = requestsOf('domain-renew');
       expect(renew!.form.get('domain')).toBe('example.com');
       expect(renew!.form.get('expyear')).toBe('2029');
       expect(renew!.form.has('period')).toBe(false);
+      // Not applied yet: a repeat sends the same target year, which Joker skips.
+      await a.renewDomain('example.com', 2, seen);
+      expect(requestsOf('domain-renew').map((c) => c.form.get('expyear'))).toEqual(['2029', '2029']);
+
+      // Applied meanwhile, but the answer got lost and the dialog still shows 2027: counting
+      // from the new expiry would renew a second time, so nothing is sent.
+      const renewed = WHOIS_COM.replace('domain.expires: 20270101000000', 'domain.expires: 20290101000000');
+      sim.override = (call) => (call.request === 'query-whois' ? ok(renewed) : undefined);
+      const repeated = await caught(a.renewDomain('example.com', 2, seen));
+      expect(repeated.statusCode).toBe(409);
+      expect(repeated.message).toContain('expires on 2029-01-01 by now');
+      expect(requestsOf('domain-renew')).toHaveLength(2);
+      // From the expiry the operator sees now it goes through.
+      expect((await a.renewDomain('example.com', 1, '2029-01-01T00:00:00.000Z')).message).toBe(
+        'Renewal until 2030 submitted',
+      );
+      // Without the seen expiry (unknown to the operator) it counts from the whois.
+      expect((await a.renewDomain('example.com', 1)).message).toBe('Renewal until 2030 submitted');
+
       expect((await caught(a.renewDomain('example.com', 0))).statusCode).toBe(400);
       expect((await caught(a.renewDomain('example.com', 11))).statusCode).toBe(400);
-      expect(requestsOf('domain-renew')).toHaveLength(1);
+      expect((await caught(a.renewDomain('example.com', 1, 'soon'))).statusCode).toBe(400);
+      expect(requestsOf('domain-renew')).toHaveLength(4);
     });
   });
 
@@ -983,6 +1004,38 @@ describe('JokerAdapter', () => {
       expect(err).toBeInstanceOf(ProviderError);
       expect(err.message).toBe('Joker: result-retrieve failed: HTTP 503');
       expect(requestsOf('result-retrieve')).toHaveLength(1);
+    });
+
+    it('reports a failed new login and other DMAPI errors instead of a pending request', async () => {
+      const a = adapter();
+      sim.authcode = 'pending';
+      expect((await caught(a.getDomainAuthcode('example.com'))).statusCode).toBe(409);
+      // The session expired and the API key no longer works: the new login fails at HTTP 200.
+      sim.sessions.clear();
+      sim.override = (call) =>
+        call.request === 'login'
+          ? { text: reply({ 'Status-Code': '2400', 'Status-Text': 'Command failed' }) }
+          : undefined;
+      const login = await caught(a.getDomainAuthcode('example.com'));
+      expect(login).toBeInstanceOf(ProviderError);
+      expect(login.statusCode).toBe(502);
+      expect(login.message).toMatch(/login failed: Command failed .*Check the API key/);
+      expect(requestsOf('login')).toHaveLength(2);
+
+      sim.override = (call) =>
+        call.request === 'result-retrieve'
+          ? { text: reply({ 'Status-Code': '2202', 'Status-Text': 'Authorization error' }) }
+          : undefined;
+      const before = requestsOf('result-retrieve').length;
+      const refused = await caught(a.getDomainAuthcode('example.com'));
+      expect(refused.statusCode).toBe(502);
+      expect(refused.message).toBe('Joker: result-retrieve failed: Authorization error (status 2202)');
+      expect(requestsOf('result-retrieve')).toHaveLength(before + 1);
+      // Still the same request: once Joker answers again, the next try polls it.
+      sim.override = undefined;
+      sim.authcode = 'ready';
+      expect(await a.getDomainAuthcode('example.com')).toBe(AUTHCODE);
+      expect(requestsOf('domain-transfer-get-auth-id')).toHaveLength(1);
     });
 
     it('reports a refused request and starts over next time', async () => {
