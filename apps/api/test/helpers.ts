@@ -1,11 +1,12 @@
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import pino from 'pino';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { buildApp } from '../src/app';
 import { ensureBootstrapAdmin, syncEnvProviders } from '../src/bootstrap';
 import { loadEnv } from '../src/config/env';
 import { createDb, type Database } from '../src/db/client';
 import { runMigrations } from '../src/db/migrate';
+import { providerConnections } from '../src/db/schema';
 import { seedDemo } from '../src/db/seed';
 import { SecretBox } from '../src/lib/crypto';
 import { DemoAdapter } from '../src/providers/demo/adapter';
@@ -21,8 +22,13 @@ export interface TestApp {
   close: () => Promise<void>;
 }
 
+export interface TestAppOptions {
+  /** Extra environment variables, e.g. { ENABLE_DEMO_CLOUDFLARE: 'true' }. */
+  env?: Record<string, string>;
+}
+
 /** Fresh schema, migrations, bootstrap admin, demo provider synced and seeded. */
-export async function createTestApp(): Promise<TestApp> {
+export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const env = loadEnv({
     NODE_ENV: 'test',
     DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgres://weblion:weblion@localhost:5432/weblion_test',
@@ -33,6 +39,7 @@ export async function createTestApp(): Promise<TestApp> {
     ENABLE_DEMO_PROVIDER: 'true',
     LOG_LEVEL: 'fatal',
     LOGIN_RATE_LIMIT: '1000',
+    ...options.env,
   });
   const { db, pool } = createDb(env.DATABASE_URL);
   await db.execute(sql`drop schema if exists public cascade`);
@@ -45,7 +52,10 @@ export async function createTestApp(): Promise<TestApp> {
   const log = pino({ level: 'silent' });
   await ensureBootstrapAdmin(db, env, log);
   await syncEnvProviders(db, new SecretBox(env.ENCRYPTION_KEY), env, log);
-  const demo = await db.query.providerConnections.findFirst();
+  // The demo cloud; further demo connections (e.g. demo-cloudflare) are synced by the tests.
+  const demo = await db.query.providerConnections.findFirst({
+    where: eq(providerConnections.envKey, 'demo'),
+  });
   await ctx.sync.syncConnection(demo!);
   await seedDemo(db, DEMO_PASSWORD);
   await app.ready();

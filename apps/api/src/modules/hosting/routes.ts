@@ -7,32 +7,34 @@ import {
   type DnsRecordInput,
   type DomainDetailDto,
   type DomainInfo,
-  type ModuleKey,
   type Permission,
   type WebspaceDetailDto,
   type WebspaceInfo,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { platformScope, requireSession } from '../../auth/access';
-import { domains, organizations, webspaces, type Organization } from '../../db/schema';
-import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
+import { domains, organizations, webspaces } from '../../db/schema';
+import { badRequest, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
-import type { ActionResult, DnsRecordPatch, ProviderAdapter } from '../../providers/types';
+import type { ActionResult, DnsRecordPatch } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
 import { assertNoLinkedService } from '../reseller/service';
 import { dnsDataIssue, dnsRecordBody, dnsRecordPatchBody, nameserversBody } from './dns';
 import { pendingChanges, settlePending, type PendingField } from './pending';
 import {
   HOSTING_MODULES,
+  assertRecordType,
+  assignmentTarget,
   dnsRecordTypes,
   dnsWritable,
-  domainCapabilities,
+  domainChange,
   domainRowsQuery,
   domainScope,
   emptyDomainInfo,
   loadDomain,
   loadWebspace,
   mergeDomainInfo,
+  providerTtl,
   requireDomainCapability,
   requireSupport,
   toDomainDto,
@@ -81,24 +83,6 @@ function actionResponse(result: ActionResult) {
   return { ok: true as const, message: result.message ?? null, providerRef: result.providerRef ?? null };
 }
 
-/** 400 for record types the provider does not take when adding or changing records. */
-function assertRecordType(adapter: ProviderAdapter, type: string): void {
-  const accepted: string[] = dnsRecordTypes(adapter);
-  if (!accepted.includes(type.toUpperCase())) {
-    throw badRequest('Validation failed', [
-      { path: 'type', message: `${type} records cannot be added or changed at this provider` },
-    ]);
-  }
-}
-
-/** Providers without the "dnsTtl" capability never see a TTL. */
-function providerTtl<T extends { ttl?: number | null }>(adapter: ProviderAdapter, input: T): T {
-  if (domainCapabilities(adapter).includes('dnsTtl')) return input;
-  const copy = { ...input };
-  delete copy.ttl;
-  return copy;
-}
-
 /** Domains/DNS and web spaces (customer views and admin inventory). */
 export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db, access, audit } = ctx;
@@ -123,34 +107,6 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const [row] = await domainRowsQuery(ctx).where(eq(domains.id, id)).limit(1);
     if (!row) throw notFound('Domain');
     return { ...row, scope: domainScope(row.domain), adapter: ctx.providers.forConnection(row.connection) };
-  }
-
-  /** Runs a domain or DNS change at the provider and audits it, failures included. */
-  async function domainChange<T>(
-    req: FastifyRequest,
-    loaded: LoadedDomain,
-    action: string,
-    details: Record<string, unknown>,
-    fn: () => Promise<T>,
-  ): Promise<T> {
-    const entry = {
-      action: `domain.${action}`,
-      orgId: loaded.domain.orgId,
-      resourceType: 'domain',
-      resourceId: loaded.domain.id,
-    };
-    try {
-      const result = await fn();
-      await audit.record(req, { ...entry, details: { domain: loaded.domain.name, ...details } });
-      return result;
-    } catch (err) {
-      await audit.record(req, {
-        ...entry,
-        status: 'failure',
-        details: { domain: loaded.domain.name, ...details, error: errorMessage(err) },
-      });
-      throw err instanceof AppError ? err : new AppError(500, 'action_failed', errorMessage(err));
-    }
   }
 
   /** Live info from the provider, merged into and stored with what the panel knows. */
@@ -235,6 +191,9 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       liveError,
       dnsWritable: await dnsWritable(loaded.adapter),
       dnsRecordTypes: dnsRecordTypes(loaded.adapter),
+      // Registration and DNS zone of the same name link each other (Cloudflare, filled in later).
+      dnsZone: null,
+      registration: null,
     };
   });
 
@@ -262,8 +221,13 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const { nameservers } = parse(nameserversBody, req.body);
     const before = loaded.domain.info?.nameservers ?? [];
     // Not stored: the registry applies it later, the next detail view or sync shows it.
-    const result = await domainChange(req, loaded, 'nameservers_update', { before, after: nameservers }, () =>
-      loaded.adapter.setNameservers!(loaded.domain.externalId, nameservers),
+    const result = await domainChange(
+      ctx,
+      req,
+      loaded,
+      'nameservers_update',
+      { before, after: nameservers },
+      () => loaded.adapter.setNameservers!(loaded.domain.externalId, nameservers),
     );
     return actionResponse(result);
   });
@@ -273,6 +237,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     requireDomainCapability(loaded.adapter, 'lock', 'setDomainLock', 'transfer lock changes');
     const { locked } = parse(lockBody, req.body);
     const result = await domainChange(
+      ctx,
       req,
       loaded,
       locked ? 'lock' : 'unlock',
@@ -297,7 +262,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = parse(dnsRecordBody, req.body);
     assertRecordType(loaded.adapter, body.type);
     const input: DnsRecordInput = providerTtl(loaded.adapter, body);
-    const record = await domainChange(req, loaded, 'dns_add', { ...input }, () =>
+    const record = await domainChange(ctx, req, loaded, 'dns_add', { ...input }, () =>
       loaded.adapter.addDnsRecord!(loaded.domain.externalId, input),
     );
     // Providers that do not report the new record back: the client reloads the list.
@@ -322,7 +287,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       if (issue) throw badRequest('Validation failed', [{ path: 'data', message: issue }]);
     }
     const before = { type: current.type, name: current.name, data: current.data, ttl: current.ttl };
-    const record = await domainChange(req, loaded, 'dns_update', { recordId, before, ...patch }, () =>
+    const record = await domainChange(ctx, req, loaded, 'dns_update', { recordId, before, ...patch }, () =>
       loaded.adapter.updateDnsRecord!(loaded.domain.externalId, recordId, patch),
     );
     return record ?? { ok: true };
@@ -334,6 +299,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const { recordId } = parse(recordParams, req.params);
     const current = await findRecord(loaded, recordId);
     await domainChange(
+      ctx,
       req,
       loaded,
       'dns_delete',
@@ -399,31 +365,6 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // --- Admin inventory ------------------------------------------------------------
 
-  /**
-   * Target organization of an assignment. With `enableModule` the module is activated for
-   * it; a customer below a reseller can only get modules the reseller has itself.
-   */
-  async function assignTarget(
-    orgId: string,
-    module: ModuleKey,
-    enableModule: boolean,
-  ): Promise<{ org: Organization; enable: boolean }> {
-    const org = await db.query.organizations.findFirst({ where: eq(organizations.id, orgId) });
-    if (!org) throw notFound('Organization');
-    if (!enableModule) return { org, enable: false };
-    if (org.parentOrgId) {
-      const parent = await db.query.organizations.findFirst({
-        where: eq(organizations.id, org.parentOrgId),
-      });
-      if (parent && !parent.modules.includes(module)) {
-        throw conflict(
-          `The reseller "${parent.name}" does not have the module "${module}". Activate it for the reseller first.`,
-        );
-      }
-    }
-    return { org, enable: !org.modules.includes(module) };
-  }
-
   app.get('/admin/domains', async (req) => {
     await access.assert(req, 'platform:provider:read', platformScope);
     const query = parse(adminListQuery, req.query);
@@ -448,7 +389,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const current = await db.query.domains.findFirst({ where: eq(domains.id, id) });
     if (!current) throw notFound('Domain');
     const module = HOSTING_MODULES.domain;
-    const target = body.orgId ? await assignTarget(body.orgId, module, body.enableModule) : null;
+    const target = body.orgId ? await assignmentTarget(db, body.orgId, module, body.enableModule) : null;
     await db.transaction(async (tx) => {
       if (target?.enable) {
         await tx
@@ -485,6 +426,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     requireDomainCapability(loaded.adapter, 'autoRenew', 'setDomainAutoRenew', 'auto-renew');
     const { enabled } = parse(autoRenewBody, req.body);
     const result = await domainChange(
+      ctx,
       req,
       loaded,
       'auto_renew',
@@ -507,6 +449,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     // from the new expiry a second time.
     const expiresAt = body.expiresAt !== undefined ? body.expiresAt : (loaded.domain.info?.expiresAt ?? null);
     const result = await domainChange(
+      ctx,
       req,
       loaded,
       'renew',
@@ -548,7 +491,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const current = await db.query.webspaces.findFirst({ where: eq(webspaces.id, id) });
     if (!current) throw notFound('Web space');
     const module = HOSTING_MODULES.webspace;
-    const target = body.orgId ? await assignTarget(body.orgId, module, body.enableModule) : null;
+    const target = body.orgId ? await assignmentTarget(db, body.orgId, module, body.enableModule) : null;
     await db.transaction(async (tx) => {
       if (target?.enable) {
         await tx

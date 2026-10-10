@@ -511,6 +511,32 @@ export function quoteZone(value: string): string {
   return `"${value.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
 }
 
+/** Longest string a TXT record can carry in one piece (a DNS character-string), in bytes. */
+const TXT_STRING_MAX = 255;
+
+/**
+ * A TXT value as zone strings. Values longer than one DNS string (2048 bit DKIM keys have
+ * about 420 characters) become several quoted strings of at most 255 bytes, never split
+ * inside a character: "abc..." "def...". DNS joins them, and so does the zone reader.
+ */
+export function quoteZoneTxt(value: string): string {
+  const parts: string[] = [];
+  let part = '';
+  let bytes = 0;
+  for (const char of value) {
+    const size = Buffer.byteLength(char);
+    if (bytes + size > TXT_STRING_MAX) {
+      parts.push(part);
+      part = '';
+      bytes = 0;
+    }
+    part += char;
+    bytes += size;
+  }
+  parts.push(part);
+  return parts.map(quoteZone).join(' ');
+}
+
 /** A record line of a zone, with what the panel needs to rewrite it. */
 export interface ZoneEntry extends DnsRecord {
   /** Type as Joker names it (URL, FRAME, DYNA, ...). */
@@ -775,7 +801,7 @@ export function buildZoneLine(input: ZoneLineInput, tail = ''): string {
       return line(port(m[1]!, 'The priority'), host(m[2]!, 'The mail server'));
     }
     case 'TXT':
-      return line(0, quoteZone(data));
+      return line(0, quoteZoneTxt(data));
     case 'SRV': {
       const m = /^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$/.exec(data);
       if (!m)

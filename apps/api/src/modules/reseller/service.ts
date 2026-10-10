@@ -15,6 +15,7 @@ import {
   domains,
   invitations,
   invoices,
+  mailDomains,
   organizations,
   payments,
   projects,
@@ -40,6 +41,7 @@ export const RESOURCE_MODULES = {
   server: 'servers',
   domain: 'dns',
   webspace: 'webhosting',
+  maildomain: 'mail',
 } as const satisfies Record<string, ModuleKey>;
 
 /**
@@ -118,6 +120,7 @@ export interface DeleteBlockers {
   cloudAccounts: number;
   /** 0 or 1: a cloud storage allowance (Nextcloud accounts would lose their organization). */
   cloudAllowances: number;
+  mailDomains: number;
   invoices: number;
   payments: number;
   creditTransactions: number;
@@ -131,6 +134,7 @@ const BLOCKER_LABELS: Record<keyof DeleteBlockers, string> = {
   webspaces: 'web spaces',
   cloudAccounts: 'cloud accounts',
   cloudAllowances: 'cloud storage allowance',
+  mailDomains: 'mail domains',
   invoices: 'invoices',
   payments: 'payments',
   creditTransactions: 'credit transactions',
@@ -160,6 +164,7 @@ export async function deleteBlockers(db: DbOrTx, orgId: string): Promise<DeleteB
     cloudAllowances: n(
       await db.select({ n: count() }).from(cloudAllowances).where(eq(cloudAllowances.orgId, orgId)),
     ),
+    mailDomains: n(await db.select({ n: count() }).from(mailDomains).where(eq(mailDomains.orgId, orgId))),
     // Invoices it received and, for resellers, invoices it issued.
     invoices: n(
       await db

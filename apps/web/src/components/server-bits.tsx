@@ -128,6 +128,8 @@ const PROVIDER_STYLE: Record<ProviderType, string> = {
   hetzner: 'bg-[#fdecec] text-[#c81e1e] dark:bg-[#3a1515] dark:text-[#fca5a5]',
   joker: 'bg-[#eaf2fb] text-[#2f6aa3] dark:bg-[#132536] dark:text-[#93c5fd]',
   nextcloud: 'bg-[#e8f3fc] text-[#0068b4] dark:bg-[#10283b] dark:text-[#7cc4fa]',
+  cloudflare: 'bg-[#fef1e6] text-[#c2500a] dark:bg-[#3a2410] dark:text-[#fdba74]',
+  mailcow: 'bg-[#eef5ea] text-[#3f7d2b] dark:bg-[#18291a] dark:text-[#9fd58a]',
   demo: 'bg-info-soft text-[#0a8d90] dark:text-brand-teal',
 };
 
@@ -137,11 +139,17 @@ const PROVIDER_LABEL: Record<ProviderType, string> = {
   hetzner: 'Hetzner',
   joker: 'Joker',
   nextcloud: 'Nextcloud',
+  cloudflare: 'Cloudflare',
+  mailcow: 'Mailcow',
   demo: 'Demo',
 };
 
-/** Registrars (Joker.com) only have domains: keep them out of server pickers and filters. */
-export const providerHasServers = (type: ProviderType): boolean => type !== 'joker' && type !== 'nextcloud';
+/**
+ * Registrars (Joker.com) and DNS providers (Cloudflare) only have domains, Nextcloud and
+ * Mailcow only accounts and mail domains: keep them out of server pickers and filters.
+ */
+export const providerHasServers = (type: ProviderType): boolean =>
+  type !== 'joker' && type !== 'nextcloud' && type !== 'cloudflare' && type !== 'mailcow';
 
 export function ProviderBadge({
   type,

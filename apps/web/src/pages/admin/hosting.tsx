@@ -6,6 +6,7 @@ import {
   HardDrive,
   Layers,
   Link2,
+  Mail,
   MoreHorizontal,
   RefreshCw,
   RotateCw,
@@ -56,30 +57,36 @@ import {
   type RenewalTarget,
 } from '@/pages/hosting/domain-actions';
 import { AdminCloudTab, isCloudProvider } from './cloud';
+import { AdminMailTab, isMailProvider } from './mail';
 
-type Tab = 'domains' | 'webspaces' | 'cloud';
+type Tab = 'domains' | 'webspaces' | 'cloud' | 'mail';
 type Item = { type: 'domain'; row: DomainDto } | { type: 'webspace'; row: WebspaceDto };
 
 const MODULE_OF: Record<Item['type'], ModuleKey> = { domain: 'dns', webspace: 'webhosting' };
 
-/** Provider types that have domains or web spaces. Proxmox has neither, Joker.com only domains. */
-const HOSTING_PROVIDERS = new Set(['fire24', 'joker', 'demo']);
+/**
+ * Provider types that have domains or web spaces. Proxmox has neither, Joker.com only
+ * domains, Cloudflare only DNS zones.
+ */
+const HOSTING_PROVIDERS = new Set(['fire24', 'joker', 'cloudflare', 'demo']);
 
 export function AdminHostingPage() {
   const { t } = useI18n();
   const me = useMe();
   const [params, setParams] = useSearchParams();
   const tabParam = params.get('tab');
-  const tab: Tab = tabParam === 'webspaces' || tabParam === 'cloud' ? tabParam : 'domains';
+  const tab: Tab =
+    tabParam === 'webspaces' || tabParam === 'cloud' || tabParam === 'mail' ? tabParam : 'domains';
   const assignedParam = params.get('assigned');
   const assigned = assignedParam === 'true' || assignedParam === 'false' ? assignedParam : undefined;
   const providerId = params.get('provider') ?? undefined;
   const [q, setQ] = useState('');
   const filters: AdminHostingFilters = { q: q.trim() || undefined, assigned, providerId };
   const providers = useAdminProviders();
-  // The sync button covers what the tab shows: cloud instances on the cloud tab.
+  // The sync button covers what the tab shows: cloud instances on the cloud tab, mail
+  // servers on the mail tab.
   const hostingProviders = (providers.data ?? []).filter((p) =>
-    tab === 'cloud' ? isCloudProvider(p) : HOSTING_PROVIDERS.has(p.type),
+    tab === 'cloud' ? isCloudProvider(p) : tab === 'mail' ? isMailProvider(p) : HOSTING_PROVIDERS.has(p.type),
   );
   const perms = me.data?.platformPermissions ?? [];
   const canAssign = perms.includes('platform:server:assign');
@@ -90,11 +97,13 @@ export function AdminHostingPage() {
           seen: r.cloudAccounts?.seen ?? 0,
           missing: r.cloudAccounts?.missing ?? 0,
         })
-      : t('hosting.admin.synced', {
-          domains: r.domains?.seen ?? 0,
-          webspaces: r.webspaces?.seen ?? 0,
-          servers: r.seen,
-        }),
+      : tab === 'mail'
+        ? t('mail.admin.synced', { seen: r.mailDomains?.seen ?? 0, missing: r.mailDomains?.missing ?? 0 })
+        : t('hosting.admin.synced', {
+            domains: r.domains?.seen ?? 0,
+            webspaces: r.webspaces?.seen ?? 0,
+            servers: r.seen,
+          }),
   );
 
   const set = (key: string, value: string) => {
@@ -149,6 +158,7 @@ export function AdminHostingPage() {
               ['domains', 'hosting.admin.tab.domains', <Globe key="d" className="size-4" />],
               ['webspaces', 'hosting.admin.tab.webspaces', <Layers key="w" className="size-4" />],
               ['cloud', 'storage.admin.tab', <HardDrive key="c" className="size-4" />],
+              ['mail', 'mail.admin.tab', <Mail key="m" className="size-4" />],
             ] as const
           ).map(([value, label, icon]) => (
             <button
@@ -172,6 +182,8 @@ export function AdminHostingPage() {
 
       {tab === 'cloud' ? (
         <AdminCloudTab />
+      ) : tab === 'mail' ? (
+        <AdminMailTab />
       ) : (
         <>
           <Notice tone="info" className="mb-4">

@@ -23,6 +23,7 @@ import type {
   DomainInfo,
   InvoiceIssuerSettings,
   InvoiceStatus,
+  MailDomainInfo,
   ModuleKey,
   PaymentMethod,
   PaymentProvider,
@@ -343,6 +344,8 @@ export const domains = pgTable(
   (t) => [
     uniqueIndex('domains_provider_external_idx').on(t.providerConnectionId, t.externalId),
     index('domains_org_idx').on(t.orgId),
+    // Registration and DNS zone of the same name at different providers (Cloudflare).
+    index('domains_name_lower_idx').on(sql`lower(${t.name})`),
   ],
 );
 
@@ -413,6 +416,36 @@ export const cloudAccounts = pgTable(
   (t) => [
     uniqueIndex('cloud_accounts_provider_external_idx').on(t.providerConnectionId, t.externalId),
     index('cloud_accounts_org_idx').on(t.orgId),
+  ],
+);
+
+// --- E-mail (Mailcow) ----------------------------------------------------------------
+
+/** A mail domain at a Mailcow server, synced like domains. Mailboxes and aliases are read live. */
+export const mailDomains = pgTable(
+  'mail_domains',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** ASCII (punycode) domain name as Mailcow stores it, e.g. "xn--mller-kva.ch". */
+    externalId: text('external_id').notNull(),
+    /** Organization the mail domain is assigned to, null = not assigned yet. */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    /** Unicode name for display, e.g. "müller.ch". */
+    name: text('name').notNull(),
+    active: boolean('active').notNull().default(true),
+    /** Limits and usage as last read from Mailcow. */
+    info: jsonb('info').$type<MailDomainInfo>(),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('mail_domains_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('mail_domains_org_idx').on(t.orgId),
   ],
 );
 
@@ -657,3 +690,4 @@ export type Payment = typeof payments.$inferSelect;
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
 export type CloudAllowance = typeof cloudAllowances.$inferSelect;
 export type CloudAccount = typeof cloudAccounts.$inferSelect;
+export type MailDomain = typeof mailDomains.$inferSelect;

@@ -4,6 +4,8 @@ import { adminEn } from './sections/admin.en';
 import { hostingEn } from './sections/hosting.en';
 import { cloudEn } from './sections/cloud.en';
 import { storageEn } from './sections/storage.en';
+import { cloudflareEn } from './sections/cloudflare.en';
+import { mailEn } from './sections/mail.en';
 
 export const en: Record<TranslationKey, string> = {
   ...billingEn,
@@ -11,6 +13,8 @@ export const en: Record<TranslationKey, string> = {
   ...hostingEn,
   ...cloudEn,
   ...storageEn,
+  ...cloudflareEn,
+  ...mailEn,
   'common.actions': 'Actions',
   'common.add': 'Add',
   'common.cancel': 'Cancel',

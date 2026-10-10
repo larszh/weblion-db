@@ -19,6 +19,7 @@ import {
   cloudAccounts,
   cloudAllowances,
   domains,
+  mailDomains,
   memberships,
   organizations,
   projects,
@@ -35,12 +36,15 @@ import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
+import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
 import type {
+  CloudflareConfig,
   CreateServerRequest,
   DemoConfig,
   Fire24Config,
   HetznerConfig,
   JokerConfig,
+  MailcowConfig,
   NextcloudConfig,
   ProviderConfig,
   ProxmoxConfig,
@@ -103,9 +107,38 @@ const jokerConfigSchema = z
     message: 'Either an API key or username and password are required',
     path: ['apiKey'],
   });
+const cloudflareConfigSchema = z.object({
+  apiToken: z.string().trim().min(20).max(500),
+  baseUrl: z.url().default(CLOUDFLARE_DEFAULT_BASE_URL),
+  accountId: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[0-9a-f]{32}$/, 'expected the 32 character account id')
+    .optional(),
+});
+/** Mailcow only accepts keys of a-z, A-Z, 0-9 and "-" (it strips everything else). */
+const mailcowConfigSchema = z.object({
+  baseUrl: z.url(),
+  apiKey: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9-]{16,255}$/, 'letters, digits and "-" only, at least 16 characters'),
+  mailHost: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
+      'a host name, e.g. mail.weblion.one',
+    )
+    .optional(),
+});
 const demoConfigSchema = z.object({
   seed: z.number().int().optional(),
   servers: z.number().int().min(1).max(50).optional(),
+  /** "cloudflare": the connection simulates a Cloudflare account instead of the demo cloud. */
+  flavor: z.enum(['cloudflare']).optional(),
 });
 
 function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
@@ -120,6 +153,10 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(jokerConfigSchema, raw) as JokerConfig;
     case 'nextcloud':
       return parse(nextcloudConfigSchema, raw) as NextcloudConfig;
+    case 'cloudflare':
+      return parse(cloudflareConfigSchema, raw) as CloudflareConfig;
+    case 'mailcow':
+      return parse(mailcowConfigSchema, raw) as MailcowConfig;
     case 'demo':
       return parse(demoConfigSchema, raw ?? {}) as DemoConfig;
   }
@@ -164,12 +201,32 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         ...(c.groupPrefix ? { groupPrefix: c.groupPrefix } : {}),
       };
     }
-    case 'demo':
-      return { servers: String((config as DemoConfig).servers ?? 6) };
+    case 'cloudflare': {
+      const c = config as CloudflareConfig;
+      return {
+        baseUrl: c.baseUrl,
+        apiToken: `${c.apiToken.slice(0, 4)}…${c.apiToken.slice(-3)}`,
+        ...(c.accountId ? { accountId: c.accountId } : {}),
+      };
+    }
+    case 'mailcow': {
+      const c = config as MailcowConfig;
+      return {
+        baseUrl: c.baseUrl,
+        // The key is admin access to the mail server: not even a part of it leaves.
+        apiKey: '••••••',
+        ...(c.mailHost ? { mailHost: c.mailHost } : {}),
+      };
+    }
+    case 'demo': {
+      const c = config as DemoConfig;
+      return c.flavor ? { flavor: c.flavor } : { servers: String(c.servers ?? 6) };
+    }
   }
 }
 
-const SECRET_KEY = /passw(or)?d|secret|token|auth_?code|api_?key/i;
+/** Keys whose values never reach the audit log (Mailcow's DKIM import sends private_key_file). */
+const SECRET_KEY = /passw(or)?d|secret|token|auth_?code|api_?key|priv(ate)?_?key/i;
 
 /**
  * An explorer request as it is audited: values of password-like keys blanked, including the
@@ -469,6 +526,13 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       throw conflict(
         'Remove the cloud storage allowances on this instance and unassign or delete its cloud accounts first',
       );
+    }
+    const [assignedMailDomains] = await db
+      .select({ n: count() })
+      .from(mailDomains)
+      .where(and(eq(mailDomains.providerConnectionId, id), isNotNull(mailDomains.orgId)));
+    if ((assignedMailDomains?.n ?? 0) > 0) {
+      throw conflict('Unassign all mail domains of this provider first');
     }
     await db.delete(providerConnections).where(eq(providerConnections.id, id));
     providers.invalidate(id);
@@ -1201,7 +1265,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = parse(
       z.object({
         providerId: z.uuid(),
-        method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
         path: z.string().min(1).max(500),
         body: z.record(z.string(), z.unknown()).optional(),
       }),

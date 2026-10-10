@@ -27,7 +27,7 @@ import type {
   WebspaceCredentials,
   WebspaceInfo,
 } from '@weblion/shared';
-import { DNS_RECORD_TYPES, DOMAIN_CAPABILITIES } from '@weblion/shared';
+import { DNS_RECORD_TYPES, REGISTRAR_CAPABILITIES } from '@weblion/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import type {
   ActionResult,
@@ -46,7 +46,9 @@ import type {
   ServerRef,
 } from '../types';
 import { DemoCloud, demoCloudState, resetDemoCloud } from './cloud';
+import { resetDemoCloudflare } from './cloudflare';
 import { DemoHosting, demoHostingState, resetDemoHosting } from './hosting';
+import { resetDemoMail } from './mail';
 
 /**
  * Simulated provider for local development, UI work and automated tests.
@@ -164,6 +166,8 @@ export class DemoAdapter implements ProviderAdapter {
     STATE.clear();
     resetDemoHosting();
     resetDemoCloud();
+    resetDemoCloudflare();
+    resetDemoMail();
   }
 
   private generate(): Map<string, DemoServer> {
@@ -733,9 +737,9 @@ export class DemoAdapter implements ProviderAdapter {
 
   // --- Domains & web spaces -------------------------------------------------------
 
-  /** Everything, so the dev stack shows every domain feature. */
+  /** Every registrar feature, so the dev stack shows them all (proxy and CDN are Cloudflare's). */
   domainCapabilities(): DomainCapability[] {
-    return [...DOMAIN_CAPABILITIES];
+    return [...REGISTRAR_CAPABILITIES];
   }
 
   dnsRecordTypes(): DnsRecordType[] {

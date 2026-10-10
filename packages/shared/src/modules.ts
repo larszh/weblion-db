@@ -8,7 +8,7 @@ import type { PolicyStatement } from './policy';
  * its reseller. Platform staff still see everything. Core areas (members, policies, API
  * tokens, audit log, settings, billing) are always available and not modules.
  */
-export const MODULES = ['servers', 'dns', 'webhosting', 'storage'] as const;
+export const MODULES = ['servers', 'dns', 'webhosting', 'storage', 'mail'] as const;
 export type ModuleKey = (typeof MODULES)[number];
 
 export interface ModuleDef {
@@ -30,8 +30,8 @@ export const MODULE_DEFS: Record<ModuleKey, ModuleDef> = {
   dns: {
     label: { de: 'Domains & DNS', en: 'Domains & DNS' },
     description: {
-      de: 'Domains ansehen und DNS-Einträge verwalten.',
-      en: 'View domains and manage DNS records.',
+      de: 'Domains ansehen, DNS-Einträge verwalten und CDN-Einstellungen (Cloudflare) ändern.',
+      en: 'View domains, manage DNS records and change CDN settings (Cloudflare).',
     },
     actions: ['domain:*'],
   },
@@ -50,6 +50,14 @@ export const MODULE_DEFS: Record<ModuleKey, ModuleDef> = {
       en: 'Nextcloud accounts for files, calendars and contacts, with a storage allowance.',
     },
     actions: ['cloud:*'],
+  },
+  mail: {
+    label: { de: 'E-Mail', en: 'E-mail' },
+    description: {
+      de: 'E-Mail-Domains mit Postfächern und Weiterleitungen (Mailcow), mit Webmail, IMAP und SMTP.',
+      en: 'E-mail domains with mailboxes and forwarding (Mailcow), with webmail, IMAP and SMTP.',
+    },
+    actions: ['mail:*'],
   },
 };
 

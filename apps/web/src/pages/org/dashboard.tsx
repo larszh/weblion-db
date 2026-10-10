@@ -9,6 +9,7 @@ import {
   Globe,
   HardDrive,
   Layers,
+  Mail,
   PackageX,
   Plus,
   Server,
@@ -39,6 +40,7 @@ import { Flag, StatusDot } from '@/components/server-bits';
 import { DomainStatusBadge, ExpiryText } from '@/pages/hosting/bits';
 import { ModuleBadges, StatusBadge } from '@/pages/reseller/bits';
 import { formatQuota } from '@/pages/cloud/bits';
+import { MailCard } from '@/pages/mail/dashboard-card';
 import { ProjectDialog } from './projects';
 import { ActivityList } from './audit';
 
@@ -310,6 +312,7 @@ export function OrgDashboard() {
   const showDomains = hasModule('dns') && can('domain:read');
   const showWebspaces = hasModule('webhosting') && can('webspace:read');
   const showCloud = hasModule('storage') && can('cloud:read');
+  const showMail = hasModule('mail') && can('mail:read');
   const showCustomers = org.kind === 'reseller' && can('reseller:customer:read');
   const projects = useProjects(hasServers ? org.id : undefined);
   const servers = useServers(hasServers ? org.id : undefined);
@@ -343,7 +346,8 @@ export function OrgDashboard() {
   ) : null;
 
   // Servers only: the classic tiles. With more modules one tile per service instead.
-  const serversOnly = hasServers && !showDomains && !showWebspaces && !showCloud && !showCustomers;
+  const serversOnly =
+    hasServers && !showDomains && !showWebspaces && !showCloud && !showMail && !showCustomers;
   const tiles: ReactNode[] = serversOnly
     ? [
         <StatTile
@@ -420,6 +424,16 @@ export function OrgDashboard() {
             }
             tone="bg-primary-soft text-primary-text"
             to={`${base}/cloud`}
+          />
+        ),
+        showMail && (
+          <StatTile
+            key="mail"
+            icon={<Mail />}
+            label={t('admin.resources.mailDomains')}
+            value={counts?.mailDomains ?? '–'}
+            tone="bg-primary-soft text-primary-text"
+            to={`${base}/mail`}
           />
         ),
         showCustomers && (
@@ -540,6 +554,8 @@ export function OrgDashboard() {
             </div>
           )}
 
+          {showMail && <MailCard />}
+
           {list.length > 0 && (
             <Card>
               <CardHeader title={t('dashboard.locations')} />
@@ -557,7 +573,7 @@ export function OrgDashboard() {
             </Card>
           )}
 
-          {!hasServers && !showDomains && !showWebspaces && !showCustomers && (
+          {!hasServers && !showDomains && !showWebspaces && !showMail && !showCustomers && (
             <Card>
               <EmptyState
                 icon={<PackageX className="size-6" />}

@@ -86,7 +86,9 @@ export async function seedResellerDemo(db: Database, log: string[], passwordHash
     .from(servers)
     .innerJoin(projects, eq(projects.id, servers.projectId))
     .where(eq(projects.orgId, huber.id));
-  const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.type, 'demo') });
+  const demo = await db.query.providerConnections.findFirst({
+    where: eq(providerConnections.envKey, 'demo'),
+  });
   if (demo && (held?.n ?? 0) === 0) {
     const [free] = await db
       .select()

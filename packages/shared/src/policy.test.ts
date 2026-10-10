@@ -133,13 +133,23 @@ describe('validation', () => {
       'project/abc/*',
       'project/*/server/*',
       'member/u1',
+      'maildomain/abc',
+      'maildomain/*',
     ]) {
       expect(isValidResourcePattern(p), p).toBe(true);
     }
   });
 
   it('rejects malformed resource patterns', () => {
-    for (const p of ['', 'server/abc', 'project/abc/foo', 'member/u1/server/x', 'project/a b']) {
+    for (const p of [
+      '',
+      'server/abc',
+      'project/abc/foo',
+      'member/u1/server/x',
+      'project/a b',
+      'maildomain',
+      'maildomain/abc/x',
+    ]) {
       expect(isValidResourcePattern(p), p).toBe(false);
     }
   });

@@ -4,7 +4,7 @@ import {
   DEFAULT_CUSTOMER_BOUNDARY,
   DEFAULT_RESELLER_BOUNDARY,
   DNS_RECORD_TYPES,
-  DOMAIN_CAPABILITIES,
+  REGISTRAR_CAPABILITIES,
   type DnsRecord,
   type DomainDetailDto,
   type DomainDto,
@@ -499,7 +499,7 @@ describe('domain management', () => {
   it('reports the provider’s features and the registrar facts', async () => {
     const id = domainId('muster-shop.ch');
     const detail = json<DomainDetailDto>(await anna.get(`/domains/${id}`));
-    expect(detail.capabilities).toEqual([...DOMAIN_CAPABILITIES]);
+    expect(detail.capabilities).toEqual([...REGISTRAR_CAPABILITIES]);
     expect(detail.dnsRecordTypes).toEqual([...DNS_RECORD_TYPES]);
     expect(detail.info).toMatchObject({
       nameservers: ['ana.ns.cloudflare.com', 'bob.ns.cloudflare.com'],
@@ -517,7 +517,7 @@ describe('domain management', () => {
       'domain:dns:write',
     ]);
     const all = json<DomainDto[]>(await admin.get('/admin/domains'));
-    for (const row of all) expect(row.capabilities, row.name).toEqual([...DOMAIN_CAPABILITIES]);
+    for (const row of all) expect(row.capabilities, row.name).toEqual([...REGISTRAR_CAPABILITIES]);
   });
 
   it('merges live details into the stored info field by field', async () => {

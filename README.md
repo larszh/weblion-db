@@ -122,7 +122,7 @@ Demo-Benutzer, Passwort `demo-password-123`:
 | `reseller@alpen.example` | Owner des Resellers Alpen Hosting |
 | `huber@baeckerei.example` | Owner von Bäckerei Huber (Kunde von Alpen Hosting) |
 
-## Zugangsdaten (24fire, Proxmox, Hetzner Cloud, Joker.com, Nextcloud)
+## Zugangsdaten (24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud, Mailcow)
 
 Zugangsdaten gehören **nicht** ins Git-Repo, auch nicht in ein privates. Sie kommen aus
 Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start verschlüsselt
@@ -141,10 +141,15 @@ Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start v
 | `NEXTCLOUD_URL` | Adresse der eigenen Nextcloud-Instanz, z.B. `https://cloud.weblion.one` |
 | `NEXTCLOUD_USER` | Admin-Konto der Console in Nextcloud (Mitglied der Gruppe `admin`) |
 | `NEXTCLOUD_APP_PASSWORD` | App-Passwort dieses Kontos (in Anführungszeichen) |
+| `CLOUDFLARE_API_TOKEN` | API-Token (kein Global API Key) mit Zone:Edit, DNS:Edit, Zone Settings:Edit und Cache Purge:Purge für alle Zonen des Kontos |
+| `CLOUDFLARE_ACCOUNT_ID` | optional, Konto-ID (32 Zeichen), nötig zum Anlegen von Zonen (DNS-Umzug zu Cloudflare) |
+| `MAILCOW_URL` | Adresse der eigenen Mailcow-Instanz, z.B. `https://mail.weblion.one` |
+| `MAILCOW_API_KEY` | API-Key mit Lese- und Schreibzugriff (in Anführungszeichen), die IPs der Console in seiner Allow-List |
+| `MAILCOW_MAIL_HOST` | optional, öffentlicher Name des Mailservers (MX, IMAP, SMTP, Webmail), Standard: Host aus `MAILCOW_URL` |
 | `ENCRYPTION_KEY` | `openssl rand -base64 32`, gut aufbewahren |
 
-Weitere Provider (z.B. weitere Hetzner-Projekte oder Nextcloud-Instanzen) lassen sich im
-Admin-Bereich hinzufügen. Details, Hinweise zum Proxmox- und Hetzner-Token, zum
+Weitere Provider (z.B. weitere Hetzner-Projekte, Cloudflare-Konten, Nextcloud- oder
+Mailcow-Instanzen) lassen sich im Admin-Bereich hinzufügen. Details, Hinweise zum Proxmox- und Hetzner-Token, zum
 Joker-Reseller-Konto und zum Nextcloud-Admin-Konto in [docs/providers.md](docs/providers.md).
 
 Für E-Mail (SMTP), Stripe/TWINT und Zoho Books kommen weitere Variablen dazu, alle in

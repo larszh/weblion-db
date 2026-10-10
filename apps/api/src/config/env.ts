@@ -65,12 +65,30 @@ const EnvSchema = z.object({
   NEXTCLOUD_COUNTRY: z.string().default('CH'),
   NEXTCLOUD_CITY: z.string().default('Zürich'),
 
+  // Mailcow (e-mail). A read-write API key; the console's IPs must be on the key's allow list.
+  MAILCOW_URL: optionalString,
+  MAILCOW_API_KEY: optionalString,
+  /** Public host name for MX, IMAP, SMTP and webmail. Default: host of MAILCOW_URL. */
+  MAILCOW_MAIL_HOST: optionalString,
+  MAILCOW_NAME: z.string().default('Mailcow'),
+  MAILCOW_COUNTRY: z.string().default('CH'),
+  MAILCOW_CITY: z.string().default('Zürich'),
+
   // Joker.com domains (DMAPI). An API key, or reseller username and password.
   JOKER_API_KEY: optionalString,
   JOKER_USERNAME: optionalString,
   JOKER_PASSWORD: optionalString,
   JOKER_BASE_URL: z.string().url().default('https://dmapi.joker.com/request'),
   JOKER_NAME: z.string().default('Joker.com'),
+
+  // Cloudflare DNS zones and CDN. A custom API token (Zone:Edit, DNS:Edit, Zone Settings:Edit,
+  // Cache Purge:Purge); the account id is only needed to create zones (DNS move).
+  CLOUDFLARE_API_TOKEN: optionalString,
+  CLOUDFLARE_ACCOUNT_ID: optionalString
+    .transform((v) => v?.trim().toLowerCase())
+    .refine((v) => v === undefined || /^[0-9a-f]{32}$/.test(v), 'expected the 32 character account id'),
+  CLOUDFLARE_BASE_URL: z.string().url().default('https://api.cloudflare.com/client/v4'),
+  CLOUDFLARE_NAME: z.string().default('Cloudflare'),
 
   // E-mail (SMTP). When SMTP_HOST is set, these win over the settings in the admin area.
   SMTP_HOST: optionalString,
@@ -105,6 +123,8 @@ const EnvSchema = z.object({
   BILLING_JOB_ENABLED: bool(true),
 
   ENABLE_DEMO_PROVIDER: bool(false),
+  /** A second demo connection that simulates a Cloudflare account (needs ENABLE_DEMO_PROVIDER). */
+  ENABLE_DEMO_CLOUDFLARE: bool(false),
   SYNC_INTERVAL_SECONDS: z.coerce.number().int().min(15).default(120),
   /** Serve the built web app from the API process (single container deployments). */
   WEB_DIST_DIR: optionalString,

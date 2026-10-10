@@ -1,17 +1,27 @@
 import type {
   BackupInfo,
   Capability,
+  CdnSettingPatch,
+  CdnSettings,
   DdosSettings,
   DnsRecord,
   DnsRecordInput,
   DnsRecordType,
   DomainCapability,
   DomainInfo,
+  DomainKind,
   FirewallInfo,
   FirewallRule,
   ImageOption,
   IpAddress,
   IsoOption,
+  MailAliasDto,
+  MailClientSettings,
+  MailDomainInfo,
+  MailPasswordPolicy,
+  MailRateLimit,
+  MailboxDto,
+  MailboxState,
   MetricRange,
   MetricsResult,
   MonitoringInfo,
@@ -180,6 +190,75 @@ export interface CloudAccountPatch {
 /** Partial DNS change. Fields left out keep their current value. */
 export type DnsRecordPatch = Partial<DnsRecordInput>;
 
+/** A mail domain as Mailcow reports it. */
+export interface RemoteMailDomain {
+  /** ASCII name (Mailcow domain_name). */
+  externalId: string;
+  info: MailDomainInfo;
+}
+
+/** Limits as Mailcow takes them: MiB integers. */
+export interface MailDomainLimitsInput {
+  maxMailboxes: number;
+  maxAliases: number;
+  quotaMb: number;
+  defaultMailboxQuotaMb: number;
+  maxMailboxQuotaMb: number;
+  /** null = no rate limit. */
+  rateLimit: MailRateLimit | null;
+}
+
+export interface MailDomainInput {
+  /** ASCII name, checked with mailDomainAscii. */
+  domain: string;
+  description: string | null;
+  limits: MailDomainLimitsInput;
+  dkim: { selector: string; keySize: number };
+  /** Restart SOGo so webmail knows the domain (interrupts webmail for every user briefly). */
+  restartSogo: boolean;
+}
+
+/** Fields left out keep their value. rateLimit null removes it. */
+export type MailDomainPatch = Partial<MailDomainLimitsInput> & { active?: boolean };
+
+export interface MailboxInput {
+  localPart: string;
+  /** ASCII domain. */
+  domain: string;
+  name: string | null;
+  quotaMb: number;
+  /** Required: Mailcow has no invitation flow. */
+  password: string;
+}
+
+export interface MailboxPatch {
+  /** Mailcow cannot clear a name, only replace it. */
+  name?: string;
+  quotaMb?: number;
+  state?: MailboxState;
+}
+
+export interface MailAliasInput {
+  /** "info@kunde.ch" or "@kunde.ch" (catch-all), ASCII domain. */
+  address: string;
+  targets: string[];
+  active: boolean;
+}
+
+export interface MailAliasPatch {
+  targets?: string[];
+  active?: boolean;
+}
+
+export interface DkimKey {
+  selector: string;
+  /** Base64 public key (the p= value). */
+  publicKey: string;
+  keyLength: string | null;
+  /** "v=DKIM1;k=rsa;t=s;s=email;p=<publicKey>", one unquoted string. */
+  txt: string;
+}
+
 export interface ProviderAdapter {
   readonly type: ProviderType;
 
@@ -270,6 +349,19 @@ export interface ProviderAdapter {
    * domain runs longer by now (a renewal went through meanwhile), nothing is sent (409).
    */
   renewDomain?(externalId: string, years: number, expiresAt?: string | null): Promise<ActionResult>;
+  /** "zone" for providers that host DNS zones only (Cloudflare). Default "registration". */
+  domainKind?(): DomainKind;
+  /** Whether createZone works with this connection (Cloudflare: account id configured). Default true when createZone exists. */
+  canCreateZones?(): boolean;
+  /** Creates a DNS zone, or returns the one that already exists for this name in the account (created: false). Never imports records. */
+  createZone?(name: string): Promise<{ zone: RemoteDomain; created: boolean }>;
+  /** Asks the provider to check the delegation of a pending zone again now. 409 if the zone is not pending. */
+  checkZoneActivation?(externalId: string): Promise<ActionResult>;
+  getCdnSettings?(externalId: string): Promise<CdnSettings>;
+  /** One setting per call. Returns the settings after the change. 422 if the setting is not editable. */
+  updateCdnSetting?(externalId: string, patch: CdnSettingPatch): Promise<CdnSettings>;
+  /** Purges the whole cache of the zone. providerRef: the provider's request id. */
+  purgeCache?(externalId: string): Promise<ActionResult>;
 
   // Cloud storage (module "storage", Nextcloud). Addressed by the user id.
   /** Every user of the instance (the sync only updates accounts the panel knows). */
@@ -285,6 +377,36 @@ export interface ProviderAdapter {
   resendCloudInvite?(externalId: string): Promise<void>;
   /** Where users log in, e.g. https://cloud.weblion.ch. */
   cloudLoginUrl?(): string;
+
+  // E-mail (module "mail", Mailcow). Domains by ASCII name, mailboxes by address, aliases by
+  // Mailcow's numeric id. Missing objects throw a ProviderError with upstreamStatus 404.
+  listMailDomains?(): Promise<RemoteMailDomain[]>;
+  getMailDomain?(domain: string): Promise<RemoteMailDomain>;
+  /** warnings: non-fatal notes from Mailcow, e.g. a failed SOGo restart. */
+  createMailDomain?(input: MailDomainInput): Promise<{ domain: RemoteMailDomain; warnings: string[] }>;
+  updateMailDomain?(domain: string, patch: MailDomainPatch): Promise<void>;
+  /** Refused (409) while mailboxes exist. Leaves the DKIM key, see deleteDkim. */
+  deleteMailDomain?(domain: string): Promise<{ warnings: string[] }>;
+  listMailboxes?(domain: string): Promise<MailboxDto[]>;
+  getMailbox?(address: string): Promise<MailboxDto>;
+  createMailbox?(input: MailboxInput): Promise<MailboxDto>;
+  updateMailbox?(address: string, patch: MailboxPatch): Promise<void>;
+  /** Only for the audited password route; the password is never stored. */
+  setMailboxPassword?(address: string, password: string): Promise<void>;
+  /** Deletes the mailbox and its mail. */
+  deleteMailbox?(address: string): Promise<void>;
+  listMailAliases?(domain: string): Promise<MailAliasDto[]>;
+  getMailAlias?(id: string): Promise<MailAliasDto>;
+  createMailAlias?(input: MailAliasInput): Promise<MailAliasDto>;
+  updateMailAlias?(id: string, patch: MailAliasPatch): Promise<void>;
+  deleteMailAlias?(id: string): Promise<void>;
+  /** null when the domain has no key. Never returns the private key. */
+  getDkim?(domain: string): Promise<DkimKey | null>;
+  /** 409 when a key exists. */
+  createDkim?(domain: string, options: { selector: string; keySize: number }): Promise<DkimKey>;
+  deleteDkim?(domain: string): Promise<void>;
+  mailPasswordPolicy?(): Promise<MailPasswordPolicy>;
+  mailClientSettings?(): MailClientSettings;
 
   // Web spaces (module "webhosting"). Read only: providers offer no provisioning API.
   listWebspaces?(): Promise<RemoteWebspace[]>;
@@ -339,10 +461,39 @@ export interface JokerConfig {
   baseUrl: string;
 }
 
+/** Cloudflare API v4, one API token per connection. */
+export interface CloudflareConfig {
+  /** API token (Bearer), never the Global API Key. */
+  apiToken: string;
+  /** https://api.cloudflare.com/client/v4 */
+  baseUrl: string;
+  /** 32 hex characters. Only needed to create zones (DNS move); also filters the zone list. */
+  accountId?: string;
+}
+
+/** Mailcow (e-mail). */
+export interface MailcowConfig {
+  /** Where the API answers, e.g. https://mail.weblion.one */
+  baseUrl: string;
+  /** Read-write API key, characters a-z A-Z 0-9 and "-". */
+  apiKey: string;
+  /** Public host name for MX, IMAP, SMTP and webmail. Default: host of baseUrl. */
+  mailHost?: string;
+}
+
 export interface DemoConfig {
   seed?: number;
   servers?: number;
+  /** Simulated Cloudflare account instead of the demo cloud (second, opt-in demo connection). */
+  flavor?: 'cloudflare';
 }
 
 export type ProviderConfig =
-  Fire24Config | ProxmoxConfig | HetznerConfig | JokerConfig | NextcloudConfig | DemoConfig;
+  | Fire24Config
+  | ProxmoxConfig
+  | HetznerConfig
+  | JokerConfig
+  | NextcloudConfig
+  | CloudflareConfig
+  | MailcowConfig
+  | DemoConfig;

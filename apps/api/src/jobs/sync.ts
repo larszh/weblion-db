@@ -21,18 +21,20 @@ import type {
   RemoteServer,
   RemoteWebspace,
 } from '../providers/types';
+import { syncMailDomains } from './sync-mail';
 
 export interface SyncCounts {
   seen: number;
   missing: number;
 }
 
-/** Servers on the top level; domains, web spaces and cloud accounts only for providers that have them. */
+/** Servers on the top level; domains, web spaces, cloud accounts and mail domains only for providers that have them. */
 export interface SyncResult extends SyncCounts {
   domains?: SyncCounts;
   webspaces?: SyncCounts;
   /** `seen`: accounts the panel manages that the instance reported. */
   cloudAccounts?: SyncCounts;
+  mailDomains?: SyncCounts;
 }
 
 /** Postgres advisory lock ids, so only one API instance runs each job at a time. */
@@ -277,6 +279,7 @@ export class SyncService {
       if (adapter.listDomains) result.domains = await this.syncDomains(connection, adapter);
       if (adapter.listWebspaces) result.webspaces = await this.syncWebspaces(connection, adapter);
       if (adapter.listCloudAccounts) result.cloudAccounts = await this.syncCloudAccounts(connection, adapter);
+      if (adapter.listMailDomains) result.mailDomains = await syncMailDomains(this.db, connection, adapter);
 
       await this.db
         .update(providerConnections)

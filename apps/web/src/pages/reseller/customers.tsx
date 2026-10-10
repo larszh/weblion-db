@@ -79,6 +79,7 @@ const RESOURCE_TYPES: {
   { type: 'server', module: 'servers', key: 'servers' },
   { type: 'domain', module: 'dns', key: 'domains' },
   { type: 'webspace', module: 'webhosting', key: 'webspaces' },
+  { type: 'maildomain', module: 'mail', key: 'mailDomains' },
 ];
 
 /** Only reseller organizations have customers. Everyone else gets a plain explanation. */

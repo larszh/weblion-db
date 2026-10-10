@@ -618,6 +618,20 @@ domain.nservers.nserver.handle: ns1.example.net
     expect(buildZoneLine({ type: 'TXT', name: '', data: 'x', ttl: 300 })).toBe('@ TXT 0 "x" 300');
   });
 
+  it('splits long TXT values into strings of at most 255 characters', () => {
+    const data = `v=DKIM1;k=rsa;t=s;s=email;p=${'A'.repeat(572)}`;
+    expect(data).toHaveLength(600);
+    const line = buildZoneLine({ type: 'TXT', name: 'dkim._domainkey', data, ttl: 3600 });
+    const strings = tokenizeZoneLine(line).tokens.filter((t) => t.quoted);
+    expect(strings.map((s) => s.value.length)).toEqual([255, 255, 90]);
+    expect(zoneRecords(parseZone(line))[0]).toMatchObject({ type: 'TXT', name: 'dkim._domainkey', data });
+    // Multi-byte characters stay whole, and each string stays within 255 bytes.
+    const umlauts = buildZoneLine({ type: 'TXT', name: 'x', data: 'ä'.repeat(200), ttl: 3600 });
+    const parts = tokenizeZoneLine(umlauts).tokens.filter((t) => t.quoted);
+    expect(parts.map((p) => Buffer.byteLength(p.value))).toEqual([254, 146]);
+    expect(zoneRecords(parseZone(umlauts))[0]!.data).toBe('ä'.repeat(200));
+  });
+
   it('finds the auth code in result-retrieve replies', () => {
     const r = (text: string) => parseAuthcodeResult(parseReply(text));
     expect(r(`Status-Code: 0\n\nCompletion-Status: ack\nAuth-ID: ${AUTHCODE}\n`)).toEqual({

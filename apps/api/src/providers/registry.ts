@@ -4,17 +4,22 @@ import type { Database } from '../db/client';
 import { providerConnections, type ProviderConnection, type Server } from '../db/schema';
 import type { SecretBox } from '../lib/crypto';
 import { notFound } from '../lib/errors';
+import { CloudflareAdapter } from './cloudflare/adapter';
 import { DemoAdapter } from './demo/adapter';
+import { DemoCloudflareAdapter } from './demo/cloudflare';
 import { Fire24Adapter } from './fire24/adapter';
 import { HetznerAdapter } from './hetzner/adapter';
 import { JokerAdapter } from './joker/adapter';
+import { MailcowAdapter } from './mailcow/adapter';
 import { NextcloudAdapter } from './nextcloud/adapter';
 import { ProxmoxAdapter } from './proxmox/adapter';
 import type {
+  CloudflareConfig,
   DemoConfig,
   Fire24Config,
   HetznerConfig,
   JokerConfig,
+  MailcowConfig,
   NextcloudConfig,
   ProviderAdapter,
   ProviderConfig,
@@ -38,8 +43,15 @@ export function createAdapter(
       return new JokerAdapter(config as JokerConfig);
     case 'nextcloud':
       return new NextcloudAdapter(config as NextcloudConfig);
+    case 'cloudflare':
+      return new CloudflareAdapter(config as CloudflareConfig);
+    case 'mailcow':
+      return new MailcowAdapter(config as MailcowConfig);
     case 'demo':
-      return new DemoAdapter(connectionId, config as DemoConfig);
+      // A second demo connection can simulate a Cloudflare account (ENABLE_DEMO_CLOUDFLARE).
+      return (config as DemoConfig).flavor === 'cloudflare'
+        ? new DemoCloudflareAdapter(connectionId)
+        : new DemoAdapter(connectionId, config as DemoConfig);
   }
 }
 

@@ -13,6 +13,7 @@ import {
 import type { ProviderConnectionDto, ProviderType } from '@weblion/shared';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
+import type { TranslationKey } from '@/i18n/de';
 import { formatBytes, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { qk, useAdminProviders, useApiMutation, useMe, useMeta, useProviderOverview } from '@/lib/queries';
 import type { ProviderSyncResult } from '@/lib/api/hosting';
@@ -64,9 +65,20 @@ interface ProviderForm {
   appPassword: string;
   /** Nextcloud: prefix of the per-organization groups, empty = "weblion-". */
   groupPrefix: string;
+  /** Cloudflare: account id (32 hex characters), needed to create zones. Token in apiToken. */
+  accountId: string;
+  /** Mailcow: public host name of the mail server, empty = host of the URL. Key in apiKey. */
+  mailHost: string;
 }
 
 const HETZNER_BASE_URL = 'https://api.hetzner.cloud/v1';
+const CLOUDFLARE_BASE_URL = 'https://api.cloudflare.com/client/v4';
+/** Token permissions the console needs at Cloudflare, on all zones of the account. */
+const CLOUDFLARE_PERMISSIONS = 'Zone:Edit, DNS:Edit, Zone Settings:Edit, Cache Purge:Purge';
+const CLOUDFLARE_ACCOUNT_ID = /^[0-9a-f]{32}$/i;
+/** Mailcow strips every other character from keys before the lookup. */
+const MAILCOW_API_KEY = /^[A-Za-z0-9-]{16,255}$/;
+const HOST_NAME = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 
 const DEFAULT_NAME: Record<ProviderType, string> = {
   fire24: '24fire',
@@ -74,6 +86,8 @@ const DEFAULT_NAME: Record<ProviderType, string> = {
   hetzner: 'Hetzner Cloud',
   joker: 'Joker.com',
   nextcloud: 'Nextcloud',
+  cloudflare: 'Cloudflare',
+  mailcow: 'Mailcow',
   demo: 'Demo',
 };
 
@@ -81,6 +95,15 @@ const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
   fire24: 'https://manage.24fire.de',
   hetzner: HETZNER_BASE_URL,
   joker: 'https://dmapi.joker.com/request',
+  cloudflare: CLOUDFLARE_BASE_URL,
+};
+
+/** Default country of a new connection: where the provider (or our instance of it) runs. */
+const DEFAULT_COUNTRY: Partial<Record<ProviderType, string>> = {
+  proxmox: 'CH',
+  nextcloud: 'CH',
+  mailcow: 'CH',
+  cloudflare: 'US',
 };
 
 /** Nextcloud groups are "<prefix><org slug>" unless the connection sets another prefix. */
@@ -93,7 +116,7 @@ const JOKER_OTE_URL = 'https://dmapi.ote.joker.com/request';
 const emptyForm = (type: ProviderType): ProviderForm => ({
   type,
   name: DEFAULT_NAME[type],
-  country: type === 'proxmox' || type === 'nextcloud' ? 'CH' : 'DE',
+  country: DEFAULT_COUNTRY[type] ?? 'DE',
   city: '',
   label: '',
   enabled: true,
@@ -110,6 +133,8 @@ const emptyForm = (type: ProviderType): ProviderForm => ({
   apiToken: '',
   appPassword: '',
   groupPrefix: '',
+  accountId: '',
+  mailHost: '',
 });
 
 function configFromForm(f: ProviderForm, editing: boolean) {
@@ -158,9 +183,48 @@ function configFromForm(f: ProviderForm, editing: boolean) {
             ? { groupPrefix: null }
             : {}),
       };
+    case 'cloudflare':
+      // An empty token keeps the stored one; an empty account id removes it on edit.
+      return {
+        baseUrl: f.baseUrl.trim() || CLOUDFLARE_BASE_URL,
+        ...(f.apiToken || !editing ? { apiToken: f.apiToken.trim() } : {}),
+        ...(f.accountId.trim()
+          ? { accountId: f.accountId.trim().toLowerCase() }
+          : editing
+            ? { accountId: null }
+            : {}),
+      };
+    case 'mailcow':
+      // An empty key keeps the stored one; an empty mail host falls back to the URL's host.
+      return {
+        baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
+        ...(f.apiKey || !editing ? { apiKey: f.apiKey.trim() } : {}),
+        ...(f.mailHost.trim()
+          ? { mailHost: f.mailHost.trim().toLowerCase() }
+          : editing
+            ? { mailHost: null }
+            : {}),
+      };
     default:
       return {};
   }
+}
+
+/** Cloudflare needs a token (kept on edit when left empty); the account id is optional. */
+function cloudflareIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'cloudflare') return false;
+  const accountId = f.accountId.trim();
+  if (accountId && !CLOUDFLARE_ACCOUNT_ID.test(accountId)) return true;
+  return !f.apiToken.trim() && !existing;
+}
+
+/** Mailcow needs URL and API key (kept on edit when left empty); the mail host is optional. */
+function mailcowIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'mailcow') return false;
+  const key = f.apiKey.trim();
+  const host = f.mailHost.trim();
+  if ((key && !MAILCOW_API_KEY.test(key)) || (host && !HOST_NAME.test(host))) return true;
+  return !/^https?:\/\/\S+$/i.test(f.baseUrl.trim()) || (!key && !existing);
 }
 
 /** Nextcloud needs URL, admin user and app password (kept on edit when left empty). */
@@ -206,6 +270,8 @@ function ProviderDialog({
           jokerAuth: existing.type === 'joker' && !existing.summary.apiKey ? 'password' : 'apiKey',
           username: existing.summary.username ?? '',
           groupPrefix: existing.summary.groupPrefix ?? '',
+          accountId: existing.summary.accountId ?? '',
+          mailHost: existing.summary.mailHost ?? '',
         }
       : emptyForm('proxmox'),
   );
@@ -258,7 +324,11 @@ function ProviderDialog({
             onClick={() => save.mutate(undefined)}
             disabled={
               !form.name ||
-              (!envManaged && (jokerIncomplete(form, existing) || nextcloudIncomplete(form, existing)))
+              (!envManaged &&
+                (jokerIncomplete(form, existing) ||
+                  nextcloudIncomplete(form, existing) ||
+                  cloudflareIncomplete(form, existing) ||
+                  mailcowIncomplete(form, existing)))
             }
           >
             {t('common.save')}
@@ -372,6 +442,10 @@ function ProviderDialog({
           <JokerFields form={form} set={set} existing={existing} />
         ) : form.type === 'nextcloud' ? (
           <NextcloudFields form={form} set={set} existing={existing} />
+        ) : form.type === 'cloudflare' ? (
+          <CloudflareFields form={form} set={set} existing={existing} />
+        ) : form.type === 'mailcow' ? (
+          <MailcowFields form={form} set={set} existing={existing} />
         ) : form.type === 'proxmox' ? (
           <>
             <Field label="URL" hint="https://pve.example.ch:8006" htmlFor="p-url" className="sm:col-span-2">
@@ -651,6 +725,164 @@ function NextcloudFields({
   );
 }
 
+function CloudflareFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const accountId = form.accountId.trim();
+  const accountIdInvalid = !!accountId && !CLOUDFLARE_ACCOUNT_ID.test(accountId);
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.cloudflare.help')}{' '}
+        {t('providers.cloudflare.permissions', { permissions: CLOUDFLARE_PERMISSIONS })}
+      </Notice>
+      <Field
+        label={t('providers.cloudflare.token')}
+        hint={existing ? t('providers.keepSecret') : t('providers.cloudflare.tokenHint')}
+        htmlFor="p-cf-token"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-cf-token"
+          type="password"
+          value={form.apiToken}
+          onChange={(e) => set('apiToken', e.target.value)}
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudflare.accountId')}
+        hint={t('providers.cloudflare.accountIdHint')}
+        error={accountIdInvalid ? t('providers.cloudflare.accountIdInvalid') : undefined}
+        htmlFor="p-cf-account"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-cf-account"
+          value={form.accountId}
+          onChange={(e) => set('accountId', e.target.value)}
+          placeholder="0123456789abcdef0123456789abcdef"
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudflare.baseUrl')}
+        hint={t('providers.cloudflare.baseUrlHint', { url: CLOUDFLARE_BASE_URL })}
+        htmlFor="p-cf-base"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-cf-base"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder={CLOUDFLARE_BASE_URL}
+          className="font-mono"
+        />
+      </Field>
+    </>
+  );
+}
+
+function MailcowFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const key = form.apiKey.trim();
+  const host = form.mailHost.trim();
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.mailcow.help')}
+      </Notice>
+      <Field
+        label={t('providers.mailcow.url')}
+        hint={t('providers.mailcow.urlHint')}
+        htmlFor="p-mc-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-mc-url"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder="https://mail.weblion.one"
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.mailcow.apiKey')}
+        hint={existing ? t('providers.keepSecret') : t('providers.mailcow.apiKeyHint')}
+        error={key && !MAILCOW_API_KEY.test(key) ? t('providers.mailcow.apiKeyInvalid') : undefined}
+        htmlFor="p-mc-key"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-mc-key"
+          type="password"
+          value={form.apiKey}
+          onChange={(e) => set('apiKey', e.target.value)}
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+      <Field
+        label={t('providers.mailcow.mailHost')}
+        hint={t('providers.mailcow.mailHostHint')}
+        error={host && !HOST_NAME.test(host) ? t('providers.mailcow.mailHostInvalid') : undefined}
+        htmlFor="p-mc-host"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-mc-host"
+          value={form.mailHost}
+          onChange={(e) => set('mailHost', e.target.value)}
+          placeholder="mail.weblion.one"
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+    </>
+  );
+}
+
+/** Providers whose detail page links to their inventory in Admin > Domains & Webspaces. */
+const INVENTORY_LINKS: Partial<
+  Record<ProviderType, { title: TranslationKey; text: TranslationKey; link: TranslationKey; tab: string }>
+> = {
+  nextcloud: {
+    title: 'storage.admin.tab',
+    text: 'providers.nextcloud.accountsText',
+    link: 'providers.nextcloud.toAccounts',
+    tab: 'cloud',
+  },
+  cloudflare: {
+    title: 'providers.cloudflare.zones',
+    text: 'providers.cloudflare.zonesText',
+    link: 'providers.cloudflare.toZones',
+    tab: 'domains',
+  },
+  mailcow: {
+    title: 'mail.admin.tab',
+    text: 'providers.mailcow.domainsText',
+    link: 'providers.mailcow.toDomains',
+    tab: 'mail',
+  },
+};
+
 function useProviderActions(id: string) {
   const { t } = useI18n();
   const test = useApiMutation(
@@ -664,19 +896,23 @@ function useProviderActions(id: string) {
     },
   );
   const sync = useApiMutation(() => api.post<ProviderSyncResult>(`/admin/providers/${id}/sync`), {
-    // Registrars (Joker.com) only have domains, Nextcloud instances only cloud accounts.
+    // Registrars (Joker.com) and Cloudflare only have domains, Nextcloud instances only cloud
+    // accounts, Mailcow only mail domains.
     success: (r) =>
       r.seen === 0 && r.missing === 0 && r.cloudAccounts
         ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
-        : r.seen === 0 && r.missing === 0 && r.domains
-          ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
-          : t('providers.synced', { seen: r.seen, missing: r.missing }),
+        : r.seen === 0 && r.missing === 0 && r.mailDomains
+          ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
+          : r.seen === 0 && r.missing === 0 && r.domains
+            ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
+            : t('providers.synced', { seen: r.seen, missing: r.missing }),
     invalidate: [
       qk.admin('providers'),
       qk.admin('servers'),
       qk.admin('stats'),
       ['hosting', 'admin'],
       ['cloud'],
+      ['mail'],
     ],
   });
   return { test, sync };
@@ -817,6 +1053,7 @@ export function ProviderDetailPage() {
   const overview = useProviderOverview(providerId!);
   const provider = providers.data?.find((p) => p.id === providerId);
   const { test, sync } = useProviderActions(providerId!);
+  const inventory = provider ? INVENTORY_LINKS[provider.type] : undefined;
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const remove = useApiMutation(() => api.del(`/admin/providers/${providerId}`), {
@@ -994,17 +1231,17 @@ export function ProviderDetailPage() {
                   </Table>
                 </Card>
               )}
-              {provider.type === 'nextcloud' ? (
+              {inventory ? (
                 <Card>
                   <CardHeader
-                    title={t('storage.admin.tab')}
-                    description={t('providers.nextcloud.accountsText')}
+                    title={t(inventory.title)}
+                    description={t(inventory.text)}
                     actions={
                       <Link
-                        to={`/admin/hosting?tab=cloud&provider=${provider.id}`}
+                        to={`/admin/hosting?tab=${inventory.tab}&provider=${provider.id}`}
                         className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-primary-text hover:bg-surface-3"
                       >
-                        {t('providers.nextcloud.toAccounts')}
+                        {t(inventory.link)}
                       </Link>
                     }
                   />

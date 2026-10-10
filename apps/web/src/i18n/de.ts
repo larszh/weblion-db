@@ -3,6 +3,8 @@ import { adminDe } from './sections/admin.de';
 import { hostingDe } from './sections/hosting.de';
 import { cloudDe } from './sections/cloud.de';
 import { storageDe } from './sections/storage.de';
+import { cloudflareDe } from './sections/cloudflare.de';
+import { mailDe } from './sections/mail.de';
 
 /** German is the source language. English (en.ts) must provide every key. */
 export const de = {
@@ -11,6 +13,8 @@ export const de = {
   ...hostingDe,
   ...cloudDe,
   ...storageDe,
+  ...cloudflareDe,
+  ...mailDe,
   // Common
   'common.actions': 'Aktionen',
   'common.add': 'Hinzufügen',

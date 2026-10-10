@@ -4,7 +4,16 @@
  * the public API and the UI never care where a server actually runs.
  */
 
-export const PROVIDER_TYPES = ['fire24', 'proxmox', 'hetzner', 'joker', 'nextcloud', 'demo'] as const;
+export const PROVIDER_TYPES = [
+  'fire24',
+  'proxmox',
+  'hetzner',
+  'joker',
+  'nextcloud',
+  'cloudflare',
+  'mailcow',
+  'demo',
+] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const PROVIDER_LABELS: Record<ProviderType, string> = {
@@ -13,6 +22,8 @@ export const PROVIDER_LABELS: Record<ProviderType, string> = {
   hetzner: 'Hetzner Cloud',
   joker: 'Joker.com',
   nextcloud: 'Nextcloud',
+  cloudflare: 'Cloudflare',
+  mailcow: 'Mailcow',
   demo: 'Demo',
 };
 

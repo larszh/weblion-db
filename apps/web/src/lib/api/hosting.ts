@@ -37,6 +37,8 @@ export interface ProviderSyncResult {
   webspaces?: { seen: number; missing: number };
   /** Nextcloud: accounts the panel manages that the instance reported. */
   cloudAccounts?: { seen: number; missing: number };
+  /** Mailcow: mail domains. */
+  mailDomains?: { seen: number; missing: number };
 }
 
 export const useDomains = (orgId: string, enabled = true) =>
@@ -233,6 +235,7 @@ export const useProviderSync = (success: (result: ProviderSyncResult) => string)
       invalidate: [
         ['hosting', 'admin'],
         ['cloud'],
+        ['mail'],
         qk.admin('providers'),
         qk.admin('servers'),
         qk.admin('stats'),

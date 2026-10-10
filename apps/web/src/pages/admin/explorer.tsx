@@ -61,6 +61,26 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/ocs/v2.php/cloud/groups/<groupid>/users', label: 'Members of a group' },
     { method: 'GET', path: '/ocs/v2.php/cloud/capabilities', label: 'Capabilities (version)' },
   ],
+  // Relative to /client/v4. Lists are paginated (?page=&per_page=, zones at most 50).
+  cloudflare: [
+    { method: 'GET', path: '/user/tokens/verify', label: 'Token status' },
+    { method: 'GET', path: '/zones?per_page=50', label: 'Zones' },
+    { method: 'GET', path: '/zones/<zone_id>', label: 'Zone' },
+    { method: 'GET', path: '/zones/<zone_id>/dns_records?per_page=100', label: 'DNS records' },
+    { method: 'GET', path: '/zones/<zone_id>/settings/ssl', label: 'SSL/TLS mode' },
+    { method: 'GET', path: '/zones/<zone_id>/settings/always_use_https', label: 'Always Use HTTPS' },
+    { method: 'GET', path: '/zones/<zone_id>/settings/development_mode', label: 'Development mode' },
+    { method: 'GET', path: '/accounts', label: 'Accounts' },
+  ],
+  // The method is derived from the path (see mailcowMethod).
+  mailcow: [
+    { method: 'GET', path: '/api/v1/get/domain/all', label: 'Domains' },
+    { method: 'GET', path: '/api/v1/get/mailbox/all/<domain>', label: 'Mailboxes' },
+    { method: 'GET', path: '/api/v1/get/alias/all/<domain>', label: 'Aliases' },
+    { method: 'GET', path: '/api/v1/get/dkim/<domain>', label: 'DKIM' },
+    { method: 'GET', path: '/api/v1/get/status/version', label: 'Version' },
+    { method: 'GET', path: '/api/v1/get/passwordpolicy', label: 'Password policy' },
+  ],
   demo: [{ method: 'GET', path: '/echo', label: 'Echo' }],
 };
 
@@ -73,12 +93,21 @@ const JOKER_READ = /^\/*(query-[a-z-]+|dns-zone-(list|get)|result-(list|retrieve
  */
 const jokerMethod = (path: string) => (JOKER_READ.test(path.trim()) ? 'GET' : 'POST');
 
+/** Mailcow reads with GET (/api/v1/get/...) and changes with POST (add, edit, delete). */
+const mailcowMethod = (path: string) =>
+  /^(https?:\/\/[^/]+)?\/api\/v1\/get\//i.test(path.trim()) ? 'GET' : 'POST';
+
 const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
   proxmox: { path: '/nodes/pve01/qemu/100/status/current', body: '{ "vmid": 100 }' },
   fire24: { path: '/api/kvm/<id>/config', body: '{ "mode": "start" }' },
   hetzner: { path: '/servers/<id>', body: '{ "server_type": "cx32", "upgrade_disk": false }' },
   joker: { path: '/query-whois?domain=example.com', body: '{ "domain": "example.com" }' },
   nextcloud: { path: '/ocs/v2.php/cloud/users/<userid>', body: '{ "key": "quota", "value": "10 GB" }' },
+  cloudflare: { path: '/zones/<zone_id>/settings/ssl', body: '{ "value": "full" }' },
+  mailcow: {
+    path: '/api/v1/edit/mailbox',
+    body: '{ "items": ["anna@kunde.ch"], "attr": { "quota": "4096" } }',
+  },
 };
 
 interface Result {
@@ -99,8 +128,14 @@ export function ExplorerPage() {
   const [busy, setBusy] = useState(false);
   const provider = providers.data?.find((p) => p.id === providerId) ?? providers.data?.[0];
   const isJoker = provider?.type === 'joker';
+  /** Joker and Mailcow derive the method from the path, the others take it from the select. */
+  const derivedMethod = isJoker
+    ? jokerMethod(path)
+    : provider?.type === 'mailcow'
+      ? mailcowMethod(path)
+      : null;
   /** Joker takes parameters with every request, the others only with a body method. */
-  const withBody = isJoker || method !== 'GET';
+  const withBody = isJoker || (derivedMethod ?? method) !== 'GET';
   const placeholder = PLACEHOLDERS[provider?.type ?? 'proxmox'] ?? PLACEHOLDERS.proxmox!;
 
   const run = async () => {
@@ -113,7 +148,7 @@ export function ExplorerPage() {
       setResult(
         await api.post<Result>('/admin/explorer', {
           providerId: provider.id,
-          method: isJoker ? jokerMethod(path) : method,
+          method: derivedMethod ?? method,
           path,
           body: parsedBody,
         }),
@@ -138,7 +173,7 @@ export function ExplorerPage() {
               <div
                 className={cn(
                   'grid gap-3 md:items-end',
-                  isJoker ? 'md:grid-cols-[200px_1fr_auto]' : 'md:grid-cols-[200px_110px_1fr_auto]',
+                  derivedMethod ? 'md:grid-cols-[200px_1fr_auto]' : 'md:grid-cols-[200px_110px_1fr_auto]',
                 )}
               >
                 <Field label={t('overview.provider')} htmlFor="ex-provider">
@@ -154,10 +189,10 @@ export function ExplorerPage() {
                     ))}
                   </Select>
                 </Field>
-                {!isJoker && (
+                {!derivedMethod && (
                   <Field label={t('explorer.method')} htmlFor="ex-method">
                     <Select id="ex-method" value={method} onChange={(e) => setMethod(e.target.value)}>
-                      {['GET', 'POST', 'PUT', 'DELETE'].map((m) => (
+                      {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((m) => (
                         <option key={m}>{m}</option>
                       ))}
                     </Select>
@@ -190,17 +225,25 @@ export function ExplorerPage() {
               {provider?.type === 'nextcloud' && (
                 <p className="text-xs text-muted">{t('explorer.nextcloudPath')}</p>
               )}
+              {provider?.type === 'cloudflare' && (
+                <p className="text-xs text-muted">{t('explorer.cloudflarePath')}</p>
+              )}
+              {provider?.type === 'mailcow' && (
+                <p className="text-xs text-muted">{t('explorer.mailcowPath')}</p>
+              )}
               {withBody && (
                 <Field
                   label={t('explorer.body')}
                   hint={
                     isJoker
                       ? t('explorer.jokerBodyHint')
-                      : provider?.type === 'hetzner'
+                      : provider?.type === 'hetzner' || provider?.type === 'cloudflare'
                         ? t('explorer.bodyHintJson')
                         : provider?.type === 'nextcloud'
                           ? t('explorer.nextcloudBodyHint')
-                          : t('explorer.bodyHint')
+                          : provider?.type === 'mailcow'
+                            ? t('explorer.mailcowBodyHint')
+                            : t('explorer.bodyHint')
                   }
                   htmlFor="ex-body"
                 >

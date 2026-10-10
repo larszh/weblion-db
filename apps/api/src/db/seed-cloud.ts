@@ -48,7 +48,9 @@ const ALLOWANCES: AllowanceSeed[] = [
  * instance as they are there.
  */
 export async function seedCloudDemo(db: Database, log: string[]): Promise<void> {
-  const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.type, 'demo') });
+  const demo = await db.query.providerConnections.findFirst({
+    where: eq(providerConnections.envKey, 'demo'),
+  });
   if (!demo) return;
   // The demo keeps its state per connection in memory, the configuration does not matter here.
   const adapter = createAdapter(demo.type, demo.id, {});
