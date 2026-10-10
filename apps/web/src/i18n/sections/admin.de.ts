@@ -49,6 +49,8 @@ export const adminDe = {
   'admin.blocker.servers': 'Server: {n}',
   'admin.blocker.domains': 'Domains: {n}',
   'admin.blocker.webspaces': 'Webspaces: {n}',
+  'admin.blocker.cloudAccounts': 'Cloud-Konten: {n}',
+  'admin.blocker.cloudAllowances': 'Cloud-Speicher-Kontingent',
   'admin.blocker.invoices': 'Rechnungen: {n}',
   'admin.blocker.payments': 'Zahlungen: {n}',
   'admin.blocker.creditTransactions': 'Guthabenbuchungen: {n}',

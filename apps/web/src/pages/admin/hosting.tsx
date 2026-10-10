@@ -1,6 +1,18 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Globe, Layers, Link2, RefreshCw, Search, Unlink } from 'lucide-react';
+import {
+  CalendarPlus,
+  Globe,
+  HardDrive,
+  Layers,
+  Link2,
+  Mail,
+  MoreHorizontal,
+  RefreshCw,
+  RotateCw,
+  Search,
+  Unlink,
+} from 'lucide-react';
 import {
   MODULE_DEFS,
   type AdminOrgDto,
@@ -17,10 +29,11 @@ import {
   useAssignHosting,
   useProviderSync,
   type AdminHostingFilters,
+  type DomainActionResult,
 } from '@/lib/api/hosting';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
-import { Menu, MenuItem, MenuLabel } from '@/components/ui/menu';
+import { Menu, MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/menu';
 import {
   Badge,
   Card,
@@ -35,37 +48,62 @@ import {
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { Flag, ProviderBadge } from '@/components/server-bits';
-import { DomainStatusBadge, ExpiryText, resourceItems } from '@/pages/hosting/bits';
+import { AutoRenewBadge, DomainStatusBadge, ExpiryText, resourceItems } from '@/pages/hosting/bits';
+import {
+  ActionResultNotice,
+  AutoRenewDialog,
+  RenewDialog,
+  useCanRenew,
+  type RenewalTarget,
+} from '@/pages/hosting/domain-actions';
+import { AdminCloudTab, isCloudProvider } from './cloud';
+import { AdminMailTab, isMailProvider } from './mail';
 
-type Tab = 'domains' | 'webspaces';
+type Tab = 'domains' | 'webspaces' | 'cloud' | 'mail';
 type Item = { type: 'domain'; row: DomainDto } | { type: 'webspace'; row: WebspaceDto };
 
 const MODULE_OF: Record<Item['type'], ModuleKey> = { domain: 'dns', webspace: 'webhosting' };
 
-/** Provider types that have domains and web spaces. Proxmox has neither. */
-const HOSTING_PROVIDERS = new Set(['fire24', 'demo']);
+/**
+ * Provider types that have domains or web spaces. Proxmox has neither, Joker.com only
+ * domains, Cloudflare only DNS zones.
+ */
+const HOSTING_PROVIDERS = new Set(['fire24', 'joker', 'cloudflare', 'demo']);
 
 export function AdminHostingPage() {
   const { t } = useI18n();
   const me = useMe();
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get('tab') === 'webspaces' ? 'webspaces' : 'domains';
+  const tabParam = params.get('tab');
+  const tab: Tab =
+    tabParam === 'webspaces' || tabParam === 'cloud' || tabParam === 'mail' ? tabParam : 'domains';
   const assignedParam = params.get('assigned');
   const assigned = assignedParam === 'true' || assignedParam === 'false' ? assignedParam : undefined;
   const providerId = params.get('provider') ?? undefined;
   const [q, setQ] = useState('');
   const filters: AdminHostingFilters = { q: q.trim() || undefined, assigned, providerId };
   const providers = useAdminProviders();
-  const hostingProviders = (providers.data ?? []).filter((p) => HOSTING_PROVIDERS.has(p.type));
+  // The sync button covers what the tab shows: cloud instances on the cloud tab, mail
+  // servers on the mail tab.
+  const hostingProviders = (providers.data ?? []).filter((p) =>
+    tab === 'cloud' ? isCloudProvider(p) : tab === 'mail' ? isMailProvider(p) : HOSTING_PROVIDERS.has(p.type),
+  );
   const perms = me.data?.platformPermissions ?? [];
   const canAssign = perms.includes('platform:server:assign');
   const [assigning, setAssigning] = useState<Item | null>(null);
   const sync = useProviderSync((r) =>
-    t('hosting.admin.synced', {
-      domains: r.domains?.seen ?? 0,
-      webspaces: r.webspaces?.seen ?? 0,
-      servers: r.seen,
-    }),
+    tab === 'cloud'
+      ? t('storage.admin.synced', {
+          seen: r.cloudAccounts?.seen ?? 0,
+          missing: r.cloudAccounts?.missing ?? 0,
+        })
+      : tab === 'mail'
+        ? t('mail.admin.synced', { seen: r.mailDomains?.seen ?? 0, missing: r.mailDomains?.missing ?? 0 })
+        : t('hosting.admin.synced', {
+            domains: r.domains?.seen ?? 0,
+            webspaces: r.webspaces?.seen ?? 0,
+            servers: r.seen,
+          }),
   );
 
   const set = (key: string, value: string) => {
@@ -119,6 +157,8 @@ export function AdminHostingPage() {
             [
               ['domains', 'hosting.admin.tab.domains', <Globe key="d" className="size-4" />],
               ['webspaces', 'hosting.admin.tab.webspaces', <Layers key="w" className="size-4" />],
+              ['cloud', 'storage.admin.tab', <HardDrive key="c" className="size-4" />],
+              ['mail', 'mail.admin.tab', <Mail key="m" className="size-4" />],
             ] as const
           ).map(([value, label, icon]) => (
             <button
@@ -140,67 +180,75 @@ export function AdminHostingPage() {
         </nav>
       </div>
 
-      <Notice tone="info" className="mb-4">
-        {tab === 'domains' ? t('hosting.admin.orderDomains') : t('hosting.admin.orderWebspaces')}{' '}
-        <Link to="/admin/providers" className="font-medium underline underline-offset-2">
-          {t('hosting.admin.toProviders')}
-        </Link>
-      </Notice>
+      {tab === 'cloud' ? (
+        <AdminCloudTab />
+      ) : tab === 'mail' ? (
+        <AdminMailTab />
+      ) : (
+        <>
+          <Notice tone="info" className="mb-4">
+            {tab === 'domains' ? t('hosting.admin.orderDomains') : t('hosting.admin.orderWebspaces')}{' '}
+            <Link to="/admin/providers" className="font-medium underline underline-offset-2">
+              {t('hosting.admin.toProviders')}
+            </Link>
+          </Notice>
 
-      <Card>
-        <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <div className="relative min-w-[200px] flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={
-                tab === 'domains' ? t('hosting.admin.searchDomains') : t('hosting.admin.searchWebspaces')
-              }
-              className="pl-9"
-              aria-label={t('common.search')}
-            />
-          </div>
-          <Select
-            value={assigned ?? 'all'}
-            onChange={(e) => set('assigned', e.target.value)}
-            className="w-auto"
-            aria-label={t('hosting.admin.filterAssigned')}
-          >
-            <option value="all">{t('hosting.admin.all')}</option>
-            <option value="false">{t('hosting.admin.onlyUnassigned')}</option>
-            <option value="true">{t('hosting.admin.onlyAssigned')}</option>
-          </Select>
-          {hostingProviders.length > 1 && (
-            <Select
-              value={providerId ?? ''}
-              onChange={(e) => set('provider', e.target.value)}
-              className="w-auto"
-              aria-label={t('hosting.admin.filterProvider')}
-            >
-              <option value="">{t('hosting.admin.allProviders')}</option>
-              {hostingProviders.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </Select>
-          )}
-        </div>
-        {tab === 'domains' ? (
-          <DomainInventory
-            filters={filters}
-            canAssign={canAssign}
-            onAssign={(row) => setAssigning({ type: 'domain', row })}
-          />
-        ) : (
-          <WebspaceInventory
-            filters={filters}
-            canAssign={canAssign}
-            onAssign={(row) => setAssigning({ type: 'webspace', row })}
-          />
-        )}
-      </Card>
+          <Card>
+            <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+              <div className="relative min-w-[200px] flex-1">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder={
+                    tab === 'domains' ? t('hosting.admin.searchDomains') : t('hosting.admin.searchWebspaces')
+                  }
+                  className="pl-9"
+                  aria-label={t('common.search')}
+                />
+              </div>
+              <Select
+                value={assigned ?? 'all'}
+                onChange={(e) => set('assigned', e.target.value)}
+                className="w-auto"
+                aria-label={t('hosting.admin.filterAssigned')}
+              >
+                <option value="all">{t('hosting.admin.all')}</option>
+                <option value="false">{t('hosting.admin.onlyUnassigned')}</option>
+                <option value="true">{t('hosting.admin.onlyAssigned')}</option>
+              </Select>
+              {hostingProviders.length > 1 && (
+                <Select
+                  value={providerId ?? ''}
+                  onChange={(e) => set('provider', e.target.value)}
+                  className="w-auto"
+                  aria-label={t('hosting.admin.filterProvider')}
+                >
+                  <option value="">{t('hosting.admin.allProviders')}</option>
+                  {hostingProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </div>
+            {tab === 'domains' ? (
+              <DomainInventory
+                filters={filters}
+                canAssign={canAssign}
+                onAssign={(row) => setAssigning({ type: 'domain', row })}
+              />
+            ) : (
+              <WebspaceInventory
+                filters={filters}
+                canAssign={canAssign}
+                onAssign={(row) => setAssigning({ type: 'webspace', row })}
+              />
+            )}
+          </Card>
+        </>
+      )}
       {assigning && (
         <AssignDialog key={assigning.row.id} item={assigning} onClose={() => setAssigning(null)} />
       )}
@@ -266,6 +314,19 @@ function DomainInventory({
   const { t } = useI18n();
   const navigate = useNavigate();
   const domains = useAdminDomains(filters);
+  const canRenew = useCanRenew();
+  /** Open renewal dialog: auto-renew switch (with the target state) or a manual renewal. */
+  const [renewal, setRenewal] = useState<
+    | { kind: 'auto'; domain: RenewalTarget; enabled: boolean }
+    | { kind: 'renew'; domain: RenewalTarget }
+    | null
+  >(null);
+  const [done, setDone] = useState<{ title: string; result: DomainActionResult; provider: string } | null>(
+    null,
+  );
+  const renewable = (d: DomainDto) =>
+    canRenew && (d.capabilities.includes('autoRenew') || d.capabilities.includes('renew'));
+  const showActions = canAssign || (domains.data ?? []).some(renewable);
   if (!domains.data || domains.data.length === 0) {
     return (
       <InventoryState
@@ -279,56 +340,160 @@ function DomainInventory({
     );
   }
   return (
-    <Table>
-      <THead>
-        <tr>
-          <TH>{t('hosting.col.domain')}</TH>
-          <TH className="hidden sm:table-cell">{t('hosting.col.status')}</TH>
-          <TH className="hidden md:table-cell">{t('hosting.col.expires')}</TH>
-          <TH>{t('hosting.col.customer')}</TH>
-          <TH className="hidden lg:table-cell">{t('hosting.col.location')}</TH>
-          {canAssign && <TH />}
-        </tr>
-      </THead>
-      <TBody>
-        {domains.data.map((d) => (
-          <TR key={d.id} onClick={d.org ? () => navigate(`/o/${d.org!.slug}/domains/${d.id}`) : undefined}>
-            <TD>
-              <div className="flex items-center gap-3">
-                <Globe className="size-4 shrink-0 text-muted" aria-hidden />
-                <div className="min-w-0">
-                  <div className="truncate font-medium text-text">{d.name}</div>
-                  <div className="mt-0.5 flex items-center gap-1.5">
-                    <ProviderBadge type={d.provider.type} name={d.provider.name} />
-                    {d.missingSince && <Badge tone="danger">{t('hosting.status.missing')}</Badge>}
+    <>
+      {done && (
+        <div className="border-b border-border px-4 py-3">
+          <ActionResultNotice title={done.title} result={done.result} provider={done.provider} />
+        </div>
+      )}
+      <Table>
+        <THead>
+          <tr>
+            <TH>{t('hosting.col.domain')}</TH>
+            <TH className="hidden sm:table-cell">{t('hosting.col.status')}</TH>
+            <TH className="hidden md:table-cell">{t('hosting.col.expires')}</TH>
+            <TH className="hidden xl:table-cell">{t('hosting.col.autoRenew')}</TH>
+            <TH>{t('hosting.col.customer')}</TH>
+            <TH className="hidden lg:table-cell">{t('hosting.col.location')}</TH>
+            {showActions && <TH />}
+          </tr>
+        </THead>
+        <TBody>
+          {domains.data.map((d) => (
+            <TR key={d.id} onClick={d.org ? () => navigate(`/o/${d.org!.slug}/domains/${d.id}`) : undefined}>
+              <TD>
+                <div className="flex items-center gap-3">
+                  <Globe className="size-4 shrink-0 text-muted" aria-hidden />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-text">{d.name}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <ProviderBadge type={d.provider.type} name={d.provider.name} />
+                      {d.missingSince && <Badge tone="danger">{t('hosting.status.missing')}</Badge>}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </TD>
-            <TD className="hidden sm:table-cell">
-              <DomainStatusBadge domain={d} />
-            </TD>
-            <TD className="hidden whitespace-nowrap md:table-cell">
-              <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
-            </TD>
-            <TD>
-              <CustomerCell org={d.org} />
-            </TD>
-            <TD className="hidden lg:table-cell">
-              <span className="inline-flex items-center gap-2 text-sm">
-                <Flag country={d.location.country} />
-                <span className="truncate">{d.location.city ?? d.location.label}</span>
-              </span>
-            </TD>
-            {canAssign && (
-              <TD className="text-right" onClick={(e) => e.stopPropagation()}>
-                <AssignButton assigned={!!d.org} onClick={() => onAssign(d)} />
               </TD>
-            )}
-          </TR>
-        ))}
-      </TBody>
-    </Table>
+              <TD className="hidden sm:table-cell">
+                <DomainStatusBadge domain={d} />
+              </TD>
+              <TD className="hidden whitespace-nowrap md:table-cell">
+                <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+              </TD>
+              <TD className="hidden xl:table-cell">
+                <AutoRenewBadge value={d.autoRenew} />
+              </TD>
+              <TD>
+                <CustomerCell org={d.org} />
+              </TD>
+              <TD className="hidden lg:table-cell">
+                <span className="inline-flex items-center gap-2 text-sm">
+                  <Flag country={d.location.country} />
+                  <span className="truncate">{d.location.city ?? d.location.label}</span>
+                </span>
+              </TD>
+              {showActions && (
+                <TD className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                  <div className="inline-flex items-center gap-1">
+                    {canAssign && <AssignButton assigned={!!d.org} onClick={() => onAssign(d)} />}
+                    {renewable(d) && (
+                      <RenewalMenu
+                        domain={d}
+                        onAutoRenew={(enabled) =>
+                          setRenewal({ kind: 'auto', domain: renewalTarget(d), enabled })
+                        }
+                        onRenew={() => setRenewal({ kind: 'renew', domain: renewalTarget(d) })}
+                      />
+                    )}
+                  </div>
+                </TD>
+              )}
+            </TR>
+          ))}
+        </TBody>
+      </Table>
+      {renewal?.kind === 'auto' && (
+        <AutoRenewDialog
+          domain={renewal.domain}
+          enabled={renewal.enabled}
+          onClose={() => setRenewal(null)}
+          onDone={(result) =>
+            setDone({
+              title: renewal.enabled
+                ? t('hosting.renewal.enabledToast', { name: renewal.domain.name })
+                : t('hosting.renewal.disabledToast', { name: renewal.domain.name }),
+              result,
+              provider: renewal.domain.provider.name,
+            })
+          }
+        />
+      )}
+      {renewal?.kind === 'renew' && (
+        <RenewDialog
+          domain={renewal.domain}
+          onClose={() => setRenewal(null)}
+          onDone={(result) =>
+            setDone({
+              title: t('hosting.renewal.renewedToast', { name: renewal.domain.name }),
+              result,
+              provider: renewal.domain.provider.name,
+            })
+          }
+        />
+      )}
+    </>
+  );
+}
+
+const renewalTarget = (d: DomainDto): RenewalTarget => ({
+  id: d.id,
+  name: d.name,
+  expiresAt: d.expiresAt,
+  provider: d.provider,
+});
+
+/** Platform staff only (platform:domain:write): registrar renewals cost money. */
+function RenewalMenu({
+  domain,
+  onAutoRenew,
+  onRenew,
+}: {
+  domain: DomainDto;
+  onAutoRenew: (enabled: boolean) => void;
+  onRenew: () => void;
+}) {
+  const { t } = useI18n();
+  const caps = domain.capabilities;
+  return (
+    <Menu
+      trigger={
+        <Button size="icon" variant="ghost" aria-label={t('common.actions')} title={t('common.actions')}>
+          <MoreHorizontal className="size-4" />
+        </Button>
+      }
+    >
+      <MenuLabel>{t('hosting.renewal.title')}</MenuLabel>
+      {caps.includes('autoRenew') && (
+        <MenuItem
+          icon={<RotateCw />}
+          onSelect={() => onAutoRenew(domain.autoRenew !== true)}
+          hint={
+            domain.autoRenew === true
+              ? t('hosting.autoRenew.onLong')
+              : domain.autoRenew === false
+                ? t('hosting.autoRenew.offLong')
+                : undefined
+          }
+        >
+          {domain.autoRenew === true ? t('hosting.admin.autoRenewOff') : t('hosting.admin.autoRenewOn')}
+        </MenuItem>
+      )}
+      {caps.includes('autoRenew') && caps.includes('renew') && <MenuSeparator />}
+      {caps.includes('renew') && (
+        <MenuItem icon={<CalendarPlus />} onSelect={onRenew}>
+          {t('hosting.admin.renewNow')}
+        </MenuItem>
+      )}
+    </Menu>
   );
 }
 

@@ -30,7 +30,8 @@ describe('modules', () => {
 
   it('produces valid statements and normalizes input', () => {
     expect(validateStatements(moduleDenyStatements([]))).toEqual([]);
-    expect(moduleDenyStatements(['servers', 'dns', 'webhosting'])).toEqual([]);
+    expect(moduleDenyStatements(['servers', 'dns', 'webhosting', 'storage', 'mail'])).toEqual([]);
+    expect(moduleDenyStatements(['servers'])[0]!.actions).toContain('mail:*');
     expect(normalizeModules(['dns', 'bogus', 'servers', 'dns'])).toEqual(['servers', 'dns']);
   });
 

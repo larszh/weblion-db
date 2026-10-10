@@ -5,6 +5,8 @@ import type {
   DdosSettings,
   DnsRecord,
   DnsRecordInput,
+  DnsRecordType,
+  DomainCapability,
   DomainInfo,
   FirewallInfo,
   FirewallRule,
@@ -15,29 +17,38 @@ import type {
   MetricsResult,
   MonitoringInfo,
   PowerAction,
+  ProviderLocation,
   ProviderTask,
   RescaleRequest,
+  ServerPlan,
   ServerStatus,
   SnapshotInfo,
   TrafficInfo,
   WebspaceCredentials,
   WebspaceInfo,
 } from '@weblion/shared';
+import { DNS_RECORD_TYPES, REGISTRAR_CAPABILITIES } from '@weblion/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors';
 import type {
   ActionResult,
+  CloudAccountInput,
+  CloudAccountPatch,
   CreateServerRequest,
   DemoConfig,
   DnsRecordPatch,
   InfraOverview,
   ProviderAdapter,
   RawResponse,
+  RemoteCloudAccount,
   RemoteDomain,
   RemoteServer,
   RemoteWebspace,
   ServerRef,
 } from '../types';
+import { DemoCloud, demoCloudState, resetDemoCloud } from './cloud';
+import { resetDemoCloudflare } from './cloudflare';
 import { DemoHosting, demoHostingState, resetDemoHosting } from './hosting';
+import { resetDemoMail } from './mail';
 
 /**
  * Simulated provider for local development, UI work and automated tests.
@@ -52,6 +63,7 @@ interface DemoServer extends RemoteServer {
   ddos: DdosSettings[];
   iso: string | null;
   seed: number;
+  architecture: 'x86' | 'arm';
 }
 
 const STATE = new Map<string, Map<string, DemoServer>>();
@@ -80,6 +92,47 @@ const ISOS: IsoOption[] = [
   { id: 'local:iso/systemrescue-11.02-amd64.iso', label: 'systemrescue-11.02-amd64.iso' },
 ];
 
+function demoPlan(
+  id: string,
+  cores: number,
+  architecture: 'x86' | 'arm',
+  priceCents: number,
+  extra: { deprecated?: boolean; cpuType?: string; locations?: string[] } = {},
+): ServerPlan {
+  return {
+    id,
+    label: id.toUpperCase(),
+    cores,
+    memoryMb: cores * 2048,
+    diskGb: cores * 40,
+    architecture,
+    cpuType: extra.cpuType ?? 'shared',
+    priceMonthly: { amount: priceCents, currency: 'EUR' },
+    locations: extra.locations ?? [],
+    deprecated: extra.deprecated ?? false,
+  };
+}
+
+/**
+ * Fixed sizes like Hetzner server types, so plan pickers can be tried without a Hetzner
+ * project. The generated servers match the x86 plans (cores x 2 GB RAM, cores x 40 GB disk)
+ * and count as x86.
+ */
+const PLANS: ServerPlan[] = [
+  demoPlan('d1', 1, 'x86', 490, { deprecated: true }),
+  demoPlan('d2', 2, 'x86', 890),
+  demoPlan('d4', 4, 'x86', 1690),
+  demoPlan('d8', 8, 'x86', 3290),
+  demoPlan('d16', 16, 'x86', 6490),
+  demoPlan('d8-dedicated', 8, 'x86', 5990, { cpuType: 'dedicated', locations: ['fsn1', 'hel1'] }),
+  demoPlan('d4-arm', 4, 'arm', 790, { locations: ['fsn1'] }),
+];
+const LOCATIONS: ProviderLocation[] = [
+  { id: 'zrh1', label: 'Zürich', country: 'CH', city: 'Zürich' },
+  { id: 'fsn1', label: 'Falkenstein DC Park 1', country: 'DE', city: 'Falkenstein' },
+  { id: 'hel1', label: 'Helsinki DC Park 1', country: 'FI', city: 'Helsinki' },
+];
+
 function rng(seed: number) {
   let s = seed >>> 0;
   return () => {
@@ -92,6 +145,7 @@ export class DemoAdapter implements ProviderAdapter {
   readonly type = 'demo' as const;
   private readonly servers: Map<string, DemoServer>;
   private readonly hosting: DemoHosting;
+  private readonly cloud: DemoCloud;
 
   constructor(
     private readonly connectionId: string,
@@ -104,12 +158,16 @@ export class DemoAdapter implements ProviderAdapter {
     }
     this.servers = state;
     this.hosting = new DemoHosting(demoHostingState(connectionId));
+    this.cloud = new DemoCloud(demoCloudState(connectionId));
   }
 
   /** Test helper: forget all simulated state. */
   static reset() {
     STATE.clear();
     resetDemoHosting();
+    resetDemoCloud();
+    resetDemoCloudflare();
+    resetDemoMail();
   }
 
   private generate(): Map<string, DemoServer> {
@@ -180,6 +238,7 @@ export class DemoAdapter implements ProviderAdapter {
         ddos: [],
         iso: null,
         seed: seed + i,
+        architecture: 'x86',
       });
     }
     // DDoS settings exist per IPv4 address of the server, like at 24fire.
@@ -267,7 +326,7 @@ export class DemoAdapter implements ProviderAdapter {
       ips: server.ips.map((ip) => ({ ...ip })),
       os: server.os,
       node: server.node,
-      meta: { iso: server.iso },
+      meta: { ...server.meta, iso: server.iso },
     };
   }
 
@@ -460,6 +519,7 @@ export class DemoAdapter implements ProviderAdapter {
 
   async rescale(ref: ServerRef, request: RescaleRequest): Promise<ActionResult> {
     const s = this.get(ref);
+    if (request.plan) return this.changePlan(s, request.plan, !!request.upgradeDisk);
     if (request.diskGb && request.diskGb <= (s.specs.diskGb ?? 0)) throw badRequest('Disks can only grow');
     s.specs = {
       ...s.specs,
@@ -468,6 +528,37 @@ export class DemoAdapter implements ProviderAdapter {
       diskGb: request.diskGb ?? s.specs.diskGb,
     };
     return { providerRef: this.task(s, 'rescale', 1000) };
+  }
+
+  /** Like Hetzner change_type: the disk only grows with upgradeDisk, and never shrinks. */
+  private changePlan(s: DemoServer, planId: string, upgradeDisk: boolean): ActionResult {
+    const plan = PLANS.find((p) => p.id === planId && p.architecture === s.architecture);
+    if (!plan || plan.deprecated) throw badRequest('Unknown plan');
+    const disk = s.specs.diskGb ?? 0;
+    if (plan.diskGb < disk) {
+      throw conflict(`The disk (${disk} GB) is larger than the disk of ${plan.label} (${plan.diskGb} GB)`);
+    }
+    s.specs = {
+      ...s.specs,
+      cores: plan.cores,
+      memoryMb: plan.memoryMb,
+      diskGb: upgradeDisk ? plan.diskGb : disk,
+    };
+    s.meta = { ...s.meta, plan: plan.id };
+    return { providerRef: this.task(s, 'change_type', 1000), message: `Changed to ${plan.label}` };
+  }
+
+  async listPlans(ref?: ServerRef): Promise<ServerPlan[]> {
+    // A server keeps its architecture, so it only sees plans it can change to.
+    const architecture = ref ? this.get(ref).architecture : null;
+    return PLANS.filter((p) => !architecture || p.architecture === architecture).map((p) => ({
+      ...p,
+      locations: [...p.locations],
+    }));
+  }
+
+  async listLocations(): Promise<ProviderLocation[]> {
+    return LOCATIONS.map((l) => ({ ...l }));
   }
 
   async listImages() {
@@ -502,16 +593,30 @@ export class DemoAdapter implements ProviderAdapter {
   async createServer(request: CreateServerRequest) {
     const id = `demo-${this.config.seed ?? 42}-${randomUUID().slice(0, 8)}`;
     const image = IMAGES.find((i) => i.id === request.imageId) ?? IMAGES[0]!;
+    const plan = request.plan ? PLANS.find((p) => p.id === request.plan) : undefined;
+    if (request.plan && (!plan || plan.deprecated)) throw badRequest('Unknown plan');
+    const location = request.location ? LOCATIONS.find((l) => l.id === request.location) : undefined;
+    if (request.location && !location) throw badRequest('Unknown location');
+    if (plan && location && plan.locations.length > 0 && !plan.locations.includes(location.id)) {
+      throw badRequest(`${plan.label} is not available in ${location.label}`);
+    }
+    const size = plan ?? request;
     this.servers.set(id, {
       externalId: id,
       name: request.name,
       kind: 'vm',
       status: 'running',
-      specs: { cores: request.cores, memoryMb: request.memoryMb, diskGb: request.diskGb, backupSlots: 3 },
+      specs: { cores: size.cores, memoryMb: size.memoryMb, diskGb: size.diskGb, backupSlots: 3 },
       ips: [{ address: `185.200.1.${this.servers.size + 10}`, version: 4 }],
       os: image.label,
       node: request.node ?? 'demo-node-1',
-      meta: {},
+      // Same shape as the Hetzner adapter, so the console shows the location per server.
+      meta: {
+        ...(plan ? { plan: plan.id } : {}),
+        ...(location
+          ? { datacenter: { name: location.id, city: location.city, country: location.country } }
+          : {}),
+      },
       backups: [],
       snapshots: [],
       tasks: [],
@@ -519,6 +624,7 @@ export class DemoAdapter implements ProviderAdapter {
       ddos: [],
       iso: null,
       seed: this.servers.size + 100,
+      architecture: plan?.architecture === 'arm' ? 'arm' : 'x86',
     });
     return { externalId: id, message: 'Server created' };
   }
@@ -631,6 +737,15 @@ export class DemoAdapter implements ProviderAdapter {
 
   // --- Domains & web spaces -------------------------------------------------------
 
+  /** Every registrar feature, so the dev stack shows them all (proxy and CDN are Cloudflare's). */
+  domainCapabilities(): DomainCapability[] {
+    return [...REGISTRAR_CAPABILITIES];
+  }
+
+  dnsRecordTypes(): DnsRecordType[] {
+    return [...DNS_RECORD_TYPES];
+  }
+
   async listDomains(): Promise<RemoteDomain[]> {
     return this.hosting.listDomains();
   }
@@ -663,6 +778,22 @@ export class DemoAdapter implements ProviderAdapter {
     return true;
   }
 
+  async setNameservers(externalId: string, nameservers: string[]): Promise<ActionResult> {
+    return this.hosting.setNameservers(externalId, nameservers);
+  }
+
+  async setDomainLock(externalId: string, locked: boolean): Promise<ActionResult> {
+    return this.hosting.setDomainLock(externalId, locked);
+  }
+
+  async setDomainAutoRenew(externalId: string, enabled: boolean): Promise<ActionResult> {
+    return this.hosting.setDomainAutoRenew(externalId, enabled);
+  }
+
+  async renewDomain(externalId: string, years: number, expiresAt?: string | null): Promise<ActionResult> {
+    return this.hosting.renewDomain(externalId, years, expiresAt);
+  }
+
   async listWebspaces(): Promise<RemoteWebspace[]> {
     return this.hosting.listWebspaces();
   }
@@ -673,6 +804,40 @@ export class DemoAdapter implements ProviderAdapter {
 
   async getWebspaceCredentials(externalId: string): Promise<WebspaceCredentials> {
     return this.hosting.getWebspaceCredentials(externalId);
+  }
+
+  // --- Cloud storage (simulated Nextcloud) ----------------------------------------
+
+  async listCloudAccounts(): Promise<RemoteCloudAccount[]> {
+    return this.cloud.listCloudAccounts();
+  }
+
+  async getCloudAccount(externalId: string): Promise<RemoteCloudAccount> {
+    return this.cloud.getCloudAccount(externalId);
+  }
+
+  async createCloudAccount(input: CloudAccountInput): Promise<RemoteCloudAccount> {
+    return this.cloud.createCloudAccount(input);
+  }
+
+  async updateCloudAccount(externalId: string, patch: CloudAccountPatch): Promise<void> {
+    this.cloud.updateCloudAccount(externalId, patch);
+  }
+
+  async setCloudAccountPassword(externalId: string, password: string): Promise<void> {
+    this.cloud.setCloudAccountPassword(externalId, password);
+  }
+
+  async deleteCloudAccount(externalId: string): Promise<void> {
+    this.cloud.deleteCloudAccount(externalId);
+  }
+
+  async resendCloudInvite(externalId: string): Promise<void> {
+    this.cloud.resendCloudInvite(externalId);
+  }
+
+  cloudLoginUrl(): string {
+    return this.cloud.cloudLoginUrl();
   }
 
   async rawRequest(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse> {

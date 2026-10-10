@@ -1,12 +1,20 @@
 import { billingDe } from './sections/billing.de';
 import { adminDe } from './sections/admin.de';
 import { hostingDe } from './sections/hosting.de';
+import { cloudDe } from './sections/cloud.de';
+import { storageDe } from './sections/storage.de';
+import { cloudflareDe } from './sections/cloudflare.de';
+import { mailDe } from './sections/mail.de';
 
 /** German is the source language. English (en.ts) must provide every key. */
 export const de = {
   ...billingDe,
   ...adminDe,
   ...hostingDe,
+  ...cloudDe,
+  ...storageDe,
+  ...cloudflareDe,
+  ...mailDe,
   // Common
   'common.actions': 'Aktionen',
   'common.add': 'Hinzufügen',
@@ -428,7 +436,8 @@ export const de = {
   'rebuild.confirmTitle': '{name} neu installieren?',
   'rebuild.started': 'Neuinstallation gestartet',
   'rebuild.protectedTitle': 'Rebuild-Schutz aktiv',
-  'rebuild.protectedText': 'Deaktiviere den Schutz unter Einstellungen, um den Server neu zu installieren.',
+  'rebuild.protectedText':
+    'Deaktivieren Sie den Schutz unter Einstellungen, um den Server neu zu installieren.',
   'delete.title': 'Server löschen',
   'delete.subtitle': 'Entfernt den Server beim Provider endgültig.',
   'delete.warning': 'Server, Disks und Snapshots werden gelöscht. Das lässt sich nicht rückgängig machen.',
@@ -437,7 +446,7 @@ export const de = {
   'delete.confirmTitle': '{name} endgültig löschen?',
   'delete.done': 'Server wird gelöscht',
   'delete.protectedTitle': 'Löschschutz aktiv',
-  'delete.protectedText': 'Deaktiviere den Schutz unter Einstellungen, um den Server zu löschen.',
+  'delete.protectedText': 'Deaktivieren Sie den Schutz unter Einstellungen, um den Server zu löschen.',
 
   // Activity
   'activity.actions': 'Aktionen in der Console',
@@ -555,6 +564,7 @@ export const de = {
   'perm.group.networking': 'Netzwerk',
   'perm.group.domains': 'Domains',
   'perm.group.webhosting': 'Webhosting',
+  'perm.group.storage': 'Cloud-Speicher',
   'perm.group.billing': 'Abrechnung',
   'perm.group.reseller': 'Reseller',
   'perm.group.platform': 'Plattform',
@@ -739,7 +749,7 @@ export const de = {
 
   // Providers
   'providers.subtitle':
-    'Verbindungen zu 24fire, Proxmox und künftigen Plattformen. Zugangsdaten werden verschlüsselt gespeichert.',
+    'Verbindungen zu 24fire, Proxmox, Joker.com und künftigen Plattformen. Zugangsdaten werden verschlüsselt gespeichert.',
   'providers.add': 'Provider hinzufügen',
   'providers.edit': 'Provider bearbeiten',
   'providers.type': 'Typ',
@@ -757,7 +767,8 @@ export const de = {
   'providers.envManaged':
     'Die Zugangsdaten kommen aus Umgebungsvariablen und werden beim Start übernommen. Ändern Sie sie in der .env bzw. im Deployment.',
   'providers.empty': 'Keine Provider verbunden',
-  'providers.emptyText': 'Hinterlegen Sie 24fire oder Proxmox in der .env oder fügen Sie sie hier hinzu.',
+  'providers.emptyText':
+    'Hinterlegen Sie 24fire, Proxmox oder Joker.com in der .env oder fügen Sie sie hier hinzu.',
   'providers.status.ok': 'Verbunden',
   'providers.status.error': 'Fehler',
   'providers.status.unknown': 'Unbekannt',
@@ -769,6 +780,22 @@ export const de = {
   'providers.testFailed': 'Verbindung fehlgeschlagen',
   'providers.sync': 'Jetzt synchronisieren',
   'providers.synced': '{seen} Server synchronisiert, {missing} fehlen',
+  'providers.syncedDomains': '{seen} Domains synchronisiert, {missing} fehlen',
+  'providers.joker.help':
+    'Die DMAPI setzt ein Reseller-Konto bei Joker.com voraus. Den API-Key erstellen Sie auf joker.com in den Einstellungen Ihres Reseller-Kontos. Joker.com liefert nur Domains, keine Server.',
+  'providers.joker.auth': 'Anmeldung',
+  'providers.joker.authApiKey': 'API-Key (empfohlen)',
+  'providers.joker.authPassword': 'Benutzername und Passwort',
+  'providers.joker.apiKeyHint':
+    'Der Key gehört zu Ihrem Reseller-Konto und lässt sich auf joker.com jederzeit widerrufen.',
+  'providers.joker.passwordHint': 'Zugangsdaten Ihres Reseller-Kontos bei Joker.com.',
+  'providers.joker.username': 'Benutzername',
+  'providers.joker.password': 'Passwort',
+  'providers.joker.apiKeyRemoved':
+    'Für diesen Provider ist ein API-Key gespeichert. Beim Speichern wird er entfernt und das Panel meldet sich danach mit Benutzername und Passwort an.',
+  'providers.joker.baseUrlHint': 'Standard: {url}. Das Testsystem (OT&E) braucht ein eigenes Konto.',
+  'providers.joker.useOte': 'Testsystem (OT&E) verwenden',
+  'providers.joker.useLive': 'Live-System verwenden',
   'providers.nodes': 'Nodes',
   'providers.cores': 'Kerne',
   'providers.storages': 'Storages',
@@ -778,7 +805,8 @@ export const de = {
   'providers.config': 'Konfiguration',
   'providers.notFound': 'Provider nicht gefunden',
   'providers.delete': 'Provider entfernen',
-  'providers.deleteText': 'Nur möglich, wenn keine Server dieses Providers einem Kunden zugewiesen sind.',
+  'providers.deleteText':
+    'Nur möglich, wenn keine Server, Domains oder Webspaces dieses Providers einem Kunden zugewiesen sind.',
   'providers.deleted': 'Provider entfernt',
 
   // Explorer
@@ -793,6 +821,9 @@ export const de = {
   'explorer.send': 'Senden',
   'explorer.response': 'Antwort',
   'explorer.presets': 'Schnellzugriff',
+  'explorer.jokerHint':
+    'Bei Joker.com ist der Pfad der Name des DMAPI-Requests mit optionalem Query-String, z. B. /query-whois?domain=example.com. Joker erhält immer POST; ändernde Requests werden im Audit-Log protokolliert.',
+  'explorer.jokerBodyHint': 'Weitere Request-Parameter, z. B. { "domain": "example.com" }.',
 } as const;
 
 export type TranslationKey = keyof typeof de;

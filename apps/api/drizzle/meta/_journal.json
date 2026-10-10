@@ -22,6 +22,20 @@
       "when": 1791445834944,
       "tag": "0002_org_suspended_by",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791530834876,
+      "tag": "0003_cloud_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791617365013,
+      "tag": "0004_cloudflare_mail",
+      "breakpoints": true
     }
   ]
 }

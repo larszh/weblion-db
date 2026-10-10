@@ -33,7 +33,81 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/api/account/services', label: 'Account services' },
     { method: 'GET', path: '/api/account/donations', label: 'Donations' },
   ],
+  // Relative to /v1. Lists are paginated (?page=&per_page=, at most 50).
+  hetzner: [
+    { method: 'GET', path: '/servers', label: 'Servers' },
+    { method: 'GET', path: '/server_types', label: 'Server types' },
+    { method: 'GET', path: '/locations', label: 'Locations' },
+    { method: 'GET', path: '/images?type=system', label: 'System images' },
+    { method: 'GET', path: '/isos', label: 'ISOs' },
+    { method: 'GET', path: '/pricing', label: 'Pricing' },
+    { method: 'GET', path: '/servers/<id>/actions', label: 'Actions of a server' },
+  ],
+  // DMAPI request names; the method is derived from the request (see jokerMethod).
+  joker: [
+    { method: 'DMAPI', path: '/query-domain-list?showstatus=1&showjokerns=1', label: 'Domain list' },
+    { method: 'DMAPI', path: '/query-whois?domain=example.com', label: 'Whois (domain)' },
+    { method: 'DMAPI', path: '/query-profile', label: 'Reseller profile' },
+    { method: 'DMAPI', path: '/dns-zone-list', label: 'DNS zones' },
+    { method: 'DMAPI', path: '/dns-zone-get?domain=example.com', label: 'DNS zone' },
+    { method: 'DMAPI', path: '/result-list', label: 'Job results (Proc-IDs)' },
+  ],
+  // OCS provisioning API. Answers come as JSON, passwords in them are blanked out.
+  nextcloud: [
+    { method: 'GET', path: '/ocs/v2.php/cloud/users/details', label: 'Users with details' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/users', label: 'User ids' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/users/<userid>', label: 'User (quota, usage)' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/groups', label: 'Groups' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/groups/<groupid>/users', label: 'Members of a group' },
+    { method: 'GET', path: '/ocs/v2.php/cloud/capabilities', label: 'Capabilities (version)' },
+  ],
+  // Relative to /client/v4. Lists are paginated (?page=&per_page=, zones at most 50).
+  cloudflare: [
+    { method: 'GET', path: '/user/tokens/verify', label: 'Token status' },
+    { method: 'GET', path: '/zones?per_page=50', label: 'Zones' },
+    { method: 'GET', path: '/zones/<zone_id>', label: 'Zone' },
+    { method: 'GET', path: '/zones/<zone_id>/dns_records?per_page=100', label: 'DNS records' },
+    { method: 'GET', path: '/zones/<zone_id>/settings/ssl', label: 'SSL/TLS mode' },
+    { method: 'GET', path: '/zones/<zone_id>/settings/always_use_https', label: 'Always Use HTTPS' },
+    { method: 'GET', path: '/zones/<zone_id>/settings/development_mode', label: 'Development mode' },
+    { method: 'GET', path: '/accounts', label: 'Accounts' },
+  ],
+  // The method is derived from the path (see mailcowMethod).
+  mailcow: [
+    { method: 'GET', path: '/api/v1/get/domain/all', label: 'Domains' },
+    { method: 'GET', path: '/api/v1/get/mailbox/all/<domain>', label: 'Mailboxes' },
+    { method: 'GET', path: '/api/v1/get/alias/all/<domain>', label: 'Aliases' },
+    { method: 'GET', path: '/api/v1/get/dkim/<domain>', label: 'DKIM' },
+    { method: 'GET', path: '/api/v1/get/status/version', label: 'Version' },
+    { method: 'GET', path: '/api/v1/get/passwordpolicy', label: 'Password policy' },
+  ],
   demo: [{ method: 'GET', path: '/echo', label: 'Echo' }],
+};
+
+/** DMAPI requests that only read. */
+const JOKER_READ = /^\/*(query-[a-z-]+|dns-zone-(list|get)|result-(list|retrieve)|domain-check)(\?|$)/i;
+
+/**
+ * Joker always gets a POST, the method only decides the audit: reads are sent as GET (not
+ * logged), everything else as POST so changes land in the audit log.
+ */
+const jokerMethod = (path: string) => (JOKER_READ.test(path.trim()) ? 'GET' : 'POST');
+
+/** Mailcow reads with GET (/api/v1/get/...) and changes with POST (add, edit, delete). */
+const mailcowMethod = (path: string) =>
+  /^(https?:\/\/[^/]+)?\/api\/v1\/get\//i.test(path.trim()) ? 'GET' : 'POST';
+
+const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
+  proxmox: { path: '/nodes/pve01/qemu/100/status/current', body: '{ "vmid": 100 }' },
+  fire24: { path: '/api/kvm/<id>/config', body: '{ "mode": "start" }' },
+  hetzner: { path: '/servers/<id>', body: '{ "server_type": "cx32", "upgrade_disk": false }' },
+  joker: { path: '/query-whois?domain=example.com', body: '{ "domain": "example.com" }' },
+  nextcloud: { path: '/ocs/v2.php/cloud/users/<userid>', body: '{ "key": "quota", "value": "10 GB" }' },
+  cloudflare: { path: '/zones/<zone_id>/settings/ssl', body: '{ "value": "full" }' },
+  mailcow: {
+    path: '/api/v1/edit/mailbox',
+    body: '{ "items": ["anna@kunde.ch"], "attr": { "quota": "4096" } }',
+  },
 };
 
 interface Result {
@@ -53,6 +127,16 @@ export function ExplorerPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const provider = providers.data?.find((p) => p.id === providerId) ?? providers.data?.[0];
+  const isJoker = provider?.type === 'joker';
+  /** Joker and Mailcow derive the method from the path, the others take it from the select. */
+  const derivedMethod = isJoker
+    ? jokerMethod(path)
+    : provider?.type === 'mailcow'
+      ? mailcowMethod(path)
+      : null;
+  /** Joker takes parameters with every request, the others only with a body method. */
+  const withBody = isJoker || (derivedMethod ?? method) !== 'GET';
+  const placeholder = PLACEHOLDERS[provider?.type ?? 'proxmox'] ?? PLACEHOLDERS.proxmox!;
 
   const run = async () => {
     if (!provider) return;
@@ -60,11 +144,11 @@ export function ExplorerPage() {
     setError(null);
     try {
       let parsedBody: Record<string, unknown> | undefined;
-      if (body.trim() && method !== 'GET') parsedBody = JSON.parse(body) as Record<string, unknown>;
+      if (body.trim() && withBody) parsedBody = JSON.parse(body) as Record<string, unknown>;
       setResult(
         await api.post<Result>('/admin/explorer', {
           providerId: provider.id,
-          method,
+          method: derivedMethod ?? method,
           path,
           body: parsedBody,
         }),
@@ -86,7 +170,12 @@ export function ExplorerPage() {
         <div className="min-w-0 space-y-6">
           <Card>
             <CardBody className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-[200px_110px_1fr_auto] md:items-end">
+              <div
+                className={cn(
+                  'grid gap-3 md:items-end',
+                  derivedMethod ? 'md:grid-cols-[200px_1fr_auto]' : 'md:grid-cols-[200px_110px_1fr_auto]',
+                )}
+              >
                 <Field label={t('overview.provider')} htmlFor="ex-provider">
                   <Select
                     id="ex-provider"
@@ -100,23 +189,21 @@ export function ExplorerPage() {
                     ))}
                   </Select>
                 </Field>
-                <Field label={t('explorer.method')} htmlFor="ex-method">
-                  <Select id="ex-method" value={method} onChange={(e) => setMethod(e.target.value)}>
-                    {['GET', 'POST', 'PUT', 'DELETE'].map((m) => (
-                      <option key={m}>{m}</option>
-                    ))}
-                  </Select>
-                </Field>
+                {!derivedMethod && (
+                  <Field label={t('explorer.method')} htmlFor="ex-method">
+                    <Select id="ex-method" value={method} onChange={(e) => setMethod(e.target.value)}>
+                      {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((m) => (
+                        <option key={m}>{m}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
                 <Field label={t('explorer.path')} htmlFor="ex-path">
                   <Input
                     id="ex-path"
                     value={path}
                     onChange={(e) => setPath(e.target.value)}
-                    placeholder={
-                      provider?.type === 'fire24'
-                        ? '/api/kvm/<id>/config'
-                        : '/nodes/pve01/qemu/100/status/current'
-                    }
+                    placeholder={placeholder.path}
                     className="font-mono"
                     onKeyDown={(e) => e.key === 'Enter' && void run()}
                   />
@@ -131,15 +218,42 @@ export function ExplorerPage() {
                   {t('explorer.send')}
                 </Button>
               </div>
-              {method !== 'GET' && (
-                <Field label={t('explorer.body')} hint={t('explorer.bodyHint')} htmlFor="ex-body">
+              {isJoker && <p className="text-xs text-muted">{t('explorer.jokerHint')}</p>}
+              {provider?.type === 'hetzner' && (
+                <p className="text-xs text-muted">{t('explorer.hetznerPath')}</p>
+              )}
+              {provider?.type === 'nextcloud' && (
+                <p className="text-xs text-muted">{t('explorer.nextcloudPath')}</p>
+              )}
+              {provider?.type === 'cloudflare' && (
+                <p className="text-xs text-muted">{t('explorer.cloudflarePath')}</p>
+              )}
+              {provider?.type === 'mailcow' && (
+                <p className="text-xs text-muted">{t('explorer.mailcowPath')}</p>
+              )}
+              {withBody && (
+                <Field
+                  label={t('explorer.body')}
+                  hint={
+                    isJoker
+                      ? t('explorer.jokerBodyHint')
+                      : provider?.type === 'hetzner' || provider?.type === 'cloudflare'
+                        ? t('explorer.bodyHintJson')
+                        : provider?.type === 'nextcloud'
+                          ? t('explorer.nextcloudBodyHint')
+                          : provider?.type === 'mailcow'
+                            ? t('explorer.mailcowBodyHint')
+                            : t('explorer.bodyHint')
+                  }
+                  htmlFor="ex-body"
+                >
                   <Textarea
                     id="ex-body"
                     rows={5}
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
                     className="font-mono text-xs"
-                    placeholder='{ "vmid": 100 }'
+                    placeholder={placeholder.body}
                   />
                 </Field>
               )}
@@ -179,11 +293,11 @@ export function ExplorerPage() {
                 key={p.path}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3"
                 onClick={() => {
-                  setMethod(p.method);
+                  if (p.method !== 'DMAPI') setMethod(p.method);
                   setPath(p.path);
                 }}
               >
-                <Badge tone="primary">{p.method}</Badge>
+                <Badge tone={p.method === 'DMAPI' ? 'info' : 'primary'}>{p.method}</Badge>
                 <span className="truncate">{p.label}</span>
               </button>
             ))}

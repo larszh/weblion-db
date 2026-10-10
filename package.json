@@ -1,7 +1,7 @@
 {
   "name": "weblion-panel",
   "private": true,
-  "description": "weblion.one Cloud Console: server management for 24fire and Proxmox",
+  "description": "weblion.one Cloud Console: server management for 24fire, Proxmox and Hetzner Cloud",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=22"

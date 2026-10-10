@@ -174,9 +174,13 @@ describe('customers', () => {
       modules: ['servers', 'dns', 'webhosting'],
     });
     await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['servers', 'dns'] });
+    // Not a module at all, and a module the reseller does not have itself.
+    expect(
+      (await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['jukebox'] })).statusCode,
+    ).toBe(400);
     expect(
       (await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['mail'] })).statusCode,
-    ).toBe(400);
+    ).toBe(409);
   });
 
   it('opens a customer through the reseller and operates its servers', async () => {
@@ -611,7 +615,7 @@ describe('resource moves', () => {
     const metzgerei = json<Resources>(await reto.get(`/orgs/${alpenId}/customers/${metzgereiId}/resources`));
     expect(metzgerei.servers).toHaveLength(1);
     expect(metzgerei.domains).toHaveLength(1);
-    expect(metzgerei.pool).toEqual({ servers: [], domains: [], webspaces: [] });
+    expect(metzgerei.pool).toEqual({ servers: [], domains: [], webspaces: [], mailDomains: [] });
     // Huber had no web hosting yet: moving a web space switched it on.
     expect((await orgBySlug('baeckerei-huber')).modules).toEqual(['servers', 'dns', 'webhosting']);
     expect(json<WebspaceDto[]>(await hanna.get(`/orgs/${huberId}/webspaces`))).toHaveLength(1);

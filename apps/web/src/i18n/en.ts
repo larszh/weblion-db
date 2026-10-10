@@ -2,11 +2,19 @@ import type { TranslationKey } from './de';
 import { billingEn } from './sections/billing.en';
 import { adminEn } from './sections/admin.en';
 import { hostingEn } from './sections/hosting.en';
+import { cloudEn } from './sections/cloud.en';
+import { storageEn } from './sections/storage.en';
+import { cloudflareEn } from './sections/cloudflare.en';
+import { mailEn } from './sections/mail.en';
 
 export const en: Record<TranslationKey, string> = {
   ...billingEn,
   ...adminEn,
   ...hostingEn,
+  ...cloudEn,
+  ...storageEn,
+  ...cloudflareEn,
+  ...mailEn,
   'common.actions': 'Actions',
   'common.add': 'Add',
   'common.cancel': 'Cancel',
@@ -527,6 +535,7 @@ export const en: Record<TranslationKey, string> = {
   'perm.group.networking': 'Networking',
   'perm.group.domains': 'Domains',
   'perm.group.webhosting': 'Web hosting',
+  'perm.group.storage': 'Cloud storage',
   'perm.group.billing': 'Billing',
   'perm.group.reseller': 'Reseller',
   'perm.group.platform': 'Platform',
@@ -697,7 +706,7 @@ export const en: Record<TranslationKey, string> = {
   'inventory.createStarted': 'Server is being created',
 
   'providers.subtitle':
-    'Connections to 24fire, Proxmox and future platforms. Credentials are stored encrypted.',
+    'Connections to 24fire, Proxmox, Joker.com and future platforms. Credentials are stored encrypted.',
   'providers.add': 'Add provider',
   'providers.edit': 'Edit provider',
   'providers.type': 'Type',
@@ -715,7 +724,7 @@ export const en: Record<TranslationKey, string> = {
   'providers.envManaged':
     'Credentials come from environment variables and are applied on start. Change them in .env or your deployment.',
   'providers.empty': 'No providers connected',
-  'providers.emptyText': 'Configure 24fire or Proxmox in .env or add them here.',
+  'providers.emptyText': 'Configure 24fire, Proxmox or Joker.com in .env or add them here.',
   'providers.status.ok': 'Connected',
   'providers.status.error': 'Error',
   'providers.status.unknown': 'Unknown',
@@ -727,6 +736,22 @@ export const en: Record<TranslationKey, string> = {
   'providers.testFailed': 'Connection failed',
   'providers.sync': 'Sync now',
   'providers.synced': '{seen} servers synced, {missing} missing',
+  'providers.syncedDomains': '{seen} domains synced, {missing} missing',
+  'providers.joker.help':
+    'The DMAPI requires a reseller account at Joker.com. Create the API key on joker.com in the settings of your reseller account. Joker.com only provides domains, no servers.',
+  'providers.joker.auth': 'Sign-in',
+  'providers.joker.authApiKey': 'API key (recommended)',
+  'providers.joker.authPassword': 'Username and password',
+  'providers.joker.apiKeyHint':
+    'The key belongs to your reseller account and can be revoked on joker.com at any time.',
+  'providers.joker.passwordHint': 'Credentials of your reseller account at Joker.com.',
+  'providers.joker.username': 'Username',
+  'providers.joker.password': 'Password',
+  'providers.joker.apiKeyRemoved':
+    'An API key is stored for this provider. Saving removes it, and the panel signs in with username and password from then on.',
+  'providers.joker.baseUrlHint': 'Default: {url}. The test system (OT&E) needs a separate account.',
+  'providers.joker.useOte': 'Use test system (OT&E)',
+  'providers.joker.useLive': 'Use live system',
   'providers.nodes': 'Nodes',
   'providers.cores': 'cores',
   'providers.storages': 'Storages',
@@ -736,7 +761,8 @@ export const en: Record<TranslationKey, string> = {
   'providers.config': 'Configuration',
   'providers.notFound': 'Provider not found',
   'providers.delete': 'Remove provider',
-  'providers.deleteText': 'Only possible when no server of this provider is assigned to a customer.',
+  'providers.deleteText':
+    'Only possible when no servers, domains or web spaces of this provider are assigned to a customer.',
   'providers.deleted': 'Provider removed',
 
   'explorer.subtitle': 'Direct access to the provider APIs. For everything that has no button (yet).',
@@ -749,4 +775,7 @@ export const en: Record<TranslationKey, string> = {
   'explorer.send': 'Send',
   'explorer.response': 'Response',
   'explorer.presets': 'Quick access',
+  'explorer.jokerHint':
+    'For Joker.com the path is the DMAPI request name with an optional query string, e.g. /query-whois?domain=example.com. Joker always receives a POST; requests that change something are recorded in the audit log.',
+  'explorer.jokerBodyHint': 'Further request parameters, e.g. { "domain": "example.com" }.',
 };

@@ -33,8 +33,11 @@ export function DeleteTab() {
         ) : (
           <>
             <Notice tone="danger">{t('delete.warning')}</Notice>
-            {server.status !== 'stopped' && server.provider.type !== 'fire24' && (
-              <Notice tone="warning">{t('delete.stopFirst')}</Notice>
+            {server.provider.type === 'hetzner' ? (
+              <Notice tone="warning">{t('delete.hetznerHint')}</Notice>
+            ) : (
+              server.status !== 'stopped' &&
+              server.provider.type !== 'fire24' && <Notice tone="warning">{t('delete.stopFirst')}</Notice>
             )}
             <Button variant="danger" icon={<Trash2 className="size-4" />} onClick={() => setOpen(true)}>
               {t('delete.submit')}

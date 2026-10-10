@@ -90,16 +90,66 @@ export function Flag({ country, className }: { country: string; className?: stri
       </svg>
     );
   }
+  // Hetzner Cloud locations outside the DACH region.
+  if (c === 'FI') {
+    return (
+      <svg viewBox="0 0 18 11" className={base} role="img" aria-label="Finnland">
+        <rect width="18" height="11" fill="#fff" />
+        <rect x="5" width="3" height="11" fill="#002f6c" />
+        <rect y="4" width="18" height="3" fill="#002f6c" />
+      </svg>
+    );
+  }
+  if (c === 'US') {
+    return (
+      <svg viewBox="0 0 19 10" className={base} role="img" aria-label="USA">
+        <rect width="19" height="10" fill="#fff" />
+        {[0, 2, 4, 6, 8].map((y) => (
+          <rect key={y} y={y} width="19" height="1" fill="#b22234" />
+        ))}
+        <rect width="8" height="5" fill="#3c3b6e" />
+      </svg>
+    );
+  }
+  if (c === 'SG') {
+    return (
+      <svg viewBox="0 0 3 2" className={base} role="img" aria-label="Singapur">
+        <rect width="3" height="1" fill="#ef3340" />
+        <rect width="3" height="1" y="1" fill="#fff" />
+      </svg>
+    );
+  }
   return <span className="rounded bg-surface-3 px-1 text-[10px] font-semibold text-muted">{c}</span>;
 }
 
 const PROVIDER_STYLE: Record<ProviderType, string> = {
   fire24: 'bg-[#fff1e6] text-[#c2410c] dark:bg-[#3a2212] dark:text-[#fdba74]',
   proxmox: 'bg-[#fff4e5] text-[#b45309] dark:bg-[#33270f] dark:text-[#fcd34d]',
+  hetzner: 'bg-[#fdecec] text-[#c81e1e] dark:bg-[#3a1515] dark:text-[#fca5a5]',
+  joker: 'bg-[#eaf2fb] text-[#2f6aa3] dark:bg-[#132536] dark:text-[#93c5fd]',
+  nextcloud: 'bg-[#e8f3fc] text-[#0068b4] dark:bg-[#10283b] dark:text-[#7cc4fa]',
+  cloudflare: 'bg-[#fef1e6] text-[#c2500a] dark:bg-[#3a2410] dark:text-[#fdba74]',
+  mailcow: 'bg-[#eef5ea] text-[#3f7d2b] dark:bg-[#18291a] dark:text-[#9fd58a]',
   demo: 'bg-info-soft text-[#0a8d90] dark:text-brand-teal',
 };
 
-const PROVIDER_LABEL: Record<ProviderType, string> = { fire24: '24fire', proxmox: 'Proxmox', demo: 'Demo' };
+const PROVIDER_LABEL: Record<ProviderType, string> = {
+  fire24: '24fire',
+  proxmox: 'Proxmox',
+  hetzner: 'Hetzner',
+  joker: 'Joker',
+  nextcloud: 'Nextcloud',
+  cloudflare: 'Cloudflare',
+  mailcow: 'Mailcow',
+  demo: 'Demo',
+};
+
+/**
+ * Registrars (Joker.com) and DNS providers (Cloudflare) only have domains, Nextcloud and
+ * Mailcow only accounts and mail domains: keep them out of server pickers and filters.
+ */
+export const providerHasServers = (type: ProviderType): boolean =>
+  type !== 'joker' && type !== 'nextcloud' && type !== 'cloudflare' && type !== 'mailcow';
 
 export function ProviderBadge({
   type,

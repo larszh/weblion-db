@@ -163,15 +163,17 @@ export interface CustomerResources {
   servers: { id: string; name: string; projectId: string }[];
   domains: { id: string; name: string }[];
   webspaces: { id: string; name: string }[];
+  mailDomains: { id: string; name: string }[];
   /** What the reseller organization itself holds and can hand out. */
   pool: {
     servers: { id: string; name: string; projectId: string }[];
     domains: { id: string; name: string }[];
     webspaces: { id: string; name: string }[];
+    mailDomains: { id: string; name: string }[];
   };
 }
 
-export type ResourceType = 'server' | 'domain' | 'webspace';
+export type ResourceType = 'server' | 'domain' | 'webspace' | 'maildomain';
 
 export const useCustomerResources = (resellerId: string, customerId: string, enabled = true) =>
   useQuery({
@@ -195,7 +197,7 @@ export function useMoveResource(
     {
       success,
       // Counts, modules (assigning can switch one on) and the hosting/server lists change.
-      invalidate: [['reseller', resellerId], ['org'], ['hosting'], ['servers'], ['projects']],
+      invalidate: [['reseller', resellerId], ['org'], ['hosting'], ['mail'], ['servers'], ['projects']],
     },
   );
 }

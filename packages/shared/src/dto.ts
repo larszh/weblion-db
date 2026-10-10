@@ -74,6 +74,8 @@ export interface OrgCounts {
   members: number;
   domains: number;
   webspaces: number;
+  /** Mail domains assigned to the organization. */
+  mailDomains: number;
   /** Customer organizations below a reseller. 0 for everyone else. */
   customers: number;
 }

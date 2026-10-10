@@ -5,7 +5,17 @@ import type { Env } from './config/env';
 import type { Database } from './db/client';
 import { memberships, organizations, projects, providerConnections, users } from './db/schema';
 import { hashPassword, type SecretBox } from './lib/crypto';
-import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from './providers/types';
+import type {
+  CloudflareConfig,
+  DemoConfig,
+  Fire24Config,
+  HetznerConfig,
+  JokerConfig,
+  MailcowConfig,
+  NextcloudConfig,
+  ProviderConfig,
+  ProxmoxConfig,
+} from './providers/types';
 
 /** Creates the first superadmin and the weblion organization on an empty database. */
 export async function ensureBootstrapAdmin(db: Database, env: Env, log: FastifyBaseLogger): Promise<void> {
@@ -78,6 +88,78 @@ function envProviders(env: Env): EnvProvider[] {
       } satisfies ProxmoxConfig,
     });
   }
+  if (env.HETZNER_API_TOKEN) {
+    list.push({
+      key: 'hetzner',
+      type: 'hetzner',
+      name: env.HETZNER_NAME,
+      // Each server reports its own location (Falkenstein, Nürnberg, Helsinki, ...).
+      location: { country: 'DE', city: 'Hetzner', label: 'Hetzner Cloud' },
+      config: { apiToken: env.HETZNER_API_TOKEN, baseUrl: env.HETZNER_BASE_URL } satisfies HetznerConfig,
+    });
+  }
+  if (env.NEXTCLOUD_URL && env.NEXTCLOUD_USER && env.NEXTCLOUD_APP_PASSWORD) {
+    list.push({
+      key: 'nextcloud',
+      type: 'nextcloud',
+      name: env.NEXTCLOUD_NAME,
+      location: {
+        country: env.NEXTCLOUD_COUNTRY,
+        city: env.NEXTCLOUD_CITY,
+        label: `${env.NEXTCLOUD_CITY} (Nextcloud)`,
+      },
+      config: {
+        baseUrl: env.NEXTCLOUD_URL,
+        username: env.NEXTCLOUD_USER,
+        appPassword: env.NEXTCLOUD_APP_PASSWORD,
+      } satisfies NextcloudConfig,
+    });
+  }
+  if (env.MAILCOW_URL && env.MAILCOW_API_KEY) {
+    list.push({
+      key: 'mailcow',
+      type: 'mailcow',
+      name: env.MAILCOW_NAME,
+      location: {
+        country: env.MAILCOW_COUNTRY,
+        city: env.MAILCOW_CITY,
+        label: `${env.MAILCOW_CITY} (Mailcow)`,
+      },
+      config: {
+        baseUrl: env.MAILCOW_URL,
+        apiKey: env.MAILCOW_API_KEY,
+        ...(env.MAILCOW_MAIL_HOST ? { mailHost: env.MAILCOW_MAIL_HOST } : {}),
+      } satisfies MailcowConfig,
+    });
+  }
+  if (env.JOKER_API_KEY || (env.JOKER_USERNAME && env.JOKER_PASSWORD)) {
+    list.push({
+      key: 'joker',
+      type: 'joker',
+      name: env.JOKER_NAME,
+      location: { country: 'DE', city: 'Düsseldorf', label: 'Joker.com (Registrar)' },
+      config: {
+        baseUrl: env.JOKER_BASE_URL,
+        ...(env.JOKER_API_KEY
+          ? { apiKey: env.JOKER_API_KEY }
+          : { username: env.JOKER_USERNAME, password: env.JOKER_PASSWORD }),
+      } satisfies JokerConfig,
+    });
+  }
+  if (env.CLOUDFLARE_API_TOKEN) {
+    list.push({
+      key: 'cloudflare',
+      type: 'cloudflare',
+      name: env.CLOUDFLARE_NAME,
+      // Anycast: the zones are served from every Cloudflare location.
+      location: { country: 'US', city: 'Anycast', label: 'Cloudflare (weltweit)' },
+      config: {
+        apiToken: env.CLOUDFLARE_API_TOKEN,
+        baseUrl: env.CLOUDFLARE_BASE_URL,
+        ...(env.CLOUDFLARE_ACCOUNT_ID ? { accountId: env.CLOUDFLARE_ACCOUNT_ID } : {}),
+      } satisfies CloudflareConfig,
+    });
+  }
   if (env.ENABLE_DEMO_PROVIDER) {
     list.push({
       key: 'demo',
@@ -85,6 +167,15 @@ function envProviders(env: Env): EnvProvider[] {
       name: 'Demo Cloud',
       location: { country: 'CH', city: 'Demo', label: 'Demo (simuliert)' },
       config: { seed: 42, servers: 8 } satisfies DemoConfig,
+    });
+  }
+  if (env.ENABLE_DEMO_PROVIDER && env.ENABLE_DEMO_CLOUDFLARE) {
+    list.push({
+      key: 'demo-cloudflare',
+      type: 'demo',
+      name: 'Demo Cloudflare',
+      location: { country: 'US', city: 'Anycast', label: 'Cloudflare (simuliert)' },
+      config: { flavor: 'cloudflare' } satisfies DemoConfig,
     });
   }
   return list;

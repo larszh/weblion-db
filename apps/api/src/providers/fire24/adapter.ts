@@ -4,6 +4,8 @@ import type {
   DdosSettings,
   DnsRecord,
   DnsRecordInput,
+  DnsRecordType,
+  DomainCapability,
   DomainInfo,
   MetricRange,
   MetricsResult,
@@ -78,6 +80,25 @@ const ACCOUNT_TTL_MS = 5 * 60_000;
 const SERVICES_TTL_MS = 10_000;
 
 const DEFAULT_BACKUP_DESCRIPTION = 'weblion Console';
+
+/** Record types the 24fire DNS editor takes. No TTL field: the panel's TTL is ignored. */
+const RECORD_TYPES: DnsRecordType[] = [
+  'A',
+  'AAAA',
+  'CNAME',
+  'ALIAS',
+  'MX',
+  'SRV',
+  'TXT',
+  'CAA',
+  'PTR',
+  'NS',
+  'TLSA',
+  'DS',
+  'DNSKEY',
+  'HTTP_REDIRECT',
+  'HTTP_FRAME',
+];
 
 /** Backup tasks are tracked as `backup-create:<id>` / `backup-restore:<id>`. */
 const BACKUP_TASK_REF = /^backup-(create|restore):(.+)$/;
@@ -256,12 +277,13 @@ export class Fire24Adapter implements ProviderAdapter {
   }
 
   async getServer(ref: ServerRef): Promise<RemoteServer> {
-    return this.loadServer(ref.externalId, null, null);
+    const service = await this.service(ref.externalId);
+    return this.loadServer(ref.externalId, service?.name ?? null, service?.raw ?? null);
   }
 
   private async loadServer(
     internalId: string,
-    fallbackName: string | null,
+    serviceName: string | null,
     serviceRaw: Record<string, unknown> | null,
   ): Promise<RemoteServer> {
     const [configData, statusData] = await Promise.all([
@@ -274,7 +296,9 @@ export class Fire24Adapter implements ProviderAdapter {
 
     return {
       externalId: internalId,
-      name: config.hostname ?? fallbackName ?? internalId,
+      // The name from the 24fire panel. The OS hostname is no use as a name: it is "24fire"
+      // on every server installed from a 24fire image.
+      name: (serviceName !== internalId ? serviceName : null) ?? config.hostname ?? internalId,
       kind: 'vm',
       status: status?.status ?? 'unknown',
       specs: config.specs,
@@ -283,6 +307,7 @@ export class Fire24Adapter implements ProviderAdapter {
       os: config.os,
       node: str(config.hostsystem?.node) ?? str(config.hostsystem?.name),
       meta: {
+        hostname: config.hostname,
         hostsystem: config.hostsystem,
         datacenter: datacenter
           ? { name: str(datacenter.name), city: str(datacenter.city), country: str(datacenter.country) }
@@ -410,6 +435,15 @@ export class Fire24Adapter implements ProviderAdapter {
 
   // --- Domains & DNS --------------------------------------------------------------
 
+  /** Name servers, lock and renewals are managed in the 24fire panel only. */
+  domainCapabilities(): DomainCapability[] {
+    return ['dns', 'authcode'];
+  }
+
+  dnsRecordTypes(): DnsRecordType[] {
+    return [...RECORD_TYPES];
+  }
+
   async listDomains(): Promise<RemoteDomain[]> {
     const services = (await this.services()).filter(isDomainService);
     return mapLimit(services, 4, async (service) => {
@@ -451,7 +485,10 @@ export class Fire24Adapter implements ProviderAdapter {
     return parseDnsRecords(await this.call('domainDns', externalId));
   }
 
-  /** 24fire answers with `data: null`, so the new record is found by comparing the lists. */
+  /**
+   * 24fire answers with `data: null`, so the new record is found by comparing the lists.
+   * Only type, name and data are sent (24fire sets the TTL itself).
+   */
   async addDnsRecord(externalId: string, input: DnsRecordInput): Promise<DnsRecord | null> {
     await this.requirePlus('domainDnsAdd');
     const before = new Set((await this.listDnsRecords(externalId)).map((r) => r.id));

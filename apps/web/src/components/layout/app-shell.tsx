@@ -11,12 +11,14 @@ import {
   FolderKanban,
   Gauge,
   Globe,
+  HardDrive,
   KeyRound,
   Layers,
   LayoutDashboard,
   Languages,
   Loader2,
   LogOut,
+  Mail,
   Menu as MenuIcon,
   Monitor,
   Moon,
@@ -282,6 +284,18 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
                   label: 'nav.webhosting',
                   icon: <Layers />,
                   show: orgCtx.hasModule('webhosting') && orgCtx.can('webspace:read'),
+                },
+                {
+                  to: `${base}/cloud`,
+                  label: 'nav.cloud',
+                  icon: <HardDrive />,
+                  show: orgCtx.hasModule('storage') && orgCtx.can('cloud:read'),
+                },
+                {
+                  to: `${base}/mail`,
+                  label: 'nav.mail',
+                  icon: <Mail />,
+                  show: orgCtx.hasModule('mail') && orgCtx.can('mail:read'),
                 },
               ]}
             />

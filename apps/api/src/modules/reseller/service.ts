@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, ne, notInArray, or } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, ne, notInArray, or } from 'drizzle-orm';
 import {
   formatMoney,
   type Currency,
@@ -9,10 +9,13 @@ import {
 import type { AppContext } from '../../context';
 import type { DbOrTx, Tx } from '../../db/client';
 import {
+  cloudAccounts,
+  cloudAllowances,
   creditTransactions,
   domains,
   invitations,
   invoices,
+  mailDomains,
   organizations,
   payments,
   projects,
@@ -38,13 +41,22 @@ export const RESOURCE_MODULES = {
   server: 'servers',
   domain: 'dns',
   webspace: 'webhosting',
+  maildomain: 'mail',
 } as const satisfies Record<string, ModuleKey>;
 
+/**
+ * A slug no organization has, nor had while it left cloud accounts behind: those outlive a
+ * deleted organization (unassigned, still in its Nextcloud group "<prefix><slug>" with their
+ * shares), and a new organization with the same slug would join that group.
+ */
 export async function uniqueSlug(db: DbOrTx, base: string): Promise<string> {
   const root = slugify(base) || 'org';
   for (let i = 0; i < 50; i++) {
     const slug = i === 0 ? root : `${root}-${i + 1}`;
-    const taken = await db.query.organizations.findFirst({ where: eq(organizations.slug, slug) });
+    const taken =
+      (await db.query.organizations.findFirst({ where: eq(organizations.slug, slug) })) ??
+      // Slugs are [a-z0-9-], nothing to escape. Login names are "<name>@<org slug>".
+      (await db.query.cloudAccounts.findFirst({ where: ilike(cloudAccounts.externalId, `%@${slug}`) }));
     if (!taken) return slug;
   }
   return `${root}-${randomToken(4).toLowerCase()}`;
@@ -105,6 +117,10 @@ export interface DeleteBlockers {
   servers: number;
   domains: number;
   webspaces: number;
+  cloudAccounts: number;
+  /** 0 or 1: a cloud storage allowance (Nextcloud accounts would lose their organization). */
+  cloudAllowances: number;
+  mailDomains: number;
   invoices: number;
   payments: number;
   creditTransactions: number;
@@ -116,6 +132,9 @@ const BLOCKER_LABELS: Record<keyof DeleteBlockers, string> = {
   servers: 'servers',
   domains: 'domains',
   webspaces: 'web spaces',
+  cloudAccounts: 'cloud accounts',
+  cloudAllowances: 'cloud storage allowance',
+  mailDomains: 'mail domains',
   invoices: 'invoices',
   payments: 'payments',
   creditTransactions: 'credit transactions',
@@ -139,6 +158,13 @@ export async function deleteBlockers(db: DbOrTx, orgId: string): Promise<DeleteB
     ),
     domains: n(await db.select({ n: count() }).from(domains).where(eq(domains.orgId, orgId))),
     webspaces: n(await db.select({ n: count() }).from(webspaces).where(eq(webspaces.orgId, orgId))),
+    cloudAccounts: n(
+      await db.select({ n: count() }).from(cloudAccounts).where(eq(cloudAccounts.orgId, orgId)),
+    ),
+    cloudAllowances: n(
+      await db.select({ n: count() }).from(cloudAllowances).where(eq(cloudAllowances.orgId, orgId)),
+    ),
+    mailDomains: n(await db.select({ n: count() }).from(mailDomains).where(eq(mailDomains.orgId, orgId))),
     // Invoices it received and, for resellers, invoices it issued.
     invoices: n(
       await db

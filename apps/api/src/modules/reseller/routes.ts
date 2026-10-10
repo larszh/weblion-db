@@ -17,6 +17,7 @@ import {
   creditTransactions,
   domains,
   invoices,
+  mailDomains,
   organizations,
   projects,
   servers,
@@ -41,7 +42,7 @@ import {
 const orgParams = z.object({ orgId: z.uuid() });
 const customerParams = orgParams.extend({ customerId: z.uuid() });
 const modulesSchema = z.array(z.enum(MODULES)).max(MODULES.length);
-const resourceType = z.enum(['server', 'domain', 'webspace']);
+const resourceType = z.enum(['server', 'domain', 'webspace', 'maildomain']);
 type ResourceType = z.infer<typeof resourceType>;
 
 const createBody = z.object({
@@ -66,7 +67,13 @@ interface Holdings {
   servers: { id: string; name: string; projectId: string }[];
   domains: { id: string; name: string }[];
   webspaces: { id: string; name: string }[];
+  /** Unicode names. */
+  mailDomains: { id: string; name: string }[];
 }
+
+/** Table of a resource type that is assigned by organization (servers go by project). */
+const orgTable = (type: Exclude<ResourceType, 'server'>) =>
+  type === 'domain' ? domains : type === 'webspace' ? webspaces : mailDomains;
 
 /** Reseller area: customers of a reseller organization and the resources it hands out to them. */
 export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -307,7 +314,7 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
   // --- Resources ------------------------------------------------------------------
 
   async function holdings(orgId: string): Promise<Holdings> {
-    const [serverRows, domainRows, webspaceRows] = await Promise.all([
+    const [serverRows, domainRows, webspaceRows, mailDomainRows] = await Promise.all([
       db
         .select({ id: servers.id, name: servers.name, projectId: projects.id })
         .from(servers)
@@ -324,8 +331,13 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
         .from(webspaces)
         .where(eq(webspaces.orgId, orgId))
         .orderBy(asc(webspaces.name)),
+      db
+        .select({ id: mailDomains.id, name: mailDomains.name })
+        .from(mailDomains)
+        .where(eq(mailDomains.orgId, orgId))
+        .orderBy(asc(mailDomains.name)),
     ]);
-    return { servers: serverRows, domains: domainRows, webspaces: webspaceRows };
+    return { servers: serverRows, domains: domainRows, webspaces: webspaceRows, mailDomains: mailDomainRows };
   }
 
   app.get('/orgs/:orgId/customers/:customerId/resources', async (req) => {
@@ -352,7 +364,7 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
         .where(eq(servers.id, id));
       return row ?? null;
     }
-    const table = type === 'domain' ? domains : webspaces;
+    const table = orgTable(type);
     const [row] = await db
       .select({ name: table.name, orgId: table.orgId })
       .from(table)
@@ -361,7 +373,15 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
   }
 
   const notFoundFor = (type: ResourceType) =>
-    notFound(type === 'server' ? 'Server' : type === 'domain' ? 'Domain' : 'Web space');
+    notFound(
+      type === 'server'
+        ? 'Server'
+        : type === 'domain'
+          ? 'Domain'
+          : type === 'webspace'
+            ? 'Web space'
+            : 'Mail domain',
+    );
 
   /**
    * Hands a resource to `orgId` (servers into `projectId`). Only if it still belongs to whom
@@ -382,7 +402,7 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
         .where(and(eq(servers.id, id), eq(servers.projectId, from.projectId!)))
         .returning({ id: servers.id });
     } else {
-      const table = type === 'domain' ? domains : webspaces;
+      const table = orgTable(type);
       moved = await tx
         .update(table)
         .set({ orgId: to.orgId })
@@ -436,7 +456,10 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
           .set({ modules: normalizeModules([...target!.modules, module]) })
           .where(eq(organizations.id, customer.id));
       }
-      if (current.orgId !== customer.id) await assertNoLinkedService(tx, body.type, body.id, customer.id);
+      // Mail domains cannot be linked to billing services yet.
+      if (current.orgId !== customer.id && body.type !== 'maildomain') {
+        await assertNoLinkedService(tx, body.type, body.id, customer.id);
+      }
       if (body.type === 'server') projectId ??= (await defaultProject(tx, customer.id)).id;
       await moveResource(tx, body.type, body.id, current, { orgId: customer.id, projectId });
       return enable;
@@ -468,7 +491,7 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!current || current.orgId !== customer.id) throw notFoundFor(body.type);
 
     const projectId = await db.transaction(async (tx) => {
-      await assertNoLinkedService(tx, body.type, body.id, reseller.id);
+      if (body.type !== 'maildomain') await assertNoLinkedService(tx, body.type, body.id, reseller.id);
       const target = body.type === 'server' ? (await defaultProject(tx, reseller.id)).id : null;
       await moveResource(tx, body.type, body.id, current, { orgId: reseller.id, projectId: target });
       return target;

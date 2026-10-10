@@ -16,7 +16,10 @@ import {
 import type { AppContext } from '../../context';
 import { platformScope, requireSession } from '../../auth/access';
 import {
+  cloudAccounts,
+  cloudAllowances,
   domains,
+  mailDomains,
   memberships,
   organizations,
   projects,
@@ -31,9 +34,21 @@ import {
 } from '../../db/schema';
 import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
-import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors';
+import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
-import type { DemoConfig, Fire24Config, ProviderConfig, ProxmoxConfig } from '../../providers/types';
+import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
+import type {
+  CloudflareConfig,
+  CreateServerRequest,
+  DemoConfig,
+  Fire24Config,
+  HetznerConfig,
+  JokerConfig,
+  MailcowConfig,
+  NextcloudConfig,
+  ProviderConfig,
+  ProxmoxConfig,
+} from '../../providers/types';
 import { sendInvitationMail } from '../../mail/invitation';
 import { orgCounts, orgRef } from '../orgs/routes';
 import {
@@ -66,9 +81,64 @@ const proxmoxConfigSchema = z.object({
   caCert: z.string().max(20_000).optional(),
   backupStorage: z.string().max(100).optional(),
 });
+const hetznerConfigSchema = z.object({
+  apiToken: z.string().trim().min(32).max(200),
+  baseUrl: z.url().default('https://api.hetzner.cloud/v1'),
+});
+const nextcloudConfigSchema = z.object({
+  baseUrl: z.url(),
+  username: z.string().trim().min(1).max(200),
+  appPassword: z.string().min(8).max(500),
+  groupPrefix: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9][a-z0-9._-]{0,30}$/, 'lower-case letters, digits, dot, dash, underscore')
+    .optional(),
+});
+/** An API key wins over username and password when both are stored. */
+const jokerConfigSchema = z
+  .object({
+    apiKey: z.string().trim().min(8).max(500).optional(),
+    username: z.string().trim().min(1).max(200).optional(),
+    password: z.string().min(1).max(500).optional(),
+    baseUrl: z.url().default('https://dmapi.joker.com/request'),
+  })
+  .refine((c) => !!c.apiKey || (!!c.username && !!c.password), {
+    message: 'Either an API key or username and password are required',
+    path: ['apiKey'],
+  });
+const cloudflareConfigSchema = z.object({
+  apiToken: z.string().trim().min(20).max(500),
+  baseUrl: z.url().default(CLOUDFLARE_DEFAULT_BASE_URL),
+  accountId: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[0-9a-f]{32}$/, 'expected the 32 character account id')
+    .optional(),
+});
+/** Mailcow only accepts keys of a-z, A-Z, 0-9 and "-" (it strips everything else). */
+const mailcowConfigSchema = z.object({
+  baseUrl: z.url(),
+  apiKey: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9-]{16,255}$/, 'letters, digits and "-" only, at least 16 characters'),
+  mailHost: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
+      'a host name, e.g. mail.weblion.one',
+    )
+    .optional(),
+});
 const demoConfigSchema = z.object({
   seed: z.number().int().optional(),
   servers: z.number().int().min(1).max(50).optional(),
+  /** "cloudflare": the connection simulates a Cloudflare account instead of the demo cloud. */
+  flavor: z.enum(['cloudflare']).optional(),
 });
 
 function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
@@ -77,6 +147,16 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(fire24ConfigSchema, raw) as Fire24Config;
     case 'proxmox':
       return parse(proxmoxConfigSchema, raw) as ProxmoxConfig;
+    case 'hetzner':
+      return parse(hetznerConfigSchema, raw) as HetznerConfig;
+    case 'joker':
+      return parse(jokerConfigSchema, raw) as JokerConfig;
+    case 'nextcloud':
+      return parse(nextcloudConfigSchema, raw) as NextcloudConfig;
+    case 'cloudflare':
+      return parse(cloudflareConfigSchema, raw) as CloudflareConfig;
+    case 'mailcow':
+      return parse(mailcowConfigSchema, raw) as MailcowConfig;
     case 'demo':
       return parse(demoConfigSchema, raw ?? {}) as DemoConfig;
   }
@@ -98,9 +178,125 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         ...(c.backupStorage ? { backupStorage: c.backupStorage } : {}),
       };
     }
-    case 'demo':
-      return { servers: String((config as DemoConfig).servers ?? 6) };
+    case 'hetzner': {
+      const c = config as HetznerConfig;
+      return { baseUrl: c.baseUrl, apiToken: `${c.apiToken.slice(0, 4)}…${c.apiToken.slice(-3)}` };
+    }
+    case 'joker': {
+      const c = config as JokerConfig;
+      return {
+        baseUrl: c.baseUrl,
+        ...(c.apiKey
+          ? { apiKey: `${c.apiKey.slice(0, 4)}…${c.apiKey.slice(-3)}` }
+          : { username: c.username ?? '' }),
+      };
+    }
+    case 'nextcloud': {
+      const c = config as NextcloudConfig;
+      return {
+        baseUrl: c.baseUrl,
+        username: c.username,
+        // An app password is a full password of the admin account: not even a part of it leaves.
+        appPassword: '••••••',
+        ...(c.groupPrefix ? { groupPrefix: c.groupPrefix } : {}),
+      };
+    }
+    case 'cloudflare': {
+      const c = config as CloudflareConfig;
+      return {
+        baseUrl: c.baseUrl,
+        apiToken: `${c.apiToken.slice(0, 4)}…${c.apiToken.slice(-3)}`,
+        ...(c.accountId ? { accountId: c.accountId } : {}),
+      };
+    }
+    case 'mailcow': {
+      const c = config as MailcowConfig;
+      return {
+        baseUrl: c.baseUrl,
+        // The key is admin access to the mail server: not even a part of it leaves.
+        apiKey: '••••••',
+        ...(c.mailHost ? { mailHost: c.mailHost } : {}),
+      };
+    }
+    case 'demo': {
+      const c = config as DemoConfig;
+      return c.flavor ? { flavor: c.flavor } : { servers: String(c.servers ?? 6) };
+    }
   }
+}
+
+/** Keys whose values never reach the audit log (Mailcow's DKIM import sends private_key_file). */
+const SECRET_KEY = /passw(or)?d|secret|token|auth_?code|api_?key|priv(ate)?_?key/i;
+
+/**
+ * An explorer request as it is audited: values of password-like keys blanked, including the
+ * "value" of a Nextcloud user edit with key=password (PUT /ocs/v2.php/cloud/users/{id}).
+ * Nextcloud reads key and value from the query as well: `secretEdit` when the key is there.
+ */
+export function redactExplorerBody(value: unknown, secretEdit = false): unknown {
+  if (Array.isArray(value)) return value.map((v) => redactExplorerBody(v));
+  if (value === null || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  const secret = secretEdit || (typeof record.key === 'string' && SECRET_KEY.test(record.key));
+  return Object.fromEntries(
+    Object.entries(record).map(([k, v]) => [
+      k,
+      SECRET_KEY.test(k) || (secret && k === 'value') ? '[redacted]' : redactExplorerBody(v),
+    ]),
+  );
+}
+
+/** Percent-decoded, like the server reads it. Malformed encodings stay as they are. */
+function decodeParam(raw: string): string {
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, ' '));
+  } catch {
+    return raw;
+  }
+}
+
+/** The query parameters of an explorer path, with decoded name and value. */
+function explorerParams(path: string): { part: string; name: string; value: string | null }[] {
+  const q = path.indexOf('?');
+  if (q < 0) return [];
+  return path
+    .slice(q + 1)
+    .split('#')[0]!
+    .split('&')
+    .map((part) => {
+      const eq = part.indexOf('=');
+      return {
+        part,
+        name: decodeParam(eq < 0 ? part : part.slice(0, eq)),
+        value: eq < 0 ? null : decodeParam(part.slice(eq + 1)),
+      };
+    });
+}
+
+/** Whether an explorer request sets a secret with key=password, in the query or the body. */
+export function explorerEditsSecret(path: string, body: unknown): boolean {
+  const key = body !== null && typeof body === 'object' ? (body as Record<string, unknown>).key : null;
+  if (typeof key === 'string' && SECRET_KEY.test(key)) return true;
+  return explorerParams(path).some((p) => p.name === 'key' && SECRET_KEY.test(p.value ?? ''));
+}
+
+/**
+ * Query parameters with password-like names blanked in an explorer path, and the "value" of a
+ * key=password edit (key in the query, or in the body: `secretEdit`).
+ */
+export function redactExplorerPath(path: string, secretEdit = false): string {
+  const q = path.indexOf('?');
+  if (q < 0) return path;
+  const hash = path.indexOf('#', q);
+  const secret = secretEdit || explorerEditsSecret(path, null);
+  const query = explorerParams(path)
+    .map(({ part, name, value }) =>
+      value !== null && (SECRET_KEY.test(name) || (secret && name === 'value'))
+        ? `${part.slice(0, part.indexOf('=') + 1)}[redacted]`
+        : part,
+    )
+    .join('&');
+  return `${path.slice(0, q + 1)}${query}${hash < 0 ? '' : path.slice(hash)}`;
 }
 
 export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -260,13 +456,17 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     let configEnc: string | undefined;
     if (body.config) {
-      // Empty secret fields keep the stored value so the UI never needs to know it.
+      // Empty secret fields keep the stored value so the UI never needs to know it; null
+      // removes it (e.g. a Joker API key when switching to username and password).
       const current = providers.decryptConfig<ProviderConfig>(connection) as unknown as Record<
         string,
         unknown
       >;
       const merged = { ...current };
-      for (const [k, v] of Object.entries(body.config)) if (v !== '' && v !== undefined) merged[k] = v;
+      for (const [k, v] of Object.entries(body.config)) {
+        if (v === null) delete merged[k];
+        else if (v !== '' && v !== undefined) merged[k] = v;
+      }
       configEnc = box.encryptJson(parseProviderConfig(connection.type, merged));
     }
     const [updated] = await db
@@ -312,6 +512,27 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .where(and(eq(webspaces.providerConnectionId, id), isNotNull(webspaces.orgId)));
     if ((assignedDomains?.n ?? 0) + (assignedWebspaces?.n ?? 0) > 0) {
       throw conflict('Unassign all domains and web spaces of this provider first');
+    }
+    // Allowances reference the instance (restrict), and accounts would vanish from their organizations.
+    const [allowances] = await db
+      .select({ n: count() })
+      .from(cloudAllowances)
+      .where(eq(cloudAllowances.providerConnectionId, id));
+    const [assignedAccounts] = await db
+      .select({ n: count() })
+      .from(cloudAccounts)
+      .where(and(eq(cloudAccounts.providerConnectionId, id), isNotNull(cloudAccounts.orgId)));
+    if ((allowances?.n ?? 0) + (assignedAccounts?.n ?? 0) > 0) {
+      throw conflict(
+        'Remove the cloud storage allowances on this instance and unassign or delete its cloud accounts first',
+      );
+    }
+    const [assignedMailDomains] = await db
+      .select({ n: count() })
+      .from(mailDomains)
+      .where(and(eq(mailDomains.providerConnectionId, id), isNotNull(mailDomains.orgId)));
+    if ((assignedMailDomains?.n ?? 0) > 0) {
+      throw conflict('Unassign all mail domains of this provider first');
     }
     await db.delete(providerConnections).where(eq(providerConnections.id, id));
     providers.invalidate(id);
@@ -371,6 +592,24 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     const connection = await loadConnection(parse(idParams, req.params).id);
     const adapter = providers.forConnection(connection);
     return adapter.listImages ? adapter.listImages() : [];
+  });
+
+  // Plans and locations exist only at providers with fixed sizes (Hetzner). 422 tells the
+  // create dialog to ask for cores, memory and disk instead.
+  app.get('/admin/providers/:id/plans', async (req) => {
+    await can(req, 'platform:server:create');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const adapter = providers.forConnection(connection);
+    if (!adapter.listPlans) throw unsupported('This provider has no plans');
+    return adapter.listPlans();
+  });
+
+  app.get('/admin/providers/:id/locations', async (req) => {
+    await can(req, 'platform:server:create');
+    const connection = await loadConnection(parse(idParams, req.params).id);
+    const adapter = providers.forConnection(connection);
+    if (!adapter.listLocations) throw unsupported('This provider has no locations');
+    return adapter.listLocations();
   });
 
   // --- Server inventory -----------------------------------------------------------
@@ -486,32 +725,67 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     const auth = requireSession(req);
     await can(req, 'platform:server:create');
     const body = parse(
-      z.object({
-        providerId: z.uuid(),
-        name: z.string().trim().min(1).max(63),
-        node: z.string().max(100).optional(),
-        cores: z.number().int().min(1).max(128),
-        memoryMb: z
-          .number()
-          .int()
-          .min(512)
-          .max(1024 * 1024),
-        diskGb: z.number().int().min(5).max(20_000),
-        imageId: z.string().max(200).optional(),
-        storage: z.string().max(100).optional(),
-        projectId: z.uuid().nullish(),
-      }),
+      z
+        .object({
+          providerId: z.uuid(),
+          name: z.string().trim().min(1).max(63),
+          node: z.string().max(100).optional(),
+          cores: z.number().int().min(1).max(128).optional(),
+          memoryMb: z
+            .number()
+            .int()
+            .min(512)
+            .max(1024 * 1024)
+            .optional(),
+          diskGb: z.number().int().min(5).max(20_000).optional(),
+          plan: z.string().trim().min(1).max(100).optional(),
+          location: z.string().trim().min(1).max(100).optional(),
+          imageId: z.string().max(200).optional(),
+          storage: z.string().max(100).optional(),
+          projectId: z.uuid().nullish(),
+        })
+        .refine((b) => !!b.plan || (!!b.cores && !!b.memoryMb && !!b.diskGb), {
+          message: 'Either a plan or cores, memory and disk are required',
+          path: ['plan'],
+        }),
       req.body,
     );
     const connection = await loadConnection(body.providerId);
     const adapter = providers.forConnection(connection);
     if (!adapter.createServer) throw badRequest('This provider cannot create servers from the panel');
 
+    if (body.location) {
+      if (!adapter.listLocations) throw unsupported('This provider has no locations');
+      const locations = await adapter.listLocations();
+      if (!locations.some((l) => l.id === body.location)) throw badRequest('Unknown location');
+    }
+    // With a plan (Hetzner server type) the plan decides cores, memory and disk.
+    let size = { cores: body.cores ?? 0, memoryMb: body.memoryMb ?? 0, diskGb: body.diskGb ?? 0 };
+    if (body.plan) {
+      if (!adapter.listPlans) throw unsupported('This provider has no plans');
+      const plan = (await adapter.listPlans()).find((p) => p.id === body.plan);
+      if (!plan) throw badRequest('Unknown plan');
+      if (plan.deprecated) throw badRequest('This plan can no longer be ordered');
+      if (body.location && plan.locations.length > 0 && !plan.locations.includes(body.location)) {
+        throw badRequest('The plan is not available in this location');
+      }
+      size = { cores: plan.cores, memoryMb: plan.memoryMb, diskGb: plan.diskGb };
+    }
+    const request: CreateServerRequest = {
+      name: body.name,
+      node: body.node,
+      ...size,
+      imageId: body.imageId,
+      storage: body.storage,
+      plan: body.plan,
+      location: body.location,
+    };
+
     // Cloning can take minutes, so it runs in the background and reports through the audit log.
     const jobId = randomToken(8);
     void (async () => {
       try {
-        const result = await adapter.createServer!(body);
+        const result = await adapter.createServer!(request);
         await ctx.sync.syncConnection(connection);
         if (result.externalId && body.projectId) {
           await db
@@ -991,7 +1265,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = parse(
       z.object({
         providerId: z.uuid(),
-        method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
         path: z.string().min(1).max(500),
         body: z.record(z.string(), z.unknown()).optional(),
       }),
@@ -1010,13 +1284,19 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         data: { error: err instanceof Error ? err.message : String(err) },
       };
     }
-    // Reads are not audited to keep the log useful, every write is.
+    // Reads are not audited to keep the log useful, every write is (without passwords).
     if (body.method !== 'GET') {
+      const secretEdit = explorerEditsSecret(body.path, body.body);
       await audit.record(req, {
         action: 'provider.explorer',
         resourceType: 'provider',
         resourceId: connection.id,
-        details: { method: body.method, path: body.path, body: body.body ?? null, status: result.status },
+        details: {
+          method: body.method,
+          path: redactExplorerPath(body.path, secretEdit),
+          body: body.body ? redactExplorerBody(body.body, secretEdit) : null,
+          status: result.status,
+        },
       });
     }
     return { ...result, durationMs: Date.now() - started };

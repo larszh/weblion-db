@@ -356,7 +356,8 @@ describe('24fire adapter: servers', () => {
     const s = servers[0]!;
     expect(s).toMatchObject({
       externalId: KVM_ID,
-      name: 'shop-01',
+      // The panel name, not the OS hostname.
+      name: 'EPYC 01',
       status: 'running',
       os: 'Debian 12',
       specs: { cores: 4, memoryMb: 8192, diskGb: 80, networkMbit: 2000, backupSlots: 2 },
@@ -366,6 +367,7 @@ describe('24fire adapter: servers', () => {
     expect(s.ips[0]!.rdns).toBe('shop.example.ch');
     expect(s.usage?.memoryUsedMb).toBe(2560);
     expect(s.meta).toMatchObject({
+      hostname: 'shop-01',
       abuseStatus: 'CLEAN',
       iso: null,
       maxConfig: { cores: 12, memoryMb: 65536, ipv4: 6 },
@@ -374,6 +376,10 @@ describe('24fire adapter: servers', () => {
     // Domains and web spaces must not be asked for a KVM config.
     expect(mock.requests.some((r) => r.path.includes(`/kvm/${DOMAIN_ID}`))).toBe(false);
     expect(mock.requests.some((r) => r.path.includes(`/kvm/${WEBSPACE_ID}`))).toBe(false);
+  });
+
+  it('keeps the panel name when one server is refreshed', async () => {
+    expect((await adapter.getServer(ref)).name).toBe('EPYC 01');
   });
 
   it('sends power commands as form data', async () => {
@@ -591,6 +597,26 @@ describe('24fire adapter: domains and DNS', () => {
     expect(remove.method).toBe('DELETE');
     expect(remove.form.get('record_id')).toBe('7498388');
     expect((await adapter.listDnsRecords(DOMAIN_ID)).map((r) => r.id)).toEqual(['7498384', '7498387']);
+  });
+
+  it('offers its record types and leaves the TTL to 24fire', async () => {
+    expect(adapter.domainCapabilities()).toEqual(['dns', 'authcode']);
+    const types = adapter.dnsRecordTypes();
+    expect(types).toHaveLength(15);
+    expect(types).not.toContain('NAPTR');
+    expect(types).not.toContain('MAILFW');
+
+    await adapter.addDnsRecord(DOMAIN_ID, { type: 'TXT', name: 'ttl', data: 'hello', ttl: 600 });
+    expect(Object.fromEntries(lastRequest('/dns/add').form)).toEqual({
+      type: 'TXT',
+      name: 'ttl',
+      data: 'hello',
+    });
+    await adapter.updateDnsRecord(DOMAIN_ID, '7498384', { data: '192.168.100.31', ttl: 600 });
+    expect(Object.fromEntries(lastRequest('/dns/edit').form)).toEqual({
+      record_id: '7498384',
+      data: '192.168.100.31',
+    });
   });
 
   it('allows DNS changes only with 24fire+', async () => {

@@ -22,7 +22,7 @@ await ensureBootstrapAdmin(db, env, log);
 const box = new SecretBox(env.ENCRYPTION_KEY);
 await syncEnvProviders(db, box, env, log);
 
-const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.type, 'demo') });
+const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.envKey, 'demo') });
 if (demo) await new SyncService(db, pool, new ProviderRegistry(db, box), log).syncConnection(demo);
 
 const password = process.env.SEED_PASSWORD ?? 'demo-password-123';

@@ -13,8 +13,10 @@ import {
 import type { ProviderConnectionDto, ProviderType } from '@weblion/shared';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
+import type { TranslationKey } from '@/i18n/de';
 import { formatBytes, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { qk, useAdminProviders, useApiMutation, useMe, useMeta, useProviderOverview } from '@/lib/queries';
+import type { ProviderSyncResult } from '@/lib/api/hosting';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
@@ -37,7 +39,7 @@ import {
   UsageBar,
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
-import { Flag, ProviderBadge } from '@/components/server-bits';
+import { Flag, ProviderBadge, providerHasServers } from '@/components/server-bits';
 
 interface ProviderForm {
   type: ProviderType;
@@ -53,22 +55,86 @@ interface ProviderForm {
   verifyTls: boolean;
   caCert: string;
   backupStorage: string;
+  /** Joker.com: API key (recommended) or reseller username and password. */
+  jokerAuth: 'apiKey' | 'password';
+  username: string;
+  password: string;
+  /** Hetzner Cloud project token. */
+  apiToken: string;
+  /** Nextcloud: app password of the admin account (username above). */
+  appPassword: string;
+  /** Nextcloud: prefix of the per-organization groups, empty = "weblion-". */
+  groupPrefix: string;
+  /** Cloudflare: account id (32 hex characters), needed to create zones. Token in apiToken. */
+  accountId: string;
+  /** Mailcow: public host name of the mail server, empty = host of the URL. Key in apiKey. */
+  mailHost: string;
 }
+
+const HETZNER_BASE_URL = 'https://api.hetzner.cloud/v1';
+const CLOUDFLARE_BASE_URL = 'https://api.cloudflare.com/client/v4';
+/** Token permissions the console needs at Cloudflare, on all zones of the account. */
+const CLOUDFLARE_PERMISSIONS = 'Zone:Edit, DNS:Edit, Zone Settings:Edit, Cache Purge:Purge';
+const CLOUDFLARE_ACCOUNT_ID = /^[0-9a-f]{32}$/i;
+/** Mailcow strips every other character from keys before the lookup. */
+const MAILCOW_API_KEY = /^[A-Za-z0-9-]{16,255}$/;
+const HOST_NAME = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+
+const DEFAULT_NAME: Record<ProviderType, string> = {
+  fire24: '24fire',
+  proxmox: 'Proxmox',
+  hetzner: 'Hetzner Cloud',
+  joker: 'Joker.com',
+  nextcloud: 'Nextcloud',
+  cloudflare: 'Cloudflare',
+  mailcow: 'Mailcow',
+  demo: 'Demo',
+};
+
+const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
+  fire24: 'https://manage.24fire.de',
+  hetzner: HETZNER_BASE_URL,
+  joker: 'https://dmapi.joker.com/request',
+  cloudflare: CLOUDFLARE_BASE_URL,
+};
+
+/** Default country of a new connection: where the provider (or our instance of it) runs. */
+const DEFAULT_COUNTRY: Partial<Record<ProviderType, string>> = {
+  proxmox: 'CH',
+  nextcloud: 'CH',
+  mailcow: 'CH',
+  cloudflare: 'US',
+};
+
+/** Nextcloud groups are "<prefix><org slug>" unless the connection sets another prefix. */
+const NEXTCLOUD_GROUP_PREFIX = 'weblion-';
+const GROUP_PREFIX_PATTERN = /^[a-z0-9][a-z0-9._-]{0,30}$/;
+
+/** Joker's test system (OT&E), separate account and no costs. */
+const JOKER_OTE_URL = 'https://dmapi.ote.joker.com/request';
 
 const emptyForm = (type: ProviderType): ProviderForm => ({
   type,
-  name: type === 'fire24' ? '24fire' : type === 'proxmox' ? 'Proxmox' : 'Demo',
-  country: type === 'proxmox' ? 'CH' : 'DE',
+  name: DEFAULT_NAME[type],
+  country: DEFAULT_COUNTRY[type] ?? 'DE',
   city: '',
   label: '',
   enabled: true,
   apiKey: '',
-  baseUrl: type === 'fire24' ? 'https://manage.24fire.de' : '',
+  baseUrl: DEFAULT_BASE_URL[type] ?? '',
   tokenId: '',
   tokenSecret: '',
   verifyTls: true,
   caCert: '',
   backupStorage: '',
+  jokerAuth: 'apiKey',
+  username: '',
+  password: '',
+  apiToken: '',
+  appPassword: '',
+  groupPrefix: '',
+  accountId: '',
+  mailHost: '',
 });
 
 function configFromForm(f: ProviderForm, editing: boolean) {
@@ -84,9 +150,97 @@ function configFromForm(f: ProviderForm, editing: boolean) {
         ...(f.caCert ? { caCert: f.caCert } : {}),
         ...(f.backupStorage ? { backupStorage: f.backupStorage } : {}),
       };
+    case 'hetzner':
+      return {
+        baseUrl: f.baseUrl || HETZNER_BASE_URL,
+        ...(f.apiToken || !editing ? { apiToken: f.apiToken } : {}),
+      };
+    case 'joker':
+      // Empty secrets on edit keep the stored ones (the API merges), null removes the
+      // credentials of the other sign-in method so a stored API key cannot win.
+      return {
+        baseUrl: f.baseUrl,
+        ...(f.jokerAuth === 'apiKey'
+          ? {
+              ...(f.apiKey || !editing ? { apiKey: f.apiKey } : {}),
+              ...(editing ? { username: null, password: null } : {}),
+            }
+          : {
+              username: f.username,
+              ...(f.password || !editing ? { password: f.password } : {}),
+              ...(editing ? { apiKey: null } : {}),
+            }),
+      };
+    case 'nextcloud':
+      // An empty app password keeps the stored one; an empty prefix falls back to the default.
+      return {
+        baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
+        username: f.username.trim(),
+        ...(f.appPassword || !editing ? { appPassword: f.appPassword } : {}),
+        ...(f.groupPrefix.trim()
+          ? { groupPrefix: f.groupPrefix.trim() }
+          : editing
+            ? { groupPrefix: null }
+            : {}),
+      };
+    case 'cloudflare':
+      // An empty token keeps the stored one; an empty account id removes it on edit.
+      return {
+        baseUrl: f.baseUrl.trim() || CLOUDFLARE_BASE_URL,
+        ...(f.apiToken || !editing ? { apiToken: f.apiToken.trim() } : {}),
+        ...(f.accountId.trim()
+          ? { accountId: f.accountId.trim().toLowerCase() }
+          : editing
+            ? { accountId: null }
+            : {}),
+      };
+    case 'mailcow':
+      // An empty key keeps the stored one; an empty mail host falls back to the URL's host.
+      return {
+        baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
+        ...(f.apiKey || !editing ? { apiKey: f.apiKey.trim() } : {}),
+        ...(f.mailHost.trim()
+          ? { mailHost: f.mailHost.trim().toLowerCase() }
+          : editing
+            ? { mailHost: null }
+            : {}),
+      };
     default:
       return {};
   }
+}
+
+/** Cloudflare needs a token (kept on edit when left empty); the account id is optional. */
+function cloudflareIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'cloudflare') return false;
+  const accountId = f.accountId.trim();
+  if (accountId && !CLOUDFLARE_ACCOUNT_ID.test(accountId)) return true;
+  return !f.apiToken.trim() && !existing;
+}
+
+/** Mailcow needs URL and API key (kept on edit when left empty); the mail host is optional. */
+function mailcowIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'mailcow') return false;
+  const key = f.apiKey.trim();
+  const host = f.mailHost.trim();
+  if ((key && !MAILCOW_API_KEY.test(key)) || (host && !HOST_NAME.test(host))) return true;
+  return !/^https?:\/\/\S+$/i.test(f.baseUrl.trim()) || (!key && !existing);
+}
+
+/** Nextcloud needs URL, admin user and app password (kept on edit when left empty). */
+function nextcloudIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'nextcloud') return false;
+  if (f.groupPrefix.trim() && !GROUP_PREFIX_PATTERN.test(f.groupPrefix.trim())) return true;
+  return !/^https?:\/\/\S+$/i.test(f.baseUrl.trim()) || !f.username.trim() || (!f.appPassword && !existing);
+}
+
+/** Joker needs an API key or username and password, unless the stored ones are kept. */
+function jokerIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'joker') return false;
+  const storedKey = !!existing?.summary.apiKey;
+  const storedPassword = !!existing && !storedKey && !!existing.summary.username;
+  if (f.jokerAuth === 'apiKey') return !f.apiKey && !storedKey;
+  return !f.username || (!f.password && !storedPassword);
 }
 
 function ProviderDialog({
@@ -113,6 +267,11 @@ function ProviderDialog({
           tokenId: existing.summary.tokenId ?? '',
           verifyTls: existing.summary.verifyTls !== 'false',
           backupStorage: existing.summary.backupStorage ?? '',
+          jokerAuth: existing.type === 'joker' && !existing.summary.apiKey ? 'password' : 'apiKey',
+          username: existing.summary.username ?? '',
+          groupPrefix: existing.summary.groupPrefix ?? '',
+          accountId: existing.summary.accountId ?? '',
+          mailHost: existing.summary.mailHost ?? '',
         }
       : emptyForm('proxmox'),
   );
@@ -163,7 +322,14 @@ function ProviderDialog({
             variant="primary"
             loading={save.isPending}
             onClick={() => save.mutate(undefined)}
-            disabled={!form.name}
+            disabled={
+              !form.name ||
+              (!envManaged &&
+                (jokerIncomplete(form, existing) ||
+                  nextcloudIncomplete(form, existing) ||
+                  cloudflareIncomplete(form, existing) ||
+                  mailcowIncomplete(form, existing)))
+            }
           >
             {t('common.save')}
           </Button>
@@ -203,6 +369,9 @@ function ProviderDialog({
             <option value="DE">Deutschland (DE)</option>
             <option value="AT">Österreich (AT)</option>
             <option value="NL">Niederlande (NL)</option>
+            <option value="FI">Finnland (FI)</option>
+            <option value="US">USA (US)</option>
+            <option value="SG">Singapur (SG)</option>
           </Select>
         </Field>
         <Field label={t('providers.city')} htmlFor="p-city">
@@ -234,6 +403,49 @@ function ProviderDialog({
               />
             </Field>
           </>
+        ) : form.type === 'hetzner' ? (
+          <>
+            <Notice tone="info" className="sm:col-span-2">
+              {t('providers.hetzner.help')}
+            </Notice>
+            <Field
+              label={t('providers.hetzner.token')}
+              hint={existing ? t('providers.keepSecret') : t('providers.hetzner.tokenHint')}
+              htmlFor="p-hz-token"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="p-hz-token"
+                type="password"
+                value={form.apiToken}
+                onChange={(e) => set('apiToken', e.target.value)}
+                className="font-mono"
+                autoComplete="off"
+              />
+            </Field>
+            <Field
+              label="API Base URL"
+              hint={t('providers.baseUrlDefault', { url: HETZNER_BASE_URL })}
+              htmlFor="p-hz-base"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="p-hz-base"
+                value={form.baseUrl}
+                onChange={(e) => set('baseUrl', e.target.value)}
+                placeholder={HETZNER_BASE_URL}
+                className="font-mono"
+              />
+            </Field>
+          </>
+        ) : form.type === 'joker' ? (
+          <JokerFields form={form} set={set} existing={existing} />
+        ) : form.type === 'nextcloud' ? (
+          <NextcloudFields form={form} set={set} existing={existing} />
+        ) : form.type === 'cloudflare' ? (
+          <CloudflareFields form={form} set={set} existing={existing} />
+        ) : form.type === 'mailcow' ? (
+          <MailcowFields form={form} set={set} existing={existing} />
         ) : form.type === 'proxmox' ? (
           <>
             <Field label="URL" hint="https://pve.example.ch:8006" htmlFor="p-url" className="sm:col-span-2">
@@ -313,6 +525,364 @@ function ProviderDialog({
   );
 }
 
+function JokerFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const storedKey = !!existing?.summary.apiKey;
+  const keepHint = existing ? t('providers.keepSecret') : undefined;
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.joker.help')}
+      </Notice>
+      <Field
+        label={t('providers.joker.auth')}
+        htmlFor="p-joker-auth"
+        hint={
+          form.jokerAuth === 'apiKey' ? t('providers.joker.apiKeyHint') : t('providers.joker.passwordHint')
+        }
+        className="sm:col-span-2"
+      >
+        <Select
+          id="p-joker-auth"
+          value={form.jokerAuth}
+          onChange={(e) => set('jokerAuth', e.target.value as ProviderForm['jokerAuth'])}
+        >
+          <option value="apiKey">{t('providers.joker.authApiKey')}</option>
+          <option value="password">{t('providers.joker.authPassword')}</option>
+        </Select>
+      </Field>
+      {form.jokerAuth === 'apiKey' ? (
+        <Field
+          label="API Key"
+          hint={storedKey ? keepHint : undefined}
+          htmlFor="p-joker-key"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="p-joker-key"
+            type="password"
+            value={form.apiKey}
+            onChange={(e) => set('apiKey', e.target.value)}
+            className="font-mono"
+            autoComplete="off"
+          />
+        </Field>
+      ) : (
+        <>
+          <Field label={t('providers.joker.username')} htmlFor="p-joker-user">
+            <Input
+              id="p-joker-user"
+              value={form.username}
+              onChange={(e) => set('username', e.target.value)}
+              autoComplete="off"
+            />
+          </Field>
+          <Field
+            label={t('providers.joker.password')}
+            hint={existing && !storedKey ? keepHint : undefined}
+            htmlFor="p-joker-password"
+          >
+            <Input
+              id="p-joker-password"
+              type="password"
+              value={form.password}
+              onChange={(e) => set('password', e.target.value)}
+              autoComplete="new-password"
+            />
+          </Field>
+          {storedKey && (
+            <Notice tone="warning" className="sm:col-span-2">
+              {t('providers.joker.apiKeyRemoved')}
+            </Notice>
+          )}
+        </>
+      )}
+      <Field
+        label="API Base URL"
+        htmlFor="p-joker-base"
+        className="sm:col-span-2"
+        hint={
+          <>
+            {t('providers.joker.baseUrlHint', { url: DEFAULT_BASE_URL.joker! })}{' '}
+            {form.baseUrl !== JOKER_OTE_URL ? (
+              <button
+                type="button"
+                className="font-medium text-primary-text underline underline-offset-2"
+                onClick={() => set('baseUrl', JOKER_OTE_URL)}
+              >
+                {t('providers.joker.useOte')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="font-medium text-primary-text underline underline-offset-2"
+                onClick={() => set('baseUrl', DEFAULT_BASE_URL.joker!)}
+              >
+                {t('providers.joker.useLive')}
+              </button>
+            )}
+          </>
+        }
+      >
+        <Input
+          id="p-joker-base"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          className="font-mono"
+        />
+      </Field>
+    </>
+  );
+}
+
+function NextcloudFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const prefix = form.groupPrefix.trim();
+  const prefixInvalid = !!prefix && !GROUP_PREFIX_PATTERN.test(prefix);
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.nextcloud.help')}
+      </Notice>
+      <Field
+        label={t('providers.nextcloud.url')}
+        hint={t('providers.nextcloud.urlHint')}
+        htmlFor="p-nc-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-nc-url"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder="https://cloud.weblion.one"
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.nextcloud.username')}
+        hint={t('providers.nextcloud.usernameHint')}
+        htmlFor="p-nc-user"
+      >
+        <Input
+          id="p-nc-user"
+          value={form.username}
+          onChange={(e) => set('username', e.target.value)}
+          placeholder="weblion-panel"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.nextcloud.appPassword')}
+        hint={existing ? t('providers.keepSecret') : t('providers.nextcloud.appPasswordHint')}
+        htmlFor="p-nc-password"
+      >
+        <Input
+          id="p-nc-password"
+          type="password"
+          value={form.appPassword}
+          onChange={(e) => set('appPassword', e.target.value)}
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+      <Field
+        label={t('providers.nextcloud.groupPrefix')}
+        hint={
+          existing
+            ? t('providers.nextcloud.groupPrefixChange', { prefix: NEXTCLOUD_GROUP_PREFIX })
+            : t('providers.nextcloud.groupPrefixHint', { prefix: NEXTCLOUD_GROUP_PREFIX })
+        }
+        error={prefixInvalid ? t('providers.nextcloud.groupPrefixInvalid') : undefined}
+        htmlFor="p-nc-prefix"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-nc-prefix"
+          value={form.groupPrefix}
+          onChange={(e) => set('groupPrefix', e.target.value.toLowerCase())}
+          placeholder={NEXTCLOUD_GROUP_PREFIX}
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+    </>
+  );
+}
+
+function CloudflareFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const accountId = form.accountId.trim();
+  const accountIdInvalid = !!accountId && !CLOUDFLARE_ACCOUNT_ID.test(accountId);
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.cloudflare.help')}{' '}
+        {t('providers.cloudflare.permissions', { permissions: CLOUDFLARE_PERMISSIONS })}
+      </Notice>
+      <Field
+        label={t('providers.cloudflare.token')}
+        hint={existing ? t('providers.keepSecret') : t('providers.cloudflare.tokenHint')}
+        htmlFor="p-cf-token"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-cf-token"
+          type="password"
+          value={form.apiToken}
+          onChange={(e) => set('apiToken', e.target.value)}
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudflare.accountId')}
+        hint={t('providers.cloudflare.accountIdHint')}
+        error={accountIdInvalid ? t('providers.cloudflare.accountIdInvalid') : undefined}
+        htmlFor="p-cf-account"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-cf-account"
+          value={form.accountId}
+          onChange={(e) => set('accountId', e.target.value)}
+          placeholder="0123456789abcdef0123456789abcdef"
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudflare.baseUrl')}
+        hint={t('providers.cloudflare.baseUrlHint', { url: CLOUDFLARE_BASE_URL })}
+        htmlFor="p-cf-base"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-cf-base"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder={CLOUDFLARE_BASE_URL}
+          className="font-mono"
+        />
+      </Field>
+    </>
+  );
+}
+
+function MailcowFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const key = form.apiKey.trim();
+  const host = form.mailHost.trim();
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.mailcow.help')}
+      </Notice>
+      <Field
+        label={t('providers.mailcow.url')}
+        hint={t('providers.mailcow.urlHint')}
+        htmlFor="p-mc-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-mc-url"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder="https://mail.weblion.one"
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.mailcow.apiKey')}
+        hint={existing ? t('providers.keepSecret') : t('providers.mailcow.apiKeyHint')}
+        error={key && !MAILCOW_API_KEY.test(key) ? t('providers.mailcow.apiKeyInvalid') : undefined}
+        htmlFor="p-mc-key"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-mc-key"
+          type="password"
+          value={form.apiKey}
+          onChange={(e) => set('apiKey', e.target.value)}
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+      <Field
+        label={t('providers.mailcow.mailHost')}
+        hint={t('providers.mailcow.mailHostHint')}
+        error={host && !HOST_NAME.test(host) ? t('providers.mailcow.mailHostInvalid') : undefined}
+        htmlFor="p-mc-host"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-mc-host"
+          value={form.mailHost}
+          onChange={(e) => set('mailHost', e.target.value)}
+          placeholder="mail.weblion.one"
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+    </>
+  );
+}
+
+/** Providers whose detail page links to their inventory in Admin > Domains & Webspaces. */
+const INVENTORY_LINKS: Partial<
+  Record<ProviderType, { title: TranslationKey; text: TranslationKey; link: TranslationKey; tab: string }>
+> = {
+  nextcloud: {
+    title: 'storage.admin.tab',
+    text: 'providers.nextcloud.accountsText',
+    link: 'providers.nextcloud.toAccounts',
+    tab: 'cloud',
+  },
+  cloudflare: {
+    title: 'providers.cloudflare.zones',
+    text: 'providers.cloudflare.zonesText',
+    link: 'providers.cloudflare.toZones',
+    tab: 'domains',
+  },
+  mailcow: {
+    title: 'mail.admin.tab',
+    text: 'providers.mailcow.domainsText',
+    link: 'providers.mailcow.toDomains',
+    tab: 'mail',
+  },
+};
+
 function useProviderActions(id: string) {
   const { t } = useI18n();
   const test = useApiMutation(
@@ -325,13 +895,26 @@ function useProviderActions(id: string) {
       invalidate: [qk.admin('providers')],
     },
   );
-  const sync = useApiMutation(
-    () => api.post<{ seen: number; missing: number }>(`/admin/providers/${id}/sync`),
-    {
-      success: (r) => t('providers.synced', { seen: r.seen, missing: r.missing }),
-      invalidate: [qk.admin('providers'), qk.admin('servers'), qk.admin('stats')],
-    },
-  );
+  const sync = useApiMutation(() => api.post<ProviderSyncResult>(`/admin/providers/${id}/sync`), {
+    // Registrars (Joker.com) and Cloudflare only have domains, Nextcloud instances only cloud
+    // accounts, Mailcow only mail domains.
+    success: (r) =>
+      r.seen === 0 && r.missing === 0 && r.cloudAccounts
+        ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
+        : r.seen === 0 && r.missing === 0 && r.mailDomains
+          ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
+          : r.seen === 0 && r.missing === 0 && r.domains
+            ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
+            : t('providers.synced', { seen: r.seen, missing: r.missing }),
+    invalidate: [
+      qk.admin('providers'),
+      qk.admin('servers'),
+      qk.admin('stats'),
+      ['hosting', 'admin'],
+      ['cloud'],
+      ['mail'],
+    ],
+  });
   return { test, sync };
 }
 
@@ -361,10 +944,12 @@ function ProviderCard({ p }: { p: ProviderConnectionDto }) {
         </Badge>
       </div>
       <div className="px-5 py-4 text-sm">
-        <div className="flex justify-between py-1">
-          <span className="text-muted">{t('nav.servers')}</span>
-          <span className="tabular">{p.serverCount}</span>
-        </div>
+        {providerHasServers(p.type) && (
+          <div className="flex justify-between py-1">
+            <span className="text-muted">{t('nav.servers')}</span>
+            <span className="tabular">{p.serverCount}</span>
+          </div>
+        )}
         <div className="flex justify-between py-1">
           <span className="text-muted">{t('providers.lastSync')}</span>
           <span>{formatRelative(p.lastSyncAt, locale)}</span>
@@ -468,6 +1053,7 @@ export function ProviderDetailPage() {
   const overview = useProviderOverview(providerId!);
   const provider = providers.data?.find((p) => p.id === providerId);
   const { test, sync } = useProviderActions(providerId!);
+  const inventory = provider ? INVENTORY_LINKS[provider.type] : undefined;
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const remove = useApiMutation(() => api.del(`/admin/providers/${providerId}`), {
@@ -645,10 +1231,28 @@ export function ProviderDetailPage() {
                   </Table>
                 </Card>
               )}
-              {overview.data.nodes.length === 0 && overview.data.storages.length === 0 && (
+              {inventory ? (
                 <Card>
-                  <EmptyState title={t('providers.noInfra')} />
+                  <CardHeader
+                    title={t(inventory.title)}
+                    description={t(inventory.text)}
+                    actions={
+                      <Link
+                        to={`/admin/hosting?tab=${inventory.tab}&provider=${provider.id}`}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-primary-text hover:bg-surface-3"
+                      >
+                        {t(inventory.link)}
+                      </Link>
+                    }
+                  />
                 </Card>
+              ) : (
+                overview.data.nodes.length === 0 &&
+                overview.data.storages.length === 0 && (
+                  <Card>
+                    <EmptyState title={t('providers.noInfra')} />
+                  </Card>
+                )
               )}
             </>
           )}

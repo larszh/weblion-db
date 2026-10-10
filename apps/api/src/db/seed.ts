@@ -12,7 +12,9 @@ import {
 } from './schema';
 import { hashPassword } from '../lib/crypto';
 import { seedBillingDemo } from './seed-billing';
+import { seedCloudDemo } from './seed-cloud';
 import { seedHostingDemo } from './seed-hosting';
+import { seedMailDemo } from './seed-mail';
 import { seedResellerDemo } from './seed-reseller';
 
 /**
@@ -116,7 +118,9 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
   // Spread the demo servers over the projects, only on the first run. Later runs leave
   // unassigned servers alone: someone took them away on purpose, or they are the spare ones
   // the admin inventory and the reseller demo work with.
-  const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.type, 'demo') });
+  const demo = await db.query.providerConnections.findFirst({
+    where: eq(providerConnections.envKey, 'demo'),
+  });
   const [assigned] = demo
     ? await db
         .select({ n: count() })
@@ -155,6 +159,8 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
   // Area specific demo data. Order matters: resellers create organizations the other two use.
   await seedResellerDemo(db, log, hash);
   await seedHostingDemo(db, log);
+  await seedCloudDemo(db, log);
+  await seedMailDemo(db, log);
   await seedBillingDemo(db, log);
   return log;
 }

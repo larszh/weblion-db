@@ -104,6 +104,7 @@ const TABS: TabDef[] = [
       'server:protection',
       'server:move',
       'server:config:read',
+      'server:password-reset',
     ],
   },
   {

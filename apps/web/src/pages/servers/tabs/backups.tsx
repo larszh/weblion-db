@@ -66,6 +66,7 @@ export function BackupsTab() {
   return (
     <div className="space-y-4">
       {server.provider.type === 'fire24' && <Notice tone="info">{t('backups.fire24Hint')}</Notice>}
+      {server.provider.type === 'hetzner' && <Notice tone="info">{t('backups.hetznerHint')}</Notice>}
       <Card>
         <CardHeader
           title={t('tab.backups')}

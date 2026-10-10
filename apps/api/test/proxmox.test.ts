@@ -78,7 +78,16 @@ const CONFIGS: Record<string, Record<string, unknown>> = {
   'lxc/104': { hostname: 'new-ct', cores: 1, memory: 512, rootfs: 'local-zfs:subvol-104-disk-0,size=4G' },
 };
 
+/** A token with privilege separation and no ACLs: node names only, no stats, no guests. */
+function privsepRoute(req: RecordedRequest) {
+  const p = req.path.replace('/api2/json', '');
+  if (p === '/version') return data({ version: '9.2.2', release: '9.2', repoid: 'abcdef12' });
+  if (p === '/nodes') return data([{ id: 'node/pve01', node: 'pve01', type: 'node', status: 'online' }]);
+  return data([]);
+}
+
 function route(req: RecordedRequest) {
+  if (req.headers.authorization === 'PVEAPIToken=root@pam!privsep=secret-uuid') return privsepRoute(req);
   if (req.headers.authorization !== 'PVEAPIToken=root@pam!weblion-db=secret-uuid') {
     return { status: 401, statusText: 'authentication failure', body: { data: null } };
   }
@@ -308,6 +317,18 @@ describe('Proxmox adapter', () => {
       verifyTls: true,
     });
     await expect(bad.testConnection()).rejects.toThrow(/token rejected/);
+  });
+
+  it('reports a token without permissions instead of an empty but working connection', async () => {
+    const privsep = new ProxmoxAdapter({
+      baseUrl: mock.url,
+      tokenId: 'root@pam!privsep',
+      tokenSecret: 'secret-uuid',
+      verifyTls: true,
+    });
+    await expect(privsep.testConnection()).rejects.toThrow(
+      /no permissions.*pveum acl modify \/ --tokens 'root@pam!privsep' --roles Administrator/,
+    );
   });
 
   it('lists VMs and containers but not templates or legacy openvz entries', async () => {

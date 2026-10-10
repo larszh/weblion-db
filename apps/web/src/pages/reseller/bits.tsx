@@ -122,7 +122,7 @@ export function StatusBadge({
 }
 
 /**
- * Server, domain and web space counts as small icons. Types whose module is off are left
+ * Server, domain, web space and mail domain counts as small icons. Types whose module is off are left
  * out unless something is still attached.
  */
 export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules: ModuleKey[] }) {
@@ -131,6 +131,7 @@ export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules
     { module: 'servers', icon: <Server />, n: counts.servers, label: t('nav.servers') },
     { module: 'dns', icon: <Globe />, n: counts.domains, label: t('admin.resources.domains') },
     { module: 'webhosting', icon: <Layers />, n: counts.webspaces, label: t('admin.resources.webspaces') },
+    { module: 'mail', icon: <Mail />, n: counts.mailDomains, label: t('admin.resources.mailDomains') },
   ].filter((i) => modules.includes(i.module as ModuleKey) || i.n > 0);
   if (items.length === 0) return <span className="text-subtle">–</span>;
   return (
@@ -302,6 +303,9 @@ const BLOCKERS = [
   'servers',
   'domains',
   'webspaces',
+  'mailDomains',
+  'cloudAccounts',
+  'cloudAllowances',
   'invoices',
   'payments',
   'creditTransactions',

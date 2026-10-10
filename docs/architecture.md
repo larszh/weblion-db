@@ -7,12 +7,15 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
                                        │    ├─ Auth: Session-Cookie oder API-Token
                                        │    ├─ IAM: Rollen + Policies + Kundengrenze
                                        │    └─ Provider-Adapter ──> 24fire API (DE)
-                                       │                       └─> Proxmox API (CH)
+                                       │                       ├─> Proxmox API (CH)
+                                       │                       ├─> Hetzner Cloud API (DE, FI, US, SG)
+                                       │                       ├─> Joker.com DMAPI (Domains)
+                                       │                       └─> Nextcloud OCS API (Cloud-Speicher)
                                        │    ├─ Abrechnung ──> Stripe (Karte, TWINT), Zoho Books
                                        │    └─ E-Mail (SMTP)
                                        ├─ Websocket-Bridge für die Konsole (noVNC)
-                                       └─ Jobs: Sync (Server, Domains, Webspaces, Tasks),
-                                          wiederkehrende Abrechnung
+                                       └─ Jobs: Sync (Server, Domains, Webspaces, Cloud-Konten,
+                                          Tasks), wiederkehrende Abrechnung
                                      Postgres (Benutzer, Kunden, Inventar, Rechnungen, Audit-Log)
 ```
 
@@ -31,10 +34,19 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
   (Berechtigungsgrenze), `modules` (freigeschaltete Module) und `parent_org_id` (Reseller)
 - `memberships`: Benutzer in Organisationen mit Rolle, `membership_policies` hängt Policies an
 - `projects`: gruppieren Server innerhalb einer Organisation
-- `provider_connections`: 24fire, Proxmox, ... mit verschlüsselten Zugangsdaten
+- `provider_connections`: 24fire, Proxmox, Hetzner Cloud (ein Projekt pro Verbindung),
+  Joker.com, Nextcloud, ... mit verschlüsselten Zugangsdaten
 - `servers`: Cache der Provider-Server, `project_id` leer heisst "noch nicht zugewiesen"
 - `domains`, `webspaces`: Cache der Domains und Webspaces aus Provider-Konten, wie Server
-  einem Kunden zugewiesen oder nicht
+  einem Kunden zugewiesen oder nicht. `domains.info` hält Status, Ablauf, Nameserver,
+  Transfersperre, Inhaber usw. und wird Feld für Feld aktualisiert
+- `cloud_allowances`: Cloud-Speicher-Kontingent pro Organisation, auf genau einer
+  Nextcloud-Instanz, mit Speicher gesamt und optional einer Höchstzahl an Konten. Prüfungen und
+  Änderungen laufen unter einem Advisory Lock pro Organisation (der Reseller zuerst), parallele
+  Anfragen können ein Kontingent also nicht überziehen
+- `cloud_accounts`: Nextcloud-Konten (`external_id` = Login-Name) mit Kontingent und Belegung
+  aus dem Sync. `org_id` leer heisst wie bei Servern "nicht zugewiesen", `missing_since`
+  "in Nextcloud nicht gefunden"
 - `server_actions`: über die Console ausgelöste Aktionen mit Provider-Task-Referenz
 - `products`, `services`, `invoices`, `invoice_lines`, `payments`, `credit_transactions`,
   `billing_profiles`, `number_sequences`: Abrechnung, siehe [billing.md](billing.md)
@@ -46,7 +58,8 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
 
 Jede Aktion hat einen Namen wie `server:power` oder `server:backup:restore`. Ressourcen sind
 Pfade relativ zur Organisation: `project/<id>`, `project/<id>/server/<id>`, `domain/<id>`,
-`webspace/<id>`, `member/<id>`.
+`webspace/<id>`, `member/<id>`. Cloud-Konten haben keinen eigenen Pfad, für sie gilt die
+Organisation als Ganzes (`org`).
 Eine Policy-Regel erlaubt oder verweigert Aktionen auf Ressourcen, optional nur für Server
 mit bestimmten Labels (`env=prod`). Wildcards mit `*`.
 
@@ -60,7 +73,7 @@ Auswertung einer Anfrage:
    alles ausser Server löschen, Rescale und Rohkonfiguration. Pro Kunde im Admin-Bereich
    freischaltbar. Gesperrte Kunden dürfen nur noch lesen (und bezahlen).
 5. **Module**: Aktionen eines nicht freigeschalteten Moduls (`server:*`/`project:*`,
-   `domain:*`, `webspace:*`) werden verweigert, als zusätzliche Regel in der Grenze.
+   `domain:*`, `webspace:*`, `cloud:*`) werden verweigert, als zusätzliche Regel in der Grenze.
 6. **Reseller**: Gehört die Organisation zu einem Reseller, gilt dessen Grenze (inkl. Module
    und Sperre) zusätzlich. Mitarbeitende des Resellers, die beim Kunden kein Mitglied sind,
    handeln dort mit ihrer Reseller-Rolle und -Policies, wenn diese
@@ -70,17 +83,52 @@ Auswertung einer Anfrage:
 Server, die man nicht sehen darf, liefern 404 statt 403, damit ihre Existenz nicht verraten
 wird.
 
+Einige Aktionen gehen nur mit Login, nie per API-Token: Auth-Codes und Plesk-Passwörter
+ansehen, Passwörter von Cloud-Konten neu setzen, Domains verlängern und die automatische
+Verlängerung schalten (kostet beim Registrar Geld, Berechtigung `platform:domain:write`) und der
+API Explorer. Cloud-Konten legt ein API-Token nur mit Einladung per E-Mail an, ein Passwort
+bekommt es nie.
+
 ## Provider-Schicht
 
 `ProviderAdapter` beschreibt alles, was ein Provider können kann. Jeder Adapter meldet
-seine Fähigkeiten (`capabilities()`), die Console zeigt nur Passendes an. Neue Plattformen
-(Hetzner, Webhosting-Panels, Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich
+seine Fähigkeiten (`capabilities()`), die Console zeigt nur Passendes an. Für Domains
+meldet er zusätzlich `domainCapabilities()` (DNS, TTL, Nameserver, Transfersperre,
+Verlängerung, Auth-Code) und die DNS-Typen, die er annimmt (`dnsRecordTypes()`). Neue
+Plattformen (Webhosting-Panels, Grafana, ...) kommen als weiterer Adapter dazu, ohne dass sich
 Rechte, UI-Grundgerüst oder API ändern.
 
+Angebundene Provider:
+
+| Provider      | Adapter               | Server            | Besonderheiten                                                                                                        |
+| ------------- | --------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 24fire        | `providers/fire24`    | KVM               | Domains, DNS und Webspaces, manche Funktionen nur mit 24fire+                                                         |
+| Proxmox VE    | `providers/proxmox`   | VMs und Container | Firewall, Erstellen aus Templates, Konsole über `vncwebsocket`                                                        |
+| Hetzner Cloud | `providers/hetzner`   | Cloud-Server      | Feste Server-Typen (`listPlans`) und Standorte (`listLocations`), Konsole über `request_console`, Standort pro Server |
+| Joker.com     | `providers/joker`     | keine             | Reiner Domain-Provider: DNS-Zone, Nameserver, Transfersperre, Verlängerung, Auth-Code                                 |
+| Nextcloud     | `providers/nextcloud` | keine             | Cloud-Speicher: Benutzer einer eigenen Instanz mit Kontingent, Einladung, Passwort, Sync der Belegung                 |
+| Demo          | `providers/demo`      | simuliert         | Für Entwicklung und Tests, inkl. Server-Typen, Standorten, allen Domain-Funktionen und einer simulierten Nextcloud    |
+
+Provider mit festen Grössen (Hetzner) liefern `listPlans()` und `listLocations()`. Rescale und
+Server erstellen zeigen dann Server-Typen und Standorte statt freier Werte. Meldet ein Provider
+den Standort pro Server (`meta.datacenter` mit Stadt und ISO-Ländercode), zeigt die Console
+diesen statt des Standorts der Verbindung.
+
+Für Cloud-Speicher verwaltet ein Adapter die Benutzer einer Instanz (`listCloudAccounts`,
+`createCloudAccount`, `updateCloudAccount`, `setCloudAccountPassword`, `deleteCloudAccount`
+usw.). Kontingente, Login-Namen (`<Name>@<Kürzel der Organisation>`), Gruppen und erzeugte
+Passwörter regelt das Modul `src/modules/cloud`, der Adapter spricht nur mit der Instanz. Details
+in [providers.md](providers.md#nextcloud-cloud-speicher).
+
 Der Sync-Job holt alle `SYNC_INTERVAL_SECONDS` das Inventar jedes Providers, legt neue
-Server als "nicht zugewiesen" an und markiert verschwundene als `missing`. Ein zweiter Job
-verfolgt laufende Provider-Tasks (z.B. Proxmox-UPIDs) und schliesst Aktionen ab. Beide
-laufen hinter Postgres-Advisory-Locks, also auch mit mehreren API-Instanzen nur einmal.
+Server, Domains und Webspaces als "nicht zugewiesen" an und markiert verschwundene als
+`missing`. Liefert ein Provider in der Liste nicht alle Felder (Joker.com z.B. keine
+Nameserver, die kommen erst live beim Öffnen der Domain), bleibt der gespeicherte Wert.
+Bei Nextcloud aktualisiert er Belegung, Kontingent und Status der Konten, die die Console
+verwaltet. Für unbekannte Benutzer legt er nichts an, die übernimmt weblion.one von Hand.
+Ein zweiter Job verfolgt laufende Provider-Tasks (z.B. Proxmox-UPIDs) und schliesst
+Aktionen ab. Beide laufen hinter Postgres-Advisory-Locks, also auch mit mehreren
+API-Instanzen nur einmal.
 
 ## Sicherheit
 
@@ -92,6 +140,10 @@ laufen hinter Postgres-Advisory-Locks, also auch mit mehreren API-Instanzen nur 
 - TOTP-2FA, Secrets verschlüsselt in der DB
 - Provider-Zugangsdaten AES-256-GCM-verschlüsselt, nie in API-Antworten (nur maskiert)
 - Root-Passwörter aus Provider-Konfigurationen werden ausgeblendet
+- Neue Passwörter (Root-Passwörter, Cloud-Konten) zeigt die Console einmal an und speichert sie
+  nicht, auch nicht im Audit-Log
+- Der API Explorer protokolliert ändernde Requests, Werte von Passwort-, Token- und
+  Secret-Feldern aber ausgeblendet
 - Strenge Content-Security-Policy, keine Inline-Skripte
 - Konsole über einmalige, 60 Sekunden gültige Tickets
 - Jede schreibende Aktion landet im Audit-Log, auch fehlgeschlagene Logins

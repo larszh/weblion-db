@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   bigserial,
   boolean,
   date,
@@ -22,6 +23,7 @@ import type {
   DomainInfo,
   InvoiceIssuerSettings,
   InvoiceStatus,
+  MailDomainInfo,
   ModuleKey,
   PaymentMethod,
   PaymentProvider,
@@ -342,6 +344,8 @@ export const domains = pgTable(
   (t) => [
     uniqueIndex('domains_provider_external_idx').on(t.providerConnectionId, t.externalId),
     index('domains_org_idx').on(t.orgId),
+    // Registration and DNS zone of the same name at different providers (Cloudflare).
+    index('domains_name_lower_idx').on(sql`lower(${t.name})`),
   ],
 );
 
@@ -365,6 +369,83 @@ export const webspaces = pgTable(
   (t) => [
     uniqueIndex('webspaces_provider_external_idx').on(t.providerConnectionId, t.externalId),
     index('webspaces_org_idx').on(t.orgId),
+  ],
+);
+
+// --- Cloud storage (Nextcloud) -----------------------------------------------------
+
+/** Storage an organization may hand out to Nextcloud accounts, on one instance. */
+export const cloudAllowances = pgTable('cloud_allowances', {
+  orgId: uuid('org_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  /** The Nextcloud instance. Kept while accounts exist there (restrict). */
+  providerConnectionId: uuid('provider_connection_id')
+    .notNull()
+    .references(() => providerConnections.id, { onDelete: 'restrict' }),
+  quotaBytes: bigint('quota_bytes', { mode: 'number' }).notNull(),
+  /** null = no limit on the number of accounts. */
+  maxAccounts: integer('max_accounts'),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
+
+/** A Nextcloud user managed through the panel. The password is never stored. */
+export const cloudAccounts = pgTable(
+  'cloud_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** Nextcloud user id = login name, e.g. "anna@muster-ag". */
+    externalId: text('external_id').notNull(),
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    displayName: text('display_name'),
+    email: text('email'),
+    /** null = unlimited (only possible for accounts imported by staff). */
+    quotaBytes: bigint('quota_bytes', { mode: 'number' }),
+    usedBytes: bigint('used_bytes', { mode: 'number' }),
+    enabled: boolean('enabled').notNull().default(true),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('cloud_accounts_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('cloud_accounts_org_idx').on(t.orgId),
+  ],
+);
+
+// --- E-mail (Mailcow) ----------------------------------------------------------------
+
+/** A mail domain at a Mailcow server, synced like domains. Mailboxes and aliases are read live. */
+export const mailDomains = pgTable(
+  'mail_domains',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** ASCII (punycode) domain name as Mailcow stores it, e.g. "xn--mller-kva.ch". */
+    externalId: text('external_id').notNull(),
+    /** Organization the mail domain is assigned to, null = not assigned yet. */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    /** Unicode name for display, e.g. "müller.ch". */
+    name: text('name').notNull(),
+    active: boolean('active').notNull().default(true),
+    /** Limits and usage as last read from Mailcow. */
+    info: jsonb('info').$type<MailDomainInfo>(),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('mail_domains_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('mail_domains_org_idx').on(t.orgId),
   ],
 );
 
@@ -607,3 +688,6 @@ export type Invoice = typeof invoices.$inferSelect;
 export type InvoiceLine = typeof invoiceLines.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
+export type CloudAllowance = typeof cloudAllowances.$inferSelect;
+export type CloudAccount = typeof cloudAccounts.$inferSelect;
+export type MailDomain = typeof mailDomains.$inferSelect;

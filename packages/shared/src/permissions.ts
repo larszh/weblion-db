@@ -18,6 +18,8 @@ export type PermissionGroup =
   | 'security'
   | 'domains'
   | 'webhosting'
+  | 'storage'
+  | 'mail'
   | 'billing'
   | 'reseller'
   | 'platform';
@@ -108,6 +110,12 @@ export const PERMISSIONS = {
   'domain:authcode': def('domains', 'Auth-Code (Transfer) anzeigen', 'Show auth code (transfer)', {
     dangerous: true,
   }),
+  'domain:manage': def(
+    'domains',
+    'Nameserver, Transfersperre und CDN-Einstellungen ändern',
+    'Change name servers, transfer lock and CDN settings',
+    { dangerous: true },
+  ),
 
   // Web hosting (module "webhosting")
   'webspace:read': def('webhosting', 'Webspaces ansehen', 'View web spaces'),
@@ -119,6 +127,37 @@ export const PERMISSIONS = {
       dangerous: true,
     },
   ),
+
+  // Cloud storage (module "storage", Nextcloud)
+  'cloud:read': def('storage', 'Cloud-Konten und Speicherverbrauch ansehen', 'View cloud accounts and usage'),
+  'cloud:write': def(
+    'storage',
+    'Cloud-Konten anlegen, ändern und löschen',
+    'Create, change and delete cloud accounts',
+    { dangerous: true },
+  ),
+  'cloud:password': def(
+    'storage',
+    'Zugang zu Cloud-Konten: Passwort neu setzen, E-Mail-Adresse ändern, Einladung senden',
+    'Access to cloud accounts: set a new password, change the e-mail address, resend the invitation',
+    { dangerous: true },
+  ),
+
+  // E-mail (module "mail", Mailcow)
+  'mail:read': def(
+    'mail',
+    'E-Mail-Domains, Postfächer und Weiterleitungen ansehen',
+    'View e-mail domains, mailboxes and forwarding',
+  ),
+  'mail:write': def(
+    'mail',
+    'Postfächer und Weiterleitungen anlegen, ändern und löschen, DKIM-Schlüssel erzeugen',
+    'Create, change and delete mailboxes and forwarding, generate DKIM keys',
+    { dangerous: true },
+  ),
+  'mail:password': def('mail', 'Passwörter von Postfächern neu setzen', 'Set new mailbox passwords', {
+    dangerous: true,
+  }),
 
   // Billing
   'billing:read': def(
@@ -168,8 +207,8 @@ export const PERMISSIONS = {
   ),
   'platform:server:assign': def(
     'platform',
-    'Server, Domains und Webspaces Kunden zuweisen',
-    'Assign servers, domains and web spaces to customers',
+    'Server, Domains, Webspaces und E-Mail-Domains Kunden zuweisen',
+    'Assign servers, domains, web spaces and mail domains to customers',
     { platform: true },
   ),
   'platform:server:create': def('platform', 'Server bei Providern erstellen', 'Create servers at providers', {
@@ -209,6 +248,24 @@ export const PERMISSIONS = {
     'Platform settings (email, invoice issuer, integrations)',
     { platform: true, dangerous: true },
   ),
+  'platform:domain:write': def(
+    'platform',
+    'Domains verlängern und automatische Verlängerung schalten (kostet beim Registrar)',
+    'Renew domains and switch auto-renew (charged by the registrar)',
+    { platform: true, dangerous: true },
+  ),
+  'platform:domain:move': def(
+    'platform',
+    'DNS von Domains zu Cloudflare umziehen (Zone anlegen, Nameserver umstellen)',
+    'Move domain DNS to Cloudflare (create zone, switch name servers)',
+    { platform: true, dangerous: true },
+  ),
+  'platform:mail:write': def(
+    'platform',
+    'E-Mail-Domains bei Mailcow anlegen, Limits ändern und löschen',
+    'Create mail domains at Mailcow, change their limits and delete them',
+    { platform: true, dangerous: true },
+  ),
 } as const satisfies Record<string, PermissionDef>;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -234,6 +291,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   'networking',
   'domains',
   'webhosting',
+  'storage',
+  'mail',
   'billing',
   'reseller',
   'platform',

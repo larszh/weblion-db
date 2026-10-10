@@ -1,31 +1,41 @@
-import { and, eq, ilike, isNotNull, isNull, or, type SQL } from 'drizzle-orm';
+import { and, eq, ilike, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   normalizeModules,
   type DnsRecord,
+  type DnsRecordInput,
   type DomainDetailDto,
   type DomainInfo,
-  type ModuleKey,
   type Permission,
   type WebspaceDetailDto,
   type WebspaceInfo,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { platformScope, requireSession } from '../../auth/access';
-import { domains, organizations, webspaces, type Organization } from '../../db/schema';
-import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
+import { domains, organizations, webspaces } from '../../db/schema';
+import { badRequest, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
+import type { ActionResult, DnsRecordPatch } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
 import { assertNoLinkedService } from '../reseller/service';
-import { dnsDataIssue, dnsRecordBody, dnsRecordPatchBody } from './dns';
+import { dnsDataIssue, dnsRecordBody, dnsRecordPatchBody, nameserversBody } from './dns';
+import { pendingChanges, settlePending, type PendingField } from './pending';
 import {
   HOSTING_MODULES,
+  assertRecordType,
+  assignmentTarget,
+  dnsRecordTypes,
   dnsWritable,
+  domainChange,
   domainRowsQuery,
   domainScope,
+  emptyDomainInfo,
   loadDomain,
   loadWebspace,
+  mergeDomainInfo,
+  providerTtl,
+  requireDomainCapability,
   requireSupport,
   toDomainDto,
   toWebspaceDto,
@@ -47,6 +57,18 @@ const adminListQuery = z.object({
   orgId: z.uuid().optional(),
 });
 const assignBody = z.object({ orgId: z.uuid().nullable(), enableModule: z.boolean().default(true) });
+const lockBody = z.object({ locked: z.boolean() });
+const autoRenewBody = z.object({ enabled: z.boolean() });
+const renewBody = z.object({
+  years: z.number().int().min(1).max(10),
+  /** The expiry the operator saw. Without it the stored one counts (see renewDomain). */
+  expiresAt: z
+    .string()
+    .max(40)
+    .refine((v) => !Number.isNaN(Date.parse(v)), 'invalid date')
+    .nullable()
+    .optional(),
+});
 
 const like = (q: string) => `%${q.replace(/[%_]/g, '')}%`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -54,6 +76,11 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
 /** Secrets must not end up in browser or proxy caches. */
 function noStore(reply: FastifyReply) {
   reply.header('cache-control', 'no-store');
+}
+
+/** Answer of the domain management routes. Registrars may apply the change later. */
+function actionResponse(result: ActionResult) {
+  return { ok: true as const, message: result.message ?? null, providerRef: result.providerRef ?? null };
 }
 
 /** Domains/DNS and web spaces (customer views and admin inventory). */
@@ -74,32 +101,52 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     return loaded;
   }
 
-  /** Runs a DNS change at the provider and audits it, failures included. */
-  async function dnsChange<T>(
-    req: FastifyRequest,
+  /** Domain for the platform routes, no organization check: callers assert a platform permission. */
+  async function adminDomain(req: FastifyRequest): Promise<LoadedDomain> {
+    const { id } = parse(idParams, req.params);
+    const [row] = await domainRowsQuery(ctx).where(eq(domains.id, id)).limit(1);
+    if (!row) throw notFound('Domain');
+    return { ...row, scope: domainScope(row.domain), adapter: ctx.providers.forConnection(row.connection) };
+  }
+
+  /** Live info from the provider, merged into and stored with what the panel knows. */
+  async function refreshInfo(loaded: LoadedDomain): Promise<DomainInfo> {
+    const live = await loaded.adapter.getDomain!(loaded.domain.externalId);
+    // A lock or auto-renew change the registrar has not applied yet is not undone.
+    const settled = settlePending(live, loaded.domain.meta);
+    // Field by field: what the live call does not know (e.g. 24fire's renewal setting, which
+    // only the sync sees) keeps its stored value.
+    const info = mergeDomainInfo(loaded.domain.name, loaded.domain.info, settled.info);
+    await db
+      .update(domains)
+      .set({
+        info,
+        status: info.status,
+        lastSyncedAt: new Date(),
+        ...(settled.meta !== loaded.domain.meta ? { meta: settled.meta } : {}),
+      })
+      .where(eq(domains.id, loaded.domain.id));
+    loaded.domain = { ...loaded.domain, info, meta: settled.meta, status: info.status };
+    return info;
+  }
+
+  /**
+   * Stores what a successful change implies. Registrars like Joker apply it later: until live
+   * data reports it (or PENDING_TTL_MS passed), detail views and the sync keep this value.
+   */
+  async function storeInfo(
     loaded: LoadedDomain,
-    action: string,
-    details: Record<string, unknown>,
-    fn: () => Promise<T>,
-  ): Promise<T> {
-    const entry = {
-      action: `domain.${action}`,
-      orgId: loaded.domain.orgId,
-      resourceType: 'domain',
-      resourceId: loaded.domain.id,
-    };
-    try {
-      const result = await fn();
-      await audit.record(req, { ...entry, details: { domain: loaded.domain.name, ...details } });
-      return result;
-    } catch (err) {
-      await audit.record(req, {
-        ...entry,
-        status: 'failure',
-        details: { domain: loaded.domain.name, ...details, error: errorMessage(err) },
-      });
-      throw err instanceof AppError ? err : new AppError(500, 'action_failed', errorMessage(err));
-    }
+    patch: Partial<Record<PendingField, boolean>>,
+  ): Promise<void> {
+    const base = emptyDomainInfo(loaded.domain.name);
+    const pending = pendingChanges(patch);
+    await db
+      .update(domains)
+      .set({
+        info: sql`coalesce(${domains.info}, ${JSON.stringify(base)}::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+        meta: sql`${domains.meta} || jsonb_build_object('pending', coalesce(${domains.meta} -> 'pending', '{}'::jsonb) || ${JSON.stringify(pending)}::jsonb)`,
+      })
+      .where(eq(domains.id, loaded.domain.id));
   }
 
   async function findRecord(loaded: LoadedDomain, recordId: string): Promise<DnsRecord> {
@@ -132,14 +179,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     let liveError: string | null = null;
     if (loaded.adapter.getDomain) {
       try {
-        const live = await loaded.adapter.getDomain(loaded.domain.externalId);
-        // The provider's domain endpoint may not know the renewal setting, the sync does.
-        info = { ...live, autoRenew: live.autoRenew ?? info?.autoRenew ?? null };
-        await db
-          .update(domains)
-          .set({ info, status: info.status, lastSyncedAt: new Date() })
-          .where(eq(domains.id, loaded.domain.id));
-        loaded.domain = { ...loaded.domain, info, status: info.status };
+        info = await refreshInfo(loaded);
       } catch (err) {
         req.log.warn({ err, domainId: loaded.domain.id }, 'live domain info failed');
         liveError = errorMessage(err);
@@ -150,6 +190,10 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       info,
       liveError,
       dnsWritable: await dnsWritable(loaded.adapter),
+      dnsRecordTypes: dnsRecordTypes(loaded.adapter),
+      // Registration and DNS zone of the same name link each other (Cloudflare, filled in later).
+      dnsZone: null,
+      registration: null,
     };
   });
 
@@ -157,7 +201,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const loaded = await domain(req);
     requireSession(req);
     await access.assert(req, 'domain:authcode', loaded.scope);
-    requireSupport(loaded.adapter, 'getDomainAuthcode', 'auth codes');
+    requireDomainCapability(loaded.adapter, 'authcode', 'getDomainAuthcode', 'auth codes');
     const authcode = await loaded.adapter.getDomainAuthcode!(loaded.domain.externalId);
     // Who looked at it is recorded, the code itself never is.
     await audit.record(req, {
@@ -171,6 +215,39 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     return { authcode };
   });
 
+  app.put('/domains/:id/nameservers', async (req) => {
+    const loaded = await domain(req, 'domain:manage');
+    requireDomainCapability(loaded.adapter, 'nameservers', 'setNameservers', 'name server changes');
+    const { nameservers } = parse(nameserversBody, req.body);
+    const before = loaded.domain.info?.nameservers ?? [];
+    // Not stored: the registry applies it later, the next detail view or sync shows it.
+    const result = await domainChange(
+      ctx,
+      req,
+      loaded,
+      'nameservers_update',
+      { before, after: nameservers },
+      () => loaded.adapter.setNameservers!(loaded.domain.externalId, nameservers),
+    );
+    return actionResponse(result);
+  });
+
+  app.put('/domains/:id/lock', async (req) => {
+    const loaded = await domain(req, 'domain:manage');
+    requireDomainCapability(loaded.adapter, 'lock', 'setDomainLock', 'transfer lock changes');
+    const { locked } = parse(lockBody, req.body);
+    const result = await domainChange(
+      ctx,
+      req,
+      loaded,
+      locked ? 'lock' : 'unlock',
+      { before: loaded.domain.info?.locked ?? null, after: locked },
+      () => loaded.adapter.setDomainLock!(loaded.domain.externalId, locked),
+    );
+    await storeInfo(loaded, { locked });
+    return actionResponse(result);
+  });
+
   // --- DNS ------------------------------------------------------------------------
 
   app.get('/domains/:id/dns', async (req) => {
@@ -182,28 +259,35 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post('/domains/:id/dns', async (req): Promise<DnsRecord> => {
     const loaded = await domain(req, 'domain:dns:write');
     requireSupport(loaded.adapter, 'addDnsRecord', 'DNS changes');
-    const input = parse(dnsRecordBody, req.body);
-    const record = await dnsChange(req, loaded, 'dns_add', { ...input }, () =>
+    const body = parse(dnsRecordBody, req.body);
+    assertRecordType(loaded.adapter, body.type);
+    const input: DnsRecordInput = providerTtl(loaded.adapter, body);
+    const record = await domainChange(ctx, req, loaded, 'dns_add', { ...input }, () =>
       loaded.adapter.addDnsRecord!(loaded.domain.externalId, input),
     );
     // Providers that do not report the new record back: the client reloads the list.
-    return record ?? { id: '', ...input, ttl: null };
+    return record ?? { id: '', ...input, ttl: input.ttl ?? null };
   });
 
   app.patch('/domains/:id/dns/:recordId', async (req) => {
     const loaded = await domain(req, 'domain:dns:write');
     requireSupport(loaded.adapter, 'updateDnsRecord', 'DNS changes');
     const { recordId } = parse(recordParams, req.params);
-    const patch = parse(dnsRecordPatchBody, req.body);
+    const patch: DnsRecordPatch = providerTtl(loaded.adapter, parse(dnsRecordPatchBody, req.body));
+    if ([patch.type, patch.name, patch.data, patch.ttl].every((v) => v === undefined || v === null)) {
+      throw badRequest('Nothing to change');
+    }
     const current = await findRecord(loaded, recordId);
+    if (current.readOnly) throw badRequest('This record cannot be changed in the panel, only deleted');
     const type = patch.type ?? current.type;
+    assertRecordType(loaded.adapter, type);
     const data = patch.data ?? current.data;
     if (patch.type !== undefined || patch.data !== undefined) {
       const issue = dnsDataIssue(type, data);
       if (issue) throw badRequest('Validation failed', [{ path: 'data', message: issue }]);
     }
-    const before = { type: current.type, name: current.name, data: current.data };
-    const record = await dnsChange(req, loaded, 'dns_update', { recordId, before, ...patch }, () =>
+    const before = { type: current.type, name: current.name, data: current.data, ttl: current.ttl };
+    const record = await domainChange(ctx, req, loaded, 'dns_update', { recordId, before, ...patch }, () =>
       loaded.adapter.updateDnsRecord!(loaded.domain.externalId, recordId, patch),
     );
     return record ?? { ok: true };
@@ -214,7 +298,8 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     requireSupport(loaded.adapter, 'deleteDnsRecord', 'DNS changes');
     const { recordId } = parse(recordParams, req.params);
     const current = await findRecord(loaded, recordId);
-    await dnsChange(
+    await domainChange(
+      ctx,
       req,
       loaded,
       'dns_delete',
@@ -280,31 +365,6 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // --- Admin inventory ------------------------------------------------------------
 
-  /**
-   * Target organization of an assignment. With `enableModule` the module is activated for
-   * it; a customer below a reseller can only get modules the reseller has itself.
-   */
-  async function assignTarget(
-    orgId: string,
-    module: ModuleKey,
-    enableModule: boolean,
-  ): Promise<{ org: Organization; enable: boolean }> {
-    const org = await db.query.organizations.findFirst({ where: eq(organizations.id, orgId) });
-    if (!org) throw notFound('Organization');
-    if (!enableModule) return { org, enable: false };
-    if (org.parentOrgId) {
-      const parent = await db.query.organizations.findFirst({
-        where: eq(organizations.id, org.parentOrgId),
-      });
-      if (parent && !parent.modules.includes(module)) {
-        throw conflict(
-          `The reseller "${parent.name}" does not have the module "${module}". Activate it for the reseller first.`,
-        );
-      }
-    }
-    return { org, enable: !org.modules.includes(module) };
-  }
-
   app.get('/admin/domains', async (req) => {
     await access.assert(req, 'platform:provider:read', platformScope);
     const query = parse(adminListQuery, req.query);
@@ -329,7 +389,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const current = await db.query.domains.findFirst({ where: eq(domains.id, id) });
     if (!current) throw notFound('Domain');
     const module = HOSTING_MODULES.domain;
-    const target = body.orgId ? await assignTarget(body.orgId, module, body.enableModule) : null;
+    const target = body.orgId ? await assignmentTarget(db, body.orgId, module, body.enableModule) : null;
     await db.transaction(async (tx) => {
       if (target?.enable) {
         await tx
@@ -355,6 +415,54 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     });
     const [row] = await domainRowsQuery(ctx).where(eq(domains.id, id)).limit(1);
     return toDomainDto(ctx, req, row!);
+  });
+
+  // Renewals cost money at the registrar: platform staff only, never with an API token.
+
+  app.post('/admin/domains/:id/auto-renew', async (req) => {
+    requireSession(req);
+    await access.assert(req, 'platform:domain:write', platformScope);
+    const loaded = await adminDomain(req);
+    requireDomainCapability(loaded.adapter, 'autoRenew', 'setDomainAutoRenew', 'auto-renew');
+    const { enabled } = parse(autoRenewBody, req.body);
+    const result = await domainChange(
+      ctx,
+      req,
+      loaded,
+      'auto_renew',
+      { enabled, before: loaded.domain.info?.autoRenew ?? null },
+      () => loaded.adapter.setDomainAutoRenew!(loaded.domain.externalId, enabled),
+    );
+    await storeInfo(loaded, { autoRenew: enabled });
+    return actionResponse(result);
+  });
+
+  app.post('/admin/domains/:id/renew', async (req) => {
+    requireSession(req);
+    await access.assert(req, 'platform:domain:write', platformScope);
+    const loaded = await adminDomain(req);
+    requireDomainCapability(loaded.adapter, 'renew', 'renewDomain', 'renewals');
+    const body = parse(renewBody, req.body);
+    const { years } = body;
+    // The renewal counts from the expiry the operator saw. A repeated request (lost answer,
+    // second click) still carries the old one, so the provider refuses instead of renewing
+    // from the new expiry a second time.
+    const expiresAt = body.expiresAt !== undefined ? body.expiresAt : (loaded.domain.info?.expiresAt ?? null);
+    const result = await domainChange(
+      ctx,
+      req,
+      loaded,
+      'renew',
+      { years, expiresAtBefore: loaded.domain.info?.expiresAt ?? null, expiresAtSeen: expiresAt },
+      () => loaded.adapter.renewDomain!(loaded.domain.externalId, years, expiresAt),
+    );
+    // Best effort, so the inventory shows the new expiry; the sync catches up otherwise.
+    if (loaded.adapter.getDomain) {
+      await refreshInfo(loaded).catch((err) =>
+        req.log.warn({ err, domainId: loaded.domain.id }, 'domain info after renewal failed'),
+      );
+    }
+    return actionResponse(result);
   });
 
   app.get('/admin/webspaces', async (req) => {
@@ -383,7 +491,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const current = await db.query.webspaces.findFirst({ where: eq(webspaces.id, id) });
     if (!current) throw notFound('Web space');
     const module = HOSTING_MODULES.webspace;
-    const target = body.orgId ? await assignTarget(body.orgId, module, body.enableModule) : null;
+    const target = body.orgId ? await assignmentTarget(db, body.orgId, module, body.enableModule) : null;
     await db.transaction(async (tx) => {
       if (target?.enable) {
         await tx

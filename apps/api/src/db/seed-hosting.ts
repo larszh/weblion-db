@@ -16,7 +16,9 @@ const HUBER_DOMAIN = 'baeckerei-huber.ch';
  * unassigned for the admin inventory. Only unassigned entries are touched.
  */
 export async function seedHostingDemo(db: Database, log: string[]): Promise<void> {
-  const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.type, 'demo') });
+  const demo = await db.query.providerConnections.findFirst({
+    where: eq(providerConnections.envKey, 'demo'),
+  });
   const muster = await db.query.organizations.findFirst({ where: eq(organizations.slug, 'muster-ag') });
   if (!demo || !muster) return;
 

@@ -4,12 +4,26 @@
  * the public API and the UI never care where a server actually runs.
  */
 
-export const PROVIDER_TYPES = ['fire24', 'proxmox', 'demo'] as const;
+export const PROVIDER_TYPES = [
+  'fire24',
+  'proxmox',
+  'hetzner',
+  'joker',
+  'nextcloud',
+  'cloudflare',
+  'mailcow',
+  'demo',
+] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const PROVIDER_LABELS: Record<ProviderType, string> = {
   fire24: '24fire',
   proxmox: 'Proxmox VE',
+  hetzner: 'Hetzner Cloud',
+  joker: 'Joker.com',
+  nextcloud: 'Nextcloud',
+  cloudflare: 'Cloudflare',
+  mailcow: 'Mailcow',
   demo: 'Demo',
 };
 
@@ -219,6 +233,38 @@ export interface RescaleRequest {
   memoryMb?: number;
   /** Disks can only grow. */
   diskGb?: number;
+  /** Providers with fixed sizes (Hetzner server types) take a plan id instead of the numbers. */
+  plan?: string;
+  /** Hetzner: also grow the disk to the plan's size. Without it the server can be downgraded again. */
+  upgradeDisk?: boolean;
+}
+
+/** A fixed size a provider sells (Hetzner server type), e.g. "cx32". */
+export interface ServerPlan {
+  id: string;
+  /** e.g. "CX32" */
+  label: string;
+  cores: number;
+  memoryMb: number;
+  diskGb: number;
+  /** "x86" or "arm" */
+  architecture: string | null;
+  /** Shared or dedicated vCPU. */
+  cpuType: string | null;
+  /** Monthly price at the provider (gross, minor units), for staff only. */
+  priceMonthly: { amount: number; currency: string } | null;
+  /** Location ids where the plan can be ordered. Empty = everywhere. */
+  locations: string[];
+  deprecated: boolean;
+}
+
+/** A location a provider can create servers in, e.g. Hetzner "fsn1". */
+export interface ProviderLocation {
+  id: string;
+  label: string;
+  /** ISO 3166-1 alpha-2 */
+  country: string;
+  city: string | null;
 }
 
 export function isPowerAction(value: string): value is PowerAction {
