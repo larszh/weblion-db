@@ -53,7 +53,8 @@ der [Roadmap](roadmap.md).
 ## Module (Dienste freischalten)
 
 Module sind die Bereiche, die ein Kunde in der Console sieht: **Cloud Server**,
-**Domains & DNS**, **Webhosting**, **Cloud-Speicher**. Was nicht freigeschaltet ist, taucht
+**Domains & DNS** (mit den DNS-Zonen bei Cloudflare), **Webhosting**, **Cloud-Speicher**,
+**E-Mail**. Was nicht freigeschaltet ist, taucht
 weder in der Navigation auf noch ist es über die API erreichbar, auch nicht für den Owner des
 Kunden. Plattform-Admins sehen immer alles.
 
@@ -61,7 +62,8 @@ Freischalten geht an diesen Stellen:
 
 - Admin > Kunden > Kunde > Module
 - Reseller > Meine Kunden > Kunde (nur Module, die der Reseller selbst hat)
-- automatisch, wenn ein Dienst mit Modul angelegt oder eine Domain/ein Webspace zugewiesen wird
+- automatisch, wenn ein Dienst mit Modul angelegt oder eine Domain, ein Webspace oder eine
+  Mail-Domain zugewiesen wird (abschaltbar)
 - automatisch, wenn ein Kontingent für Cloud-Speicher eingerichtet wird (bei weblion.one
   abschaltbar)
 
@@ -72,9 +74,9 @@ Ein Reseller ist eine Organisation vom Typ "Reseller". Seine Mitarbeitenden:
 - legen eigene Kunden an (mit Einladung für den Owner), sperren sie und schalten Module frei
 - öffnen das Panel eines Kunden und arbeiten dort mit ihrer eigenen Rolle (ein Reseller-Owner
   darf beim Kunden alles, ein Reseller-Viewer nur lesen)
-- verschieben Server, Domains und Webspaces aus dem eigenen Bestand zu ihren Kunden (nicht,
-  solange der bisherige Kunde dafür einen laufenden Dienst hat; was die Plattform dem
-  Reseller selbst verrechnet, darf er weitergeben)
+- verschieben Server, Domains, Webspaces und Mail-Domains aus dem eigenen Bestand zu ihren
+  Kunden (nicht, solange der bisherige Kunde dafür einen laufenden Dienst hat; was die Plattform
+  dem Reseller selbst verrechnet, darf er weitergeben)
 - teilen ihren Kunden einen Teil ihres Cloud-Speicher-Kontingents zu (siehe unten)
 - erstellen Rechnungen, buchen Guthaben und verwalten Dienste und Preise ihrer Kunden
 
@@ -151,6 +153,47 @@ zeigt die Karte "Cloud-Speicher" beim Kunden. Ideen dazu in der [Roadmap](roadma
 - Kündigt ein Kunde, löscht er (oder der Reseller im Panel des Kunden) zuerst die Konten. Danach
   entfernt der Reseller das Kontingent auf derselben Karte, der Speicher geht in sein Kontingent
   zurück. Erst dann lässt sich der Kunde löschen.
+
+## E-Mail (Mailcow) verkaufen
+
+weblion.one verkauft E-Mail-Domains auf eigenen Mailcow-Servern. Wie beim Cloud-Speicher sind es
+zwei getrennte Dinge:
+
+- Die **Limits** der Mail-Domain (Postfächer, Weiterleitungen, Speicher gesamt, Grösse pro Postfach,
+  Versandlimit) bestimmen, was technisch geht. Sie hängen an der Mail-Domain und gelten bei Mailcow.
+  Mailcow begrenzt den vergebenen Speicher (die Summe der Postfachgrössen), nicht den belegten.
+  Verkauft wird deshalb am besten der vergebene.
+- Der **Dienst** bestimmt, was der Kunde bezahlt.
+
+Die Console verknüpft beides nicht. Ein Dienst lässt sich noch nicht mit einer Mail-Domain
+verknüpfen, nur mit Servern, Domains und Webspaces.
+
+### Einrichten
+
+1. **Produkt** unter Admin > Produkte & Preise, z.B. "E-Mail Business, 10 Postfächer, 25 GB",
+   monatlich, Modul "E-Mail".
+2. **Dienst** beim Kunden aus dem Produkt anlegen, mit "Modul «E-Mail» freischalten".
+3. **Mail-Domain** anlegen: Admin > Domains & Webspaces > E-Mail-Domains > "Mail-Domain anlegen",
+   mit den Limits aus dem Produkt und dem Kunden. Eine Domain, die bei Mailcow schon existiert,
+   erscheint nach dem Sync und wird dort zugewiesen.
+4. Der Kunde legt unter "E-Mail" seine Postfächer und Weiterleitungen an und trägt die DNS-Einträge
+   ein (oder lässt sie die Console eintragen, wenn die Domain in der Console liegt).
+
+### Ändern und kündigen
+
+- **Mehr oder weniger:** "Limits ändern" bei der Mail-Domain und den Dienst anpassen. Mailcow lehnt
+  Limits unter dem Verbrauch ab.
+- **Kündigen:** Die Postfächer löschen (der Kunde unter "E-Mail" oder weblion.one in seinem Panel),
+  vorher mit dem Kunden klären, bis wann er seine E-Mails sichert. Dann die Mail-Domain löschen
+  (geht erst ohne Postfächer) und den Dienst kündigen. Die Zuweisung zu lösen oder das Modul zu
+  sperren reicht nicht: Bei Mailcow fliessen die E-Mails weiter.
+- **Sperren** macht die Console für den Kunden nur lesend, die E-Mails fliessen weiter. Wer das
+  stoppen will, schaltet die Domain unter "Limits ändern" auf inaktiv.
+
+Einrichtung der Instanz und alle Regeln in [providers.md](providers.md#mailcow-e-mail). Über
+Reseller: weblion.one gibt dem Reseller Mail-Domains und das Modul "E-Mail", der Reseller gibt sie
+unter Reseller > Meine Kunden > Kunde > Ressourcen an seine Kunden weiter. Die Limits ändert nur
+weblion.one.
 
 ## Stripe (Karte und TWINT)
 

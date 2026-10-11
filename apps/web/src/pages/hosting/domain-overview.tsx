@@ -35,14 +35,25 @@ import {
   type RenewalTarget,
 } from './domain-actions';
 import { NAMESERVERS_MAX, NAMESERVERS_MIN, nameserverIssue, normalizeNameserver } from './dns-format';
+import { DnsZoneLine, ZoneOverview } from './domain-zone';
+import { DnsMoveCard, DnsMoveDialog, useCanMoveDns } from './dns-move';
 
-/** "Übersicht" tab of a domain: registrar facts, name servers, transfer and renewal. */
+/**
+ * "Übersicht" tab of a domain: registrar facts, name servers, transfer and renewal. DNS zones
+ * (Cloudflare) have an overview of their own.
+ */
 export function DomainOverview({ domain }: { domain: DomainDetailDto }) {
   const canRenew = useCanRenew();
+  const canMove = useCanMoveDns();
+  // Kept here, not in the card: the dialog shows the result even when the card goes away.
+  const [moving, setMoving] = useState(false);
+  if (domain.kind === 'zone') return <ZoneOverview domain={domain} />;
+
   const caps = domain.capabilities;
   const registrant = domain.info?.registrant;
   const showTransfer = caps.includes('lock') || caps.includes('authcode');
   const showRenewal = canRenew && (caps.includes('autoRenew') || caps.includes('renew'));
+  const showMove = canMove && !domain.missingSince && !domain.dnsZone?.active;
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -51,6 +62,8 @@ export function DomainOverview({ domain }: { domain: DomainDetailDto }) {
       {showTransfer && <TransferCard domain={domain} />}
       {registrant && <RegistrantCard registrant={registrant} />}
       {showRenewal && <RenewalCard domain={domain} />}
+      {showMove && <DnsMoveCard onStart={() => setMoving(true)} />}
+      {moving && <DnsMoveDialog domain={domain} onClose={() => setMoving(false)} />}
     </div>
   );
 }
@@ -133,6 +146,35 @@ const NAMESERVER_PRESETS: Partial<
 
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 
+interface NameserverPreset {
+  label: string;
+  hint: string;
+  nameservers: string[];
+}
+
+/**
+ * The name servers of a DNS zone of the same name (e.g. at Cloudflare) first, then the
+ * registrar's own set.
+ */
+function nameserverPresets(t: TFunction, domain: DomainDetailDto): NameserverPreset[] {
+  const presets: NameserverPreset[] = [];
+  const zone = domain.dnsZone;
+  const zoneNameservers = [...new Set((zone?.nameservers ?? []).map(normalizeNameserver).filter(Boolean))];
+  if (zone && zoneNameservers.length >= NAMESERVERS_MIN) {
+    const nameservers = zoneNameservers.slice(0, NAMESERVERS_MAX);
+    presets.push({
+      label: t('hosting.dnsZone.preset', { provider: zone.provider.name }),
+      hint: t('hosting.dnsZone.presetHint', { list: nameservers.join(', '), provider: zone.provider.name }),
+      nameservers,
+    });
+  }
+  const registrar = NAMESERVER_PRESETS[domain.provider.type];
+  if (registrar) {
+    presets.push({ label: t(registrar.label), hint: t(registrar.hint), nameservers: registrar.nameservers });
+  }
+  return presets;
+}
+
 function NameserverCard({ domain }: { domain: DomainDetailDto }) {
   const { t } = useI18n();
   const nameservers = domain.info?.nameservers ?? [];
@@ -187,6 +229,7 @@ function NameserverCard({ domain }: { domain: DomainDetailDto }) {
               : t('hosting.ns.external', { provider: domain.provider.name })}
           </p>
         )}
+        {domain.dnsZone && <DnsZoneLine zone={domain.dnsZone} />}
       </CardBody>
       {editing && (
         <NameserverDialog
@@ -216,7 +259,7 @@ function NameserverDialog({
     return initial;
   });
   const [touched, setTouched] = useState(false);
-  const preset = NAMESERVER_PRESETS[domain.provider.type];
+  const presets = nameserverPresets(t, domain);
   const save = useSetNameservers(domain.id, {
     success: (r) => withProviderRef(t, t('hosting.ns.submitted'), r),
     onSuccess: (r, list) => {
@@ -263,11 +306,14 @@ function NameserverDialog({
       }
     >
       <form id="ns-form" onSubmit={submit} className="space-y-4">
-        {preset && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5">
+        {presets.map((preset) => (
+          <div
+            key={preset.label}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2.5"
+          >
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-text">{t(preset.label)}</p>
-              <p className="text-xs text-muted">{t(preset.hint)}</p>
+              <p className="text-sm font-medium text-text">{preset.label}</p>
+              <p className="text-xs break-words text-muted">{preset.hint}</p>
             </div>
             <Button
               size="sm"
@@ -277,7 +323,7 @@ function NameserverDialog({
               {t('hosting.ns.usePreset')}
             </Button>
           </div>
-        )}
+        ))}
         <div className="space-y-2">
           {rows.map((value, i) => {
             const issue = touched ? issues[i] : null;

@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/primitives';
 import { Button } from '@/components/ui/button';
 import { Flag, StatusDot } from '@/components/server-bits';
-import { DomainStatusBadge, ExpiryText } from '@/pages/hosting/bits';
+import { DomainStatusBadge, ExpiryText, ZoneExpiry } from '@/pages/hosting/bits';
 import { ModuleBadges, StatusBadge } from '@/pages/reseller/bits';
 import { formatQuota } from '@/pages/cloud/bits';
 import { MailCard } from '@/pages/mail/dashboard-card';
@@ -140,7 +140,12 @@ function DomainsCard() {
                 <Globe className="size-4 shrink-0 text-subtle" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{d.name}</span>
                 <span className="hidden text-sm text-muted sm:inline">
-                  <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+                  {/* A DNS zone does not expire: its registration does. */}
+                  {d.kind === 'zone' ? (
+                    <ZoneExpiry />
+                  ) : (
+                    <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+                  )}
                 </span>
                 <DomainStatusBadge domain={d} />
               </Link>

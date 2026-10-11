@@ -12,6 +12,10 @@ import type {
   FirewallRule,
   ImageOption,
   IsoOption,
+  MailAliasDto,
+  MailClientSettings,
+  MailPasswordPolicy,
+  MailboxDto,
   MetricPoint,
   MetricRange,
   MetricsResult,
@@ -35,12 +39,20 @@ import type {
   CloudAccountPatch,
   CreateServerRequest,
   DemoConfig,
+  DkimKey,
   DnsRecordPatch,
   InfraOverview,
+  MailAliasInput,
+  MailAliasPatch,
+  MailDomainInput,
+  MailDomainPatch,
+  MailboxInput,
+  MailboxPatch,
   ProviderAdapter,
   RawResponse,
   RemoteCloudAccount,
   RemoteDomain,
+  RemoteMailDomain,
   RemoteServer,
   RemoteWebspace,
   ServerRef,
@@ -48,7 +60,7 @@ import type {
 import { DemoCloud, demoCloudState, resetDemoCloud } from './cloud';
 import { resetDemoCloudflare } from './cloudflare';
 import { DemoHosting, demoHostingState, resetDemoHosting } from './hosting';
-import { resetDemoMail } from './mail';
+import { DemoMail, demoMailState, resetDemoMail } from './mail';
 
 /**
  * Simulated provider for local development, UI work and automated tests.
@@ -146,6 +158,7 @@ export class DemoAdapter implements ProviderAdapter {
   private readonly servers: Map<string, DemoServer>;
   private readonly hosting: DemoHosting;
   private readonly cloud: DemoCloud;
+  private readonly mail: DemoMail;
 
   constructor(
     private readonly connectionId: string,
@@ -159,6 +172,7 @@ export class DemoAdapter implements ProviderAdapter {
     this.servers = state;
     this.hosting = new DemoHosting(demoHostingState(connectionId));
     this.cloud = new DemoCloud(demoCloudState(connectionId));
+    this.mail = new DemoMail(demoMailState(connectionId));
   }
 
   /** Test helper: forget all simulated state. */
@@ -731,6 +745,7 @@ export class DemoAdapter implements ProviderAdapter {
         { label: 'Running', value: String(servers.filter((s) => s.status === 'running').length) },
         { label: 'Domains', value: String(this.hosting.listDomains().length) },
         { label: 'Web spaces', value: String(this.hosting.listWebspaces().length) },
+        { label: 'Mail domains', value: String(this.mail.listMailDomains().length) },
       ],
     };
   }
@@ -838,6 +853,92 @@ export class DemoAdapter implements ProviderAdapter {
 
   cloudLoginUrl(): string {
     return this.cloud.cloudLoginUrl();
+  }
+
+  // --- E-mail (simulated Mailcow) -------------------------------------------------
+
+  async listMailDomains(): Promise<RemoteMailDomain[]> {
+    return this.mail.listMailDomains();
+  }
+
+  async getMailDomain(domain: string): Promise<RemoteMailDomain> {
+    return this.mail.getMailDomain(domain);
+  }
+
+  async createMailDomain(input: MailDomainInput): Promise<{ domain: RemoteMailDomain; warnings: string[] }> {
+    return this.mail.createMailDomain(input);
+  }
+
+  async updateMailDomain(domain: string, patch: MailDomainPatch): Promise<void> {
+    this.mail.updateMailDomain(domain, patch);
+  }
+
+  async deleteMailDomain(domain: string): Promise<{ warnings: string[] }> {
+    return this.mail.deleteMailDomain(domain);
+  }
+
+  async listMailboxes(domain: string): Promise<MailboxDto[]> {
+    return this.mail.listMailboxes(domain);
+  }
+
+  async getMailbox(address: string): Promise<MailboxDto> {
+    return this.mail.getMailbox(address);
+  }
+
+  async createMailbox(input: MailboxInput): Promise<MailboxDto> {
+    return this.mail.createMailbox(input);
+  }
+
+  async updateMailbox(address: string, patch: MailboxPatch): Promise<void> {
+    this.mail.updateMailbox(address, patch);
+  }
+
+  async setMailboxPassword(address: string, password: string): Promise<void> {
+    this.mail.setMailboxPassword(address, password);
+  }
+
+  async deleteMailbox(address: string): Promise<void> {
+    this.mail.deleteMailbox(address);
+  }
+
+  async listMailAliases(domain: string): Promise<MailAliasDto[]> {
+    return this.mail.listMailAliases(domain);
+  }
+
+  async getMailAlias(id: string): Promise<MailAliasDto> {
+    return this.mail.getMailAlias(id);
+  }
+
+  async createMailAlias(input: MailAliasInput): Promise<MailAliasDto> {
+    return this.mail.createMailAlias(input);
+  }
+
+  async updateMailAlias(id: string, patch: MailAliasPatch): Promise<void> {
+    this.mail.updateMailAlias(id, patch);
+  }
+
+  async deleteMailAlias(id: string): Promise<void> {
+    this.mail.deleteMailAlias(id);
+  }
+
+  async getDkim(domain: string): Promise<DkimKey | null> {
+    return this.mail.getDkim(domain);
+  }
+
+  async createDkim(domain: string, options: { selector: string; keySize: number }): Promise<DkimKey> {
+    return this.mail.createDkim(domain, options);
+  }
+
+  async deleteDkim(domain: string): Promise<void> {
+    this.mail.deleteDkim(domain);
+  }
+
+  async mailPasswordPolicy(): Promise<MailPasswordPolicy> {
+    return this.mail.mailPasswordPolicy();
+  }
+
+  mailClientSettings(): MailClientSettings {
+    return this.mail.mailClientSettings();
   }
 
   async rawRequest(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse> {

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import {
   ALL_PERMISSIONS,
@@ -9,6 +9,7 @@ import {
   type DomainDto,
   type DomainInfo,
   type DomainKind,
+  type LinkedDomain,
   type ModuleKey,
   type Permission,
   type WebspaceDto,
@@ -27,7 +28,8 @@ import {
   type Webspace,
 } from '../../db/schema';
 import { AppError, badRequest, conflict, notFound, unsupported } from '../../lib/errors';
-import type { ProviderAdapter } from '../../providers/types';
+import type { ActionResult, ProviderAdapter } from '../../providers/types';
+import { settlePending } from './pending';
 
 export const DOMAIN_PERMISSIONS = ALL_PERMISSIONS.filter((p) => p.startsWith('domain:'));
 export const WEBSPACE_PERMISSIONS = ALL_PERMISSIONS.filter((p) => p.startsWith('webspace:'));
@@ -99,6 +101,13 @@ export async function loadDomain(
   return { ...row, scope, adapter: ctx.providers.forConnection(row.connection) };
 }
 
+/** Loads a domain for a platform route, without organization check: callers assert a platform permission. */
+export async function loadAdminDomain(ctx: AppContext, domainId: string): Promise<LoadedDomain> {
+  const [row] = await domainRowsQuery(ctx).where(eq(domains.id, domainId)).limit(1);
+  if (!row) throw notFound('Domain');
+  return { ...row, scope: domainScope(row.domain), adapter: ctx.providers.forConnection(row.connection) };
+}
+
 /** Loads a web space and checks that the caller may at least see it (404 otherwise). */
 export async function loadWebspace(
   ctx: AppContext,
@@ -144,6 +153,11 @@ export function domainKind(adapter: ProviderAdapter): DomainKind {
   return adapter.domainKind?.() ?? 'registration';
 }
 
+/** Whether the connection can create DNS zones (Cloudflare: only with an account id). */
+export function canCreateZones(adapter: ProviderAdapter): boolean {
+  return typeof adapter.createZone === 'function' && (adapter.canCreateZones?.() ?? true);
+}
+
 /** 400 for record types the provider does not take when adding or changing records. */
 export function assertRecordType(adapter: ProviderAdapter, type: string): void {
   const accepted: string[] = dnsRecordTypes(adapter);
@@ -163,6 +177,11 @@ export function providerTtl<T extends { ttl?: number | null }>(adapter: Provider
 }
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** Answer of the domain management routes. Providers may apply the change later. */
+export function actionResponse(result: ActionResult) {
+  return { ok: true as const, message: result.message ?? null, providerRef: result.providerRef ?? null };
+}
 
 /** Runs a domain or DNS change at the provider and audits it, failures included. */
 export async function domainChange<T>(
@@ -264,6 +283,27 @@ export function mergeDomainInfo(
   return { ...(stored ?? emptyDomainInfo(name)), ...known };
 }
 
+/** Live info from the provider, merged into and stored with what the panel knows. */
+export async function refreshDomainInfo(ctx: AppContext, loaded: LoadedDomain): Promise<DomainInfo> {
+  const live = await loaded.adapter.getDomain!(loaded.domain.externalId);
+  // A lock or auto-renew change the registrar has not applied yet is not undone.
+  const settled = settlePending(live, loaded.domain.meta);
+  // Field by field: what the live call does not know (e.g. 24fire's renewal setting, which
+  // only the sync sees) keeps its stored value.
+  const info = mergeDomainInfo(loaded.domain.name, loaded.domain.info, settled.info);
+  await ctx.db
+    .update(domains)
+    .set({
+      info,
+      status: info.status,
+      lastSyncedAt: new Date(),
+      ...(settled.meta !== loaded.domain.meta ? { meta: settled.meta } : {}),
+    })
+    .where(eq(domains.id, loaded.domain.id));
+  loaded.domain = { ...loaded.domain, info, meta: settled.meta, status: info.status };
+  return info;
+}
+
 export async function toDomainDto(ctx: AppContext, req: FastifyRequest, row: DomainRow): Promise<DomainDto> {
   const { domain, org, connection } = row;
   const permissions: Permission[] = await ctx.access.allowed(req, DOMAIN_PERMISSIONS, domainScope(domain));
@@ -284,6 +324,78 @@ export async function toDomainDto(ctx: AppContext, req: FastifyRequest, row: Dom
     missingSince: domain.missingSince?.toISOString() ?? null,
     createdAt: domain.createdAt.toISOString(),
   };
+}
+
+/** Zone status, also for rows stored before the zone facts existed. */
+function zoneStatus(domain: Domain): string | null {
+  return domain.info?.zone?.status ?? domain.status;
+}
+
+/** Zones that serve DNS first, then those waiting for their name servers, then the rest. */
+function zoneRank(domain: Domain): number {
+  const status = zoneStatus(domain);
+  return status === 'active' ? 0 : status === 'pending' ? 1 : 2;
+}
+
+/** A row as the other side of a registration/zone pair. */
+export function toLinkedDomain(ctx: AppContext, row: DomainRow): LinkedDomain {
+  const { domain, org, connection } = row;
+  const kind = domainKind(ctx.providers.forConnection(connection));
+  const status = kind === 'zone' ? zoneStatus(domain) : domain.status;
+  return {
+    id: domain.id,
+    name: domain.name,
+    kind,
+    provider: { id: connection.id, type: connection.type, name: connection.name },
+    org: org ? { id: org.id, name: org.name, slug: org.slug } : null,
+    status,
+    nameservers: domain.info?.nameservers ?? [],
+    active:
+      kind === 'zone' ? (status === null ? null : status === 'active') : (domain.info?.providerDns ?? null),
+  };
+}
+
+/**
+ * Rows of the same name and the other kind (not missing), best first: zones by status, then
+ * the oldest. Callers filter by what they may see.
+ */
+export async function counterparts(ctx: AppContext, loaded: LoadedDomain): Promise<DomainRow[]> {
+  const kind = domainKind(loaded.adapter);
+  const rows = await domainRowsQuery(ctx).where(
+    and(
+      sql`lower(${domains.name}) = lower(${loaded.domain.name})`,
+      ne(domains.id, loaded.domain.id),
+      isNull(domains.missingSince),
+    ),
+  );
+  return rows
+    .filter((row) => domainKind(ctx.providers.forConnection(row.connection)) !== kind)
+    .sort(
+      (a, b) =>
+        zoneRank(a.domain) - zoneRank(b.domain) ||
+        a.domain.createdAt.getTime() - b.domain.createdAt.getTime(),
+    );
+}
+
+/**
+ * The registration and DNS zone of the same name link each other (e.g. a Joker domain and its
+ * Cloudflare zone). Only rows the caller may read count.
+ */
+export async function linkedDomains(
+  ctx: AppContext,
+  req: FastifyRequest,
+  loaded: LoadedDomain,
+): Promise<{ dnsZone: LinkedDomain | null; registration: LinkedDomain | null }> {
+  let linked: LinkedDomain | null = null;
+  for (const row of await counterparts(ctx, loaded)) {
+    if (await ctx.access.can(req, 'domain:read', domainScope(row.domain))) {
+      linked = toLinkedDomain(ctx, row);
+      break;
+    }
+  }
+  return domainKind(loaded.adapter) === 'zone'
+    ? { dnsZone: null, registration: linked }
+    : { dnsZone: linked, registration: null };
 }
 
 export async function toWebspaceDto(

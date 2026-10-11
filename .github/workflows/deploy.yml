@@ -1,0 +1,84 @@
+name: Deploy
+
+# Once CI is green on main (a merge or a push), the build goes to the CloudPanel server over SSH:
+# rsync into the site folder, then deploy/cloudpanel/update.sh there. The .env on the server is
+# never touched. Setup (secrets and variables): docs/deployment.md, "Automatisch deployen".
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      HEALTHCHECK_URL: ${{ vars.DEPLOY_HEALTHCHECK_URL }}
+    steps:
+      - name: Check settings
+        run: |
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH; do
+            if [ -z "${!name}" ]; then echo "::error::Variable $name is not set"; exit 1; fi
+          done
+
+      - uses: actions/checkout@v4
+        with:
+          # The commit CI tested, not whatever main points to by now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: SSH key
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$KNOWN_HOSTS" ]; then
+            echo "::error::Secrets DEPLOY_SSH_KEY and DEPLOY_KNOWN_HOSTS are required"; exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Copy to the server
+        # --delete removes files that are gone from the repo. Excluded paths (.env, node_modules,
+        # .git of an earlier clone) are left alone on the server.
+        run: |
+          rsync -az --delete \
+            --exclude=.git --exclude=node_modules --exclude=/.env \
+            -e "ssh -i ~/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
+      - name: Install and reload
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash '$DEPLOY_PATH/deploy/cloudpanel/update.sh'"
+
+      - name: Health check
+        if: env.HEALTHCHECK_URL != ''
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 5 "$HEALTHCHECK_URL" >/dev/null; then echo "Console is up"; exit 0; fi
+            sleep 3
+          done
+          echo "::error::$HEALTHCHECK_URL did not answer after the deploy"; exit 1

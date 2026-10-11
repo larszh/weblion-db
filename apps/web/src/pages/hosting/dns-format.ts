@@ -1,3 +1,10 @@
+import {
+  DNS_PROXIABLE_TYPES,
+  DNS_TTL_AUTO,
+  type DnsRecord,
+  type DnsRecordInput,
+  type DnsRecordType,
+} from '@weblion/shared';
 import type { TranslationKey } from '@/i18n/de';
 
 /**
@@ -117,3 +124,91 @@ export function nameserverIssue(list: string[], index: number): TranslationKey |
 /** TTL choices in the record dialog, seconds. Joker needs at least 300. */
 export const TTL_OPTIONS = [300, 900, 3600, 14400, 86400] as const;
 export const DEFAULT_TTL = 3600;
+
+/** TTL choices at providers with "dnsTtlAuto" (Cloudflare): 1 is "automatic", others 60 s and up. */
+export const TTL_OPTIONS_AUTO = [DNS_TTL_AUTO, 60, 300, 900, 3600, 14400, 86400] as const;
+
+const PROXIABLE: readonly string[] = DNS_PROXIABLE_TYPES;
+
+/** Types a proxy can carry (A, AAAA, CNAME). Whether a single record can is the provider's call. */
+export const isProxiable = (type: string) => PROXIABLE.includes(type.toUpperCase());
+
+/** What the provider offers in the record dialog (domain capabilities). */
+export interface RecordFormOptions {
+  /** "dnsTtl": records take a TTL. */
+  withTtl: boolean;
+  /** "dnsTtlAuto": TTL 1 means automatic and is the default. */
+  ttlAuto: boolean;
+  /** "dnsProxy": A, AAAA and CNAME records can go through the provider's proxy. */
+  withProxy: boolean;
+}
+
+/** The record dialog's values, name already relative to the zone ("@" for the apex). */
+export interface RecordForm {
+  type: string;
+  name: string;
+  data: string;
+  ttl: number;
+  proxied: boolean;
+}
+
+export const defaultTtl = (options: RecordFormOptions) => (options.ttlAuto ? DNS_TTL_AUTO : DEFAULT_TTL);
+
+/** The proxy flag the form ends up with: only proxiable types at providers with a proxy. */
+export const formProxied = (form: RecordForm, options: RecordFormOptions) =>
+  options.withProxy && isProxiable(form.type) && form.proxied;
+
+/** Proxied records always have the automatic TTL (the provider forces it). */
+export const formTtl = (form: RecordForm, options: RecordFormOptions) =>
+  formProxied(form, options) ? DNS_TTL_AUTO : form.ttl;
+
+/** Body of POST /domains/:id/dns. */
+export function newRecordInput(form: RecordForm, options: RecordFormOptions): DnsRecordInput {
+  return {
+    type: form.type as DnsRecordType,
+    name: form.name,
+    data: form.data,
+    ...(options.withTtl ? { ttl: formTtl(form, options) } : {}),
+    ...(options.withProxy && isProxiable(form.type) ? { proxied: formProxied(form, options) } : {}),
+  };
+}
+
+/**
+ * Body of PATCH /domains/:id/dns/:recordId: only what changed, empty when nothing did. Left
+ * out, the provider keeps the record's TTL and proxy flag.
+ */
+export function recordPatch(
+  record: DnsRecord,
+  form: RecordForm,
+  options: RecordFormOptions,
+): Partial<DnsRecordInput> {
+  const patch: Partial<DnsRecordInput> = {};
+  if (form.type !== record.type) patch.type = form.type as DnsRecordType;
+  if (form.name !== (record.name === '' ? '@' : record.name)) patch.name = form.name;
+  if (form.data !== record.data) patch.data = form.data;
+  const ttl = formTtl(form, options);
+  if (options.withTtl && ttl !== (record.ttl ?? defaultTtl(options))) patch.ttl = ttl;
+  const proxied = formProxied(form, options);
+  if (options.withProxy && proxied !== (record.proxied === true)) patch.proxied = proxied;
+  return patch;
+}
+
+/** Same name servers in any order and spelling (case, trailing dot). */
+export function sameNameservers(a: readonly string[], b: readonly string[]): boolean {
+  const left = new Set(a.map(normalizeNameserver).filter(Boolean));
+  const right = new Set(b.map(normalizeNameserver).filter(Boolean));
+  return left.size > 0 && left.size === right.size && [...left].every((ns) => right.has(ns));
+}
+
+/**
+ * Remaining time of the CDN development mode, rounded up to whole minutes so "0 min" never
+ * shows while it is still on. Null when nothing remains.
+ */
+export function formatRemaining(seconds: number | null): string | null {
+  if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) return null;
+  const minutes = Math.ceil(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}

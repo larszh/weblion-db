@@ -109,8 +109,17 @@ const recordTtl = z
   .nullable()
   .optional();
 
+/** Route through the provider's proxy (Cloudflare). Dropped for providers without "dnsProxy". */
+const recordProxied = z.boolean().optional();
+
 export const dnsRecordBody = z
-  .object({ type: z.enum(DNS_RECORD_TYPES), name: recordName, data: recordData, ttl: recordTtl })
+  .object({
+    type: z.enum(DNS_RECORD_TYPES),
+    name: recordName,
+    data: recordData,
+    ttl: recordTtl,
+    proxied: recordProxied,
+  })
   .superRefine((record, ctx) => {
     const issue = dnsDataIssue(record.type, record.data);
     if (issue) ctx.addIssue({ code: 'custom', path: ['data'], message: issue });
@@ -122,9 +131,15 @@ export const dnsRecordPatchBody = z
     name: recordName.optional(),
     data: recordData.optional(),
     ttl: recordTtl,
+    proxied: recordProxied,
   })
   .refine(
-    (p) => p.type !== undefined || p.name !== undefined || p.data !== undefined || p.ttl != null,
+    (p) =>
+      p.type !== undefined ||
+      p.name !== undefined ||
+      p.data !== undefined ||
+      p.ttl != null ||
+      p.proxied !== undefined,
     'Nothing to change',
   );
 
