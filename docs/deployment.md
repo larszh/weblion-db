@@ -346,6 +346,36 @@ Rechnungen sind buchhaltungsrelevant (in der Schweiz 10 Jahre Aufbewahrung). Die
 ist ihre Quelle, deshalb das Backup regelmässig und ausser Haus ablegen. Kunden mit
 Rechnungen, Zahlungen oder Guthaben lassen sich in der Console nicht löschen, nur sperren.
 
+## Automatisch deployen (GitHub Actions)
+
+[.github/workflows/deploy.yml](../.github/workflows/deploy.yml) bringt jeden Stand auf `main`
+auf die CloudPanel-Site (Variante B), sobald CI grün ist: bauen, per `rsync` über SSH in den
+Site-Ordner kopieren, dann [deploy/cloudpanel/update.sh](../deploy/cloudpanel/update.sh) auf
+dem Server (`pnpm install --prod`, `pm2 startOrReload`). Die `.env`, `node_modules` und ein
+`.git` aus dem ersten Clone bleiben auf dem Server unangetastet. Manuell: *Actions > Deploy >
+Run workflow* (nur auf `main`).
+
+Einmal einrichten:
+
+1. Schlüssel erzeugen: `ssh-keygen -t ed25519 -f deploy_key -N ""`. Den Inhalt von
+   `deploy_key.pub` beim Site-User in `~/.ssh/authorized_keys` eintragen.
+2. Host-Key holen: `ssh-keyscan -p <port> <host>`.
+3. Unter *Settings > Secrets and variables > Actions* im Repository:
+
+| Art | Name | Wert |
+| --- | --- | --- |
+| Secret | `DEPLOY_SSH_KEY` | Inhalt von `deploy_key` (privater Schlüssel) |
+| Secret | `DEPLOY_KNOWN_HOSTS` | Ausgabe von `ssh-keyscan` |
+| Variable | `DEPLOY_HOST` | Server, z.B. `cp.weblion.cloud` oder die IP |
+| Variable | `DEPLOY_PORT` | optional, Standard `22` |
+| Variable | `DEPLOY_USER` | Site-User von CloudPanel |
+| Variable | `DEPLOY_PATH` | Site-Ordner, z.B. `/home/<site-user>/htdocs/cp.weblion.cloud` |
+| Variable | `DEPLOY_HEALTHCHECK_URL` | optional, z.B. `https://cp.weblion.cloud/healthz` |
+
+Der Job läuft in der Umgebung `production`. Wer Deploys freigeben will, setzt dort unter
+*Settings > Environments* "Required reviewers". Auf dem Server braucht es `rsync` (bei
+Debian/Ubuntu meist schon da, sonst `apt install rsync`).
+
 ## Secrets in CI/CD
 
 Für automatische Deployments die Werte als GitHub Actions Secrets (Repository Settings,
