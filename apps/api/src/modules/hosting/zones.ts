@@ -400,8 +400,8 @@ export async function zoneRoutes(app: FastifyInstance, ctx: AppContext) {
       status: ImportResult['status'],
       reason: ImportResult['reason'],
       extra: Partial<ImportResult> = {},
-    ): ImportResult => ({ status, reason, copied: 0, failed: [], skipped: [], ...extra });
-    const record = async (result: ImportResult, error?: string) => {
+    ): ImportResult => ({ status, reason, copied: 0, failed: [], skipped: [], error: null, ...extra });
+    const record = async (result: ImportResult) => {
       await audit.record(req, {
         action: 'domain.dns_import',
         orgId: zone.domain.orgId,
@@ -415,7 +415,7 @@ export async function zoneRoutes(app: FastifyInstance, ctx: AppContext) {
           copied: result.copied,
           failed: result.failed,
           skipped: result.skipped.map((s) => ({ type: s.type, name: s.name, reason: s.reason })),
-          ...(error ? { error } : {}),
+          ...(result.error ? { error: result.error } : {}),
         },
       });
       return result;
@@ -430,20 +430,22 @@ export async function zoneRoutes(app: FastifyInstance, ctx: AppContext) {
     try {
       source = await registrar.adapter.listDnsRecords(registrar.domain.externalId);
     } catch (err) {
-      return record(outcome('failed', 'recordsUnreadable'), errorMessage(err));
+      return record(outcome('failed', 'recordsUnreadable', { error: errorMessage(err) }));
     }
     const plan = planRecordImport(source, importTarget(zone.adapter));
     if (plan.records.length > DNS_MOVE_MAX_RECORDS) {
       return outcome('skipped', 'tooManyRecords', { skipped: plan.skipped });
     }
     if (!zone.adapter.listDnsRecords || !zone.adapter.addDnsRecord) {
-      return record(outcome('failed', 'recordsUnreadable'), 'The zone provider cannot add DNS records');
+      return record(
+        outcome('failed', 'recordsUnreadable', { error: 'The zone provider cannot add DNS records' }),
+      );
     }
     let present: DnsRecord[];
     try {
       present = await zone.adapter.listDnsRecords(zone.domain.externalId);
     } catch (err) {
-      return record(outcome('failed', 'recordsUnreadable'), errorMessage(err));
+      return record(outcome('failed', 'recordsUnreadable', { error: errorMessage(err) }));
     }
     // Copying twice would duplicate records or collide with ones added by hand.
     if (present.length > 0) return outcome('skipped', 'zoneNotEmpty', { skipped: plan.skipped });

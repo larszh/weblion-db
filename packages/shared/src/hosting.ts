@@ -331,6 +331,8 @@ export interface DnsMoveResult {
     copied: number;
     failed: { type: string; name: string; error: string }[];
     skipped: DnsMoveSkipped[];
+    /** Why the records could not be read (reason recordsUnreadable). */
+    error: string | null;
   };
   nameservers: {
     status: 'done' | 'skipped' | 'failed' | 'manual';

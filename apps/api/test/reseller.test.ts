@@ -79,7 +79,7 @@ describe('seed', () => {
     expect(alpen).toMatchObject({
       name: 'Alpen Hosting',
       kind: 'reseller',
-      modules: ['servers', 'dns', 'webhosting'],
+      modules: ['servers', 'dns', 'webhosting', 'mail'],
       parent: null,
       counts: { customers: 1 },
       boundary: DEFAULT_RESELLER_BOUNDARY,
@@ -88,7 +88,7 @@ describe('seed', () => {
     expect(children.map((o) => o.slug)).toEqual(['baeckerei-huber']);
     expect(children[0]).toMatchObject({
       kind: 'customer',
-      modules: ['servers', 'dns'],
+      modules: ['servers', 'dns', 'mail'],
       parent: { id: alpenId, slug: 'alpen-hosting' },
       counts: { servers: 1, projects: 1 },
     });
@@ -117,7 +117,7 @@ describe('customers', () => {
       slug: 'baeckerei-huber',
       status: 'active',
       suspendedBy: null,
-      modules: ['servers', 'dns'],
+      modules: ['servers', 'dns', 'mail'],
       counts: { servers: 1, domains: 1, members: 1 },
       currency: 'CHF',
     });
@@ -173,13 +173,13 @@ describe('customers', () => {
       notes: 'Stammkunde seit 2020',
       modules: ['servers', 'dns', 'webhosting'],
     });
-    await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['servers', 'dns'] });
+    await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['servers', 'dns', 'mail'] });
     // Not a module at all, and a module the reseller does not have itself.
     expect(
       (await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['jukebox'] })).statusCode,
     ).toBe(400);
     expect(
-      (await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['mail'] })).statusCode,
+      (await reto.patch(`/orgs/${alpenId}/customers/${huberId}`, { modules: ['storage'] })).statusCode,
     ).toBe(409);
   });
 
@@ -615,9 +615,14 @@ describe('resource moves', () => {
     const metzgerei = json<Resources>(await reto.get(`/orgs/${alpenId}/customers/${metzgereiId}/resources`));
     expect(metzgerei.servers).toHaveLength(1);
     expect(metzgerei.domains).toHaveLength(1);
-    expect(metzgerei.pool).toEqual({ servers: [], domains: [], webspaces: [], mailDomains: [] });
+    expect(metzgerei.pool).toEqual({
+      servers: [],
+      domains: [],
+      webspaces: [],
+      mailDomains: [{ id: expect.any(String), name: 'alpen-hosting.ch' }],
+    });
     // Huber had no web hosting yet: moving a web space switched it on.
-    expect((await orgBySlug('baeckerei-huber')).modules).toEqual(['servers', 'dns', 'webhosting']);
+    expect((await orgBySlug('baeckerei-huber')).modules).toEqual(['servers', 'dns', 'webhosting', 'mail']);
     expect(json<WebspaceDto[]>(await hanna.get(`/orgs/${huberId}/webspaces`))).toHaveLength(1);
 
     // From one customer to a sibling, into a given project.

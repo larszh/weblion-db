@@ -423,6 +423,7 @@ function DnsMoveResultView({ result, registrar }: { result: DnsMoveResult; regis
         {copy.reason && (
           <p className="text-sm text-muted">{t(`hosting.dnsMove.result.import.reason.${copy.reason}`)}</p>
         )}
+        {copy.error && <p className="text-xs break-words text-danger">{copy.error}</p>}
         {copy.failed.length > 0 && (
           <ul className="space-y-1 text-xs">
             {copy.failed.map((f, i) => (

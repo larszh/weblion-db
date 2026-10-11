@@ -835,7 +835,14 @@ describe('DNS move to Cloudflare', () => {
     const nameservers = result.zone.nameservers;
     expect(nameservers).toHaveLength(2);
     for (const ns of nameservers) expect(ns).toMatch(/\.ns\.cloudflare\.com$/);
-    expect(result.import).toEqual({ status: 'done', reason: null, copied: 5, failed: [], skipped: [] });
+    expect(result.import).toEqual({
+      status: 'done',
+      reason: null,
+      copied: 5,
+      failed: [],
+      skipped: [],
+      error: null,
+    });
     expect(result.nameservers).toEqual({
       status: 'done',
       reason: null,
@@ -1092,6 +1099,35 @@ describe('DNS move to Cloudflare', () => {
       error: expect.stringContaining('registry timeout'),
     });
     expect((await auditEntries('domain.dns_move', domainId)).at(-1)).toMatchObject({ status: 'failure' });
+  });
+
+  it('reports registrar records it cannot read, with the reason', async () => {
+    const domainId = await id(registrar, 'muster-ag.ch');
+    const zone = (await row(cloudflare, 'muster-ag.ch'))!;
+    const spy = vi
+      .spyOn(DemoAdapter.prototype, 'listDnsRecords')
+      .mockRejectedValueOnce(new ProviderError('Demo', 'zone file locked', 503));
+    let result: DnsMoveResult;
+    try {
+      result = json<DnsMoveResult>(await move(admin, domainId, { setNameservers: true }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(result.import).toEqual({
+      status: 'failed',
+      reason: 'recordsUnreadable',
+      copied: 0,
+      failed: [],
+      skipped: [],
+      error: expect.stringContaining('zone file locked'),
+    });
+    expect(result.nameservers).toMatchObject({ status: 'skipped', reason: 'importIncomplete' });
+    const imported = (await auditEntries('domain.dns_import', zone.id)).at(-1);
+    expect(imported).toMatchObject({ status: 'failure' });
+    expect(imported!.details).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('zone file locked'),
+    });
   });
 });
 
