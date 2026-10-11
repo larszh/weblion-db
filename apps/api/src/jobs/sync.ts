@@ -1,7 +1,8 @@
-import { and, eq, inArray, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, ne, notInArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
 import type { DomainInfo } from '@weblion/shared';
+import { AuditService } from '../audit';
 import type { Database } from '../db/client';
 import {
   cloudAccounts,
@@ -13,6 +14,7 @@ import {
   type ProviderConnection,
 } from '../db/schema';
 import { settlePending } from '../modules/hosting/pending';
+import { domainKind } from '../modules/hosting/service';
 import { serverRef, type ProviderRegistry } from '../providers/registry';
 import type {
   ProviderAdapter,
@@ -47,13 +49,17 @@ const LOCKS = { sync: 742_001, actions: 742_002 } as const;
 export class SyncService {
   private timers: NodeJS.Timeout[] = [];
   private running = new Set<string>();
+  /** For changes the sync makes on its own (zone assignments). */
+  private readonly audit: AuditService;
 
   constructor(
     private readonly db: Database,
     private readonly pool: pg.Pool,
     private readonly providers: ProviderRegistry,
     private readonly log: FastifyBaseLogger,
-  ) {}
+  ) {
+    this.audit = new AuditService(db, log);
+  }
 
   private async upsert(connection: ProviderConnection, remote: RemoteServer) {
     const now = new Date();
@@ -96,11 +102,23 @@ export class SyncService {
 
   /**
    * Domains keep their organization (only admins assign them) and never store the auth
-   * code: RemoteDomain.info has no field for it.
+   * code: RemoteDomain.info has no field for it. DNS zones seen for the first time follow the
+   * registered domain of the same name (see assignNewZone).
    */
   private async syncDomains(connection: ProviderConnection, adapter: ProviderAdapter): Promise<SyncCounts> {
     const remote: RemoteDomain[] = await adapter.listDomains!();
     const now = new Date();
+    const zones = domainKind(adapter) === 'zone';
+    const known = zones
+      ? new Set(
+          (
+            await this.db
+              .select({ externalId: domains.externalId })
+              .from(domains)
+              .where(eq(domains.providerConnectionId, connection.id))
+          ).map((r) => r.externalId),
+        )
+      : null;
     // Lock and auto-renew changes the registrar has not applied yet: the list does not undo
     // them, and the meta keeps them until it reports them (see settlePending).
     const pendingRows = await this.db
@@ -144,6 +162,14 @@ export class SyncService {
           },
         });
     }
+    if (known) {
+      for (const zone of remote) {
+        if (known.has(zone.externalId)) continue;
+        await this.assignNewZone(connection, zone).catch((err) =>
+          this.log.warn({ err, provider: connection.name, zone: zone.name }, 'zone assignment failed'),
+        );
+      }
+    }
     const seenIds = remote.map((d) => d.externalId);
     const missing = await this.db
       .update(domains)
@@ -156,6 +182,65 @@ export class SyncService {
       )
       .returning({ id: domains.id });
     return { seen: remote.length, missing: missing.length };
+  }
+
+  /**
+   * A zone the sync has not seen before goes to the organization of the registered domain of
+   * the same name: exactly one organization among the assigned, not missing registrations at
+   * other connections. Several organizations: left for staff. Later syncs never re-assign, so
+   * a zone staff took away stays unassigned. Modules are not touched.
+   */
+  private async assignNewZone(connection: ProviderConnection, remote: RemoteDomain): Promise<void> {
+    const zone = await this.db.query.domains.findFirst({
+      where: and(eq(domains.providerConnectionId, connection.id), eq(domains.externalId, remote.externalId)),
+    });
+    if (!zone || zone.orgId) return;
+    const rows = await this.db
+      .select({ id: domains.id, orgId: domains.orgId, connection: providerConnections })
+      .from(domains)
+      .innerJoin(providerConnections, eq(providerConnections.id, domains.providerConnectionId))
+      .where(
+        and(
+          sql`lower(${domains.name}) = lower(${zone.name})`,
+          ne(domains.providerConnectionId, connection.id),
+          isNotNull(domains.orgId),
+          isNull(domains.missingSince),
+        ),
+      );
+    const registrations = rows.filter(
+      (r) => domainKind(this.providers.forConnection(r.connection)) === 'registration',
+    );
+    const orgIds = [...new Set(registrations.map((r) => r.orgId!))];
+    if (orgIds.length === 0) return;
+    if (orgIds.length > 1) {
+      this.log.warn(
+        { provider: connection.name, zone: zone.name, orgIds },
+        'zone not assigned: registrations of this name belong to several organizations',
+      );
+      return;
+    }
+    const orgId = orgIds[0]!;
+    const assigned = await this.db
+      .update(domains)
+      .set({ orgId })
+      .where(and(eq(domains.id, zone.id), isNull(domains.orgId)))
+      .returning({ id: domains.id });
+    if (assigned.length === 0) return;
+    await this.audit.record(null, {
+      action: 'domain.assign',
+      orgId,
+      resourceType: 'domain',
+      resourceId: zone.id,
+      actorName: 'Sync',
+      details: {
+        name: zone.name,
+        orgId,
+        previousOrgId: null,
+        reason: 'matching_registration',
+        registrationIds: registrations.map((r) => r.id),
+        moduleEnabled: null,
+      },
+    });
   }
 
   /** Same for web spaces. The control panel password is never part of RemoteWebspace. */

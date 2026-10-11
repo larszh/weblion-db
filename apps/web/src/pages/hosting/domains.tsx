@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Globe, LayoutGrid, ListTree, Search } from 'lucide-react';
+import { ChevronLeft, Gauge, Globe, LayoutGrid, ListTree, Search } from 'lucide-react';
 import type { DomainDetailDto } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/format';
@@ -21,13 +21,16 @@ import { Flag, ProviderBadge } from '@/components/server-bits';
 import {
   AutoRenewBadge,
   DetailError,
+  DomainKindBadge,
   DomainStatusBadge,
   ExpiryText,
   LockBadge,
   ModuleOffState,
+  ZoneExpiry,
 } from './bits';
 import { DomainOverview } from './domain-overview';
 import { DomainDns } from './domain-dns';
+import { DomainCdn } from './domain-cdn';
 
 // --- List ----------------------------------------------------------------------------
 
@@ -109,7 +112,10 @@ export function DomainsPage() {
                             >
                               {d.name}
                             </Link>
-                            <ProviderBadge type={d.provider.type} name={d.provider.name} className="mt-0.5" />
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                              <ProviderBadge type={d.provider.type} name={d.provider.name} />
+                              {d.kind === 'zone' && <DomainKindBadge kind="zone" />}
+                            </div>
                           </div>
                         </div>
                       </TD>
@@ -117,10 +123,18 @@ export function DomainsPage() {
                         <DomainStatusBadge domain={d} />
                       </TD>
                       <TD className="whitespace-nowrap">
-                        <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+                        {d.kind === 'zone' ? (
+                          <ZoneExpiry />
+                        ) : (
+                          <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+                        )}
                       </TD>
                       <TD className="hidden sm:table-cell">
-                        <AutoRenewBadge value={d.autoRenew} />
+                        {d.kind === 'zone' ? (
+                          <span className="text-subtle">–</span>
+                        ) : (
+                          <AutoRenewBadge value={d.autoRenew} />
+                        )}
                       </TD>
                       <TD className="hidden md:table-cell">
                         <span className="inline-flex items-center gap-2 text-sm">
@@ -167,7 +181,7 @@ export function DomainDetailPage() {
   );
 }
 
-type DomainTab = 'overview' | 'dns';
+type DomainTab = 'overview' | 'dns' | 'cdn';
 
 function DomainView({ domain }: { domain: DomainDetailDto }) {
   const { t, locale } = useI18n();
@@ -175,12 +189,19 @@ function DomainView({ domain }: { domain: DomainDetailDto }) {
   const info = domain.info;
   const terminated = info?.terminated ?? false;
   const autoRenew = info?.autoRenew ?? domain.autoRenew;
+  const isZone = domain.kind === 'zone';
   const hasDns = domain.capabilities.includes('dns');
-  const tab: DomainTab = hasDns && params.get('tab') === 'dns' ? 'dns' : 'overview';
+  const hasCdn = domain.capabilities.includes('cdn');
+  const tabParam = params.get('tab');
+  const tab: DomainTab =
+    hasDns && tabParam === 'dns' ? 'dns' : hasCdn && tabParam === 'cdn' ? 'cdn' : 'overview';
   const tabs: { value: DomainTab; label: string; icon: ReactNode }[] = [
     { value: 'overview', label: t('hosting.tab.overview'), icon: <LayoutGrid className="size-4" /> },
     ...(hasDns
       ? [{ value: 'dns' as const, label: t('hosting.tab.dns'), icon: <ListTree className="size-4" /> }]
+      : []),
+    ...(hasCdn
+      ? [{ value: 'cdn' as const, label: t('hosting.cdn.tab'), icon: <Gauge className="size-4" /> }]
       : []),
   ];
 
@@ -203,16 +224,23 @@ function DomainView({ domain }: { domain: DomainDetailDto }) {
             <DomainStatusBadge domain={domain} terminated={terminated} />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted">
-            <span className="inline-flex items-center gap-1.5">
-              {t('hosting.col.expires')}:
-              <ExpiryText
-                expiresAt={info?.expiresAt ?? domain.expiresAt}
-                autoRenew={autoRenew}
-                className="text-text"
-              />
-            </span>
-            <AutoRenewBadge value={autoRenew} long />
-            <LockBadge locked={info?.locked} long />
+            {isZone ? (
+              // A zone has no expiry, renewal or transfer lock: those belong to the registration.
+              <span>{t('hosting.zone.hostedAt', { provider: domain.provider.name })}</span>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-1.5">
+                  {t('hosting.col.expires')}:
+                  <ExpiryText
+                    expiresAt={info?.expiresAt ?? domain.expiresAt}
+                    autoRenew={autoRenew}
+                    className="text-text"
+                  />
+                </span>
+                <AutoRenewBadge value={autoRenew} long />
+                <LockBadge locked={info?.locked} long />
+              </>
+            )}
             <span className="inline-flex items-center gap-2">
               <Flag country={domain.location.country} />
               {domain.location.city ?? domain.location.label}
@@ -258,7 +286,13 @@ function DomainView({ domain }: { domain: DomainDetailDto }) {
         </div>
       )}
 
-      {tab === 'dns' ? <DomainDns domain={domain} /> : <DomainOverview domain={domain} />}
+      {tab === 'dns' ? (
+        <DomainDns domain={domain} />
+      ) : tab === 'cdn' ? (
+        <DomainCdn domain={domain} />
+      ) : (
+        <DomainOverview domain={domain} />
+      )}
     </div>
   );
 }

@@ -277,6 +277,20 @@ export function resetDemoHosting() {
   STATE.clear();
 }
 
+/**
+ * Name servers of the demo registrar domain with this name, in any demo connection. The
+ * simulated Cloudflare activates a pending zone once they point to it. null: no such domain.
+ */
+export function demoDelegation(name: string): string[] | null {
+  const wanted = name.toLowerCase();
+  for (const state of STATE.values()) {
+    for (const domain of state.domains.values()) {
+      if (domain.info.name.toLowerCase() === wanted) return [...domain.info.nameservers];
+    }
+  }
+  return null;
+}
+
 export class DemoHosting {
   constructor(private readonly state: DemoHostingState) {}
 

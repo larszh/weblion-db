@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  ArrowRightLeft,
   CalendarPlus,
   Globe,
   HardDrive,
@@ -48,7 +49,14 @@ import {
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { Flag, ProviderBadge } from '@/components/server-bits';
-import { AutoRenewBadge, DomainStatusBadge, ExpiryText, resourceItems } from '@/pages/hosting/bits';
+import {
+  AutoRenewBadge,
+  DomainKindBadge,
+  DomainStatusBadge,
+  ExpiryText,
+  ZoneExpiry,
+  resourceItems,
+} from '@/pages/hosting/bits';
 import {
   ActionResultNotice,
   AutoRenewDialog,
@@ -56,6 +64,7 @@ import {
   useCanRenew,
   type RenewalTarget,
 } from '@/pages/hosting/domain-actions';
+import { DnsMoveDialog, useCanMoveDns } from '@/pages/hosting/dns-move';
 import { AdminCloudTab, isCloudProvider } from './cloud';
 import { AdminMailTab, isMailProvider } from './mail';
 
@@ -315,6 +324,9 @@ function DomainInventory({
   const navigate = useNavigate();
   const domains = useAdminDomains(filters);
   const canRenew = useCanRenew();
+  const canMove = useCanMoveDns();
+  /** Registration whose DNS is being moved to Cloudflare (platform:domain:move). */
+  const [moving, setMoving] = useState<DomainDto | null>(null);
   /** Open renewal dialog: auto-renew switch (with the target state) or a manual renewal. */
   const [renewal, setRenewal] = useState<
     | { kind: 'auto'; domain: RenewalTarget; enabled: boolean }
@@ -326,7 +338,9 @@ function DomainInventory({
   );
   const renewable = (d: DomainDto) =>
     canRenew && (d.capabilities.includes('autoRenew') || d.capabilities.includes('renew'));
-  const showActions = canAssign || (domains.data ?? []).some(renewable);
+  // Only registrations have a DNS to move; the API refuses missing domains.
+  const movable = (d: DomainDto) => canMove && d.kind === 'registration' && !d.missingSince;
+  const showActions = canAssign || (domains.data ?? []).some((d) => renewable(d) || movable(d));
   if (!domains.data || domains.data.length === 0) {
     return (
       <InventoryState
@@ -368,6 +382,7 @@ function DomainInventory({
                     <div className="truncate font-medium text-text">{d.name}</div>
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <ProviderBadge type={d.provider.type} name={d.provider.name} />
+                      {d.kind === 'zone' && <DomainKindBadge kind="zone" />}
                       {d.missingSince && <Badge tone="danger">{t('hosting.status.missing')}</Badge>}
                     </div>
                   </div>
@@ -377,10 +392,18 @@ function DomainInventory({
                 <DomainStatusBadge domain={d} />
               </TD>
               <TD className="hidden whitespace-nowrap md:table-cell">
-                <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+                {d.kind === 'zone' ? (
+                  <ZoneExpiry />
+                ) : (
+                  <ExpiryText expiresAt={d.expiresAt} autoRenew={d.autoRenew} />
+                )}
               </TD>
               <TD className="hidden xl:table-cell">
-                <AutoRenewBadge value={d.autoRenew} />
+                {d.kind === 'zone' ? (
+                  <span className="text-subtle">–</span>
+                ) : (
+                  <AutoRenewBadge value={d.autoRenew} />
+                )}
               </TD>
               <TD>
                 <CustomerCell org={d.org} />
@@ -395,13 +418,16 @@ function DomainInventory({
                 <TD className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                   <div className="inline-flex items-center gap-1">
                     {canAssign && <AssignButton assigned={!!d.org} onClick={() => onAssign(d)} />}
-                    {renewable(d) && (
-                      <RenewalMenu
+                    {(renewable(d) || movable(d)) && (
+                      <DomainMenu
                         domain={d}
+                        renewable={renewable(d)}
+                        movable={movable(d)}
                         onAutoRenew={(enabled) =>
                           setRenewal({ kind: 'auto', domain: renewalTarget(d), enabled })
                         }
                         onRenew={() => setRenewal({ kind: 'renew', domain: renewalTarget(d) })}
+                        onMove={() => setMoving(d)}
                       />
                     )}
                   </div>
@@ -427,6 +453,7 @@ function DomainInventory({
           }
         />
       )}
+      {moving && <DnsMoveDialog key={moving.id} domain={moving} onClose={() => setMoving(null)} />}
       {renewal?.kind === 'renew' && (
         <RenewDialog
           domain={renewal.domain}
@@ -451,18 +478,27 @@ const renewalTarget = (d: DomainDto): RenewalTarget => ({
   provider: d.provider,
 });
 
-/** Platform staff only (platform:domain:write): registrar renewals cost money. */
-function RenewalMenu({
+/**
+ * Platform staff only: renewals (platform:domain:write, registrar renewals cost money) and
+ * the DNS move to Cloudflare (platform:domain:move).
+ */
+function DomainMenu({
   domain,
+  renewable,
+  movable,
   onAutoRenew,
   onRenew,
+  onMove,
 }: {
   domain: DomainDto;
+  renewable: boolean;
+  movable: boolean;
   onAutoRenew: (enabled: boolean) => void;
   onRenew: () => void;
+  onMove: () => void;
 }) {
   const { t } = useI18n();
-  const caps = domain.capabilities;
+  const caps = renewable ? domain.capabilities : [];
   return (
     <Menu
       trigger={
@@ -471,7 +507,7 @@ function RenewalMenu({
         </Button>
       }
     >
-      <MenuLabel>{t('hosting.renewal.title')}</MenuLabel>
+      {renewable && <MenuLabel>{t('hosting.renewal.title')}</MenuLabel>}
       {caps.includes('autoRenew') && (
         <MenuItem
           icon={<RotateCw />}
@@ -491,6 +527,12 @@ function RenewalMenu({
       {caps.includes('renew') && (
         <MenuItem icon={<CalendarPlus />} onSelect={onRenew}>
           {t('hosting.admin.renewNow')}
+        </MenuItem>
+      )}
+      {renewable && movable && <MenuSeparator />}
+      {movable && (
+        <MenuItem icon={<ArrowRightLeft />} onSelect={onMove}>
+          {t('hosting.dnsMove.action')}
         </MenuItem>
       )}
     </Menu>

@@ -2,6 +2,7 @@ import { and, eq, ilike, isNotNull, isNull, or, sql, type SQL } from 'drizzle-or
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
+  DNS_PROXIABLE_TYPES,
   normalizeModules,
   type DnsRecord,
   type DnsRecordInput,
@@ -16,25 +17,29 @@ import { platformScope, requireSession } from '../../auth/access';
 import { domains, organizations, webspaces } from '../../db/schema';
 import { badRequest, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
-import type { ActionResult, DnsRecordPatch } from '../../providers/types';
+import type { DnsRecordPatch, ProviderAdapter } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
 import { assertNoLinkedService } from '../reseller/service';
 import { dnsDataIssue, dnsRecordBody, dnsRecordPatchBody, nameserversBody } from './dns';
-import { pendingChanges, settlePending, type PendingField } from './pending';
+import { pendingChanges, type PendingField } from './pending';
 import {
   HOSTING_MODULES,
+  actionResponse,
   assertRecordType,
   assignmentTarget,
   dnsRecordTypes,
   dnsWritable,
+  domainCapabilities,
   domainChange,
   domainRowsQuery,
   domainScope,
   emptyDomainInfo,
+  linkedDomains,
+  loadAdminDomain,
   loadDomain,
   loadWebspace,
-  mergeDomainInfo,
   providerTtl,
+  refreshDomainInfo,
   requireDomainCapability,
   requireSupport,
   toDomainDto,
@@ -78,9 +83,23 @@ function noStore(reply: FastifyReply) {
   reply.header('cache-control', 'no-store');
 }
 
-/** Answer of the domain management routes. Registrars may apply the change later. */
-function actionResponse(result: ActionResult) {
-  return { ok: true as const, message: result.message ?? null, providerRef: result.providerRef ?? null };
+const PROXIABLE_TYPES: readonly string[] = DNS_PROXIABLE_TYPES;
+
+/** Providers without the "dnsProxy" capability never see the proxy flag. */
+function providerProxied<T extends { proxied?: boolean }>(adapter: ProviderAdapter, input: T): T {
+  if (domainCapabilities(adapter).includes('dnsProxy')) return input;
+  const copy = { ...input };
+  delete copy.proxied;
+  return copy;
+}
+
+/** 400 when a record that cannot go through the proxy would end up proxied. */
+function assertProxiable(type: string, proxied: boolean | undefined): void {
+  if (proxied && !PROXIABLE_TYPES.includes(type.toUpperCase())) {
+    throw badRequest('Validation failed', [
+      { path: 'proxied', message: 'Only A, AAAA and CNAME records can be proxied' },
+    ]);
+  }
 }
 
 /** Domains/DNS and web spaces (customer views and admin inventory). */
@@ -104,30 +123,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Domain for the platform routes, no organization check: callers assert a platform permission. */
   async function adminDomain(req: FastifyRequest): Promise<LoadedDomain> {
     const { id } = parse(idParams, req.params);
-    const [row] = await domainRowsQuery(ctx).where(eq(domains.id, id)).limit(1);
-    if (!row) throw notFound('Domain');
-    return { ...row, scope: domainScope(row.domain), adapter: ctx.providers.forConnection(row.connection) };
-  }
-
-  /** Live info from the provider, merged into and stored with what the panel knows. */
-  async function refreshInfo(loaded: LoadedDomain): Promise<DomainInfo> {
-    const live = await loaded.adapter.getDomain!(loaded.domain.externalId);
-    // A lock or auto-renew change the registrar has not applied yet is not undone.
-    const settled = settlePending(live, loaded.domain.meta);
-    // Field by field: what the live call does not know (e.g. 24fire's renewal setting, which
-    // only the sync sees) keeps its stored value.
-    const info = mergeDomainInfo(loaded.domain.name, loaded.domain.info, settled.info);
-    await db
-      .update(domains)
-      .set({
-        info,
-        status: info.status,
-        lastSyncedAt: new Date(),
-        ...(settled.meta !== loaded.domain.meta ? { meta: settled.meta } : {}),
-      })
-      .where(eq(domains.id, loaded.domain.id));
-    loaded.domain = { ...loaded.domain, info, meta: settled.meta, status: info.status };
-    return info;
+    return loadAdminDomain(ctx, id);
   }
 
   /**
@@ -179,7 +175,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     let liveError: string | null = null;
     if (loaded.adapter.getDomain) {
       try {
-        info = await refreshInfo(loaded);
+        info = await refreshDomainInfo(ctx, loaded);
       } catch (err) {
         req.log.warn({ err, domainId: loaded.domain.id }, 'live domain info failed');
         liveError = errorMessage(err);
@@ -191,9 +187,8 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       liveError,
       dnsWritable: await dnsWritable(loaded.adapter),
       dnsRecordTypes: dnsRecordTypes(loaded.adapter),
-      // Registration and DNS zone of the same name link each other (Cloudflare, filled in later).
-      dnsZone: null,
-      registration: null,
+      // Registration and DNS zone of the same name (e.g. at Cloudflare) link each other.
+      ...(await linkedDomains(ctx, req, loaded)),
     };
   });
 
@@ -261,7 +256,8 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     requireSupport(loaded.adapter, 'addDnsRecord', 'DNS changes');
     const body = parse(dnsRecordBody, req.body);
     assertRecordType(loaded.adapter, body.type);
-    const input: DnsRecordInput = providerTtl(loaded.adapter, body);
+    const input: DnsRecordInput = providerProxied(loaded.adapter, providerTtl(loaded.adapter, body));
+    assertProxiable(input.type, input.proxied);
     const record = await domainChange(ctx, req, loaded, 'dns_add', { ...input }, () =>
       loaded.adapter.addDnsRecord!(loaded.domain.externalId, input),
     );
@@ -273,8 +269,15 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     const loaded = await domain(req, 'domain:dns:write');
     requireSupport(loaded.adapter, 'updateDnsRecord', 'DNS changes');
     const { recordId } = parse(recordParams, req.params);
-    const patch: DnsRecordPatch = providerTtl(loaded.adapter, parse(dnsRecordPatchBody, req.body));
-    if ([patch.type, patch.name, patch.data, patch.ttl].every((v) => v === undefined || v === null)) {
+    const patch: DnsRecordPatch = providerProxied(
+      loaded.adapter,
+      providerTtl(loaded.adapter, parse(dnsRecordPatchBody, req.body)),
+    );
+    if (
+      [patch.type, patch.name, patch.data, patch.ttl, patch.proxied].every(
+        (v) => v === undefined || v === null,
+      )
+    ) {
       throw badRequest('Nothing to change');
     }
     const current = await findRecord(loaded, recordId);
@@ -286,7 +289,14 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       const issue = dnsDataIssue(type, data);
       if (issue) throw badRequest('Validation failed', [{ path: 'data', message: issue }]);
     }
-    const before = { type: current.type, name: current.name, data: current.data, ttl: current.ttl };
+    assertProxiable(type, patch.proxied ?? current.proxied);
+    const before = {
+      type: current.type,
+      name: current.name,
+      data: current.data,
+      ttl: current.ttl,
+      proxied: current.proxied ?? null,
+    };
     const record = await domainChange(ctx, req, loaded, 'dns_update', { recordId, before, ...patch }, () =>
       loaded.adapter.updateDnsRecord!(loaded.domain.externalId, recordId, patch),
     );
@@ -303,7 +313,13 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       req,
       loaded,
       'dns_delete',
-      { recordId, type: current.type, name: current.name, data: current.data },
+      {
+        recordId,
+        type: current.type,
+        name: current.name,
+        data: current.data,
+        proxied: current.proxied ?? null,
+      },
       () => loaded.adapter.deleteDnsRecord!(loaded.domain.externalId, recordId),
     );
     return { ok: true };
@@ -458,7 +474,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     );
     // Best effort, so the inventory shows the new expiry; the sync catches up otherwise.
     if (loaded.adapter.getDomain) {
-      await refreshInfo(loaded).catch((err) =>
+      await refreshDomainInfo(ctx, loaded).catch((err) =>
         req.log.warn({ err, domainId: loaded.domain.id }, 'domain info after renewal failed'),
       );
     }

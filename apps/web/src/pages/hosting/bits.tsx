@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
 import { ExternalLink, Lock, LockOpen, PackageX, SearchX } from 'lucide-react';
-import { MODULE_DEFS, type ModuleKey, type WebspaceResources } from '@weblion/shared';
+import {
+  MODULE_DEFS,
+  type DomainKind,
+  type LinkedDomain,
+  type ModuleKey,
+  type WebspaceResources,
+} from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatDate, formatMemoryMb, formatNumber } from '@/lib/format';
@@ -34,16 +40,67 @@ export function domainStatus(
   return { tone: 'neutral', label: status };
 }
 
+/** Status of a DNS zone (Cloudflare: initializing, pending, active, moved). */
+export function zoneStatus(t: TFunction, status: string | null): { tone: Tone; label: string } {
+  const value = status?.trim() ?? '';
+  switch (value.toLowerCase()) {
+    case 'active':
+      return { tone: 'success', label: t('hosting.zone.status.active') };
+    case 'pending':
+      return { tone: 'warning', label: t('hosting.zone.status.pending') };
+    case 'initializing':
+      return { tone: 'warning', label: t('hosting.zone.status.initializing') };
+    case 'moved':
+      return { tone: 'danger', label: t('hosting.zone.status.moved') };
+    case '':
+      return { tone: 'neutral', label: t('hosting.status.unknown') };
+    default:
+      return { tone: 'neutral', label: value };
+  }
+}
+
+/** Status of the other side of a registration/zone pair (never missing, see LinkedDomain). */
+export const linkedStatus = (t: TFunction, linked: Pick<LinkedDomain, 'kind' | 'status'>) =>
+  linked.kind === 'zone'
+    ? zoneStatus(t, linked.status)
+    : domainStatus(t, { status: linked.status, missingSince: null });
+
+/** `kind` defaults to the domain's own (DomainDto.kind); zones show their zone status. */
 export function DomainStatusBadge({
   domain,
   terminated,
+  kind,
 }: {
-  domain: { status: string | null; missingSince: string | null };
+  domain: { status: string | null; missingSince: string | null; kind?: DomainKind };
   terminated?: boolean;
+  kind?: DomainKind;
 }) {
   const { t } = useI18n();
-  const s = domainStatus(t, domain, terminated);
+  const s =
+    (kind ?? domain.kind) === 'zone' && !domain.missingSince
+      ? zoneStatus(t, domain.status)
+      : domainStatus(t, domain, terminated);
   return <Badge tone={s.tone}>{s.label}</Badge>;
+}
+
+/** "DNS-Zone" or "Registrierung". Lists show it for zones only, next to the provider badge. */
+export function DomainKindBadge({ kind, className }: { kind: DomainKind; className?: string }) {
+  const { t } = useI18n();
+  return (
+    <Badge tone={kind === 'zone' ? 'info' : 'neutral'} className={cn('px-1.5 text-[11px]', className)}>
+      {kind === 'zone' ? t('hosting.kind.zone') : t('hosting.kind.registration')}
+    </Badge>
+  );
+}
+
+/** In place of the expiry date: a zone does not expire, its registration does. */
+export function ZoneExpiry({ className }: { className?: string }) {
+  const { t } = useI18n();
+  return (
+    <Tooltip content={t('hosting.zone.noExpiry')}>
+      <span className={cn('text-muted', className)}>{t('hosting.kind.zone')}</span>
+    </Tooltip>
+  );
 }
 
 /** Expiry date, highlighted when it is close and the domain does not renew by itself. */

@@ -22,8 +22,14 @@ await ensureBootstrapAdmin(db, env, log);
 const box = new SecretBox(env.ENCRYPTION_KEY);
 await syncEnvProviders(db, box, env, log);
 
+const sync = new SyncService(db, pool, new ProviderRegistry(db, box), log);
 const demo = await db.query.providerConnections.findFirst({ where: eq(providerConnections.envKey, 'demo') });
-if (demo) await new SyncService(db, pool, new ProviderRegistry(db, box), log).syncConnection(demo);
+if (demo) await sync.syncConnection(demo);
+// The demo Cloudflare (ENABLE_DEMO_CLOUDFLARE) after the registrar, so the seed finds its zones.
+const demoCloudflare = await db.query.providerConnections.findFirst({
+  where: eq(providerConnections.envKey, 'demo-cloudflare'),
+});
+if (demoCloudflare) await sync.syncConnection(demoCloudflare);
 
 const password = process.env.SEED_PASSWORD ?? 'demo-password-123';
 const created = await seedDemo(db, password);
