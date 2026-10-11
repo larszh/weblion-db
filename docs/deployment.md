@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -57,6 +57,29 @@ Einstellungen (E-Mail, Teilen nur innerhalb der Gruppen) in
 Den freien Platz der Instanz zeigt die Console nicht. Die Disk der Nextcloud-VM deshalb selbst
 überwachen, vor allem wenn mehr Speicher verkauft ist, als die Disk hat.
 
+### Mailcow für E-Mail
+
+Auch der Mailserver ist ein eigener Dienst: mailcow-dockerized auf einer eigenen VM, mit
+öffentlichem Namen wie `mail.weblion.one`, PTR-Eintrag, offenen Mail-Ports und Backups mit dem
+Skript von Mailcow. Voraussetzungen, API-Key und Einstellungen in
+[providers.md](providers.md#mailcow-e-mail). Für den Betrieb der Console wichtig:
+
+- **Feste ausgehende IP:** Mailcow nimmt den API-Key nur von den IPs in seiner Allow-List an und
+  sperrt eine IP nach mehreren abgelehnten Anmeldungen. Die IPv4- und IPv6-Adresse, mit der die
+  Console ausgeht, in die Allow-List des Keys und auf die Netfilter-Whitelist von Mailcow setzen,
+  bevor die Console die Verbindung zum ersten Mal testet. Ein Container ohne eigene
+  IPv6-Konfiguration geht über IPv4 hinaus. Zieht die Console auf einen anderen Server um, zuerst
+  die neue IP eintragen.
+- **Zeitlimit im Reverse Proxy:** Eine Mail-Domain anlegen startet standardmässig Webmail (SOGo) neu
+  und dauert bis zu zwei Minuten. Der Proxy muss für `/api/v1/admin/mail/` mindestens 150 Sekunden
+  auf die Antwort warten. nginx wartet standardmässig 60 Sekunden: `proxy_read_timeout` erhöhen
+  (die Zeilen aus [Websockets im Vhost](#websockets-im-vhost) mit 3600 Sekunden reichen). Caddy
+  setzt von sich aus keine Grenze.
+- **Hinter Cloudflare** bricht Cloudflare Anfragen ab, deren Antwort länger als rund 100 Sekunden
+  braucht (Fehler 524). Die Console arbeitet trotzdem weiter und legt die Domain bei Mailcow und in
+  der Liste an. Vor einem zweiten Versuch deshalb die Liste neu laden (sonst kommt eine Meldung mit
+  409), oder im Dialog den Neustart von Webmail ausschalten.
+
 ## Mit Docker Compose
 
 ```bash
@@ -88,10 +111,18 @@ Optional, je nachdem was genutzt wird (Details in [billing.md](billing.md) und
 # Domains bei Joker.com: API-Key des Reseller-Kontos (oder JOKER_USERNAME und JOKER_PASSWORD)
 JOKER_API_KEY='...'
 
+# DNS-Zonen und CDN bei Cloudflare: API-Token, Konto-ID für den DNS-Umzug
+CLOUDFLARE_API_TOKEN=...
+CLOUDFLARE_ACCOUNT_ID=...
+
 # Cloud-Speicher: eigene Nextcloud, Admin-Konto der Console und ein App-Passwort davon
 NEXTCLOUD_URL=https://cloud.weblion.one
 NEXTCLOUD_USER=weblion-console
 NEXTCLOUD_APP_PASSWORD='...'
+
+# E-Mail: eigene Mailcow-Instanz und ein API-Key mit Schreibzugriff
+MAILCOW_URL=https://mail.weblion.one
+MAILCOW_API_KEY='...'
 
 # E-Mail. Alternativ im Admin-Bereich unter Einstellungen > E-Mail eintragen.
 SMTP_HOST=smtp.example.ch
@@ -136,7 +167,8 @@ cp.weblion.cloud {
 ```
 
 Websockets (Konsole) leitet Caddy automatisch weiter. Bei nginx `proxy_http_version 1.1`
-und die `Upgrade`/`Connection`-Header setzen.
+und die `Upgrade`/`Connection`-Header setzen. Mit Mailcow braucht nginx ausserdem ein längeres
+`proxy_read_timeout`, siehe [Mailcow für E-Mail](#mailcow-für-e-mail).
 
 ## Auf CloudPanel
 
@@ -272,7 +304,8 @@ Cloudflare kommt wieder per HTTP: Der Browser meldet `ERR_TOO_MANY_REDIRECTS`.
 
 Websockets (Browser-Konsole) leitet Cloudflare standardmässig durch. Cloudflare trennt aber
 Verbindungen, über die länger als rund 100 Sekunden nichts läuft. Die Konsole verbindet sich
-dann neu.
+dann neu. Dasselbe Limit trifft das Anlegen einer Mail-Domain mit Neustart von Webmail, siehe
+[Mailcow für E-Mail](#mailcow-für-e-mail).
 
 Prüfen, wo eine Weiterleitungsschleife entsteht:
 
@@ -304,7 +337,10 @@ gespeicherte Provider-Zugangsdaten, SMTP-Passwort und 2FA-Secrets aus einem Back
 lesen.
 
 Die Dateien der Cloud-Konten liegen in Nextcloud, nicht in der Datenbank der Console. Dafür
-braucht es ein eigenes Backup der Nextcloud-Instanz (bei AIO das eingebaute BorgBackup).
+braucht es ein eigenes Backup der Nextcloud-Instanz (bei AIO das eingebaute BorgBackup). Ebenso
+liegen Postfächer und E-Mails nur in Mailcow: Backup mit dem Skript von Mailcow
+(`helper-scripts/backup_and_restore.sh`). Die Datenbank der Console kennt nur die Mail-Domains und
+ihre Zuweisung.
 
 Rechnungen sind buchhaltungsrelevant (in der Schweiz 10 Jahre Aufbewahrung). Die Datenbank
 ist ihre Quelle, deshalb das Backup regelmässig und ausser Haus ablegen. Kunden mit

@@ -595,28 +595,480 @@ Mock-Server nach der Spezifikation. Vor dem ersten echten Einsatz im Testsystem 
   umstellen: Beim Speichern im jeweils anderen Modus entfernt die Console die bisherigen
   Zugangsdaten. Leere Felder behalten wie bei allen Providern den gespeicherten Wert.
 
+## Cloudflare (DNS und CDN)
+
+- API: Cloudflare API v4, Doku unter <https://developers.cloudflare.com/api/>
+- Base URL: `https://api.cloudflare.com/client/v4`, Header `Authorization: Bearer <API-Token>`,
+  Bodys als JSON. Antworten kommen im Umschlag `{ success, errors, messages, result, result_info }`.
+- Konfiguration: `CLOUDFLARE_API_TOKEN` (optional `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_BASE_URL`,
+  `CLOUDFLARE_NAME`) in der `.env` oder im Admin-Bereich unter Provider > Provider hinzufügen >
+  Cloudflare
+- Cloudflare liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der Provider
+  deshalb nicht auf.
+
+### Was die Console damit macht
+
+Cloudflare ist kein Registrar. Die Console führt die Zonen eines Cloudflare-Kontos als Domains der
+Art **DNS-Zone**, neben den registrierten Domains (Joker.com, 24fire) der Art **Registrierung**.
+Beides sind Einträge derselben Domain-Liste im Modul "Domains & DNS" (`dns`). Zuweisen, Reseller,
+Module und Sperre funktionieren also wie bei jeder Domain.
+
+- **DNS-Einträge** mit Proxy-Schalter (die "orange Wolke" von Cloudflare) und automatischer TTL
+- **CDN** (Tab "CDN" der Zone): SSL/TLS-Modus inklusive Automatic SSL/TLS, Always Use HTTPS,
+  Entwicklungsmodus und den ganzen Cache leeren
+- **Wartende Zonen:** Die Übersicht zeigt die Nameserver, die beim Registrar einzutragen sind, und
+  prüft die Aktivierung auf Knopfdruck.
+- **Registrierung und Zone verknüpft:** Gibt es dieselbe Domain bei einem Registrar und als Zone bei
+  Cloudflare, verlinken sich beide Seiten. Eine neue Zone geht beim ersten Sync an den Kunden der
+  Registrierung, wenn dieser eindeutig ist.
+- **DNS zu Cloudflare umziehen** (nur weblion.one): Zone anlegen, Einträge vom Registrar kopieren,
+  danach die Nameserver beim Registrar umstellen
+
+Wer darf was:
+
+| Aktion                                                        | Berechtigung                          | Per API-Token | Standard                    |
+| ------------------------------------------------------------- | ------------------------------------- | ------------- | --------------------------- |
+| Zone, Einträge und CDN-Einstellungen ansehen                  | `domain:read`                         | ja            | alle Rollen mit Lesezugriff |
+| Einträge anlegen, ändern, löschen, Proxy ein- und ausschalten | `domain:dns:write`                    | ja            | Owner, Admin, Member        |
+| SSL/TLS, Always Use HTTPS, Entwicklungsmodus, Cache leeren    | `domain:manage`                       | ja            | Owner, Admin                |
+| Aktivierung einer wartenden Zone prüfen                       | `domain:manage`                       | ja            | Owner, Admin                |
+| Zone einem Kunden zuweisen                                    | `platform:server:assign`              | nein          | weblion.one Superadmin      |
+| DNS zu Cloudflare umziehen                                    | `platform:domain:move`, nur mit Login | nein          | weblion.one Superadmin      |
+| API Explorer                                                  | `platform:explorer`, nur mit Login    | nein          | weblion.one Superadmin      |
+
+Die CDN-Einstellungen dürfen Kunden selbst ändern: Sie wirken nur auf die eigene Zone, kosten bei
+Cloudflare nichts und lassen sich jederzeit zurückstellen. Den SSL/TLS-Modus wählt am besten, wer
+den Server hinter der Zone kennt, und den Cache nach einem Deployment zu leeren soll auch per
+API-Token gehen. Wer das einem Kunden nicht erlauben will, nimmt ihm `domain:manage` über die
+Berechtigungsgrenze. Damit fallen auch Nameserver und Transfersperre weg.
+
+### API-Token
+
+Im Cloudflare-Dashboard unter **My Profile > API Tokens > Create Token > Custom token** ein eigenes
+Token erstellen. Den Global API Key (`X-Auth-Email` und `X-Auth-Key`) unterstützt die Console nicht.
+Cloudflare zeigt das Token nur einmal an.
+
+| Berechtigung im Dashboard                    | Wofür die Console sie braucht                                         |
+| -------------------------------------------- | --------------------------------------------------------------------- |
+| Zone : Zone : Edit                           | Zonen lesen, Aktivierung prüfen, Zonen anlegen (DNS-Umzug)            |
+| Zone : DNS : Edit                            | DNS-Einträge lesen und ändern, Typwechsel                             |
+| Zone : Zone Settings : Edit                  | SSL/TLS-Modus, Automatic SSL/TLS, Always Use HTTPS, Entwicklungsmodus |
+| Zone : Cache Purge : Purge                   | Cache leeren                                                          |
+| Account : Account Settings : Read (optional) | Kontoname im Verbindungstest, nur mit Konto-ID                        |
+
+- **Zone Resources:** "Include > All zones from an account > (Konto)". Dann gilt das Token auch für
+  Zonen, die später dazukommen, z.B. durch den DNS-Umzug. Ein Token nur für einzelne Zonen sieht
+  neue Zonen nicht.
+- Statt "Zone : Zone : Edit" geht auch "Read". Dann scheitern Aktivierungsprüfung und DNS-Umzug mit
+  einer Meldung (HTTP 403), alles andere funktioniert.
+- **Konto-ID** (`CLOUDFLARE_ACCOUNT_ID`): 32 Zeichen aus 0-9 und a-f, im Dashboard auf der
+  Startseite des Kontos unter "Account ID". Optional, nötig nur, um Zonen anzulegen (DNS-Umzug). Mit
+  ihr zeigt die Console nur die Zonen dieses Kontos, ohne sie alle Zonen, die das Token in
+  irgendeinem Konto sieht.
+- **Konto-Token** (unter Manage Account > API Tokens statt im Profil) gehen auch, brauchen aber die
+  Konto-ID: Die Console prüft ein Token zuerst unter `/accounts/<Konto-ID>/tokens/verify`, dann unter
+  `/user/tokens/verify`.
+- **Eigener Benutzer:** Cloudflare erlaubt 1200 API-Anfragen pro 5 Minuten und Benutzer, für alle
+  Tokens, Skripte und Dashboard-Sitzungen dieses Benutzers zusammen. Am besten bekommt die Console
+  einen eigenen Cloudflare-Benutzer als Mitglied des Kontos, dessen Token nur sie nutzt.
+
+### Konfiguration
+
+Über die `.env`:
+
+```env
+CLOUDFLARE_API_TOKEN=...
+# Optional, nötig für den DNS-Umzug (Zonen anlegen)
+CLOUDFLARE_ACCOUNT_ID=0123456789abcdef0123456789abcdef
+CLOUDFLARE_BASE_URL=https://api.cloudflare.com/client/v4
+CLOUDFLARE_NAME=Cloudflare
+```
+
+Ist ein Token gesetzt, legt die Console den Provider beim Start an, speichert die Zugangsdaten
+verschlüsselt und übernimmt Änderungen beim nächsten Neustart. Token und Konto-ID eines solchen
+Providers ändern sich nur über die `.env`, der Name gilt beim ersten Start. Eine Konto-ID, die nicht
+aus 32 Hex-Zeichen besteht, verhindert den Start mit einer Meldung. Als Standort zeigt die Console
+"Cloudflare (weltweit)", die Zonen laufen über das Anycast-Netz von Cloudflare.
+
+Oder im Admin-Bereich unter Provider > Provider hinzufügen, Typ Cloudflare: API-Token, Konto-ID
+(optional) und API Base URL. Beim Bearbeiten behält ein leeres Token-Feld das gespeicherte Token,
+ein leeres Feld für die Konto-ID entfernt sie. Vom Token zeigt die Console nur die ersten 4 und die
+letzten 3 Zeichen.
+
+"Verbindung testen" prüft, ob das Token aktiv ist, liest die Zonen und mit Konto-ID den Namen des
+Kontos. Es meldet Status und Ablauf des Tokens, Konto, Zahl der Zonen und ob die Verbindung Zonen
+anlegen kann. Die Seite des Providers zeigt Konto, Zahl der Zonen nach Status (aktiv, wartend,
+umgezogen) und ob Zonen angelegt werden können.
+
+**Mehrere Konten:** Jedes Konto (oder Token) ist eine eigene Verbindung, weitere kommen im
+Admin-Bereich dazu. Haben mehrere eine Konto-ID, fragt der DNS-Umzug, in welchem Konto die Zone
+entsteht. Zwei Verbindungen mit Tokens desselben Cloudflare-Benutzers teilen sich dessen Rate-Limit.
+
+### Sync und Zuweisung
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) liest die Console alle Zonen mit `GET /zones`, 50 pro
+  Anfrage (das Maximum von Cloudflare), mit Konto-ID gefiltert auf dieses Konto. Bei 200 Zonen sind
+  das 4 Anfragen pro Lauf.
+- Gespeichert werden Name (kleingeschrieben, Umlaut-Domains in der `xn--`-Form), Status
+  (`initializing`, `pending`, `active`, `moved`), die zugeteilten Nameserver, die bisherigen
+  Nameserver und der bisherige Registrar, Anlage- und Aktivierungsdatum, Zonentyp (`full`,
+  `partial`, `secondary`), Tarif und ob die Zone pausiert ist. Als "DNS live" gilt eine Zone nur im
+  Status `active`. DNS-Einträge und CDN-Einstellungen speichert die Console nie, sie liest sie live.
+- Die Detailansicht liest die Zone live nach (30 Sekunden zwischengespeichert) und speichert, was
+  sie bekommt.
+- Neue Zonen sind nicht zugewiesen, mit einer Ausnahme beim ersten Sync einer Zone: Gibt es
+  bei anderen Providern eine Registrierung desselben Namens (Gross- und Kleinschreibung egal), nicht
+  als fehlend markiert und genau einem Kunden zugewiesen, geht die Zone an diesen Kunden. Im
+  Audit-Log steht `domain.assign` mit "Sync" als Auslöser und `reason: "matching_registration"`.
+  Gehören solche Registrierungen mehreren Kunden, bleibt die Zone frei, und das Log der API meldet
+  es. Module schaltet der Sync dabei nicht frei. Spätere Läufe weisen nie neu zu: Eine Zone, die
+  weblion.one einem Kunden wegnimmt, bleibt frei.
+- Zonen, die bei Cloudflare verschwinden, werden als fehlend markiert.
+- Admin > Domains & Webspaces zeigt Zonen mit dem Hinweis "DNS-Zone", zugewiesen wird wie bei jeder
+  Domain. Reseller geben Zonen wie Domains an ihre Kunden weiter. Registrierung und Zone sind zwei
+  Einträge, die beide einzeln verschoben werden.
+
+### Registrierung und Zone
+
+Gibt es eine Domain bei Joker.com (oder 24fire) und eine Zone desselben Namens bei Cloudflare,
+stehen beim Kunden zwei Einträge in der Liste, die Zone mit dem Hinweis "DNS-Zone".
+
+- Die Zone verlinkt auf die Registrierung ("Zur Domain bei Joker.com"), dort werden die Nameserver
+  gesetzt. Die Registrierung zeigt in der Karte "Nameserver" die Zone mit Status und verlinkt
+  darauf.
+- Verknüpft ist nur, was die Person sehen darf: Die Zone eines anderen Kunden bleibt für einen Kunden
+  unsichtbar. Wer beide sehen darf (z.B. weblion.one), bekommt bei einer Zone in einer anderen
+  Organisation einen Hinweis statt eines Links.
+- Der Dialog "Nameserver ändern" der Registrierung bietet die Vorlage "Nameserver der Zone bei
+  Cloudflare" an, sobald die Zone mindestens zwei Nameserver hat.
+- Nutzt die Registrierung nicht die Nameserver des Registrars, verweist ihr Tab "DNS" auf die Zone.
+  Bedient der Registrar die Domain noch, bleibt der Tab wie bisher, mit dem Hinweis, dass eine Zone
+  bei Cloudflare vorbereitet ist.
+
+Per API stehen die Verknüpfungen in `GET /api/v1/domains/<id>` als `dnsZone` (bei einer
+Registrierung) und `registration` (bei einer Zone), jeweils `null`, wenn es keine gibt oder die
+Person sie nicht sehen darf. `kind` sagt, ob ein Eintrag eine Registrierung oder eine Zone ist.
+
+### Was die Console nutzt
+
+Alle Pfade relativ zu `/client/v4`.
+
+| Funktion in der Console        | Endpunkt                                                                                                                                        | Berechtigung                          |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Verbindungstest                | `GET /accounts/{account_id}/tokens/verify` (mit Konto-ID) bzw. `GET /user/tokens/verify`, `GET /zones?per_page=5`, `GET /accounts/{account_id}` | Admin-Bereich                         |
+| Übersicht des Providers        | `GET /zones` (alle Seiten)                                                                                                                      | Admin-Bereich                         |
+| Zonen finden (Sync)            | `GET /zones?per_page=50&page=…`, mit Konto-ID `account.id=…`                                                                                    | Sync-Job                              |
+| Zone ansehen                   | `GET /zones/{zone_id}`                                                                                                                          | `domain:read`                         |
+| DNS-Einträge ansehen           | `GET /zones/{zone_id}/dns_records?per_page=1000&page=…`                                                                                         | `domain:read`                         |
+| Eintrag hinzufügen             | `POST /zones/{zone_id}/dns_records`                                                                                                             | `domain:dns:write`                    |
+| Eintrag ändern, Proxy schalten | `GET`, dann `PATCH /zones/{zone_id}/dns_records/{id}`                                                                                           | `domain:dns:write`                    |
+| Typ eines Eintrags ändern      | `POST /zones/{zone_id}/dns_records/batch` (löschen und neu anlegen in einem Schritt)                                                            | `domain:dns:write`                    |
+| Eintrag löschen                | `DELETE /zones/{zone_id}/dns_records/{id}`                                                                                                      | `domain:dns:write`                    |
+| CDN-Einstellungen ansehen      | `GET /zones/{zone_id}/settings/ssl`, `/ssl_automatic_mode`, `/always_use_https`, `/development_mode`                                            | `domain:read`                         |
+| CDN-Einstellung ändern         | `PATCH /zones/{zone_id}/settings/{setting}` mit `{"value": …}`                                                                                  | `domain:manage`                       |
+| Cache leeren                   | `POST /zones/{zone_id}/purge_cache` mit `{"purge_everything": true}`                                                                            | `domain:manage`                       |
+| Aktivierung prüfen             | `PUT /zones/{zone_id}/activation_check`                                                                                                         | `domain:manage`                       |
+| Zone anlegen (DNS-Umzug)       | `POST /zones` mit `{"account": {"id": …}, "name": …, "type": "full"}`, bei "existiert schon" `GET /zones?name=…`                                | `platform:domain:move`, nur mit Login |
+| API Explorer                   | jeder Pfad unter `/client/v4`, ausser Änderungen an API-Tokens                                                                                  | `platform:explorer`, nur mit Login    |
+
+Fehler zeigt die Console als `<Aktion> failed: <Meldung> (<Code>) (HTTP <Status>)`, bei mehreren
+Fehlern alle, verschachtelte (`error_chain`) angehängt. Dazu kommt ein Hinweis: bei 401 (oder
+einem Code für ein ungültiges Token) "Token prüfen", bei 403 die nötigen Berechtigungen, bei 429
+das Rate-Limit, bei 5xx "Cloudflare gerade nicht erreichbar". HTML-Fehlerseiten von Cloudflare
+zeigt die Console nie, nur den HTTP-Status. Eine Antwort mit HTTP 200 und `success: false` (beim
+Cache leeren möglich) gilt als Fehler. Das Token steht in keiner Meldung. Weiterleitungen folgt der
+Client nicht, damit das Token nie an einen anderen Host geht.
+
+### DNS
+
+Cloudflare speichert vollständige Namen (`www.muster-shop.ch`), die Console zeigt sie wie bei allen
+Providern relativ zur Zone (`www`, `@` für die Domain selbst) und rechnet um. Die Werte haben in der
+Console dasselbe Format wie bei Joker.com und 24fire.
+
+| In der Console                                                             | Bei Cloudflare                                   | Wert in der Console                                                                            |
+| -------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| A, AAAA                                                                    | `content`                                        | IPv4- bzw. IPv6-Adresse                                                                        |
+| CNAME, NS, PTR                                                             | `content`                                        | Hostname. CNAME geht auch für `@` (Cloudflare gibt dort die Adressen des Ziels heraus)         |
+| MX                                                                         | `content` und `priority`                         | `10 mail.example.ch`                                                                           |
+| TXT                                                                        | `content` als Zeichenketten in Anführungszeichen | Text ohne Anführungszeichen. Über 255 Bytes teilt die Console den Wert selbst in mehrere Teile |
+| SRV                                                                        | `data`                                           | `10 5 5060 sip.example.ch` (Priorität, Gewicht, Port, Ziel)                                    |
+| CAA                                                                        | `data`                                           | `0 issue "letsencrypt.org"`                                                                    |
+| NAPTR                                                                      | `data`                                           | `100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .`                                          |
+| TLSA                                                                       | `data`                                           | `3 1 1 <Zertifikat in Hex>`                                                                    |
+| DS                                                                         | `data`                                           | `12345 13 2 <Digest in Hex>`                                                                   |
+| DNSKEY, HTTPS, SVCB, CERT, LOC, URI, SSHFP, SMIMEA, OPENPGPKEY (nur lesen) | `content` bzw. `data`                            | wie Cloudflare sie formatiert                                                                  |
+
+- **Nur lesen:** die Typen der letzten Zeile, NS-Einträge für `@` (die setzt Cloudflare selbst) und
+  alle Einträge einer sekundären Zone. Die Console ändert solche Einträge nicht (400), löschen
+  geht, soweit Cloudflare es zulässt. In einer sekundären Zone legt die Console keine Einträge an
+  (422).
+- **Nicht angeboten:** ALIAS (dafür CNAME für `@`), Weiterleitungen und E-Mail-Weiterleitungen, wie
+  Joker sie kennt.
+- **TTL:** `1` heisst "Automatisch", sonst 60 bis 86400 Sekunden (30 Sekunden nur im
+  Enterprise-Tarif, die Console bietet sie nicht an). Neue Einträge ohne Angabe bekommen
+  "Automatisch".
+- **Proxy:** Nur A, AAAA und CNAME können über den Proxy laufen, andere Typen lehnt die API mit 400
+  ab. Ob Cloudflare einen Eintrag tatsächlich über den Proxy leiten kann (z.B. nicht bei privaten
+  Adressen), meldet Cloudflare pro Eintrag, die Console zeigt dann einen Strich statt des Schalters.
+  Ein Eintrag mit Proxy hat immer die TTL "Automatisch", die Console setzt sie selbst. Den Proxy
+  schalten alle mit `domain:dns:write` (auch Member), in der Spalte "Proxy" des Tabs "DNS" oder im
+  Dialog des Eintrags. Per API: `PATCH /api/v1/domains/<id>/dns/<record-id>` mit
+  `{"proxied": true}`. Bei Providern ohne Proxy ignoriert die API das Feld.
+- **Notizen:** Die Kommentare, die Cloudflare zu einem Eintrag speichert, zeigt die Console unter
+  dem Wert an, ändern lassen sie sich nur im Dashboard. Die Console ändert Einträge mit `PATCH` und
+  schickt nur geänderte Felder, Kommentare, Tags und Einstellungen eines Eintrags bleiben so
+  erhalten.
+- **IDs:** Anders als bei Joker behält ein Eintrag seine ID, wenn er geändert wird. Nur ein
+  Typwechsel legt ihn neu an (ein Batch-Request: löschen, dann anlegen), mit neuer ID. Kommentar
+  und Tags nimmt die Console dabei mit.
+- **Konflikte:** A, AAAA und CNAME desselben Namens schliessen sich bei Cloudflare aus, NS verträgt
+  sich mit keinem anderen Eintrag desselben Namens. Die Meldung von Cloudflare kommt mit Code
+  zurück.
+- Im Audit-Log stehen `domain.dns_add`, `domain.dns_update` und `domain.dns_delete` wie bei jedem
+  Provider, zusätzlich mit `proxied`.
+
+### CDN
+
+Tab "CDN" einer Zone. Ansehen mit `domain:read`, ändern mit `domain:manage` (Owner und Admin, auch
+per API-Token). Eine Änderung betrifft genau eine Einstellung:
+
+- **SSL/TLS-Modus:** "Automatisch" (Automatic SSL/TLS: Cloudflare wählt den Modus und kann ihn
+  später selbst erhöhen), "Aus", "Flexibel", "Vollständig", "Vollständig (streng)". Ist Automatic
+  SSL/TLS an und jemand wählt einen festen Modus, schaltet die Console zuerst Automatic SSL/TLS aus
+  (`ssl_automatic_mode` auf `custom`) und setzt dann den Modus. Scheitert der zweite Schritt, ist
+  Automatic SSL/TLS aus und der Modus unverändert, die Meldung sagt das. Eine Änderung braucht bis
+  zu 5 Minuten. "Aus" und "Flexibel" muss man in der Console bestätigen. Kann die Console den
+  Automatic-Modus nicht lesen (403 oder 404), bietet sie "Automatisch" nicht an.
+- **Always Use HTTPS:** leitet HTTP auf HTTPS um.
+- **Entwicklungsmodus:** umgeht den Cache, schaltet sich nach 3 Stunden selbst ab. Die Console zeigt
+  die restliche Zeit.
+- **Cache leeren:** immer der ganze Cache (`purge_everything`). Cloudflare bestätigt den Auftrag
+  und leert in wenigen Sekunden. Cloudflare begrenzt das Leeren je nach Tarif (HTTP 429, Code
+  1134). Die Console sperrt den Knopf nach einem Klick für 30 Sekunden.
+
+Erlaubt der Tarif eine Einstellung nicht (`editable: false`), lehnt die Console die Änderung mit 422
+ab, ohne Cloudflare zu fragen. CDN-Einstellungen wirken nur für Einträge mit Proxy und erst, wenn
+die Zone aktiv ist. Beides sagt der Tab. Registrierte Domains haben keinen Tab "CDN", die API
+antwortet dort mit 422. Im Audit-Log stehen `domain.cdn_update` (Einstellung, alter und neuer Wert)
+und `domain.cache_purge`. Per API:
+
+```bash
+curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/domains/<domain-id>/cdn
+curl -X PATCH -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"sslMode":"strict"}' https://cp.weblion.cloud/api/v1/domains/<domain-id>/cdn
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"everything":true}' https://cp.weblion.cloud/api/v1/domains/<domain-id>/cdn/purge
+```
+
+`sslMode` ist `auto`, `off`, `flexible`, `full` oder `strict`, die anderen Felder sind
+`{"alwaysUseHttps": true}` und `{"developmentMode": true}`, jeweils allein im Body (sonst 400).
+
+### Wartende Zonen und Aktivierung
+
+Eine neue Zone wartet (`pending`), bis die Domain auf die Nameserver zeigt, die Cloudflare der Zone
+zugeteilt hat. Bis dahin gelten die Einträge bei den bisherigen Nameservern.
+
+- Die Übersicht der Zone zeigt die zu setzenden Nameserver zum Kopieren, die bisherigen Nameserver
+  und, falls im Panel vorhanden, einen Link zur Registrierung. Bei Joker setzt man sie dort mit der
+  Vorlage "Nameserver der Zone bei Cloudflare".
+- Einträge lassen sich schon vorbereiten, solange die Zone wartet.
+- "Aktivierung jetzt prüfen" (`domain:manage`) bittet Cloudflare um eine Prüfung
+  (`PUT /zones/{zone_id}/activation_check`), nur bei wartenden Zonen (sonst 409). Cloudflare prüft
+  ohnehin regelmässig. Laut API-Spezifikation geht eine Prüfung von Hand im kostenlosen Tarif
+  höchstens einmal pro Stunde, in bezahlten Tarifen alle 5 Minuten. Danach liest die Console die
+  Zone neu. Im Audit-Log steht `domain.zone_activation_check`. Per API:
+  `POST /api/v1/domains/<id>/zone/activation-check`.
+- **Umgezogen** (`moved`): Die Domain zeigt nicht mehr auf Cloudflare, die Einträge der Zone gelten
+  nicht mehr. Cloudflare löscht solche Zonen nach einiger Zeit, dann markiert der Sync sie als
+  fehlend.
+- **Pausiert:** Cloudflare beantwortet nur noch DNS-Anfragen, ohne Proxy und CDN.
+
+### DNS zu Cloudflare umziehen
+
+Nur für weblion.one: Berechtigung `platform:domain:move` (Plattform-Rolle Superadmin, nicht
+Support), nur mit Login, nie per API-Token. In der Console: Übersicht einer registrierten Domain,
+Karte "DNS zu Cloudflare umziehen" (nur, solange keine aktive Zone desselben Namens im Panel ist),
+oder Admin > Domains & Webspaces, Menü der Zeile. Beides gibt es nur für Registrierungen, die nicht
+als fehlend markiert sind.
+
+Ziel ist eine aktive Cloudflare-Verbindung mit Konto-ID. Ohne eine solche sagt der Dialog das. Er
+zeigt vorher, was passiert: Zielkonto (bei mehreren wählbar), eine schon vorhandene Zone, die
+Einträge, die kopiert werden, die angepassten (Typ oder TTL) und die nicht übernommenen mit Grund.
+
+1. **Zone:** Gibt es auf der Zielverbindung schon eine Zone dieses Namens (nicht fehlend), nimmt die
+   Console sie. Sonst legt sie eine an (`POST /zones`, Typ `full`, ohne `jump_start`). Meldet
+   Cloudflare, dass die Zone im Konto schon existiert, übernimmt die Console diese. Liegt sie in
+   einem anderen Konto, kommt die Meldung von Cloudflare. Eine neue Zone gehört im Panel dem Kunden
+   der Registrierung. Scheitert dieser Schritt, endet der Umzug mit der Fehlermeldung.
+2. **Einträge** (Standard an): nur, wenn der Registrar die Domain bedient (seine Nameserver sind
+   eingetragen). Sonst sind seine Einträge nicht die gültigen, und die Console kopiert nichts. Sie
+   kopiert nie in eine Zone, die schon Einträge hat, und höchstens 500 Einträge (sonst im Dashboard
+   importieren), vier gleichzeitig. Kopierte Einträge laufen nie über den Proxy, am Verkehr ändert
+   sich beim Umstellen also nichts. Nicht übernommen werden Einträge, die nur gelesen werden
+   können, NS-Einträge für `@` und Typen, die Cloudflare nicht nimmt (Weiterleitungen und
+   E-Mail-Weiterleitungen von Joker, DNSKEY). ALIAS wird zu CNAME für `@`. Eine TTL unter 60
+   Sekunden (auch 0) wird "Automatisch", eine über 86400 wird 86400.
+3. **Nameserver** (Standard aus): Die Console stellt sie beim Registrar nur um, wenn Schritt 2 im
+   selben Lauf alles kopiert hat und der Registrar das über die Console kann (Joker.com). Sonst
+   listet das Ergebnis die Nameserver, die man von Hand setzt. Joker übernimmt die Änderung
+   asynchron, danach wird die Zone aktiv, sobald Cloudflare die neue Delegation sieht (Minuten bis
+   Stunden).
+
+Das Ergebnis zeigt jeden Schritt mit Status. Im Audit-Log stehen `domain.zone_create` (auf der Zone,
+bei einem Fehler auf der Registrierung), `domain.dns_import` (auf der Zone, mit kopierten,
+fehlgeschlagenen und übersprungenen Einträgen), `domain.nameservers_update` (auf der Registrierung,
+mit `reason: "dns_move"`) und zum Schluss `domain.dns_move`. Erfolgreich ist der Umzug nur, wenn
+jeder gewählte Schritt durchging.
+
+Wiederholen ist sicher: Die Zone wird wiederverwendet, und in eine Zone mit Einträgen kopiert die
+Console nichts mehr. Deshalb stellt ein zweiter Lauf auch keine Nameserver um. Nach einem
+unvollständigen Umzug ergänzt man die Zone in deren Tab "DNS" und stellt danach die Nameserver im
+Dialog "Nameserver ändern" der Registrierung um (Vorlage "Nameserver der Zone bei Cloudflare").
+Läuft für eine Domain schon ein Umzug, antwortet die API mit 409. Ein Umzug kostet etwa eine
+Cloudflare-Anfrage pro Eintrag, 500 Einträge also rund 505 der 1200 Anfragen in 5 Minuten.
+
+Per API (nur mit Session): `GET /api/v1/admin/domains/<id>/dns-move?targetProviderId=<provider-id>`
+zeigt den Plan, `POST /api/v1/admin/domains/<id>/dns-move` mit
+`{"targetProviderId": "<provider-id>", "importRecords": true, "setNameservers": true}` führt ihn aus.
+
+### API Explorer
+
+Für alles ohne eigenen Button: Admin > API Explorer, Provider Cloudflare wählen.
+
+- Pfade relativ zu `/client/v4`, z.B. `/zones/<zone_id>/dns_records`. Die Base URL oder
+  `/client/v4` davor sind erlaubt. Methoden GET, POST, PUT, PATCH und DELETE.
+- GET und DELETE senden die Felder aus dem JSON-Feld als Query, die anderen Methoden als JSON-Body.
+- Gesperrt sind `//`, `..`, `\`, `@` und kodierte Punkte oder Schrägstriche im Pfad sowie jede
+  Änderung an API-Tokens (`/user/tokens…`, `/accounts/<id>/tokens…`): Rollt jemand das Token der
+  Console, ist die Verbindung weg.
+- Vorlagen: Token-Status, Zonen, eine Zone, DNS-Einträge, SSL/TLS-Modus, Always Use HTTPS,
+  Entwicklungsmodus, Konten.
+- In Antworten sind Werte von Feldern wie `secret`, `password`, `private_key` oder `token`
+  ausgeblendet, unter `/tokens` auch `value` (neue Tokens), bei Pfaden auf `/token` das Ergebnis
+  (Tunnel-Tokens). Das Token der Console steht nie in einer Antwort.
+- Ändernde Requests stehen mit Pfad und Body im Audit-Log (`provider.explorer`), lesende nicht.
+
+### Rate-Limit und Zwischenspeicher
+
+- Cloudflare erlaubt 1200 Anfragen pro 5 Minuten und Benutzer. Die Console bleibt pro Verbindung
+  unter 1000 in 5 Minuten (gleitendes Fenster, Wiederholungen zählen mit). Ist das Fenster voll,
+  wartet eine Anfrage bis zu 5 Sekunden, sonst scheitert sie mit einer Meldung, ohne Cloudflare zu
+  erreichen.
+- Antwortet Cloudflare mit 429 und einem `Retry-After` von höchstens 5 Sekunden, versucht die Console
+  es einmal neu, sonst kommt eine Meldung.
+- Höchstens vier Anfragen pro Verbindung laufen gleichzeitig.
+- Was die Ansichten lesen, hält die Console pro API-Prozess: Zone 30 Sekunden, Einträge 15 Sekunden,
+  CDN-Einstellungen 30 Sekunden. Änderungen über die Console leeren das sofort. Eine zweite
+  API-Instanz kann also bis zu 30 Sekunden alte Werte zeigen, ebenso nach einer Änderung im
+  Dashboard.
+
+### Grenzen
+
+Noch nicht in der Console, das geht weiterhin im Cloudflare-Dashboard:
+
+- Zonen von Hand anlegen (ausser über den DNS-Umzug) und löschen. Neue Zonen erscheinen nach dem
+  nächsten Sync und werden dann zugewiesen.
+- Tarife, Page Rules, Redirect- und Cache-Regeln, Firewall und WAF, DNSSEC bei Cloudflare, E-Mail
+  Routing
+- Einzelne URLs aus dem Cache leeren (nur der ganze Cache)
+- Kommentare und Tags von Einträgen ändern
+- Typen wie HTTPS, SVCB, CERT oder LOC anlegen (nur lesen)
+- Teilweise (`partial`, CNAME-Setup) und sekundäre Zonen zeigt die Console nur an. Ihre Aktivierung
+  über einen Verifizierungseintrag läuft im Dashboard.
+- Einen Scan der bestehenden Einträge (Nachfolger von `jump_start`) für Domains, deren DNS bei
+  einem Drittanbieter liegt
+- Abrechnung: Zonen sind normale Domains, ein Dienst lässt sich mit ihnen verknüpfen. Eine eigene
+  Abrechnung für Zonen oder CDN gibt es nicht.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen das echte Cloudflare ist die Anbindung noch nicht getestet, nur gegen einen Mock-Server nach
+der OpenAPI-Spezifikation von Cloudflare. Vor dem ersten echten Einsatz mit einem Test-Konto und
+einer Test-Zone prüfen:
+
+- Das Rate-Limit von 1200 Anfragen pro 5 Minuten: Gilt es für alle Tokens und das Dashboard eines
+  Benutzers zusammen, schickt die Client-API bei 429 ein `Retry-After`, und mit welchem Code?
+- `jump_start` fehlt in der Spezifikation. Startet eine Zone, die über die API ohne dieses Feld
+  angelegt wird, ohne Einträge? Hat sie doch welche, kopiert der Umzug nichts und meldet "Zone hat
+  schon Einträge", es entstehen keine doppelten.
+- Fehlercodes, die die Console auswertet: 1061 "existiert schon" beim Anlegen einer Zone (die
+  Meldung wird zusätzlich geprüft), 81044 "Eintrag existiert nicht", 9109, 10000, 6003 und 6111
+  für ungültige Tokens. Ausserdem der Code für "Aktivierung zu früh geprüft".
+- In welcher Form TXT-Werte zurückkommen (mit oder ohne Anführungszeichen, die Console liest
+  beides) und wie lang sie sein dürfen.
+- Die echte Höchstzahl an Einträgen pro Seite (die Console fragt 1000 an).
+- Ob `result_info.total_count` bei Zonen die Gesamtzahl ist (der Verbindungstest nimmt sonst
+  `count`).
+- Proxy: nur A, AAAA und CNAME, private Adressen nicht, und wie Cloudflare eine andere TTL als 1
+  bei Einträgen mit Proxy behandelt (die Console sendet immer 1).
+- Einträge, die Cloudflare sperrt: Die Console liest dafür `locked` und `meta.read_only` aus älteren
+  API-Versionen, beides steht nicht in der Spezifikation.
+- Ob `PATCH` die Felder in `data` ersetzt oder zusammenführt (die Console schickt alle) und ob
+  `PATCH` den Typ ändern darf (die Console nutzt dafür den Batch-Request).
+- Die Einstellungen pro Zone: Die Spezifikation markiert sie als nicht verfügbar im Free- und
+  Pro-Tarif, vermutlich ein Fehler der Spezifikation. Ausserdem das Verhalten von `ssl`, während
+  Automatic SSL/TLS an ist, und wie stabil der Endpunkt `ssl_automatic_mode` ist (in der
+  Spezifikation versteckt).
+- Ob Konto-Tokens an `/user/tokens/verify` scheitern (die Console fragt mit Konto-ID zuerst beim
+  Konto).
+- Ob das Anlegen einer Zone zusätzlich das Konto unter "Account Resources" des Tokens braucht.
+- Grenzen für wartende Zonen pro Konto, Subdomain-Zonen ausserhalb von Enterprise
+- Nach welcher Zeit Cloudflare umgezogene Zonen löscht
+- Ob CNAME für `@` in jedem Tarif ohne eigene Einstellung funktioniert
+- Wie viele Operationen der Batch-Request erlaubt (die Console schickt ein Löschen und ein Anlegen).
+
+### Demo
+
+Mit `ENABLE_DEMO_PROVIDER=true` und `ENABLE_DEMO_CLOUDFLARE=true` legt die Console eine zweite
+Demo-Verbindung "Demo Cloudflare" an, die ein Cloudflare-Konto im Speicher simuliert, mit denselben
+Regeln wie die echte Anbindung (Proxy, TTL, Konflikte, CDN, Aktivierung, Zonen anlegen).
+`pnpm db:seed` gleicht sie nach dem Demo-Provider ab:
+
+- `muster-shop.ch` ist aktiv und gehört Muster AG. Die Registrierung beim Demo-Provider zeigt schon
+  auf die Nameserver der Zone, beide Seiten verlinken sich. Die Zone hat Einträge mit Proxy, eine
+  Notiz und einen HTTPS-Eintrag (nur lesen).
+- `beispiel-gmbh.de` wartet auf die Nameserver und gehört Beispiel GmbH
+  (`dev@beispiel.example`), die dafür das Modul "Domains & DNS" bekommt. `intern` zeigt auf eine
+  private Adresse und kann nicht über den Proxy.
+- `alt-muster.ch` ist umgezogen und keinem Kunden zugewiesen.
+
+Zum Ausprobieren des Umzugs: als Admin `baeckerei-huber.ch` (Registrierung beim Demo-Provider) zu
+"Demo Cloudflare" umziehen, mit Nameservern. Eine wartende Zone wird aktiv, sobald die
+Registrierung desselben Namens beim Demo-Provider auf ihre Nameserver zeigt.
+
 ## Domain-Funktionen im Vergleich
 
 Jeder Adapter meldet, was er bei Domains kann, die Console zeigt nur das an. Ruft jemand per
 API etwas auf, das der Provider nicht kann, antwortet sie mit 422 (`unsupported`).
 
-|                                       | 24fire      | Joker.com                 | Demo                |
-| ------------------------------------- | ----------- | ------------------------- | ------------------- |
-| DNS-Einträge ansehen                  | ja          | ja, mit Joker-Nameservern | ja                  |
-| DNS-Einträge ändern                   | mit 24fire+ | ja, mit Joker-Nameservern | ja                  |
-| TTL pro Eintrag                       | nein        | ja                        | ja                  |
-| NAPTR, E-Mail-Weiterleitung           | nein        | ja                        | ja                  |
-| ALIAS, NS, PTR, TLSA, DS, DNSKEY      | ja          | nein                      | ja                  |
-| Nameserver ändern                     | nein        | ja                        | ja                  |
-| Transfersperre                        | nein        | ja                        | ja                  |
-| Auth-Code                             | ja          | ja, asynchron             | ja                  |
-| Automatische Verlängerung, Verlängern | nein        | ja, nur weblion.one       | ja, nur weblion.one |
+|                                       | 24fire        | Joker.com                 | Cloudflare                                   | Demo                |
+| ------------------------------------- | ------------- | ------------------------- | -------------------------------------------- | ------------------- |
+| Art                                   | Registrierung | Registrierung             | DNS-Zone                                     | Registrierung       |
+| DNS-Einträge ansehen                  | ja            | ja, mit Joker-Nameservern | ja, auch bei wartenden Zonen                 | ja                  |
+| DNS-Einträge ändern                   | mit 24fire+   | ja, mit Joker-Nameservern | ja, ausser in sekundären Zonen               | ja                  |
+| TTL pro Eintrag                       | nein          | ja, ab 300 Sekunden       | ja, "Automatisch" oder 60 bis 86400 Sekunden | ja                  |
+| Proxy pro Eintrag                     | nein          | nein                      | A, AAAA, CNAME                               | nein                |
+| CNAME für `@`                         | nein          | nein                      | ja                                           | nein                |
+| NAPTR                                 | nein          | ja                        | ja                                           | ja                  |
+| E-Mail-Weiterleitung, Weiterleitungen | nein          | ja                        | nein                                         | ja                  |
+| ALIAS                                 | ja            | nein                      | nein (CNAME für `@`)                         | ja                  |
+| NS, PTR, TLSA, DS                     | ja            | nein                      | ja (NS nicht für `@`)                        | ja                  |
+| DNSKEY                                | ja            | nein                      | nur lesen                                    | ja                  |
+| CDN-Einstellungen, Cache leeren       | nein          | nein                      | ja                                           | nein                |
+| Nameserver ändern                     | nein          | ja                        | nein (setzt Cloudflare)                      | ja                  |
+| Transfersperre                        | nein          | ja                        | nein                                         | ja                  |
+| Auth-Code                             | ja            | ja, asynchron             | nein                                         | ja                  |
+| Automatische Verlängerung, Verlängern | nein          | ja, nur weblion.one       | nein                                         | ja, nur weblion.one |
 
-Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert alle Funktionen im Speicher, mit
-den Regeln von Joker (TTL ab 300 Sekunden, eine Auftragsnummer wie die Proc-ID). Zum
-Ausprobieren: `muster-shop.ch` nutzt Cloudflare-Nameserver (Hinweis "andere Nameserver",
-DNS nur lesend), `muster-ag.ch` hat einen DynDNS-Eintrag (nur lesen), `alpenblick-hotel.ch` Einträge für NAPTR,
-Weiterleitung und E-Mail-Weiterleitung.
+Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert alle Funktionen eines Registrars im
+Speicher, mit den Regeln von Joker (TTL ab 300 Sekunden, eine Auftragsnummer wie die Proc-ID). Zum
+Ausprobieren: `muster-shop.ch` nutzt Cloudflare-Nameserver (Hinweis "andere Nameserver", DNS nur
+lesend, mit `ENABLE_DEMO_CLOUDFLARE=true` stattdessen der Link zur Zone), `muster-ag.ch` hat einen
+DynDNS-Eintrag (nur lesen), `alpenblick-hotel.ch` Einträge für NAPTR, Weiterleitung und
+E-Mail-Weiterleitung. Eine simulierte Cloudflare-Verbindung kommt mit `ENABLE_DEMO_CLOUDFLARE=true`
+dazu, siehe Abschnitt "Demo" unter [Cloudflare](#cloudflare-dns-und-cdn).
 
 ## Nextcloud (Cloud-Speicher)
 
@@ -1047,6 +1499,588 @@ Hosting (1000 GB) und Bäckerei Huber (100 GB mit `hanna@baeckerei-huber`) haben
 aber noch nicht das Modul. Zum Ausprobieren das Modul zuerst bei Alpen Hosting, dann bei Bäckerei
 Huber aktivieren.
 
+## Mailcow (E-Mail)
+
+- API: die JSON-API von mailcow-dockerized (`json_api.php`), Doku unter <https://docs.mailcow.email>
+  und in der Swagger-Ansicht der Instanz unter `/api`. Die Console folgt dem Quellcode von Mailcow,
+  weil die OpenAPI-Beschreibung bei mehreren Endpunkten unvollständig ist.
+- Base URL: die Adresse der Instanz, z.B. `https://mail.weblion.one`. Lesen mit
+  `GET /api/v1/get/...`, Ändern mit `POST /api/v1/add|edit|delete/...` und einem JSON-Body, immer
+  mit dem Header `X-API-Key: <Key>`.
+- Konfiguration: `MAILCOW_URL` und `MAILCOW_API_KEY` (optional `MAILCOW_MAIL_HOST`) in der `.env`
+  oder im Admin-Bereich unter Provider > Provider hinzufügen > Mailcow
+- Mailcow liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der Provider
+  deshalb nicht auf.
+
+### Was das Modul macht
+
+weblion.one betreibt eigene Mailcow-Server und verkauft darauf E-Mail-Domains. Das Modul
+**E-Mail** (`mail`) bringt das in die Console:
+
+- **Mail-Domains mit Limits:** weblion.one legt eine Mail-Domain bei einer Mailcow-Instanz an und
+  weist sie einem Kunden zu. Die Limits (Postfächer, Weiterleitungen, Speicher gesamt,
+  Standard- und Höchstgrösse pro Postfach, Versandlimit) setzt nur weblion.one, Mailcow setzt sie
+  durch. Bestehende Domains einer Instanz kommen mit dem Sync dazu.
+- **Selbstverwaltung:** Der Kunde legt im gebuchten Rahmen Postfächer (mit erzeugtem oder eigenem
+  Passwort) und Weiterleitungen an, auch eine Catch-all-Adresse, ändert Grösse, Name und Status,
+  setzt Passwörter neu und löscht. In der Console unter dem Menüpunkt "E-Mail", sobald das Modul
+  aktiv ist.
+- **DNS-Einträge:** Die Console zeigt, welche Einträge die Domain braucht (MX, SPF, DKIM, DMARC,
+  Autodiscover), vergleicht sie mit der Zone, erzeugt den DKIM-Schlüssel und trägt fehlende
+  Einträge auf Wunsch selbst ein, wenn die DNS-Zone der Domain in der Console liegt (Joker.com,
+  Cloudflare, 24fire).
+- **Einstellungen für Mailprogramme:** Server, Ports und Verschlüsselung für IMAP, SMTP und POP3 und
+  ein Link zu Webmail (SOGo).
+
+Gespeichert werden nur die Mail-Domains mit Limits und Verbrauch (Tabelle `mail_domains`).
+Postfächer, Weiterleitungen, DKIM-Schlüssel und Passwörter speichert die Console nie, sie liest sie
+live bei Mailcow.
+
+Wer darf was:
+
+| Wer                           | Darf                                                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner, Admin                  | Postfächer und Weiterleitungen anlegen, ändern, löschen, DKIM-Schlüssel erzeugen (`mail:write`), Passwörter neu setzen (`mail:password`)       |
+| Member, Nur lesen             | Domains, Postfächer, Weiterleitungen, Verbrauch, DNS-Einträge und Einstellungen für Mailprogramme ansehen (`mail:read`)                        |
+| Eingeschränkt, Buchhaltung    | nichts, per Policy erweiterbar (Ressource `maildomain/<id>`, `org` oder `*`)                                                                   |
+| API-Token "Lesen & Schreiben" | was die Person darf, der das Token gehört, aber ohne Passwörter: Postfächer nur mit mitgeschicktem Passwort, kein "Neues Passwort"             |
+| Mitarbeitende eines Resellers | im Panel seiner Kunden, was ihre Reseller-Rolle erlaubt, dazu Mail-Domains aus dem eigenen Bestand an Kunden geben (`reseller:customer:write`) |
+| weblion.one Superadmin        | alles, dazu Mail-Domains anlegen, Limits ändern, löschen (`platform:mail:write`) und zuweisen (`platform:server:assign`)                       |
+| weblion.one Support           | alles ansehen, nichts ändern                                                                                                                   |
+
+"Fehlende Einträge hinzufügen" braucht zusätzlich `domain:dns:write` auf der Domain desselben
+Namens im Modul "Domains & DNS". Postfächer und Weiterleitungen haben keinen eigenen
+Ressourcenpfad, eine Policy gilt für die ganze Mail-Domain.
+
+### Voraussetzungen
+
+1. **Eigener Mailserver.** Die Console legt keinen Mailserver an, sie verwaltet die Domains einer
+   bestehenden Instanz von mailcow-dockerized, am besten auf einer eigenen VM (Hetzner Cloud oder
+   der eigene Proxmox), nicht auf dem Server der Console:
+   - `MAILCOW_HOSTNAME` ist der öffentliche Name des Mailservers, z.B. `mail.weblion.one`, mit A-
+     und AAAA-Eintrag
+   - ein PTR-Eintrag (Reverse DNS) für IPv4 und IPv6, beim Hoster der VM gesetzt
+   - offene Ports 25, 465, 587, 143, 993, 110, 995, 4190, 80 und 443. In der Hetzner Cloud ist
+     ausgehender Verkehr auf Port 25 und 465 für neue Konten gesperrt, die Freigabe beantragt man
+     bei Hetzner.
+   - ein gültiges Zertifikat (Let's Encrypt von Mailcow) auch für die Adresse, unter der die
+     Console die API erreicht. Einen Schalter "TLS nicht prüfen" gibt es für Mailcow nicht.
+   - Backups mit dem Backup-Skript von Mailcow (`helper-scripts/backup_and_restore.sh`). Die
+     Console kann kein Postfach wiederherstellen.
+
+   Eine Instanz trägt viele Kunden. Mehrere Instanzen (z.B. eine pro Land oder eine für einen
+   grossen Kunden) sind mehrere Provider, siehe unten.
+
+2. **API-Key mit Lese- und Schreibzugriff.** In Mailcow als Admin unter System > Konfiguration >
+   Zugang > API (der Menüpfad kann je nach Version abweichen): beim Zugriff "Lesen & Schreiben" die
+   ausgehenden IPv4- und IPv6-Adressen der Console eintragen (einzelne Adressen oder CIDR, getrennt
+   durch Komma, Leerzeichen, Semikolon oder Zeilenumbruch), aktivieren, speichern und den Key
+   kopieren. "IP-Prüfung für API überspringen" bleibt aus. Alternativ in `mailcow.conf`
+   `API_KEY=<Key>` und `API_ALLOW_FROM=<IPs>` setzen und `docker compose up -d` ausführen. Mailcow
+   nimmt nur Keys aus a-z, A-Z, 0-9 und `-`, die Console verlangt mindestens 16 Zeichen. Der Key
+   nur zum Lesen reicht nicht, "Verbindung testen" sagt das.
+3. **Nicht sperren lassen.** Mailcow zählt fehlgeschlagene API-Anmeldungen (unbekannter Key, IP
+   nicht in der Allow-List) wie fehlgeschlagene Logins, und sein Netfilter sperrt die IP der
+   Console nach einigen Versuchen. Deshalb die IPs der Console vor dem ersten Test auf die
+   Whitelist in den Netfilter-Einstellungen von Mailcow setzen. Die Console wiederholt eine
+   abgelehnte Anmeldung nie. Welche IP bei Mailcow ankommt, steht in der Fehlermeldung des
+   Verbindungstests ("api access denied for ip ..."). Läuft die Console in Docker ohne eigene
+   IPv6-Konfiguration, kommt sie über IPv4.
+4. **Zeitlimit im Reverse Proxy.** Eine Mail-Domain anlegen startet standardmässig Webmail (SOGo)
+   neu und kann bis zu zwei Minuten dauern. Der Reverse Proxy vor der Console muss für
+   `/api/v1/admin/mail/` mindestens 150 Sekunden auf die Antwort warten, siehe
+   [deployment.md](deployment.md#mailcow-für-e-mail).
+5. **Sinnvolle Einstellungen in Mailcow:**
+   - `MAILDIR_GC_TIME`: wie lange gelöschte Postfächer und Domains im Papierkorb von Mailcow bleiben,
+     in Minuten, Standard 7200 (5 Tage). Die Löschdialoge der Console weisen darauf hin.
+   - `AUTODISCOVER_SAN=y` (Standard): Mailcow holt Zertifikate für `autodiscover.` und
+     `autoconfig.` jeder Domain, passend zu den DNS-Einträgen, die die Console vorschlägt.
+   - `SHOW_DKIM_PRIV_KEYS` bleibt aus.
+   - Soll niemand an Adressen ausserhalb der Instanz weiterleiten können:
+     `ALIAS_DISABLE_EXTERNAL_DOMAINS` in `data/web/inc/vars.local.inc.php`. Die Console erlaubt
+     externe Ziele sonst.
+
+### Konfiguration
+
+Über die `.env` (Werte mit Sonderzeichen in einfache Anführungszeichen setzen):
+
+```env
+MAILCOW_URL=https://mail.weblion.one
+MAILCOW_API_KEY='...'
+# Optional: öffentlicher Name für MX, IMAP, SMTP und Webmail, wenn die Console Mailcow unter
+# einer anderen Adresse erreicht (z.B. intern). Standard: der Host aus MAILCOW_URL.
+MAILCOW_MAIL_HOST=
+MAILCOW_NAME=Mailcow
+MAILCOW_COUNTRY=CH
+MAILCOW_CITY=Zürich
+```
+
+Sind URL und Key gesetzt, legt die Console den Provider beim Start an, speichert die Zugangsdaten
+verschlüsselt und übernimmt Änderungen beim nächsten Neustart. URL, Key und Mail-Host eines solchen
+Providers ändern sich nur über die `.env`. Name, Land und Stadt gelten beim ersten Start, danach
+werden sie im Admin-Bereich geändert. Die URL ist die Adresse, unter der die Console die API
+erreicht: `https://` mit gültigem Zertifikat, ohne Pfad. Weiterleitungen folgt die Console nicht,
+damit der Key nie an einen anderen Host geht.
+
+Oder im Admin-Bereich unter Provider > Provider hinzufügen, Typ Mailcow: URL der Instanz, API-Key
+und optional der Mailserver-Hostname. Beim Bearbeiten behält ein leeres Key-Feld den gespeicherten
+Key, ein leerer Hostname fällt auf den Host der URL zurück. Vom Key zeigt die Console kein Zeichen,
+er ist Admin-Zugriff auf den ganzen Mailserver.
+
+"Verbindung testen" liest Version und Domains und prüft mit einer Änderung ohne Wirkung (eine
+Ratenlimit-Änderung für keine Domain), ob der Key schreiben darf. Es meldet Version, Zahl der
+Domains und den Mailserver. Die Seite des Providers zeigt Version, Zahl der Mail-Domains und
+Postfächer, den belegten Platz des Mail-Speichers, Mailserver und Webmail-Adresse.
+
+**Mailserver-Hostname:** Aus ihm entstehen der MX-Eintrag, die Autodiscover-Einträge, die
+Einstellungen für Mailprogramme und die Webmail-Adresse (`https://<Host>/SOGo/`). Er muss also der
+öffentliche Name sein, auf den die Zertifikate von Mailcow lauten.
+
+### Mehrere Instanzen
+
+Jede Mailcow-Instanz ist ein eigener Provider: die aus der `.env` und beliebig viele aus dem
+Admin-Bereich, jede mit eigener URL, eigenem Key, eigenem Mailserver-Hostnamen und Standort. Jede
+Mail-Domain gehört zu genau einer Instanz, Postfächer und Weiterleitungen erreicht die Console nur
+über ihre Domain, also immer bei der richtigen Instanz. Die DNS-Einträge und Einstellungen für
+Mailprogramme zeigen auf die Instanz der Domain.
+
+- Beim Anlegen einer Mail-Domain wählt man die Instanz (vorausgewählt, wenn es nur eine gibt). Die
+  Liste im Admin-Bereich filtert nach Instanz.
+- Dieselbe Domain auf zwei Instanzen lehnt die Console beim Anlegen ab (409): MX-Einträge können nur
+  auf einen Server zeigen. Wer eine Domain umziehen will, legt sie auf der neuen Instanz an, wenn sie
+  auf der alten weg ist (als fehlend markiert).
+- Eine Instanz nur für einen Kunden ist eine Instanz, deren Domains alle diesem Kunden gehören.
+  Die Console behandelt sie nicht anders.
+- Ein Provider lässt sich nicht löschen, solange eine seiner Mail-Domains einem Kunden zugewiesen
+  ist. Nicht zugewiesene verschwinden mit ihm aus der Console (bei Mailcow bleiben sie).
+- Reseller sehen nie Instanzen, nur Mail-Domains.
+
+### Mail-Domains anlegen und ändern
+
+Admin > Domains & Webspaces > E-Mail-Domains (Berechtigung `platform:mail:write`):
+
+- **Instanz** und **Domain**, ohne www. Umlaut-Domains gehen, Mailcow speichert sie in der
+  `xn--`-Form, die Console zeigt beide.
+- **Beschreibung**, ohne Angabe der Domainname
+- **Limits:** Postfächer höchstens (0 bis 100000), Weiterleitungen höchstens (1 bis 100000),
+  Speicher gesamt, Standardgrösse neuer Postfächer und Höchstgrösse pro Postfach (je 1 MB bis
+  10000000 MB, Standardgrösse höchstens Höchstgrösse, Höchstgrösse höchstens Speicher gesamt),
+  optional ein Versandlimit (Nachrichten pro Sekunde, Minute, Stunde oder Tag für die ganze
+  Domain). Der Dialog schlägt die Werte der Vorlage von Mailcow vor: 10 Postfächer, 400
+  Weiterleitungen, 10 GB, 3 GB, 10 GB.
+- **DKIM-Schlüssellänge:** 2048 (Standard), 3072 oder 4096 Bit, Selektor `dkim`. Mailcow erzeugt den
+  Schlüssel gleich mit. Gibt es noch einen Schlüssel von einer früheren Domain desselben Namens,
+  behält Mailcow diesen.
+- **Webmail (SOGo) neu starten** (Standard an): damit Webmail die neue Domain kennt. Das unterbricht
+  Webmail, Kalender, Kontakte und ActiveSync für alle Benutzer der Instanz kurz, und die Anfrage
+  dauert bis zu zwei Minuten. Scheitert der Neustart, gibt es die Domain trotzdem, der Dialog zeigt
+  den Hinweis von Mailcow.
+- **Kunde** (optional) und ob das Modul "E-Mail" bei ihm freigeschaltet wird (Standard an). Bei
+  einem Kunden eines Resellers nur, wenn der Reseller das Modul hat (sonst 409).
+
+Die Console schickt jedes Limit, die Relay-Schalter (aus), das Versandlimit (`0` für keines) und die
+DKIM-Felder immer mit. So entscheidet nie die "Default"-Vorlage von Mailcow, die man in Mailcow
+ändern kann. Abgelehnt wird mit 409, wenn die Domain schon in der Console ist, auf einer anderen
+Instanz liegt oder bei Mailcow schon existiert, mit 400 bei einem ungültigen Namen. Eine Domain, die
+als fehlend markiert ist, legt die Console bei Mailcow neu an und nimmt den bisherigen Eintrag
+wieder auf. Klappt das Speichern in der Console nach dem Anlegen bei Mailcow nicht, steht das im
+Audit-Log (`createdAtMailcow: true`), und der nächste Sync zeigt die Domain als nicht zugewiesen.
+
+Per API nur mit Login (Session-Cookie), denn API-Tokens tragen keine Plattform-Rechte:
+
+```
+POST /api/v1/admin/mail/domains
+{"providerId":"<provider-id>","domain":"kunde.ch","orgId":"<org-id>",
+ "limits":{"maxMailboxes":10,"maxAliases":400,"quotaMb":10240,"defaultMailboxQuotaMb":3072,
+           "maxMailboxQuotaMb":10240,"rateLimit":{"value":500,"frame":"h"}},
+ "dkimKeySize":2048,"restartSogo":true}
+```
+
+Die Antwort ist `{ "domain": { ... }, "warnings": [...] }`. Im Audit-Log steht `mail.domain_create`.
+
+**Limits ändern** (Menü der Zeile): Die Console liest die aktuellen Werte live bei Mailcow, legt die
+Änderung darüber und schickt nur, was sich ändert. Mailcow lehnt Werte unter dem Verbrauch ab (409
+mit dem Text von Mailcow, z.B. "Max. mailboxes must be greater or equal to 3"). `rateLimit: null`
+entfernt das Versandlimit. Der Schalter "Domain aktiv" stellt eine Domain ab: Sie nimmt dann keine
+E-Mails mehr an. Im Audit-Log steht `mail.domain_update` mit altem und neuem Wert (Grössen in MiB).
+Per API: `PATCH /api/v1/admin/mail/domains/<id>` mit z.B. `{"limits": {"maxMailboxes": 20}}` oder
+`{"active": false}`.
+
+**Löschen** verlangt den Domainnamen als Bestätigung. Mailcow löscht nur leere Domains: Hat sie noch
+Postfächer, antwortet die Console mit 409 (`domain_not_empty`, `details.mailboxes`), ohne Mailcow
+zu fragen. Die Postfächer löscht vorher der Kunde unter "E-Mail" oder weblion.one in seinem Panel.
+Weiterleitungen löscht Mailcow mit der Domain, die E-Mails kommen in den Papierkorb von Mailcow
+(`MAILDIR_GC_TIME`). Den DKIM-Schlüssel, den Mailcow sonst behält und bei einer neuen Domain
+desselben Namens wieder nimmt, löscht die Console standardmässig mit (`deleteDkim`). Scheitert das,
+gilt die Domain trotzdem als gelöscht, mit einem Hinweis. Fehlt die Domain bei Mailcow schon und ist
+als fehlend markiert, entfernt Löschen nur den Eintrag in der Console. Auch eine zugewiesene Domain
+lässt sich löschen, der Kunde verliert sie dann. Im Audit-Log steht `mail.domain_delete`. Per API:
+`DELETE /api/v1/admin/mail/domains/<id>` mit `{"confirm": "kunde.ch", "deleteDkim": true}`.
+
+**Zuweisen** ("Zuweisung ändern", Berechtigung `platform:server:assign`): wie bei Domains, mit
+Modul "E-Mail" (abschaltbar). Lösen nimmt dem Kunden den Zugriff in der Console, bei Mailcow ändert
+sich nichts, die E-Mails fliessen weiter. Im Audit-Log stehen `mail.domain_assign` und
+`mail.domain_unassign`. Per API: `POST /api/v1/admin/mail/domains/<id>/assign` mit
+`{"orgId": "<org-id>", "enableModule": true}` (`orgId: null` löst). Ein Kunde mit Mail-Domains
+lässt sich nicht löschen.
+
+### Postfächer
+
+E-Mail > Domain > Postfächer. Das Postfach ist zugleich der Login, für IMAP, SMTP, POP3 und Webmail
+immer mit der vollständigen Adresse.
+
+- **Anlegen** (`mail:write`): Name vor dem `@` (a-z, 0-9, Punkt, Binde- und Unterstrich, am Anfang
+  und Ende ein Buchstabe oder eine Ziffer, kein `..`, höchstens 64 Zeichen), Anzeigename
+  (optional, höchstens 255 Zeichen ohne `<` und `>`), Grösse (ohne Angabe die Standardgrösse der
+  Domain) und Passwort: erzeugt (einmal angezeigt) oder selbst gewählt. IMAP, POP3, SMTP, Sieve,
+  ActiveSync und Webmail sind an, wie es Mailcow standardmässig vorsieht.
+- Vorher prüft die Console gegen die aktuellen Werte von Mailcow: Die Domain hat
+  noch ein Postfach frei (409 `mail_limit`, `limit: "mailboxes"`), das Postfach ist nicht grösser
+  als die Höchstgrösse (`mailboxSize`), und der Speicher der Domain reicht (`storage`).
+  `details` nennt Limit (`max`) und Verbrauch (`used`). Mailcow prüft dasselbe noch einmal.
+- Postfächer einer Domain entstehen nacheinander (Advisory Lock pro Mail-Domain), weil Mailcow
+  zwischen Zählen und Anlegen nicht sperrt und zwei parallele Anfragen das Limit sonst um eins
+  überschreiten könnten.
+- **Ändern:** Anzeigename (ersetzen, nicht entfernen: Mailcow behält einen alten Namen, wenn man ein
+  leeres Feld schickt, die Console lehnt das deshalb ab), Grösse und Status. Eine grössere Grösse
+  prüft die Console wie beim Anlegen. Kleiner geht immer, auch unter den belegten Speicher: Mailcow
+  nimmt dann keine neuen E-Mails an, bis Platz frei ist. Die Console warnt vorher.
+- **Status:** "Aktiv", "Anmeldung gesperrt" (empfängt weiter E-Mails, niemand kann sich anmelden)
+  und "Inaktiv" (nimmt keine E-Mails an, keine Anmeldung).
+- **Löschen** verlangt die Adresse als Bestätigung. Mailcow löscht das Postfach mit allen E-Mails
+  (sie bleiben einige Tage im Papierkorb von Mailcow, die Console stellt sie nicht wieder her),
+  löscht Weiterleitungen, deren einziges Ziel es war, und nimmt die Adresse aus anderen
+  Weiterleitungen heraus.
+- Postfächer, die jemand direkt in Mailcow angelegt hat, zeigt die Console genauso, auch mit einer
+  Grösse "unbegrenzt" oder mit Zeichen im Namen, die die Console selbst nicht vergibt.
+- Relay-Domains (Mailcow leitet E-Mails nur weiter) haben in der Console keine Postfächer und
+  Weiterleitungen, Anlegen lehnt die API mit 409 ab.
+
+Im Audit-Log stehen `mail.mailbox_create`, `mail.mailbox_update` (mit altem und neuem Wert) und
+`mail.mailbox_delete`. Per API:
+
+```bash
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"localPart":"anna","name":"Anna Muster","quotaMb":2048,"password":"…"}' \
+  https://cp.weblion.cloud/api/v1/mail/domains/<mail-domain-id>/mailboxes
+curl -X PATCH -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"state":"login_disabled"}' \
+  https://cp.weblion.cloud/api/v1/mail/domains/<mail-domain-id>/mailboxes/anna@kunde.ch
+```
+
+Ein API-Token muss beim Anlegen ein Passwort mitschicken (sonst 400), ein erzeugtes bekommt es nie.
+Die Antwort ist `{ "mailbox": { ... }, "password": null }`. Grössen gehen als ganze MiB in die API
+(`quotaMb`) und kommen als Bytes zurück. `state` ist `active`, `login_disabled` oder `inactive`.
+Löschen: `DELETE .../mailboxes/<Adresse>` mit `{"confirm": "<Adresse>"}`.
+
+### Passwörter
+
+- **Erzeugte Passwörter** haben mindestens 20 Zeichen (mehr, wenn die Richtlinie von Mailcow das
+  verlangt) ohne verwechselbare Zeichen, mit Gross- und Kleinbuchstaben, Ziffern und
+  Sonderzeichen. Die Console zeigt sie einmal an und speichert sie nirgends, weder in der Datenbank
+  noch im Audit-Log. Antworten mit Passwort tragen `Cache-Control: no-store`.
+- **Selbst gewählte Passwörter:** mindestens 10 Zeichen (oder mehr, wenn Mailcow das verlangt),
+  höchstens 128, nur druckbare ASCII-Zeichen ohne Leerzeichen, dazu die Passwortrichtlinie von
+  Mailcow (Buchstaben, Gross- und Kleinschreibung, Ziffern, Sonderzeichen, je nach Einstellung). Kann
+  die Console die Richtlinie nicht lesen, verlangt sie Buchstaben in Gross- und Kleinschreibung und
+  eine Ziffer, Mailcow prüft beim Speichern zusätzlich. Fehlt etwas, antwortet die API mit 400 und
+  listet die Punkte in `details[0].issues`.
+- **Neues Passwort** (`mail:password`, Owner und Admin) geht nur mit Login, nie per API-Token. Die
+  Console schickt das Passwort allein, ohne andere Änderungen: Lehnt Mailcow es ab, verwirft es
+  sonst auch alles andere im selben Request. Im Audit-Log steht `mail.password_reset` mit
+  `password: "generated"` oder `"chosen"`, das Passwort selbst nie. Per API nur mit Session:
+  `POST /api/v1/mail/domains/<id>/mailboxes/<Adresse>/password`, ohne Body erzeugt, mit
+  `{"password": "…"}` gewählt.
+- **API-Key der Console:** verschlüsselt gespeichert (AES-256-GCM), in keiner Antwort und keiner
+  Meldung, auch nicht teilweise.
+
+### Weiterleitungen
+
+E-Mail > Domain > Weiterleitungen (`mail:write` zum Ändern):
+
+- **Adresse** unter der Domain (gleiche Regeln wie Postfächer) oder **Catch-all** für alle Adressen
+  der Domain, für die es kein Postfach und keine Weiterleitung gibt. Catch-all zieht Spam an, der
+  Dialog warnt davor.
+- **Ziele:** 1 bis 50 Adressen, Postfächer der Domain oder externe Adressen. Eine Weiterleitung an
+  sich selbst lehnt die Console ab (Mailcow würde sie stillschweigend nicht anlegen). Alle Ziele
+  prüft die Console vorher, denn Mailcow würde ein ungültiges Ziel verwerfen und die Weiterleitung
+  mit dem Rest speichern.
+- **Aktiv** (Standard an): Inaktive Weiterleitungen nehmen keine E-Mails an, die Ziele bleiben
+  gespeichert.
+- Die Console setzt `sender_allowed` (nach dem Quellcode von Mailcow dürfen die Ziele dann unter
+  der Adresse der Weiterleitung senden, siehe Offene Punkte) und `sogo_visible` (die Weiterleitung
+  erscheint im Adressbuch von Webmail).
+- Das Limit an Weiterleitungen prüft die Console wie bei Postfächern, unter derselben Sperre (409
+  `mail_limit`, `limit: "aliases"`). Eine Adresse, die es schon als Postfach oder Weiterleitung
+  gibt, lehnt Mailcow ab (409).
+- Weiterleitungen, die Mailcow für Spezialziele nutzt (verwerfen, als Spam oder Ham lernen), zeigt
+  die Console an. Ihre Ziele lassen sich nur in Mailcow ändern (409), ein- und ausschalten geht.
+- Mailcow nummeriert Weiterleitungen pro Instanz. Eine ID, die zu einer anderen Domain gehört,
+  behandelt die Console wie nicht vorhanden (404), auch wenn jemand sie errät.
+
+Im Audit-Log stehen `mail.alias_create`, `mail.alias_update` und `mail.alias_delete`. Per API:
+`POST /api/v1/mail/domains/<id>/aliases` mit `{"localPart": "info", "targets": ["anna@kunde.ch"]}`
+(`"localPart": null` für Catch-all), `PATCH` und `DELETE .../aliases/<alias-id>`.
+
+### DNS-Einträge
+
+E-Mail > Domain > DNS-Einträge zeigt, was die Domain für Mailcow braucht. Namen relativ zur Domain,
+die Spalte "Wert" im Format der Console:
+
+| Eintrag          | Typ   | Name                 | Wert                                      |           |
+| ---------------- | ----- | -------------------- | ----------------------------------------- | --------- |
+| MX               | MX    | `@`                  | `10 <Mailserver>`                         | Pflicht   |
+| SPF              | TXT   | `@`                  | `v=spf1 mx ~all`                          | Pflicht   |
+| DKIM             | TXT   | `dkim._domainkey`    | `v=DKIM1;k=rsa;t=s;s=email;p=<Schlüssel>` | Pflicht   |
+| DMARC            | TXT   | `_dmarc`             | `v=DMARC1; p=none`                        | empfohlen |
+| Autodiscover     | CNAME | `autodiscover`       | `<Mailserver>`                            | empfohlen |
+| Autoconfig       | CNAME | `autoconfig`         | `<Mailserver>`                            | empfohlen |
+| Autodiscover-SRV | SRV   | `_autodiscover._tcp` | `0 1 443 <Mailserver>`                    | empfohlen |
+
+SPF mit `~all` und DMARC mit `p=none` (ohne Berichtsadresse) sind bewusst vorsichtig: Sie lehnen
+nichts ab, solange ein Kunde noch über andere Dienste sendet. Verschärfen geht in der DNS-Verwaltung
+von Hand.
+
+**Vergleich:** Liegt eine Domain desselben Namens (ASCII- oder Umlaut-Form) im Modul "Domains & DNS"
+und darf die Person sie sehen, vergleicht die Console mit deren Zone. Gibt es mehrere, nimmt sie die,
+deren Einträge sich lesen lassen, deren Nameserver die Domain bedienen und deren DNS sich ändern
+lässt, also z.B. die aktive Cloudflare-Zone statt der Registrierung bei Joker. Jeder Eintrag hat
+einen Status:
+
+- **In Ordnung:** MX zeigt auf den Mailserver, genau ein SPF-Eintrag erlaubt den Mailserver (mit
+  `a:` oder `include:` des Mailservers, oder `mx`, wenn MX stimmt), der DKIM-Eintrag hat den
+  Schlüssel von Mailcow, genau ein DMARC-Eintrag (jede Richtlinie), CNAME und SRV zeigen auf den
+  Mailserver.
+- **Fehlt:** unter dem Namen gibt es nichts Passendes.
+- **Weicht ab:** MX auf einen anderen Server, mehrere SPF-Einträge oder einer ohne den Mailserver,
+  ein anderer DKIM-Schlüssel, mehrere DMARC-Einträge, CNAME oder SRV auf ein anderes Ziel, andere
+  Einträge unter dem Namen.
+- **Unbekannt:** keine Zone in der Console, oder die Einträge liessen sich nicht lesen. Dann zeigt
+  die Seite die Einträge mit vollem Namen zum Eintragen beim DNS-Anbieter.
+
+**DKIM-Schlüssel erzeugen** (`mail:write`): wenn die Domain noch keinen hat (2048, 3072 oder 4096
+Bit, Selektor `dkim`, sonst 409). Ohne Schlüssel steht DKIM auf "Fehlt" mit dem Hinweis, zuerst den
+Schlüssel zu erzeugen. Den TXT-Wert baut die Console aus dem öffentlichen Schlüssel selbst, denn
+Mailcow liefert ihn je nach Einstellung schon in Teile zerlegt. Ein Schlüssel mit 2048 Bit ergibt
+rund 420 Zeichen, mehr als ein DNS-String fasst (255 Bytes). Joker.com und Cloudflare bekommen den
+Wert deshalb in mehreren Teilen, DNS fügt sie wieder zusammen. Im Audit-Log steht `mail.dkim_create`.
+
+**Fehlende Einträge hinzufügen:** braucht `domain:dns:write` auf der Domain der Zone, einen Provider,
+dessen DNS sich gerade ändern lässt (bei 24fire nur mit 24fire+), und lesbare Einträge (sonst fügt
+die Console nichts hinzu, 502). Die Console fügt nur Einträge mit Status "Fehlt" hinzu, einen nach
+dem anderen (Joker schreibt bei jeder Änderung die ganze Zone), mit TTL 3600 Sekunden, wo der
+Provider eine TTL nimmt, bei Cloudflare nie über den Proxy. Einträge, die abweichen, ändert oder
+löscht sie nie. DKIM ohne Schlüssel und Typen, die der Provider nicht nimmt, überspringt sie. Jeder
+hinzugefügte Eintrag steht wie ein von Hand angelegter als `domain.dns_add` im Audit-Log (mit
+`source: "mail"`), dazu `mail.dns_apply` mit hinzugefügten, übersprungenen und fehlgeschlagenen
+Einträgen. Liegt die Domain nicht in der Console, antwortet die API mit 409. Per API:
+`GET /api/v1/mail/domains/<id>/dns`, `POST /api/v1/mail/domains/<id>/dkim` mit `{"keySize": 2048}`,
+`POST /api/v1/mail/domains/<id>/dns/apply` (optional `{"keys": ["spf", "dkim"]}`).
+
+### Einstellungen für Mailprogramme
+
+Die Übersicht einer Mail-Domain zeigt sie, abgeleitet aus dem Mailserver-Hostnamen der Instanz:
+
+| Dienst  | Server                       | Port und Verschlüsselung              |
+| ------- | ---------------------------- | ------------------------------------- |
+| IMAP    | Mailserver                   | 993 SSL/TLS (empfohlen), 143 STARTTLS |
+| SMTP    | Mailserver                   | 465 SSL/TLS (empfohlen), 587 STARTTLS |
+| POP3    | Mailserver                   | 995 SSL/TLS (empfohlen), 110 STARTTLS |
+| Webmail | `https://<Mailserver>/SOGo/` |                                       |
+
+Benutzername ist immer die vollständige Adresse, SMTP verlangt eine Anmeldung.
+
+### Sync
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) genau eine Anfrage pro Instanz:
+  `GET /api/v1/get/domain/all`. Daraus kommen Name, Status, Limits und Verbrauch (Postfächer,
+  Weiterleitungen, vergebener und belegter Speicher, Zahl der Nachrichten).
+- Neue Domains sind nicht zugewiesen. Domains, die bei Mailcow verschwinden, werden als fehlend
+  markiert und behalten ihren Kunden. Tauchen sie wieder auf, verschwindet der Hinweis.
+- Hat die Console eine Domain geändert, während der Sync die Liste las (Limits, Anlegen), behält sie
+  ihre neueren Werte bis zum nächsten Lauf.
+- Postfächer, Weiterleitungen und DKIM-Schlüssel liest die Console nur, wenn jemand sie ansieht.
+  Die Detailansicht einer Domain liest Limits und Verbrauch live nach, ebenso jede Änderung, die den
+  Verbrauch ändert (Postfach anlegen, vergrössern, löschen, Weiterleitung anlegen, löschen).
+- Von Hand: Admin > Provider > Mailcow > "Jetzt synchronisieren", oder der Sync-Button im Tab
+  "E-Mail-Domains".
+
+### Reseller
+
+- Ein Reseller bekommt von weblion.one Mail-Domains wie jeder Kunde, dazu das Modul "E-Mail". Er gibt
+  sie unter Reseller > Meine Kunden > Kunde > Ressourcen ("E-Mail-Domain zuweisen") an seine Kunden
+  weiter und nimmt sie zurück. Der Kunde bekommt dabei das Modul.
+- Die Limits ändert nur weblion.one, Mailcow kennt keine verschachtelten Kontingente. Ein Reseller
+  gibt eine Domain so weiter, wie sie ist.
+- Mitarbeitende des Resellers verwalten Postfächer und Weiterleitungen im Panel des Kunden mit ihrer
+  Reseller-Rolle.
+- Dienste lassen sich noch nicht mit Mail-Domains verknüpfen, das Weitergeben blockiert also nie ein
+  Dienst. Per API: `POST /api/v1/orgs/<reseller-id>/customers/<customer-id>/resources` mit
+  `{"type": "maildomain", "id": "<mail-domain-id>"}`, zurück mit `.../resources/release`.
+
+### Was die Console nutzt
+
+| Funktion in der Console                | Endpunkt                                                                                                  | Berechtigung                       |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| Verbindungstest                        | `GET /api/v1/get/status/version`, `GET /api/v1/get/domain/all`, `POST /api/v1/edit/rl-domain` ohne Domain | Admin-Bereich                      |
+| Übersicht des Providers                | dazu `GET /api/v1/get/status/vmail`                                                                       | Admin-Bereich                      |
+| Mail-Domains finden (Sync)             | `GET /api/v1/get/domain/all`                                                                              | Sync-Job                           |
+| Mail-Domain ansehen                    | `GET /api/v1/get/domain/<Domain>`                                                                         | `mail:read`                        |
+| Mail-Domain anlegen                    | `GET /api/v1/get/domain/<Domain>`, `POST /api/v1/add/domain`                                              | `platform:mail:write`              |
+| Limits ändern, Domain abstellen        | `POST /api/v1/edit/domain`, Versandlimit `POST /api/v1/edit/rl-domain`                                    | `platform:mail:write`              |
+| Mail-Domain löschen                    | `POST /api/v1/delete/domain`, `POST /api/v1/delete/dkim`                                                  | `platform:mail:write`              |
+| Postfächer ansehen                     | `GET /api/v1/get/mailbox/all/<Domain>`, `GET /api/v1/get/mailbox/<Adresse>`                               | `mail:read`                        |
+| Postfach anlegen                       | `POST /api/v1/add/mailbox`                                                                                | `mail:write`                       |
+| Name, Grösse, Status ändern            | `POST /api/v1/edit/mailbox`                                                                               | `mail:write`                       |
+| Neues Passwort                         | `POST /api/v1/edit/mailbox` nur mit `password` und `password2`                                            | `mail:password`, nur mit Login     |
+| Postfach löschen                       | `POST /api/v1/delete/mailbox`                                                                             | `mail:write`                       |
+| Weiterleitungen ansehen                | `GET /api/v1/get/alias/all/<Domain>`, `GET /api/v1/get/alias/<ID>`                                        | `mail:read`                        |
+| Weiterleitung anlegen, ändern, löschen | `POST /api/v1/add/alias`, `/edit/alias`, `/delete/alias`                                                  | `mail:write`                       |
+| DKIM-Schlüssel ansehen, erzeugen       | `GET /api/v1/get/dkim/<Domain>`, `POST /api/v1/add/dkim`                                                  | `mail:read`, `mail:write`          |
+| Passwortrichtlinie                     | `GET /api/v1/get/passwordpolicy`                                                                          | `mail:read`                        |
+| API Explorer                           | jeder Pfad unter `/api/v1/get`, `/add`, `/edit`, `/delete`                                                | `platform:explorer`, nur mit Login |
+
+`add` bekommt die Attribute als Body, `edit` `{"items": [...], "attr": {...}}`, `delete` die Liste
+der Objekte selbst (`["anna@kunde.ch"]`, anders als die OpenAPI-Beschreibung sagt). Domains stehen
+in der `xn--`-Form im Pfad. Zeichen, die im Pfad nicht gehen (`/`, `?`, `#`, `&`, `%`, `+`), vergibt
+die Console nie. Postfächer mit solchen Zeichen, die in Mailcow angelegt wurden, sucht sie in der
+Liste der Domain.
+
+### Verhalten im Detail
+
+Mailcow hat einige Eigenheiten, die die Console abfängt:
+
+- **Fehler mit HTTP 200:** Mailcow meldet fachliche Fehler als Liste von Einträgen
+  (`{"type": "danger", "msg": [...]}`) mit Status 200. Die Console wertet jeden `danger`- oder
+  `error`-Eintrag als Fehler und zeigt den englischen Text von Mailcow. Je nach Schlüssel antwortet
+  sie mit 409 (existiert schon, Limit erreicht, Verbrauch zu hoch), 400 (ungültiger Wert,
+  Passwortrichtlinie), 404 (Domain nicht gefunden) oder 502. Warnungen (z.B. SOGo-Neustart
+  gescheitert) sind keine Fehler.
+- **Nicht gefunden ist `{}`:** Lesen antwortet mit `{}` statt 404, eine leere Liste ist ebenfalls
+  `{}`, und Ändern oder Löschen eines fehlenden Postfachs meldet "access denied". Die Console liest
+  deshalb vor jeder Änderung und antwortet selbst mit 404.
+- **MiB und Bytes:** Mailcow nimmt Grössen in ganzen MiB und antwortet in Bytes. Die Console rechnet
+  ohne Runden: In den Formularen gelten MB und GB binär (1 GB = 1024 MB), ein Wert, der kein
+  ganzes MB ergibt, wird abgelehnt.
+- **Zahlen und Schalter** kommen je nach Version und Feld als Zahl oder Text (`"1"`, `"0"`), die
+  Console liest beides.
+- **Keine Wiederholung bei 401:** Mailcow zählt jede abgelehnte Anmeldung für seinen Netfilter. Die
+  Meldung nennt die IP, die in die Allow-List gehört, oder sagt, dass Mailcow den Key nicht kennt.
+  Ein Key nur zum Lesen ergibt 403 mit dem Hinweis auf den Key mit Schreibzugriff.
+- **Teure Änderungen:** Jede Änderung an Domains, Postfächern und Weiterleitungen baut die
+  Adressbuch-Ansicht von SOGo neu. Die Console schickt deshalb nur, was sich ändert, und prüft den
+  Schreibzugriff mit dem Versandlimit statt mit einer Domain-Änderung.
+- **Keine Seiten:** Listen kommen ganz und werden pro Domain berechnet, grosse Domains antworten
+  langsam. Die Console fragt immer pro Domain und hält Antworten kurz im Speicher: Domain 15
+  Sekunden, Postfach- und Weiterleitungslisten 10 Sekunden, DKIM 5 Minuten, Version und
+  Passwortrichtlinie 10 Minuten. Jede Änderung über die Console leert das für ihre Domain.
+- Höchstens vier Anfragen pro Instanz laufen gleichzeitig, jede mit 30 Sekunden Timeout, eine
+  Domain anlegen mit SOGo-Neustart 120 Sekunden.
+- Der API-Key und mitgeschickte Passwörter stehen in keiner Meldung. Mailcow gibt in seinen
+  Antworten die Anfrage zurück (`log`): In Meldungen zeigt die Console das nie, im API Explorer
+  sind Passwörter darin ausgeblendet.
+
+### Fehler der API
+
+Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
+E-Mail:
+
+| HTTP | `code`             | Wann                                                                                                                                                                                                                                                                                                   |
+| ---- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 400  | `bad_request`      | Ungültige Eingabe (`details` nennt das Feld), Passwort erfüllt die Regeln nicht (`details[0].issues`), API-Token ohne Passwort, falsche Bestätigung beim Löschen, Weiterleitung an sich selbst, Werte, die Mailcow ablehnt                                                                             |
+| 403  | `forbidden`        | Recht fehlt, Kunde gesperrt (nur lesen), "Neues Passwort" mit API-Token, Plattform-Routen ohne Plattform-Rolle                                                                                                                                                                                         |
+| 404  | `not_found`        | Mail-Domain gibt es nicht oder die Person sieht sie nicht (auch bei abgeschaltetem Modul), Adresse oder Weiterleitung einer anderen Domain                                                                                                                                                             |
+| 404  | `provider_error`   | Mailcow kennt das Postfach, die Weiterleitung oder die Domain nicht (mehr)                                                                                                                                                                                                                             |
+| 409  | `mail_limit`       | Limit der Domain erreicht, `details` mit `limit` (`mailboxes`, `aliases`, `storage`, `mailboxSize`), `max` und `used`                                                                                                                                                                                  |
+| 409  | `domain_not_empty` | Löschen einer Domain mit Postfächern, `details.mailboxes`                                                                                                                                                                                                                                              |
+| 409  | `conflict`         | Adresse oder Domain existiert schon (in der Console, auf einer anderen Instanz oder bei Mailcow), Limits unter dem Verbrauch, Relay-Domain, Ziele einer Spezial-Weiterleitung, DKIM-Schlüssel existiert, keine Zone für "Fehlende Einträge hinzufügen", DNS gerade nicht änderbar, Reseller ohne Modul |
+| 422  | `unsupported`      | Der Provider kann keine E-Mail (z.B. Nextcloud als Instanz gewählt)                                                                                                                                                                                                                                    |
+| 502  | `provider_error`   | Mailcow hat abgelehnt oder war nicht erreichbar, `message` mit dem Text von Mailcow und dem HTTP-Status. Ebenso, wenn die Einträge der Zone beim Hinzufügen nicht lesbar waren                                                                                                                         |
+
+Jede Änderung steht im Audit-Log, gescheiterte mit `status: failure` und der Meldung, auch die
+Limit-Prüfungen der Console.
+
+### API Explorer
+
+Für alles ohne eigenen Button: Admin > API Explorer, Provider Mailcow wählen.
+
+- Pfade beginnen mit `/api/v1/get/`, `/add/`, `/edit/` oder `/delete/`, die Base URL davor ist
+  erlaubt. Die Methode ergibt sich aus dem Pfad: `get` liest mit GET, alles andere ändert mit
+  POST. Andere Pfade, `..`, `//`, `\`, `#` und kodierte Punkte oder Schrägstriche sind gesperrt.
+- Body: bei `add` die Attribute, bei `edit` `{"items": [...], "attr": {...}}`, bei `delete`
+  `{"items": [...]}` (die Console schickt Mailcow die Liste allein). Werte als Text (`"1"`/`"0"`),
+  Grössen in MiB.
+- Vorlagen: Domains, Postfächer, Weiterleitungen, DKIM, Version, Passwortrichtlinie.
+- In Antworten sind Werte von Feldern wie `password`, `secret`, `token`, `privkey` oder `api_key`
+  ausgeblendet, ebenso der Key der Console und Passwörter oder Schlüssel, die im Request standen.
+- Ändernde Requests stehen mit Pfad und Body im Audit-Log (`provider.explorer`), Passwörter und
+  private Schlüssel ausgeblendet. Lesende nicht.
+- Was über den Explorer geändert wird, prüft die Console nicht gegen ihre Limits. Mailcow setzt die
+  Limits der Domain trotzdem durch.
+
+### Grenzen
+
+- **Sperren:** Ein gesperrter Kunde sieht seine Mail-Domains in der Console nur noch lesend. Bei
+  Mailcow laufen sie weiter, E-Mails kommen an und gehen raus. Wer das stoppen will, schaltet die
+  Domain unter "Limits ändern" auf inaktiv. Ebenso lassen ein abgeschaltetes Modul und eine gelöste
+  Zuweisung Mailcow unberührt.
+- **Abrechnung:** Limits und Dienst sind getrennt. Ein Produkt mit Modul "E-Mail" geht, aber ein
+  Dienst lässt sich nicht mit einer Mail-Domain verknüpfen, und Speicher oder Postfächer werden
+  nicht nach Verbrauch abgerechnet. Siehe [billing.md](billing.md#e-mail-mailcow-verkaufen).
+- **Mail-Domains anlegen** kann nur weblion.one, nicht Kunden oder Reseller.
+- Nicht in der Console, das geht in Mailcow: Protokolle pro Postfach (IMAP, POP3, SMTP, Sieve,
+  ActiveSync, Webmail) schalten, Spam-Einstellungen, Filter, Abwesenheitsnotizen (die Nutzer selbst
+  in SOGo), Alias-Domains, Domain-Admins, Absender-Rechte, BCC, Quarantäne, TLS-Richtlinien,
+  DKIM-Schlüssel tauschen oder entfernen, Relay-Domains verwalten (die Console zeigt sie nur).
+- SPF und DMARC schlägt die Console mit festen Werten vor.
+- Eine Domain zwischen zwei Instanzen umziehen (Postfächer und E-Mails kopieren)
+- Wie viel Platz die Instanz noch hat, zeigt nur die Seite des Providers (belegter Mail-Speicher).
+  Wer mehr verkauft, als die Disk hat, überwacht das selbst.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen ein echtes Mailcow ist die Anbindung noch nicht getestet, nur gegen einen Mock-Server, der
+antwortet wie der Quellcode von Mailcow (Stand `master` vom 9. Oktober 2026). Vor dem ersten
+echten Einsatz mit einer Test-Instanz prüfen:
+
+- Der Menüpfad für API-Keys und die Whitelist des Netfilters in der aktuellen Mailcow-Oberfläche
+- Nach wie vielen abgelehnten API-Anmeldungen und wie lange der Netfilter eine IP sperrt
+- Die Antwort auf den Schreibtest des Verbindungstests (`edit/rl-domain` ohne Domain sollte "Task
+  completed" ergeben)
+- Ob eine neue Domain den Neustart von SOGo für Webmail noch braucht. Wenn nicht, den Schalter im
+  Dialog standardmässig ausschalten.
+- Ob rspamd mit einem neuen DKIM-Schlüssel sofort signiert, ohne Neustart
+- Was ein inaktives Postfach beim Empfang macht (ablehnen oder zurücksenden)
+- Ob das Versandlimit Nachrichten oder Empfänger zählt
+- Was `sender_allowed` bei Weiterleitungen genau erlaubt
+- Die Standardwerte der Passwortrichtlinie einer neuen Instanz (die Demo nimmt 8 Zeichen,
+  Buchstaben, Gross- und Kleinschreibung)
+- Die Zeitzone von Anlage- und Änderungsdatum (die Console liest UTC und zeigt nur das Datum)
+- Wie schnell Belegung und Zahl der Nachrichten der echten Nutzung folgen
+- Ob Joker.com einen TXT-Wert über 255 Zeichen in einem Stück annimmt (die Console teilt ihn
+  ohnehin) und wie 24fire lange TXT-Werte speichert. Ein Provider, der ablehnt, erscheint bei
+  "Fehlende Einträge hinzufügen" als fehlgeschlagen.
+- Die Antwort von Mailcow bei PHP-Fehlern (HTTP 500 mit leerem Body oder HTML)
+- Die älteste Mailcow-Version, mit der die Anbindung funktioniert. Fehlt
+  `GET /api/v1/get/passwordpolicy` in einer Version, gelten die Regeln der Console.
+
+### Demo
+
+Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert auch eine Mailcow-Instanz im Speicher,
+mit denselben Prüfungen und Antworten wie die echte Anbindung. Der Mailserver
+`mail.demo.weblion.one` existiert nicht, "Webmail öffnen" führt ins Leere. Mit `pnpm db:seed`:
+
+- Muster AG hat `muster-ag.ch` (vier Postfächer in allen drei Status,
+  Weiterleitungen jeder Art inklusive Catch-all und einer, die verwirft, mit DKIM-Schlüssel) und
+  `muster-shop.ch` (ein Postfach von höchstens 5, kein DKIM-Schlüssel, und die DNS-Zone passt noch
+  nicht zu Mailcow: gut für "DKIM-Schlüssel erzeugen" und "Fehlende Einträge hinzufügen").
+- Bäckerei Huber hat `baeckerei-huber.ch`, ihr Reseller Alpen Hosting `alpen-hosting.ch` im eigenen
+  Bestand zum Weitergeben.
+- `müller.ch` (Umlaut-Domain) und die Relay-Domain `alpenblick-hotel.ch` sind keinem Kunden
+  zugewiesen.
+
 ## Weitere Provider anbinden
 
 Ein Provider ist eine Klasse, die `ProviderAdapter` aus
@@ -1075,3 +2109,23 @@ Kontingente auf ihm mit 422 (`unsupported`) ab. Optional sind `resendCloudInvite
 erneut senden) und `cloudLoginUrl` (Adresse zum Anmelden). Kontingente, Login-Namen, Gruppen und
 Passwörter erledigt das Modul `cloud`, der Adapter spricht nur mit der Instanz. Im Web hält
 `isCloudProvider()` in `pages/admin/cloud.tsx` fest, welche Typen Cloud-Konten haben.
+
+Ein DNS-Provider ohne Registrierung wie Cloudflare meldet mit `domainKind()` die Art `"zone"`
+(ohne die Methode gilt `"registration"`). Seine Zonen kommen über `listDomains`. Optional sind
+`checkZoneActivation` (wartende Zone prüfen), `getCdnSettings`, `updateCdnSetting` und
+`purgeCache` (mit der Fähigkeit `cdn`) sowie `createZone` mit `canCreateZones()` für den DNS-Umzug.
+Die Fähigkeiten `dnsProxy`, `dnsTtlAuto` und `cnameFlattening` schalten Proxy-Schalter,
+automatische TTL und CNAME für `@` in der Console frei. Die Verknüpfung von Registrierung und Zone
+sowie der Umzug brauchen im Adapter nichts weiter, das erledigen `modules/hosting/service.ts` und
+`modules/hosting/zones.ts`.
+
+Ein Provider für E-Mail wie Mailcow liefert ebenfalls keine Server. Er implementiert
+`listMailDomains`, `getMailDomain`, `listMailboxes`, `getMailbox`, `createMailbox`, `updateMailbox`,
+`setMailboxPassword`, `deleteMailbox`, `listMailAliases`, `getMailAlias`, `createMailAlias`,
+`updateMailAlias`, `deleteMailAlias`, `getDkim` und `mailClientSettings`. Erst mit allen gilt er als
+E-Mail-Provider (`supportsMail()` in `apps/api/src/modules/mail/service.ts`), sonst antwortet die API
+mit 422 (`unsupported`). Für den Admin-Bereich kommen `createMailDomain`, `updateMailDomain` und
+`deleteMailDomain` dazu, optional `createDkim`, `deleteDkim` und `mailPasswordPolicy`. Die Prüfung
+der Limits, Passwörter und die DNS-Einträge erledigt das Modul `mail`, der Adapter spricht nur mit
+der Instanz. Grössen nimmt er in ganzen MiB und meldet sie in Bytes. Im Web hält
+`isMailProvider()` in `pages/admin/mail.tsx` fest, welche Typen Mail-Domains haben.

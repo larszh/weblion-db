@@ -5,12 +5,14 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
 
 ## Als Nächstes
 
-- **Live-Test gegen 24fire, Proxmox, Hetzner Cloud, Joker.com und Nextcloud** mit den echten
-  Zugangsdaten (die Build-Umgebung hatte keinen Zugriff), bei Joker.com zuerst im Testsystem
-  (OT&E), bei Nextcloud mit einer eigenen Test-Instanz. Offene Detailfragen stehen in
-  docs/providers.md
-- **Cloud-Speicher an Sperre und Abrechnung koppeln**: Heute laufen die Nextcloud-Konten eines
-  gesperrten Kunden oder nach gekündigtem Dienst weiter (siehe unten)
+- **Live-Test gegen 24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud und
+  Mailcow** mit den echten Zugangsdaten (die Build-Umgebung hatte keinen Zugriff), bei Joker.com
+  zuerst im Testsystem (OT&E), bei Cloudflare mit einem Test-Konto und einer Test-Zone, bei
+  Nextcloud und Mailcow mit eigenen Test-Instanzen. Offene Detailfragen stehen in docs/providers.md
+  unter "Offene Punkte"
+- **Cloud-Speicher und E-Mail an Sperre und Abrechnung koppeln**: Heute laufen die
+  Nextcloud-Konten und Mail-Domains eines gesperrten Kunden oder nach gekündigtem Dienst weiter
+  (siehe unten)
 - **Hetzner Cloud ausbauen**: Backups pro Server ein- und ausschalten (mit Preis-Hinweis),
   Rescue-System, SSH-Keys und Cloud-Init beim Erstellen, Volumes (Speicher dazubuchen),
   Floating und Primary IPs. Firewalls nur als eigene Firewall pro Kunde oder Server, weil
@@ -68,12 +70,62 @@ Nächstes:
   prüfen, Cloud-Konten in den Zählern der Kundenlisten, Gruppen-Präfix aus der `.env`, Konten im
   Admin-Bereich direkt deaktivieren und löschen (heute im Panel des Kunden)
 
+## DNS und CDN (Cloudflare)
+
+Die Anbindung deckt heute Zonen als Domains, DNS-Einträge mit Proxy und automatischer TTL, die
+CDN-Einstellungen (SSL/TLS, Always Use HTTPS, Entwicklungsmodus, Cache leeren), wartende Zonen,
+die Verknüpfung von Registrierung und Zone und den DNS-Umzug für weblion.one ab. Als Nächstes:
+
+- **Zone anlegen** für Domains, die nicht im Panel registriert sind (heute nur über den Umzug oder
+  im Dashboard), und Zonen löschen
+- **Einträge scannen** (Nachfolger von `jump_start`) für Domains, deren DNS bei einem Drittanbieter
+  liegt, statt sie von Hand einzutragen
+- **Cache gezielt leeren**: einzelne URLs, Hosts oder Tags statt des ganzen Caches
+- **Eigene Berechtigung für das CDN** (`domain:cdn`), damit z.B. Member nach einem Deployment den
+  Cache leeren dürfen, ohne Nameserver ändern zu können. Heute hängt alles an `domain:manage`
+- **Kommentare der Einträge bearbeiten** und Typen wie HTTPS und SVCB anlegen (heute nur lesen)
+- **Umzug durch den Kunden** selbst starten lassen, mit Bestätigung, heute nur weblion.one
+- **Registrierung und Zone in einer Zeile** zeigen, falls zwei Einträge pro Domain Kunden verwirren
+- **Reseller-Weitergabe koppeln**: Gibt ein Reseller eine Registrierung weiter, die Zone desselben
+  Namens mitnehmen (heute zwei Schritte)
+- **Erste Zuweisung melden**: weblion.one per E-Mail informieren, wenn der Sync eine Zone einem
+  Kunden zuweist oder wegen mehrerer Kunden frei lässt
+- **Page Rules, Weiterleitungen und Cache-Regeln**, DNSSEC bei Cloudflare, E-Mail Routing
+- **Abrechnung** von Zonen und bezahlten Cloudflare-Tarifen (Pro), heute laufen Zonen ohne eigenen
+  Dienst
+
+## E-Mail (Mailcow)
+
+Die Anbindung deckt heute Mail-Domains mit Limits auf beliebig vielen Instanzen, Postfächer,
+Weiterleitungen inklusive Catch-all, Passwörter, DKIM-Schlüssel, die DNS-Einträge mit "Fehlende
+Einträge hinzufügen", den Sync und die Weitergabe durch Reseller ab. Als Nächstes:
+
+- **Abrechnung koppeln**: Mail-Domains als Ressource von Diensten (`maildomain` in den
+  Ressourcentypen der Abrechnung), damit ein Dienst an der Domain hängt, die Weitergabe einen
+  laufenden Dienst berücksichtigt und Kündigen die Domain abstellt. Optional Postfächer oder
+  Speicher nach Verbrauch abrechnen
+- **Sperre koppeln**: Sperrt weblion.one oder ein Reseller einen Kunden, stellt die Console seine
+  Mail-Domains bei Mailcow ab (oder sperrt nur die Anmeldung) und beim Entsperren wieder an. Heute
+  geht das nur von Hand über "Limits ändern"
+- **Mail-Domain anfragen**: Kunden fragen für eine ihrer Domains E-Mail an, weblion.one gibt frei.
+  Später als Teil der Self-Service-Bestellung
+- **Umzug zwischen Instanzen**: Postfächer samt E-Mails von einer Instanz auf eine andere kopieren
+  (z.B. mit imapsync), heute muss die Domain auf der alten Instanz zuerst weg sein
+- **Instanz für einen Kunden**: neue Mail-Domains einer Instanz automatisch einem Kunden zuweisen
+- **Limits für Reseller**: Reseller teilen eine Domain oder ein eigenes Kontingent selbst auf
+  (Mailcow kennt keine verschachtelten Kontingente, die Console müsste das prüfen)
+- **SPF und DMARC verschärfen**: pro Kunde `-all` und `p=quarantine` mit Berichtsadresse, sobald
+  alle Absender bekannt sind
+- **DKIM-Schlüssel tauschen** mit Übergangszeit (zwei Selektoren)
+- **Mehr pro Postfach**: Protokolle (IMAP, POP3, SMTP, ActiveSync) einzeln schalten,
+  Abwesenheitsnotiz und Weiterleitung des Postfachs, App-Passwörter
+- **Warnungen**: E-Mail an den Owner, wenn ein Postfach oder der Speicher der Domain fast voll ist,
+  und an weblion.one, wenn der Mail-Speicher einer Instanz knapp wird
+
 ## Neue Dienste
 
 - **Webhosting-Bereitstellung**: Die 24fire-API kann Webspaces nur lesen. Neue Webspaces
   aus der Console anlegen ginge mit einem eigenen Plesk/KeyHelp-Server und dessen API
-- **DNS bei Cloudflare** als weiterer DNS-Provider, z.B. für Domains mit
-  Cloudflare-Nameservern
 - **Grafana pro Kunde**: automatisch angelegte Grafana-Organisationen mit Dashboards für die
   eigenen Server, eingebettet im Panel
 - **Uptime- und Statusseiten**: externe Checks (z.B. Uptime Kuma) und eine Statusseite pro Kunde
