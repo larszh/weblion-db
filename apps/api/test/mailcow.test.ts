@@ -443,7 +443,10 @@ class MailcowMock {
       for (const address of items) {
         const mailbox = this.mailboxes.get(address);
         if (!mailbox) return { body: [danger('access_denied')] };
-        if (attr.password !== undefined) this.passwords.set(address, String(attr.password));
+        // As Mailcow: only mailboxes of its own authsource get the password, yet all report success.
+        if (attr.password !== undefined && mailbox.authsource === 'mailcow') {
+          this.passwords.set(address, String(attr.password));
+        }
         if (attr.name) mailbox.name = attr.name;
         if (attr.quota !== undefined) mailbox.quota = Number(attr.quota) * MiB;
         if (attr.active !== undefined) mailbox.active = Number(attr.active);
@@ -451,13 +454,33 @@ class MailcowMock {
       return { body: items.map((a) => ok('mailbox_modified', a)) };
     }
     if (category === 'alias') {
+      const entries: unknown[] = [];
       for (const id of items) {
         const alias = this.aliases.get(Number(id));
         if (!alias) return { body: [danger('alias_invalid', id)] };
-        if (attr.goto) alias.goto = attr.goto;
-        if (attr.active !== undefined) alias.active = Number(attr.active);
+        // As Mailcow: without goto the stored one is checked again. A special target survives
+        // only with its flag (FILTER_VALIDATE_EMAIL refuses null@localhost), and without a
+        // valid target nothing is saved, though Mailcow still reports alias_modified.
+        let goto: string;
+        if (String(attr.goto_null) === '1') goto = 'null@localhost';
+        else if (String(attr.goto_spam) === '1') goto = 'spam@localhost';
+        else if (String(attr.goto_ham) === '1') goto = 'ham@localhost';
+        else {
+          const valid: string[] = [];
+          for (const target of String(attr.goto || alias.goto).split(/[ ,;\n]/)) {
+            if (!target.trim()) continue;
+            if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(target.trim())) valid.push(target.trim());
+            else entries.push(danger('goto_invalid', target.trim()));
+          }
+          goto = [...new Set(valid)].join(',');
+        }
+        if (goto) {
+          alias.goto = goto;
+          if (attr.active !== undefined) alias.active = Number(attr.active);
+        }
+        entries.push(ok('alias_modified', id));
       }
-      return { body: items.map((id) => ok('alias_modified', id)) };
+      return { body: entries };
     }
     return routeNotFound;
   }
@@ -1573,6 +1596,19 @@ describe('Mailcow mailboxes', () => {
     expect(weak.message).not.toContain(PW);
     mc.override = undefined;
 
+    // A mailbox that signs in through Keycloak (LDAP, OIDC) keeps its password there.
+    mc.passwords.clear();
+    mc.mailboxes.get('anna@muster-ag.ch')!.authsource = 'keycloak';
+    server.requests.length = 0;
+    const external = await caught(adapter().setMailboxPassword('anna@muster-ag.ch', PW));
+    expect(external.statusCode).toBe(409);
+    expect(external.message).toBe(
+      'anna@muster-ag.ch signs in through keycloak, its password is managed there, not at Mailcow',
+    );
+    expect(posts()).toHaveLength(0);
+    expect(mc.passwords.size).toBe(0);
+    mc.mailboxes.get('anna@muster-ag.ch')!.authsource = 'mailcow';
+
     await adapter().deleteMailbox('anna@muster-ag.ch');
     expect(sent('POST', '/api/v1/delete/mailbox')[0]!.body).toEqual(['anna@muster-ag.ch']);
     expect(mc.mailboxes.has('anna@muster-ag.ch')).toBe(false);
@@ -1708,6 +1744,28 @@ describe('Mailcow aliases', () => {
     expect(mc.aliases.get(12)).toMatchObject({ goto: 'anna@muster-ag.ch', active: 0 });
     const self = await caught(adapter().updateMailAlias('12', { targets: ['team@muster-ag.ch'] }));
     expect(self.statusCode).toBe(400);
+
+    // Special targets keep their flag, or Mailcow would refuse its own null@localhost.
+    for (const [id, special, flag] of [
+      [20, 'null@localhost', 'goto_null'],
+      [21, 'spam@localhost', 'goto_spam'],
+      [22, 'ham@localhost', 'goto_ham'],
+    ] as const) {
+      mc.aliases.set(id, {
+        ...structuredClone(ALIAS),
+        id,
+        address: `special${id}@muster-ag.ch`,
+        goto: special,
+      });
+      server.requests.length = 0;
+      await adapter().updateMailAlias(String(id), { active: false });
+      expect(sent('POST', '/api/v1/edit/alias')[0]!.body).toEqual({
+        items: [String(id)],
+        attr: { active: '0', [flag]: '1' },
+      });
+      expect(mc.aliases.get(id)).toMatchObject({ goto: special, active: 0 });
+      mc.aliases.delete(id);
+    }
 
     mc.override = (req) =>
       req.path === '/api/v1/edit/alias'

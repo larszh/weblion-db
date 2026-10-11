@@ -225,8 +225,11 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
   }
 }
 
-/** Keys whose values never reach the audit log (Mailcow's DKIM import sends private_key_file). */
-const SECRET_KEY = /passw(or)?d|secret|token|auth_?code|api_?key|priv(ate)?_?key/i;
+/**
+ * Keys whose values never reach the audit log (Mailcow's DKIM import sends private_key_file,
+ * its identity provider bindpass). Any "pass", like the Mailcow adapter's own redaction.
+ */
+const SECRET_KEY = /pass|secret|token|auth_?code|api_?key|priv(ate)?_?key/i;
 
 /**
  * An explorer request as it is audited: values of password-like keys blanked, including the

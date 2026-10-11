@@ -239,6 +239,19 @@ describe('evaluating a zone', () => {
     expect(evaluate([rec('TXT', '_autodiscover._tcp', 'x')]).autodiscover_srv.status).toBe('missing');
   });
 
+  it('a CNAME owns its name: TXT and SRV records there conflict instead of being added', () => {
+    const result = evaluate([
+      rec('CNAME', '_dmarc', 'kunde.ch.dmarc.example.net'),
+      rec('CNAME', 'dkim._domainkey', 'dkim.provider.example'),
+      rec('CNAME', '_autodiscover._tcp', 'autodiscover.provider.example'),
+    ]);
+    for (const key of ['dmarc', 'dkim', 'autodiscover_srv'] as const) {
+      expect(result[key], key).toMatchObject({ status: 'conflict', hint: 'name_in_use', addable: false });
+    }
+    expect(result.dmarc.found).toEqual(['kunde.ch.dmarc.example.net']);
+    expect(result.mx).toMatchObject({ status: 'missing', addable: true });
+  });
+
   it('reports every status unknown without records, and nothing addable', () => {
     const result = evaluate(null);
     for (const record of Object.values(result)) {

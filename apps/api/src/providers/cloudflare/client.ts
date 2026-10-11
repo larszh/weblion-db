@@ -14,8 +14,13 @@ const MAX_IN_FLIGHT = 4;
 const BUDGET = { max: 1000, windowMs: 300_000 };
 /** A full budget or a 429 is waited out when the next request is allowed within this time. */
 const RATE_LIMIT_MAX_WAIT_MS = 5000;
-/** Codes Cloudflare answers for a token it does not accept (UNVERIFIED list). */
-const AUTH_CODES = new Set([9109, 10000, 6003, 6111]);
+/** Codes of a 400 for an Authorization header Cloudflare cannot read (malformed token). */
+const TOKEN_FORMAT_CODES = new Set([6003, 6111]);
+/**
+ * Codes of a 403 Cloudflare answers both for a token without the needed permission and for
+ * one it no longer accepts (UNVERIFIED list).
+ */
+const AUTH_CODES = new Set([9109, 10000]);
 /** Purge requests have their own plan-dependent limit. */
 const PURGE_RATE_LIMIT = 1134;
 
@@ -198,13 +203,14 @@ function describeFailure(res: CloudflareResponse, envelope: CfEnvelope<unknown> 
   }
 
   let out = `${action} failed: ${message}`;
-  const authCode = codes.some((c) => AUTH_CODES.has(c));
-  if (res.status === 401 || (authCode && res.status >= 400 && res.status < 500)) {
+  if (res.status === 401 || (res.status === 400 && codes.some((c) => TOKEN_FORMAT_CODES.has(c)))) {
     out += '. Check the API token (CLOUDFLARE_API_TOKEN): revoked, expired or mistyped';
   } else if (res.status === 403) {
-    out +=
-      `. The API token lacks a permission for this. The panel needs ${joinList(CLOUDFLARE_TOKEN_PERMISSIONS)} ` +
-      'on all zones of the account';
+    // A valid token without the permission gets the same 9109/10000 as a revoked one.
+    const lacks = codes.some((c) => AUTH_CODES.has(c))
+      ? 'The API token lacks a permission for this, or it was revoked or expired (CLOUDFLARE_API_TOKEN)'
+      : 'The API token lacks a permission for this';
+    out += `. ${lacks}. The panel needs ${joinList(CLOUDFLARE_TOKEN_PERMISSIONS)} on all zones of the account`;
   } else if (res.status === 429) {
     const after = res.retryAfter !== null ? `retry after ${res.retryAfter} s` : 'try again in a few minutes';
     out += codes.includes(PURGE_RATE_LIMIT)

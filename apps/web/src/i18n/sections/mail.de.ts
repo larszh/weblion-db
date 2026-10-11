@@ -79,6 +79,7 @@ export const mailDe = {
   'mail.tab.mailboxes': 'Postfächer',
   'mail.tab.aliases': 'Weiterleitungen',
   'mail.tab.dns': 'DNS-Einträge',
+  'mail.refreshError.title': 'Die Domain konnte nicht neu geladen werden, angezeigt wird der letzte Stand.',
   'mail.liveError.title': 'Live-Daten nicht verfügbar',
   'mail.liveError.text':
     '{provider} ist gerade nicht erreichbar. Angezeigt werden die Limits und der Verbrauch der letzten Synchronisation.',
@@ -321,6 +322,9 @@ export const mailDe = {
   'mail.dns.dkimSizeHint': '2048 Bit ist am verträglichsten mit allen DNS-Anbietern und Mailservern.',
   'mail.dns.dkimCreate': 'DKIM-Schlüssel erzeugen',
   'mail.dns.dkimCreated': 'DKIM-Schlüssel erzeugt',
+  'mail.dns.dkimUnreadable':
+    'Der DKIM-Schlüssel konnte gerade nicht gelesen werden. Laden Sie die Seite später noch einmal.',
+  'mail.dns.dkimUnreadableShort': 'Der DKIM-Schlüssel konnte nicht gelesen werden',
   'mail.dns.recordsTitle': 'Benötigte DNS-Einträge',
   'mail.dns.recordsZone': 'Verglichen mit der DNS-Zone {domain}',
   'mail.dns.recordsText': 'Diese Einträge braucht der Mailserver {host}.',
@@ -330,7 +334,10 @@ export const mailDe = {
   'mail.dns.applyText':
     'Die Console trägt diese Einträge in der Zone {domain} bei {provider} ein. Bestehende Einträge bleiben unverändert.',
   'mail.dns.applyConfirm': '{n} Einträge hinzufügen',
-  'mail.dns.applied.title': 'DNS-Einträge hinzugefügt',
+  'mail.dns.applied.title.added': 'DNS-Einträge hinzugefügt',
+  'mail.dns.applied.title.partial': 'Nur ein Teil der DNS-Einträge wurde hinzugefügt',
+  'mail.dns.applied.title.failed': 'DNS-Einträge nicht hinzugefügt',
+  'mail.dns.applied.title.nothing': 'Keine DNS-Einträge hinzugefügt',
   'mail.dns.applied.toast': '{n} DNS-Einträge hinzugefügt',
   'mail.dns.applied.added': 'Hinzugefügt: {list}',
   'mail.dns.applied.nothing': 'Es war nichts hinzuzufügen.',

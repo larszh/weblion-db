@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { ProviderBadge } from '@/components/server-bits';
+import { mailDnsApplyOutcome, type MailDnsApplyOutcome } from './dns-apply';
 
 /**
  * DNS tab of a mail domain: the records Mailcow needs, compared with the panel's DNS zone of
@@ -44,6 +45,13 @@ const STATUS_TONE: Record<MailDnsStatus, 'success' | 'warning' | 'danger' | 'neu
   missing: 'danger',
   conflict: 'warning',
   unknown: 'neutral',
+};
+
+const APPLY_TONE: Record<MailDnsApplyOutcome, 'success' | 'warning' | 'danger' | 'info'> = {
+  added: 'success',
+  partial: 'warning',
+  failed: 'danger',
+  nothing: 'info',
 };
 
 export function MailDnsSetup({ domain }: { domain: MailDomainDetailDto }) {
@@ -105,9 +113,9 @@ function ZoneNotices({ setup }: { setup: MailDnsSetupDto }) {
 
 function ApplyResult({ result, onClose }: { result: MailDnsApplyResult; onClose: () => void }) {
   const { t } = useI18n();
-  const tone = result.failed.length > 0 ? (result.added.length > 0 ? 'warning' : 'danger') : 'success';
+  const outcome = mailDnsApplyOutcome(result);
   return (
-    <Notice tone={tone} title={t('mail.dns.applied.title')}>
+    <Notice tone={APPLY_TONE[outcome]} title={t(`mail.dns.applied.title.${outcome}`)}>
       <div className="space-y-1.5">
         {result.added.length > 0 && (
           <p>
@@ -154,7 +162,10 @@ function DkimCard({ domain, setup }: { domain: MailDomainDetailDto; setup: MailD
     <Card>
       <CardHeader title={t('mail.dns.dkimTitle')} description={t('mail.dns.dkimText')} />
       <CardBody>
-        {dkim.present ? (
+        {dkim.present === null ? (
+          // Mailcow could not be asked: the domain may well have a key, so none is offered.
+          <Notice tone="warning">{t('mail.dns.dkimUnreadable')}</Notice>
+        ) : dkim.present ? (
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
             <div>
               <dt className="text-xs text-muted">{t('mail.dns.dkimSelector')}</dt>
@@ -280,7 +291,7 @@ function RecordsCard({
         </THead>
         <TBody>
           {setup.records.map((r) => (
-            <RecordRow key={r.key} record={r} />
+            <RecordRow key={r.key} record={r} dkimUnread={setup.dkim.present === null} />
           ))}
         </TBody>
       </Table>
@@ -312,7 +323,7 @@ function RecordsCard({
   );
 }
 
-function RecordRow({ record: r }: { record: MailDnsRecordDto }) {
+function RecordRow({ record: r, dkimUnread }: { record: MailDnsRecordDto; dkimUnread: boolean }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
@@ -345,7 +356,9 @@ function RecordRow({ record: r }: { record: MailDnsRecordDto }) {
             <CopyButton value={r.data} className="-mt-0.5" />
           </div>
         ) : (
-          <span className="text-sm text-muted">{t('mail.dns.noKeyYet')}</span>
+          <span className="text-sm text-muted">
+            {r.key === 'dkim' && dkimUnread ? t('mail.dns.dkimUnreadableShort') : t('mail.dns.noKeyYet')}
+          </span>
         )}
         {r.hint && <p className="mt-1 max-w-[34rem] text-xs text-warning">{t(`mail.dns.hint.${r.hint}`)}</p>}
         {r.found.length > 0 && r.status !== 'ok' && (

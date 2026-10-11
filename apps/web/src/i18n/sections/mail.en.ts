@@ -76,6 +76,7 @@ export const mailEn: Record<keyof typeof mailDe, string> = {
   'mail.tab.mailboxes': 'Mailboxes',
   'mail.tab.aliases': 'Forwarding',
   'mail.tab.dns': 'DNS records',
+  'mail.refreshError.title': 'The domain could not be reloaded, the last known state is shown.',
   'mail.liveError.title': 'Live data not available',
   'mail.liveError.text':
     '{provider} cannot be reached right now. Shown are the limits and usage of the last sync.',
@@ -311,6 +312,8 @@ export const mailEn: Record<keyof typeof mailDe, string> = {
   'mail.dns.dkimSizeHint': '2048 bit works best with every DNS provider and mail server.',
   'mail.dns.dkimCreate': 'Generate DKIM key',
   'mail.dns.dkimCreated': 'DKIM key generated',
+  'mail.dns.dkimUnreadable': 'The DKIM key could not be read right now. Load the page again later.',
+  'mail.dns.dkimUnreadableShort': 'The DKIM key could not be read',
   'mail.dns.recordsTitle': 'Required DNS records',
   'mail.dns.recordsZone': 'Compared with the DNS zone {domain}',
   'mail.dns.recordsText': 'The mail server {host} needs these records.',
@@ -320,7 +323,10 @@ export const mailEn: Record<keyof typeof mailDe, string> = {
   'mail.dns.applyText':
     'The console adds these records to the zone {domain} at {provider}. Existing records stay as they are.',
   'mail.dns.applyConfirm': 'Add {n} records',
-  'mail.dns.applied.title': 'DNS records added',
+  'mail.dns.applied.title.added': 'DNS records added',
+  'mail.dns.applied.title.partial': 'Only some DNS records were added',
+  'mail.dns.applied.title.failed': 'DNS records not added',
+  'mail.dns.applied.title.nothing': 'No DNS records added',
   'mail.dns.applied.toast': '{n} DNS records added',
   'mail.dns.applied.added': 'Added: {list}',
   'mail.dns.applied.nothing': 'There was nothing to add.',

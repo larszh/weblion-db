@@ -236,7 +236,8 @@ function recordData(raw: CfDnsRecord): string {
     case 'PTR':
       return stripDot(content);
     case 'MX':
-      return `${raw.priority ?? 0} ${stripDot(content)}`;
+      // A null MX (RFC 7505) has the root "." as its host.
+      return `${raw.priority ?? 0} ${stripDot(content) || '.'}`;
     case 'TXT':
       return unquoteTxt(content);
     case 'SRV':

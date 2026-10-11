@@ -1129,6 +1129,75 @@ describe('DNS move to Cloudflare', () => {
       error: expect.stringContaining('zone file locked'),
     });
   });
+
+  it('never points a domain to a zone of another organization', async () => {
+    const domainId = await id(registrar, 'muster-ag.ch');
+    const zone = (await row(cloudflare, 'muster-ag.ch'))!;
+    const registrationNs = registrarInfo('muster-ag.ch').nameservers;
+    // An empty zone that staff gave to another organization (registration and zone are not coupled).
+    const adapter: ProviderAdapter = t.ctx.providers.forConnection(cloudflare);
+    for (const record of await adapter.listDnsRecords!(zone.externalId)) {
+      await adapter.deleteDnsRecord!(zone.externalId, record.id);
+    }
+    await assign(zone.id, orgIds.beispiel);
+    const preview = json<DnsMovePreview>(await admin.get(`/admin/domains/${domainId}/dns-move`));
+    expect(preview).toMatchObject({
+      domain: { org: { id: orgIds.muster } },
+      existingZone: { id: zone.id, org: { id: orgIds.beispiel, name: 'Beispiel GmbH' } },
+    });
+    const moves = (await auditEntries('domain.dns_move', domainId)).length;
+    const imports = (await auditEntries('domain.dns_import', zone.id)).length;
+    const refused = await move(admin, domainId, { setNameservers: true });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(json(refused).error.message).toBe(
+      'The zone muster-ag.ch at Demo Cloudflare belongs to Beispiel GmbH, the registered domain to Muster AG. Assign both to the same organization first',
+    );
+    expect(json<DnsRecord[]>(await admin.get(`/domains/${zone.id}/dns`))).toEqual([]);
+    expect(registrarInfo('muster-ag.ch').nameservers).toEqual(registrationNs);
+    expect((await row(cloudflare, 'muster-ag.ch'))!.orgId).toBe(orgIds.beispiel);
+    expect(await auditEntries('domain.dns_import', zone.id)).toHaveLength(imports);
+    const failure = (await auditEntries('domain.zone_create', domainId)).at(-1);
+    expect(failure).toMatchObject({ status: 'failure', orgId: orgIds.muster });
+    expect(failure!.details).toMatchObject({ error: expect.stringContaining('belongs to Beispiel GmbH') });
+    expect(await auditEntries('domain.dns_move', domainId)).toHaveLength(moves);
+
+    // A zone of an unassigned registration stays out of reach of organizations too.
+    const alpenblick = await id(registrar, 'alpenblick-hotel.ch');
+    const alpenblickZone = await id(cloudflare, 'alpenblick-hotel.ch');
+    await assign(alpenblickZone, orgIds.beispiel);
+    try {
+      const other = await move(admin, alpenblick, { importRecords: false });
+      expect(other.statusCode).toBe(409);
+      expect(json(other).error.message).toMatch(/registered domain to no organization/);
+    } finally {
+      await assign(alpenblickZone, null);
+    }
+
+    // An unassigned zone goes to the registered domain's organization.
+    await assign(zone.id, null);
+    const res = await move(admin, domainId, { setNameservers: true });
+    expect(res.statusCode, res.body).toBe(200);
+    const result = json<DnsMoveResult>(res);
+    expect(result).toMatchObject({
+      zoneCreated: false,
+      zone: { id: zone.id, org: { id: orgIds.muster } },
+      import: { status: 'done' },
+      nameservers: { status: 'done' },
+    });
+    expect((await row(cloudflare, 'muster-ag.ch'))!.orgId).toBe(orgIds.muster);
+    const assigned = (await auditEntries('domain.assign', zone.id)).at(-1);
+    expect(assigned).toMatchObject({ status: 'success', orgId: orgIds.muster });
+    expect(assigned!.details).toMatchObject({
+      orgId: orgIds.muster,
+      previousOrgId: null,
+      reason: 'dns_move',
+      sourceDomainId: domainId,
+    });
+    expect((await auditEntries('domain.dns_import', zone.id)).at(-1)).toMatchObject({
+      status: 'success',
+      orgId: orgIds.muster,
+    });
+  });
 });
 
 describe('resellers', () => {

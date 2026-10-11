@@ -55,6 +55,8 @@ export async function buildApp({
   const app = Fastify({
     trustProxy: env.TRUST_PROXY,
     bodyLimit: 1024 * 1024,
+    // Path parameters up to an e-mail address of 254 characters (Fastify's default is 100).
+    routerOptions: { maxParamLength: 512 },
     logger: logger
       ? {
           level: env.LOG_LEVEL,
