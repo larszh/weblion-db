@@ -74,6 +74,23 @@ const EnvSchema = z.object({
   MAILCOW_COUNTRY: z.string().default('CH'),
   MAILCOW_CITY: z.string().default('Zürich'),
 
+  // CloudPanel (websites). The first server; more in Admin > Provider. The console logs in as
+  // CLOUDPANEL_USER with an ed25519 key and pins the server's ed25519 host key.
+  CLOUDPANEL_HOST: optionalString,
+  CLOUDPANEL_PORT: z.coerce.number().int().min(1).max(65535).default(22),
+  CLOUDPANEL_USER: z.string().default('weblion-agent'),
+  /** Unencrypted OpenSSH private key; "\n" sequences stand for line breaks (one-line env files). */
+  CLOUDPANEL_PRIVATE_KEY: optionalString.transform((v) => v?.replace(/\\n/g, '\n')),
+  /** Path of the private key file, read on boot when CLOUDPANEL_PRIVATE_KEY is empty. */
+  CLOUDPANEL_PRIVATE_KEY_FILE: optionalString,
+  /** "SHA256:..." of the server's ed25519 host key (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub). */
+  CLOUDPANEL_HOST_KEY: optionalString,
+  /** Host customers use for SFTP/SSH. Default: CLOUDPANEL_HOST. */
+  CLOUDPANEL_ACCESS_HOST: optionalString,
+  CLOUDPANEL_NAME: z.string().default('CloudPanel'),
+  CLOUDPANEL_COUNTRY: z.string().default('CH'),
+  CLOUDPANEL_CITY: z.string().default('Zürich'),
+
   // Joker.com domains (DMAPI). An API key, or reseller username and password.
   JOKER_API_KEY: optionalString,
   JOKER_USERNAME: optionalString,
@@ -125,6 +142,10 @@ const EnvSchema = z.object({
   ENABLE_DEMO_PROVIDER: bool(false),
   /** A second demo connection that simulates a Cloudflare account (needs ENABLE_DEMO_PROVIDER). */
   ENABLE_DEMO_CLOUDFLARE: bool(false),
+  /** A further demo connection that simulates a CloudPanel server (needs ENABLE_DEMO_PROVIDER). */
+  ENABLE_DEMO_CLOUDPANEL: bool(false),
+  /** Public resolvers the website DNS check asks (comma separated). */
+  DNS_CHECK_RESOLVERS: z.string().default('1.1.1.1,9.9.9.9'),
   SYNC_INTERVAL_SECONDS: z.coerce.number().int().min(15).default(120),
   /** Serve the built web app from the API process (single container deployments). */
   WEB_DIST_DIR: optionalString,

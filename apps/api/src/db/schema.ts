@@ -18,6 +18,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type {
   BillingInterval,
+  CreatableWebsiteType,
   CreditType,
   Currency,
   DomainInfo,
@@ -32,6 +33,8 @@ import type {
   ServiceResourceType,
   ServiceStatus,
   WebspaceInfo,
+  WebspaceKind,
+  WebspaceStatus,
   ZohoSyncStatus,
   IpAddress,
   Location,
@@ -356,10 +359,16 @@ export const webspaces = pgTable(
     providerConnectionId: uuid('provider_connection_id')
       .notNull()
       .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** Provider id. Websites (CloudPanel): the ASCII (punycode) domain, e.g. "xn--mller-kva.ch". */
     externalId: text('external_id').notNull(),
     orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    /** Display name. Websites: the Unicode domain, e.g. "müller.ch". */
     name: text('name').notNull(),
-    /** Last known provider facts. The control panel password is never stored. */
+    /** "webspace": a provider web space (24fire, Plesk). "website": a CloudPanel site. */
+    kind: text('kind').$type<WebspaceKind>().notNull().default('webspace'),
+    /** Websites go through creating/deleting; error = outcome unknown, the sync settles it. Web spaces stay "active". */
+    status: text('status').$type<WebspaceStatus>().notNull().default('active'),
+    /** Last known provider facts. Never a password. Websites: info.site holds the site facts. */
     info: jsonb('info').$type<WebspaceInfo>(),
     meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
@@ -369,8 +378,55 @@ export const webspaces = pgTable(
   (t) => [
     uniqueIndex('webspaces_provider_external_idx').on(t.providerConnectionId, t.externalId),
     index('webspaces_org_idx').on(t.orgId),
+    index('webspaces_kind_org_idx').on(t.kind, t.orgId),
   ],
 );
+
+// --- Websites (CloudPanel) ---------------------------------------------------------
+
+/** Databases of a website (CloudPanel). Counted for allowances; passwords are never stored. */
+export const webspaceDatabases = pgTable(
+  'webspace_databases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    webspaceId: uuid('webspace_id')
+      .notNull()
+      .references(() => webspaces.id, { onDelete: 'cascade' }),
+    /** Same as the website's connection; MySQL names are unique per server. */
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** MySQL database name, e.g. "shop_mueller_wp". */
+    name: text('name').notNull(),
+    /** The database user created with it (same as the name when created by the console). */
+    userName: text('user_name'),
+    status: text('status').$type<WebspaceStatus>().notNull().default('active'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('webspace_databases_provider_name_idx').on(t.providerConnectionId, t.name),
+    index('webspace_databases_webspace_idx').on(t.webspaceId),
+  ],
+);
+
+/** What an organization may create on CloudPanel, on one instance. */
+export const websiteAllowances = pgTable('website_allowances', {
+  orgId: uuid('org_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  /** The CloudPanel instance new websites go to. Kept while the allowance exists (restrict). */
+  providerConnectionId: uuid('provider_connection_id')
+    .notNull()
+    .references(() => providerConnections.id, { onDelete: 'restrict' }),
+  maxSites: integer('max_sites').notNull(),
+  maxDatabases: integer('max_databases').notNull(),
+  siteTypes: jsonb('site_types').$type<CreatableWebsiteType[]>().notNull().default(['php', 'static']),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
 
 // --- Cloud storage (Nextcloud) -----------------------------------------------------
 
@@ -691,3 +747,5 @@ export type CreditTransaction = typeof creditTransactions.$inferSelect;
 export type CloudAllowance = typeof cloudAllowances.$inferSelect;
 export type CloudAccount = typeof cloudAccounts.$inferSelect;
 export type MailDomain = typeof mailDomains.$inferSelect;
+export type WebspaceDatabase = typeof webspaceDatabases.$inferSelect;
+export type WebsiteAllowance = typeof websiteAllowances.$inferSelect;

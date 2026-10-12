@@ -40,6 +40,9 @@ export const HOSTING_MODULES = { domain: 'dns', webspace: 'webhosting' } as cons
   ModuleKey
 >;
 
+/** Websites (CloudPanel) are web spaces of kind "website" and share their module. */
+export const WEBSITE_MODULE = HOSTING_MODULES.webspace;
+
 export interface DomainRow {
   domain: Domain;
   org: Organization | null;
@@ -412,12 +415,16 @@ export async function toWebspaceDto(
   return {
     id: webspace.id,
     name: webspace.name,
+    kind: webspace.kind,
+    status: webspace.status,
     provider: { id: connection.id, type: connection.type, name: connection.name },
     location: connection.location,
     org: org ? { id: org.id, name: org.name, slug: org.slug } : null,
     resources: webspace.info?.resources ?? null,
     panelUrl: webspace.info?.panelUrl ?? null,
     expiresAt: webspace.info?.expiresAt ?? null,
+    site: webspace.kind === 'website' ? (webspace.info?.site ?? null) : null,
+    credentialsPending: webspace.meta.credentialsDelivered === false,
     permissions,
     lastSyncedAt: webspace.lastSyncedAt?.toISOString() ?? null,
     missingSince: webspace.missingSince?.toISOString() ?? null,

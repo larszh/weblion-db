@@ -16,6 +16,7 @@ import { seedCloudDemo } from './seed-cloud';
 import { seedHostingDemo } from './seed-hosting';
 import { seedMailDemo } from './seed-mail';
 import { seedResellerDemo } from './seed-reseller';
+import { seedWebsitesDemo } from './seed-websites';
 
 /**
  * Development seed: two customer organizations with users in different roles, and the
@@ -161,6 +162,7 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
   await seedHostingDemo(db, log);
   await seedCloudDemo(db, log);
   await seedMailDemo(db, log);
+  await seedWebsitesDemo(db, log);
   await seedBillingDemo(db, log);
   return log;
 }

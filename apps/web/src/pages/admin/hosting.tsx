@@ -67,6 +67,7 @@ import {
 import { DnsMoveDialog, useCanMoveDns } from '@/pages/hosting/dns-move';
 import { AdminCloudTab, isCloudProvider } from './cloud';
 import { AdminMailTab, isMailProvider } from './mail';
+import { AdminWebsitesPanel, isWebsiteProvider } from './websites';
 
 type Tab = 'domains' | 'webspaces' | 'cloud' | 'mail';
 type Item = { type: 'domain'; row: DomainDto } | { type: 'webspace'; row: WebspaceDto };
@@ -75,9 +76,9 @@ const MODULE_OF: Record<Item['type'], ModuleKey> = { domain: 'dns', webspace: 'w
 
 /**
  * Provider types that have domains or web spaces. Proxmox has neither, Joker.com only
- * domains, Cloudflare only DNS zones.
+ * domains, Cloudflare only DNS zones, CloudPanel only websites (on the web space tab).
  */
-const HOSTING_PROVIDERS = new Set(['fire24', 'joker', 'cloudflare', 'demo']);
+const HOSTING_PROVIDERS = new Set(['fire24', 'joker', 'cloudflare', 'cloudpanel', 'demo']);
 
 export function AdminHostingPage() {
   const { t } = useI18n();
@@ -93,9 +94,15 @@ export function AdminHostingPage() {
   const filters: AdminHostingFilters = { q: q.trim() || undefined, assigned, providerId };
   const providers = useAdminProviders();
   // The sync button covers what the tab shows: cloud instances on the cloud tab, mail
-  // servers on the mail tab.
+  // servers on the mail tab, CloudPanel servers on the web space tab only.
   const hostingProviders = (providers.data ?? []).filter((p) =>
-    tab === 'cloud' ? isCloudProvider(p) : tab === 'mail' ? isMailProvider(p) : HOSTING_PROVIDERS.has(p.type),
+    tab === 'cloud'
+      ? isCloudProvider(p)
+      : tab === 'mail'
+        ? isMailProvider(p)
+        : tab === 'webspaces'
+          ? HOSTING_PROVIDERS.has(p.type) || isWebsiteProvider(p)
+          : HOSTING_PROVIDERS.has(p.type) && !isWebsiteProvider(p),
   );
   const perms = me.data?.platformPermissions ?? [];
   const canAssign = perms.includes('platform:server:assign');
@@ -110,7 +117,8 @@ export function AdminHostingPage() {
         ? t('mail.admin.synced', { seen: r.mailDomains?.seen ?? 0, missing: r.mailDomains?.missing ?? 0 })
         : t('hosting.admin.synced', {
             domains: r.domains?.seen ?? 0,
-            webspaces: r.webspaces?.seen ?? 0,
+            // Websites are web spaces of a CloudPanel server.
+            webspaces: (r.webspaces?.seen ?? 0) + (r.websites?.seen ?? 0),
             servers: r.seen,
           }),
   );
@@ -201,6 +209,7 @@ export function AdminHostingPage() {
               {t('hosting.admin.toProviders')}
             </Link>
           </Notice>
+          {tab === 'webspaces' && <AdminWebsitesPanel providerId={providerId} />}
 
           <Card>
             <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
@@ -590,6 +599,14 @@ function WebspaceInventory({
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <ProviderBadge type={w.provider.type} name={w.provider.name} />
                       <Flag country={w.location.country} />
+                      <Badge tone="neutral">
+                        {w.kind === 'website' ? t('hosting.kind.website') : t('hosting.kind.webspace')}
+                      </Badge>
+                      {w.kind === 'website' && w.status !== 'active' && (
+                        <Badge tone={w.status === 'error' ? 'danger' : 'warning'}>
+                          {t(`websites.status.${w.status}`)}
+                        </Badge>
+                      )}
                       {w.missingSince && <Badge tone="danger">{t('hosting.status.missing')}</Badge>}
                     </div>
                   </div>

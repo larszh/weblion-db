@@ -5,6 +5,7 @@ import { cloudDe } from './sections/cloud.de';
 import { storageDe } from './sections/storage.de';
 import { cloudflareDe } from './sections/cloudflare.de';
 import { mailDe } from './sections/mail.de';
+import { websitesDe } from './sections/websites.de';
 
 /** German is the source language. English (en.ts) must provide every key. */
 export const de = {
@@ -15,6 +16,7 @@ export const de = {
   ...storageDe,
   ...cloudflareDe,
   ...mailDe,
+  ...websitesDe,
   // Common
   'common.actions': 'Aktionen',
   'common.add': 'Hinzufügen',

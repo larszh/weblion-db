@@ -31,6 +31,7 @@ import { metaRoutes } from './modules/meta/routes';
 import { billingRoutes } from './modules/billing/routes';
 import { paymentRoutes } from './modules/payments/routes';
 import { hostingRoutes } from './modules/hosting/routes';
+import { websiteRoutes } from './modules/hosting/websites';
 import { zoneRoutes } from './modules/hosting/zones';
 import { cloudRoutes } from './modules/cloud/routes';
 import { mailRoutes } from './modules/mail/routes';
@@ -152,6 +153,7 @@ export async function buildApp({
         consoleRoutes,
         adminRoutes,
         hostingRoutes,
+        websiteRoutes,
         zoneRoutes,
         cloudRoutes,
         mailRoutes,

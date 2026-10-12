@@ -5,6 +5,7 @@ import {
   DEFAULT_MODULES,
   MODULES,
   ORG_KINDS,
+  PHP_VERSION_PATTERN,
   PLATFORM_ROLES,
   PROVIDER_TYPES,
   defaultBoundary,
@@ -28,6 +29,7 @@ import {
   servers,
   sessions,
   users,
+  websiteAllowances,
   webspaces,
   type Organization,
   type ProviderConnection,
@@ -37,8 +39,14 @@ import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
 import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
+import {
+  HOST_KEY_FINGERPRINT_PATTERN,
+  generateCloudPanelKeyPair,
+  publicKeyLine,
+} from '../../providers/cloudpanel/keys';
 import type {
   CloudflareConfig,
+  CloudPanelConfig,
   CreateServerRequest,
   DemoConfig,
   Fire24Config,
@@ -134,11 +142,53 @@ const mailcowConfigSchema = z.object({
     )
     .optional(),
 });
+/** SSH to the wrapper weblion-clp; the private key never leaves the API (see configSummary). */
+const cloudpanelConfigSchema = z.object({
+  host: z
+    .string()
+    .trim()
+    .min(1)
+    .max(253)
+    .regex(/^[A-Za-z0-9.:-]+$/, 'host name or IP'),
+  port: z.number().int().min(1).max(65535).default(22),
+  username: z
+    .string()
+    .trim()
+    .regex(/^[a-z_][a-z0-9_-]{0,31}$/)
+    .default('weblion-agent'),
+  privateKey: z
+    .string()
+    .max(10_000)
+    .refine((k) => publicKeyLine(k) !== null, 'an unencrypted OpenSSH ed25519 private key'),
+  hostKeySha256: z
+    .string()
+    .trim()
+    .regex(HOST_KEY_FINGERPRINT_PATTERN, 'SHA256:... as printed by ssh-keygen -lf'),
+  accessHost: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
+      'a host name, e.g. web1.weblion.cloud',
+    )
+    .optional(),
+  ipv4: z.array(z.ipv4()).max(8).optional(),
+  ipv6: z.array(z.ipv6()).max(8).optional(),
+  phpVersions: z.array(z.string().regex(PHP_VERSION_PATTERN)).max(12).optional(),
+  templates: z
+    .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,40}\*?$/))
+    .max(40)
+    .optional(),
+  nodejs: z.boolean().optional(),
+});
 const demoConfigSchema = z.object({
   seed: z.number().int().optional(),
   servers: z.number().int().min(1).max(50).optional(),
-  /** "cloudflare": the connection simulates a Cloudflare account instead of the demo cloud. */
-  flavor: z.enum(['cloudflare']).optional(),
+  /** The connection simulates a Cloudflare account or a CloudPanel server instead of the demo cloud. */
+  flavor: z.enum(['cloudflare', 'cloudpanel']).optional(),
+  // The simulated CloudPanel server: what customers may choose, as on a real connection.
+  ...cloudpanelConfigSchema.pick({ phpVersions: true, templates: true, nodejs: true }).shape,
 });
 
 function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
@@ -157,9 +207,20 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(cloudflareConfigSchema, raw) as CloudflareConfig;
     case 'mailcow':
       return parse(mailcowConfigSchema, raw) as MailcowConfig;
+    case 'cloudpanel':
+      return parse(cloudpanelConfigSchema, raw) as CloudPanelConfig;
     case 'demo':
       return parse(demoConfigSchema, raw ?? {}) as DemoConfig;
   }
+}
+
+/** What customers may choose on a CloudPanel server (real or simulated), for display. */
+function websiteOptionsSummary(c: Pick<CloudPanelConfig, 'phpVersions' | 'templates' | 'nodejs'>) {
+  return {
+    ...(c.phpVersions?.length ? { phpVersions: c.phpVersions.join(', ') } : {}),
+    ...(c.templates?.length ? { templates: c.templates.join(', ') } : {}),
+    ...(c.nodejs ? { nodejs: 'true' } : {}),
+  };
 }
 
 /** Non secret parts of a provider config for display. */
@@ -218,8 +279,26 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         ...(c.mailHost ? { mailHost: c.mailHost } : {}),
       };
     }
+    case 'cloudpanel': {
+      const c = config as CloudPanelConfig;
+      return {
+        host: c.host,
+        port: String(c.port),
+        username: c.username,
+        hostKeySha256: c.hostKeySha256,
+        // The public key is shown so it can be installed on the server; the private key never leaves.
+        publicKey: publicKeyLine(c.privateKey) ?? '',
+        privateKey: '••••••',
+        ...(c.accessHost ? { accessHost: c.accessHost } : {}),
+        // Lists as the edit form shows them (comma separated).
+        ...(c.ipv4?.length ? { ipv4: c.ipv4.join(', ') } : {}),
+        ...(c.ipv6?.length ? { ipv6: c.ipv6.join(', ') } : {}),
+        ...websiteOptionsSummary(c),
+      };
+    }
     case 'demo': {
       const c = config as DemoConfig;
+      if (c.flavor === 'cloudpanel') return { flavor: c.flavor, ...websiteOptionsSummary(c) };
       return c.flavor ? { flavor: c.flavor } : { servers: String(c.servers ?? 6) };
     }
   }
@@ -537,6 +616,15 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     if ((assignedMailDomains?.n ?? 0) > 0) {
       throw conflict('Unassign all mail domains of this provider first');
     }
+    // Website allowances name the instance new websites go to (restrict); assigned websites
+    // are covered by the web space check above.
+    const [websiteAllowanceRows] = await db
+      .select({ n: count() })
+      .from(websiteAllowances)
+      .where(eq(websiteAllowances.providerConnectionId, id));
+    if ((websiteAllowanceRows?.n ?? 0) > 0) {
+      throw conflict('Remove or move the website allowances of this provider first');
+    }
     await db.delete(providerConnections).where(eq(providerConnections.id, id));
     providers.invalidate(id);
     await audit.record(req, {
@@ -613,6 +701,23 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     const adapter = providers.forConnection(connection);
     if (!adapter.listLocations) throw unsupported('This provider has no locations');
     return adapter.listLocations();
+  });
+
+  /**
+   * A fresh SSH key pair for a CloudPanel connection. The form puts the private key into the
+   * connection config; the public key goes to the server's installer. Nothing is stored here.
+   */
+  app.post('/admin/cloudpanel/keypair', async (req, reply) => {
+    requireSession(req);
+    await can(req, 'platform:provider:write');
+    const pair = generateCloudPanelKeyPair();
+    await audit.record(req, {
+      action: 'provider.keypair_generate',
+      resourceType: 'provider',
+      details: { type: 'cloudpanel' },
+    });
+    reply.header('cache-control', 'no-store');
+    return pair;
   });
 
   // --- Server inventory -----------------------------------------------------------

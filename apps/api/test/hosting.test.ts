@@ -9,9 +9,11 @@ import {
   type DomainDetailDto,
   type DomainDto,
   type ModuleKey,
+  type WebsiteFacts,
   type WebspaceCredentials,
   type WebspaceDetailDto,
   type WebspaceDto,
+  type WebspaceInfo,
 } from '@weblion/shared';
 import {
   auditLogs,
@@ -20,6 +22,7 @@ import {
   organizations,
   providerConnections,
   users,
+  websiteAllowances,
   webspaces,
 } from '../src/db/schema';
 import { hashPassword } from '../src/lib/crypto';
@@ -253,7 +256,18 @@ describe('visibility', () => {
       'domain:authcode',
       'domain:manage',
     ]);
-    expect(musterWebspace.permissions).toEqual(['webspace:read', 'webspace:credentials']);
+    expect(musterWebspace.permissions).toEqual([
+      'webspace:read',
+      'webspace:credentials',
+      'webspace:write',
+      'webspace:delete',
+    ]);
+    expect(musterWebspace).toMatchObject({
+      kind: 'webspace',
+      status: 'active',
+      site: null,
+      credentialsPending: false,
+    });
     expect(musterWebspace.resources?.emails).toBe(25);
 
     const viewer = json<DomainDto[]>(await carla.get(`/orgs/${musterOrgId}/domains`));
@@ -295,8 +309,11 @@ describe('visibility', () => {
 
     const ws = json<WebspaceDetailDto>(await anna.get(`/webspaces/${musterWebspace.id}`));
     expect(ws).toMatchObject({
+      kind: 'webspace',
       liveError: null,
       info: { username: 'musterag', panelUrl: expect.any(String) },
+      access: null,
+      databases: [],
     });
     expect(JSON.stringify(ws)).not.toContain('Pl3sk');
   });
@@ -1000,6 +1017,165 @@ describe('admin inventory', () => {
     expect((await anna.post(`/admin/domains/${domain!.id}/assign`, { orgId: musterOrgId })).statusCode).toBe(
       403,
     );
+  });
+});
+
+describe('websites in the web space table', () => {
+  const facts: WebsiteFacts = {
+    type: 'php',
+    siteUser: 'shop-muster',
+    homeDirectory: '/home/shop-muster',
+    webRoot: '/home/shop-muster/htdocs/shop.muster.example',
+    application: 'WordPress',
+    phpVersion: '8.4',
+    nodejsVersion: null,
+    appPort: null,
+    certificate: null,
+    databases: 0,
+    diskBytes: null,
+    databaseBytes: null,
+    usageMeasuredAt: null,
+    createdAt: null,
+  };
+  const info: WebspaceInfo = {
+    name: 'shop.muster.example',
+    resources: {
+      domains: null,
+      subdomains: null,
+      emails: null,
+      databases: 0,
+      storageMb: null,
+      trafficGb: null,
+      memoryLimitMb: null,
+      ipAddress: null,
+    },
+    panelUrl: null,
+    username: 'shop-muster',
+    email: null,
+    expiresAt: null,
+    site: facts,
+  };
+
+  /** A website row as the website sync will store it, on the demo connection. */
+  async function insertWebsite(externalId: string) {
+    const demo = await demoConnection();
+    const [row] = await t.db
+      .insert(webspaces)
+      .values({
+        providerConnectionId: demo.id,
+        externalId,
+        name: externalId,
+        kind: 'website',
+        orgId: musterOrgId,
+        info: { ...info, name: externalId },
+        meta: { credentialsDelivered: false },
+        lastSyncedAt: new Date(),
+      })
+      .returning();
+    return row!;
+  }
+
+  it('serves a website through the website detail, never with a panel login', async () => {
+    const row = await insertWebsite('shop.muster.example');
+    try {
+      const list = json<WebspaceDto[]>(await anna.get(`/orgs/${musterOrgId}/webspaces`));
+      expect(list.find((w) => w.id === row.id)).toMatchObject({
+        kind: 'website',
+        status: 'active',
+        site: { siteUser: 'shop-muster', phpVersion: '8.4' },
+        credentialsPending: true,
+      });
+      expect(list.find((w) => w.id === musterWebspace.id)).toMatchObject({ kind: 'webspace', site: null });
+
+      const detail = json<WebspaceDetailDto>(await anna.get(`/webspaces/${row.id}`));
+      expect(detail).toMatchObject({
+        kind: 'website',
+        name: 'shop.muster.example',
+        site: { application: 'WordPress' },
+        info: { username: 'shop-muster' },
+        liveError: null,
+        access: null,
+        databases: [],
+      });
+      const credentials = await anna.get(`/webspaces/${row.id}/credentials`);
+      expect(credentials.statusCode).toBe(422);
+      expect(json(credentials).error.message).toContain('SFTP');
+      expect((await dev.get(`/webspaces/${row.id}`)).statusCode).toBe(404);
+    } finally {
+      await t.db.delete(webspaces).where(eq(webspaces.id, row.id));
+    }
+  });
+
+  it('filters the admin inventory by kind', async () => {
+    const row = await insertWebsite('filter.muster.example');
+    try {
+      const websites = json<WebspaceDto[]>(await admin.get('/admin/webspaces?kind=website'));
+      expect(websites.map((w) => w.id)).toEqual([row.id]);
+      const plain = json<WebspaceDto[]>(await admin.get('/admin/webspaces?kind=webspace'));
+      expect(plain.length).toBeGreaterThan(0);
+      expect(plain.every((w) => w.kind === 'webspace')).toBe(true);
+      expect(json<WebspaceDto[]>(await admin.get('/admin/webspaces')).length).toBe(plain.length + 1);
+      expect((await admin.get('/admin/webspaces?kind=plesk')).statusCode).toBe(400);
+    } finally {
+      await t.db.delete(webspaces).where(eq(webspaces.id, row.id));
+    }
+  });
+
+  it('keeps the web space sync away from website rows', async () => {
+    const demo = await demoConnection();
+    const website = await insertWebsite('sync.muster.example');
+    // A web space row turned into a website: the web space list must not overwrite it.
+    const [other] = await t.db
+      .select()
+      .from(webspaces)
+      .where(and(eq(webspaces.providerConnectionId, demo.id), eq(webspaces.kind, 'webspace')))
+      .limit(1);
+    await t.db.update(webspaces).set({ kind: 'website', name: 'renamed' }).where(eq(webspaces.id, other!.id));
+    try {
+      const result = json(await admin.post(`/admin/providers/${demo.id}/sync`));
+      expect(result.webspaces).toEqual({ seen: 3, missing: 0 });
+      expect(result.websites).toBeUndefined();
+      const kept = await t.db.query.webspaces.findFirst({ where: eq(webspaces.id, website.id) });
+      expect(kept).toMatchObject({ kind: 'website', missingSince: null, info: { site: facts } });
+      const untouched = await t.db.query.webspaces.findFirst({ where: eq(webspaces.id, other!.id) });
+      expect(untouched).toMatchObject({ kind: 'website', name: 'renamed' });
+    } finally {
+      await t.db.delete(webspaces).where(eq(webspaces.id, website.id));
+      await t.db.update(webspaces).set({ kind: 'webspace' }).where(eq(webspaces.id, other!.id));
+    }
+    await admin.post(`/admin/providers/${demo.id}/sync`);
+    const restored = await t.db.query.webspaces.findFirst({ where: eq(webspaces.id, other!.id) });
+    expect(restored!.name).toBe(other!.name);
+  });
+
+  it('refuses to delete a provider a website allowance points to', async () => {
+    // A simulated CloudPanel server takes the customer options of a real connection.
+    const created = json<{ id: string; summary: Record<string, string> }>(
+      await admin.post('/admin/providers', {
+        type: 'demo',
+        name: 'Website Allowance Test',
+        location: { country: 'CH', label: 'Test' },
+        config: { flavor: 'cloudpanel', nodejs: true, phpVersions: ['8.4'], templates: ['Laravel*'] },
+      }),
+    );
+    expect(created.summary).toEqual({
+      flavor: 'cloudpanel',
+      nodejs: 'true',
+      phpVersions: '8.4',
+      templates: 'Laravel*',
+      managedBy: 'ui',
+    });
+    await t.db.insert(websiteAllowances).values({
+      orgId: beispielOrgId,
+      providerConnectionId: created.id,
+      maxSites: 1,
+      maxDatabases: 1,
+    });
+    const refused = await admin.del(`/admin/providers/${created.id}`);
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error.message).toContain('website allowances');
+    await t.db.delete(websiteAllowances).where(eq(websiteAllowances.orgId, beispielOrgId));
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
   });
 });
 

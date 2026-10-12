@@ -24,19 +24,25 @@ import type {
   RemoteWebspace,
 } from '../providers/types';
 import { syncMailDomains } from './sync-mail';
+import { syncWebsites } from './sync-websites';
 
 export interface SyncCounts {
   seen: number;
   missing: number;
 }
 
-/** Servers on the top level; domains, web spaces, cloud accounts and mail domains only for providers that have them. */
+/**
+ * Servers on the top level; domains, web spaces, cloud accounts, mail domains and websites only
+ * for providers that have them.
+ */
 export interface SyncResult extends SyncCounts {
   domains?: SyncCounts;
   webspaces?: SyncCounts;
   /** `seen`: accounts the panel manages that the instance reported. */
   cloudAccounts?: SyncCounts;
   mailDomains?: SyncCounts;
+  /** CloudPanel: managed sites; `databases`: their databases. */
+  websites?: SyncCounts & { databases: number };
 }
 
 /** Postgres advisory lock ids, so only one API instance runs each job at a time. */
@@ -243,7 +249,10 @@ export class SyncService {
     });
   }
 
-  /** Same for web spaces. The control panel password is never part of RemoteWebspace. */
+  /**
+   * Same for web spaces (kind "webspace"; websites of the same table have their own sync). The
+   * control panel password is never part of RemoteWebspace.
+   */
   private async syncWebspaces(connection: ProviderConnection, adapter: ProviderAdapter): Promise<SyncCounts> {
     const remote: RemoteWebspace[] = await adapter.listWebspaces!();
     const now = new Date();
@@ -254,6 +263,7 @@ export class SyncService {
           providerConnectionId: connection.id,
           externalId: webspace.externalId,
           name: webspace.name,
+          kind: 'webspace',
           info: webspace.info,
           meta: webspace.meta ?? {},
           lastSyncedAt: now,
@@ -267,6 +277,7 @@ export class SyncService {
             lastSyncedAt: now,
             missingSince: null,
           },
+          setWhere: eq(webspaces.kind, 'webspace'),
         });
     }
     const seenIds = remote.map((w) => w.externalId);
@@ -276,6 +287,7 @@ export class SyncService {
       .where(
         and(
           eq(webspaces.providerConnectionId, connection.id),
+          eq(webspaces.kind, 'webspace'),
           seenIds.length > 0 ? notInArray(webspaces.externalId, seenIds) : undefined,
         ),
       )
@@ -365,6 +377,7 @@ export class SyncService {
       if (adapter.listWebspaces) result.webspaces = await this.syncWebspaces(connection, adapter);
       if (adapter.listCloudAccounts) result.cloudAccounts = await this.syncCloudAccounts(connection, adapter);
       if (adapter.listMailDomains) result.mailDomains = await syncMailDomains(this.db, connection, adapter);
+      if (adapter.listWebsites) result.websites = await syncWebsites(this.db, connection, adapter);
 
       await this.db
         .update(providerConnections)

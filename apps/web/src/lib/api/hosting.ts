@@ -39,6 +39,8 @@ export interface ProviderSyncResult {
   cloudAccounts?: { seen: number; missing: number };
   /** Mailcow: mail domains. */
   mailDomains?: { seen: number; missing: number };
+  /** CloudPanel: managed websites and their databases. */
+  websites?: { seen: number; missing: number; databases: number };
 }
 
 export const useDomains = (orgId: string, enabled = true) =>
@@ -236,6 +238,7 @@ export const useProviderSync = (success: (result: ProviderSyncResult) => string)
         ['hosting', 'admin'],
         ['cloud'],
         ['mail'],
+        ['websites'],
         qk.admin('providers'),
         qk.admin('servers'),
         qk.admin('stats'),

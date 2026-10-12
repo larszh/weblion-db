@@ -6,6 +6,7 @@ import { cloudEn } from './sections/cloud.en';
 import { storageEn } from './sections/storage.en';
 import { cloudflareEn } from './sections/cloudflare.en';
 import { mailEn } from './sections/mail.en';
+import { websitesEn } from './sections/websites.en';
 
 export const en: Record<TranslationKey, string> = {
   ...billingEn,
@@ -15,6 +16,7 @@ export const en: Record<TranslationKey, string> = {
   ...storageEn,
   ...cloudflareEn,
   ...mailEn,
+  ...websitesEn,
   'common.actions': 'Actions',
   'common.add': 'Add',
   'common.cancel': 'Cancel',

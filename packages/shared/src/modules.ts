@@ -38,8 +38,8 @@ export const MODULE_DEFS: Record<ModuleKey, ModuleDef> = {
   webhosting: {
     label: { de: 'Webhosting', en: 'Web hosting' },
     description: {
-      de: 'Webspaces mit Plesk-Zugang, E-Mail-Postfächern und Datenbanken.',
-      en: 'Web spaces with Plesk access, mailboxes and databases.',
+      de: 'Websites auf eigenen Servern (CloudPanel) mit SFTP/SSH, Datenbanken und SSL-Zertifikaten, sowie Webspaces mit Plesk-Zugang (24fire).',
+      en: 'Websites on our own servers (CloudPanel) with SFTP/SSH, databases and SSL certificates, and web spaces with Plesk access (24fire).',
     },
     actions: ['webspace:*'],
   },

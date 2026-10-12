@@ -62,11 +62,12 @@ import { MIB, formatMailSize, fromBytes, toMib, type SizeValue } from '@/pages/m
 
 /**
  * Connections that can have mail domains: Mailcow, and the demo provider's simulation. The
- * opt-in Cloudflare demo is a demo connection as well but simulates DNS zones only.
+ * opt-in demos with a flavor (Cloudflare, CloudPanel) are demo connections as well but
+ * simulate DNS zones or websites only.
  */
 export const isMailProvider = (
   p: Pick<ProviderConnectionDto, 'type'> & { summary?: Record<string, string> },
-) => p.type === 'mailcow' || (p.type === 'demo' && p.summary?.flavor !== 'cloudflare');
+) => p.type === 'mailcow' || (p.type === 'demo' && !p.summary?.flavor);
 
 const useMailProviders = () => {
   const providers = useAdminProviders();

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   DNS_PROXIABLE_TYPES,
+  WEBSPACE_KINDS,
   normalizeModules,
   type DnsRecord,
   type DnsRecordInput,
@@ -15,7 +16,7 @@ import {
 import type { AppContext } from '../../context';
 import { platformScope, requireSession } from '../../auth/access';
 import { domains, organizations, webspaces } from '../../db/schema';
-import { badRequest, notFound } from '../../lib/errors';
+import { badRequest, notFound, unsupported } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import type { DnsRecordPatch, ProviderAdapter } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
@@ -49,6 +50,7 @@ import {
   type LoadedDomain,
   type LoadedWebspace,
 } from './service';
+import { websiteDetail } from './website-service';
 
 const idParams = z.object({ id: z.uuid() });
 const orgParams = z.object({ orgId: z.uuid() });
@@ -61,6 +63,7 @@ const adminListQuery = z.object({
   providerId: z.uuid().optional(),
   orgId: z.uuid().optional(),
 });
+const adminWebspaceQuery = adminListQuery.extend({ kind: z.enum(WEBSPACE_KINDS).optional() });
 const assignBody = z.object({ orgId: z.uuid().nullable(), enableModule: z.boolean().default(true) });
 const lockBody = z.object({ locked: z.boolean() });
 const autoRenewBody = z.object({ enabled: z.boolean() });
@@ -344,6 +347,7 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/webspaces/:id', async (req): Promise<WebspaceDetailDto> => {
     const loaded = await webspace(req);
+    if (loaded.webspace.kind === 'website') return websiteDetail(ctx, req, loaded);
     let info: WebspaceInfo | null = loaded.webspace.info;
     let liveError: string | null = null;
     if (loaded.adapter.getWebspace) {
@@ -359,11 +363,14 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
         liveError = errorMessage(err);
       }
     }
-    return { ...(await toWebspaceDto(ctx, req, loaded)), info, liveError };
+    return { ...(await toWebspaceDto(ctx, req, loaded)), info, liveError, access: null, databases: [] };
   });
 
   app.get('/webspaces/:id/credentials', async (req, reply) => {
     const loaded = await webspace(req);
+    if (loaded.webspace.kind === 'website') {
+      throw unsupported('Websites have no panel login; set a new SFTP password instead');
+    }
     requireSession(req);
     await access.assert(req, 'webspace:credentials', loaded.scope);
     requireSupport(loaded.adapter, 'getWebspaceCredentials', 'login credentials');
@@ -483,8 +490,9 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get('/admin/webspaces', async (req) => {
     await access.assert(req, 'platform:provider:read', platformScope);
-    const query = parse(adminListQuery, req.query);
+    const query = parse(adminWebspaceQuery, req.query);
     const filters: (SQL | undefined)[] = [
+      query.kind ? eq(webspaces.kind, query.kind) : undefined,
       query.assigned === 'true' ? isNotNull(webspaces.orgId) : undefined,
       query.assigned === 'false' ? isNull(webspaces.orgId) : undefined,
       query.providerId ? eq(webspaces.providerConnectionId, query.providerId) : undefined,

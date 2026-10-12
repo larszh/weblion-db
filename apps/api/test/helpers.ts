@@ -10,6 +10,7 @@ import { providerConnections } from '../src/db/schema';
 import { seedDemo } from '../src/db/seed';
 import { SecretBox } from '../src/lib/crypto';
 import { DemoAdapter } from '../src/providers/demo/adapter';
+import { DemoCloudPanelAdapter } from '../src/providers/demo/cloudpanel';
 import type { AppContext } from '../src/context';
 
 export const ADMIN = { email: 'admin@test.local', password: 'admin-password-123' };
@@ -23,7 +24,7 @@ export interface TestApp {
 }
 
 export interface TestAppOptions {
-  /** Extra environment variables, e.g. { ENABLE_DEMO_CLOUDFLARE: 'true' }. */
+  /** Extra environment variables, e.g. { ENABLE_DEMO_CLOUDFLARE: 'true' } or { ENABLE_DEMO_CLOUDPANEL: 'true' }. */
   env?: Record<string, string>;
 }
 
@@ -48,6 +49,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   await runMigrations(db);
 
   DemoAdapter.reset();
+  DemoCloudPanelAdapter.reset();
   const { app, ctx } = await buildApp({ env, db, pool, logger: false });
   const log = pino({ level: 'silent' });
   await ensureBootstrapAdmin(db, env, log);

@@ -26,6 +26,9 @@ jobs:
       TEST_DATABASE_URL: postgres://weblion:weblion@localhost:5432/weblion_test
     steps:
       - uses: actions/checkout@v4
+      # The root wrapper on CloudPanel servers (Python 3, standard library only).
+      - name: CloudPanel agent tests
+        run: python3 -I -m unittest discover -s deploy/cloudpanel-agent/tests -v
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
