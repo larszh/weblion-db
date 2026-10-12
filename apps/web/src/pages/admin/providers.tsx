@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ChevronLeft,
   Cloud,
   HardDrive,
+  KeyRound,
   Plus,
   RefreshCw,
   ServerCog,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { ProviderConnectionDto, ProviderType } from '@weblion/shared';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import { useI18n } from '@/lib/i18n';
 import type { TranslationKey } from '@/i18n/de';
 import { formatBytes, formatDuration, formatPercent, formatRelative } from '@/lib/format';
@@ -25,6 +27,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  CopyButton,
   EmptyState,
   ErrorState,
   Field,
@@ -69,6 +72,22 @@ interface ProviderForm {
   accountId: string;
   /** Mailcow: public host name of the mail server, empty = host of the URL. Key in apiKey. */
   mailHost: string;
+  /** CloudPanel: SSH host and port; the SSH user is in username. */
+  host: string;
+  port: string;
+  /** CloudPanel: ed25519 private key (OpenSSH), empty on edit = keep the stored one. */
+  privateKey: string;
+  /** CloudPanel: public key of a key pair generated in this dialog, for the installer line. */
+  publicKey: string;
+  hostKeySha256: string;
+  /** CloudPanel: host customers use for SFTP/SSH, empty = SSH host. */
+  accessHost: string;
+  /** CloudPanel: comma separated lists, empty = server facts or defaults. */
+  ipv4: string;
+  ipv6: string;
+  phpVersions: string;
+  templates: string;
+  nodejs: boolean;
 }
 
 const HETZNER_BASE_URL = 'https://api.hetzner.cloud/v1';
@@ -79,6 +98,10 @@ const CLOUDFLARE_ACCOUNT_ID = /^[0-9a-f]{32}$/i;
 /** Mailcow strips every other character from keys before the lookup. */
 const MAILCOW_API_KEY = /^[A-Za-z0-9-]{16,255}$/;
 const HOST_NAME = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+/** CloudPanel: SSH host name or IP address, and the pinned host key as ssh-keygen -lf prints it. */
+const SSH_HOST = /^[A-Za-z0-9.:-]{1,253}$/;
+const HOST_KEY_FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/;
+const CLOUDPANEL_USER = 'weblion-agent';
 
 const DEFAULT_NAME: Record<ProviderType, string> = {
   fire24: '24fire',
@@ -88,6 +111,7 @@ const DEFAULT_NAME: Record<ProviderType, string> = {
   nextcloud: 'Nextcloud',
   cloudflare: 'Cloudflare',
   mailcow: 'Mailcow',
+  cloudpanel: 'CloudPanel',
   demo: 'Demo',
 };
 
@@ -103,6 +127,7 @@ const DEFAULT_COUNTRY: Partial<Record<ProviderType, string>> = {
   proxmox: 'CH',
   nextcloud: 'CH',
   mailcow: 'CH',
+  cloudpanel: 'CH',
   cloudflare: 'US',
 };
 
@@ -128,14 +153,42 @@ const emptyForm = (type: ProviderType): ProviderForm => ({
   caCert: '',
   backupStorage: '',
   jokerAuth: 'apiKey',
-  username: '',
+  username: type === 'cloudpanel' ? CLOUDPANEL_USER : '',
   password: '',
   apiToken: '',
   appPassword: '',
   groupPrefix: '',
   accountId: '',
   mailHost: '',
+  host: '',
+  port: '22',
+  privateKey: '',
+  publicKey: '',
+  hostKeySha256: '',
+  accessHost: '',
+  ipv4: '',
+  ipv6: '',
+  phpVersions: '',
+  templates: '',
+  nodejs: false,
 });
+
+/** "a, b,,c" -> ["a", "b", "c"] */
+const listOf = (value: string) =>
+  value
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+/** A comma separated list for the config: left out when empty, removed on edit. */
+function optionalList(key: string, value: string, editing: boolean) {
+  const list = listOf(value);
+  return list.length > 0 ? { [key]: list } : editing ? { [key]: null } : {};
+}
+
+/** The installer line for deploy/cloudpanel-agent/install.sh; placeholders in angle brackets. */
+const installCommand = (publicKey: string) =>
+  `sudo ./install.sh --public-key "${publicKey}" --from "<IPv4>,<IPv6>" --protect-domain <domain> --protect-user <user>`;
 
 function configFromForm(f: ProviderForm, editing: boolean) {
   switch (f.type) {
@@ -205,6 +258,25 @@ function configFromForm(f: ProviderForm, editing: boolean) {
             ? { mailHost: null }
             : {}),
       };
+    case 'cloudpanel':
+      // An empty private key keeps the stored one; empty optional fields remove them on edit.
+      return {
+        host: f.host.trim(),
+        port: Number(f.port) || 22,
+        username: f.username.trim() || CLOUDPANEL_USER,
+        ...(f.privateKey.trim() || !editing ? { privateKey: f.privateKey.trim() } : {}),
+        hostKeySha256: f.hostKeySha256.trim(),
+        ...(f.accessHost.trim()
+          ? { accessHost: f.accessHost.trim().toLowerCase() }
+          : editing
+            ? { accessHost: null }
+            : {}),
+        ...optionalList('ipv4', f.ipv4, editing),
+        ...optionalList('ipv6', f.ipv6, editing),
+        ...optionalList('phpVersions', f.phpVersions, editing),
+        ...optionalList('templates', f.templates, editing),
+        nodejs: f.nodejs,
+      };
     default:
       return {};
   }
@@ -225,6 +297,20 @@ function mailcowIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): b
   const host = f.mailHost.trim();
   if ((key && !MAILCOW_API_KEY.test(key)) || (host && !HOST_NAME.test(host))) return true;
   return !/^https?:\/\/\S+$/i.test(f.baseUrl.trim()) || (!key && !existing);
+}
+
+/** CloudPanel needs host, host key and, on create, the private key (kept on edit when left empty). */
+function cloudpanelIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'cloudpanel') return false;
+  const port = Number(f.port);
+  const accessHost = f.accessHost.trim();
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return true;
+  if (accessHost && !HOST_NAME.test(accessHost)) return true;
+  return (
+    !SSH_HOST.test(f.host.trim()) ||
+    !HOST_KEY_FINGERPRINT.test(f.hostKeySha256.trim()) ||
+    (!f.privateKey.trim() && !existing)
+  );
 }
 
 /** Nextcloud needs URL, admin user and app password (kept on edit when left empty). */
@@ -272,6 +358,15 @@ function ProviderDialog({
           groupPrefix: existing.summary.groupPrefix ?? '',
           accountId: existing.summary.accountId ?? '',
           mailHost: existing.summary.mailHost ?? '',
+          host: existing.summary.host ?? '',
+          port: existing.summary.port ?? '22',
+          hostKeySha256: existing.summary.hostKeySha256 ?? '',
+          accessHost: existing.summary.accessHost ?? '',
+          ipv4: existing.summary.ipv4 ?? '',
+          ipv6: existing.summary.ipv6 ?? '',
+          phpVersions: existing.summary.phpVersions ?? '',
+          templates: existing.summary.templates ?? '',
+          nodejs: existing.summary.nodejs === 'true',
         }
       : emptyForm('proxmox'),
   );
@@ -328,7 +423,8 @@ function ProviderDialog({
                 (jokerIncomplete(form, existing) ||
                   nextcloudIncomplete(form, existing) ||
                   cloudflareIncomplete(form, existing) ||
-                  mailcowIncomplete(form, existing)))
+                  mailcowIncomplete(form, existing) ||
+                  cloudpanelIncomplete(form, existing)))
             }
           >
             {t('common.save')}
@@ -446,6 +542,8 @@ function ProviderDialog({
           <CloudflareFields form={form} set={set} existing={existing} />
         ) : form.type === 'mailcow' ? (
           <MailcowFields form={form} set={set} existing={existing} />
+        ) : form.type === 'cloudpanel' ? (
+          <CloudPanelFields form={form} setForm={setForm} existing={existing} />
         ) : form.type === 'proxmox' ? (
           <>
             <Field label="URL" hint="https://pve.example.ch:8006" htmlFor="p-url" className="sm:col-span-2">
@@ -859,6 +957,231 @@ function MailcowFields({
   );
 }
 
+function CloudPanelFields({
+  form,
+  setForm,
+  existing,
+}: {
+  form: ProviderForm;
+  setForm: Dispatch<SetStateAction<ProviderForm>>;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const set = <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const generate = useApiMutation(
+    () => api.post<{ privateKey: string; publicKey: string }>('/admin/cloudpanel/keypair'),
+    {
+      success: t('providers.cloudpanel.generated'),
+      // The private key only lives in the form until it is saved.
+      gcTime: 0,
+      onSuccess: (pair) => setForm((f) => ({ ...f, privateKey: pair.privateKey, publicKey: pair.publicKey })),
+    },
+  );
+  const host = form.host.trim();
+  const hostKey = form.hostKeySha256.trim();
+  const accessHost = form.accessHost.trim();
+  // A key generated here wins over the stored one, which the summary shows.
+  const publicKey = form.publicKey || (form.privateKey ? '' : (existing?.summary.publicKey ?? ''));
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.cloudpanel.help')}
+      </Notice>
+      <Field
+        label={t('providers.cloudpanel.host')}
+        hint={t('providers.cloudpanel.hostHint')}
+        error={host && !SSH_HOST.test(host) ? t('providers.cloudpanel.hostInvalid') : undefined}
+        htmlFor="p-clp-host"
+      >
+        <Input
+          id="p-clp-host"
+          value={form.host}
+          onChange={(e) => set('host', e.target.value)}
+          placeholder="web1.weblion.cloud"
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field label={t('providers.cloudpanel.port')} htmlFor="p-clp-port">
+        <Input
+          id="p-clp-port"
+          inputMode="numeric"
+          value={form.port}
+          onChange={(e) => set('port', e.target.value.replace(/\D/g, ''))}
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudpanel.username')}
+        hint={t('providers.cloudpanel.usernameHint')}
+        htmlFor="p-clp-user"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-clp-user"
+          value={form.username}
+          onChange={(e) => set('username', e.target.value)}
+          placeholder={CLOUDPANEL_USER}
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudpanel.privateKey')}
+        hint={existing ? t('providers.keepSecret') : t('providers.cloudpanel.privateKeyHint')}
+        htmlFor="p-clp-key"
+        className="sm:col-span-2"
+      >
+        <Textarea
+          id="p-clp-key"
+          rows={4}
+          value={form.privateKey}
+          onChange={(e) => setForm((f) => ({ ...f, privateKey: e.target.value, publicKey: '' }))}
+          className="font-mono text-xs"
+          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Button
+          size="sm"
+          className="mt-2"
+          icon={<KeyRound className="size-3.5" />}
+          loading={generate.isPending}
+          onClick={() => generate.mutate(undefined)}
+        >
+          {t('providers.cloudpanel.generate')}
+        </Button>
+      </Field>
+      {publicKey && <CloudPanelPublicKey publicKey={publicKey} className="sm:col-span-2" />}
+      <Field
+        label={t('providers.cloudpanel.hostKey')}
+        hint={t('providers.cloudpanel.hostKeyHint')}
+        error={
+          hostKey && !HOST_KEY_FINGERPRINT.test(hostKey)
+            ? t('providers.cloudpanel.hostKeyInvalid')
+            : undefined
+        }
+        htmlFor="p-clp-hostkey"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-clp-hostkey"
+          value={form.hostKeySha256}
+          onChange={(e) => set('hostKeySha256', e.target.value)}
+          placeholder="SHA256:..."
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudpanel.accessHost')}
+        hint={t('providers.cloudpanel.accessHostHint')}
+        error={
+          accessHost && !HOST_NAME.test(accessHost) ? t('providers.cloudpanel.accessHostInvalid') : undefined
+        }
+        htmlFor="p-clp-access"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-clp-access"
+          value={form.accessHost}
+          onChange={(e) => set('accessHost', e.target.value)}
+          placeholder="web1.weblion.cloud"
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudpanel.ipv4')}
+        hint={t('providers.cloudpanel.ipsHint')}
+        htmlFor="p-clp-ipv4"
+      >
+        <Input
+          id="p-clp-ipv4"
+          value={form.ipv4}
+          onChange={(e) => set('ipv4', e.target.value)}
+          placeholder="203.0.113.10"
+          className="font-mono"
+        />
+      </Field>
+      <Field label={t('providers.cloudpanel.ipv6')} htmlFor="p-clp-ipv6">
+        <Input
+          id="p-clp-ipv6"
+          value={form.ipv6}
+          onChange={(e) => set('ipv6', e.target.value)}
+          placeholder="2001:db8::10"
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudpanel.phpVersions')}
+        hint={t('providers.cloudpanel.phpVersionsHint')}
+        htmlFor="p-clp-php"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-clp-php"
+          value={form.phpVersions}
+          onChange={(e) => set('phpVersions', e.target.value)}
+          placeholder="8.3, 8.4"
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.cloudpanel.templates')}
+        hint={t('providers.cloudpanel.templatesHint')}
+        htmlFor="p-clp-templates"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-clp-templates"
+          value={form.templates}
+          onChange={(e) => set('templates', e.target.value)}
+          placeholder="Generic, WordPress, WooCommerce"
+          className="font-mono"
+        />
+      </Field>
+      <label className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 sm:col-span-2">
+        <span>
+          <span className="block text-sm">{t('providers.cloudpanel.nodejs')}</span>
+          <span className="block text-xs text-muted">{t('providers.cloudpanel.nodejsHint')}</span>
+        </span>
+        <Switch
+          checked={form.nodejs}
+          onCheckedChange={(v) => set('nodejs', v)}
+          label={t('providers.cloudpanel.nodejs')}
+        />
+      </label>
+    </>
+  );
+}
+
+/** The console's public key for a CloudPanel server, with the installer line, both copyable. */
+function CloudPanelPublicKey({ publicKey, className }: { publicKey: string; className?: string }) {
+  const { t } = useI18n();
+  const command = installCommand(publicKey);
+  return (
+    <div className={cn('space-y-3', className)}>
+      <div className="space-y-1.5">
+        <div className="text-[13px] font-medium text-text">{t('providers.cloudpanel.publicKey')}</div>
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
+          <Mono className="min-w-0 flex-1 text-xs break-all">{publicKey}</Mono>
+          <CopyButton value={publicKey} />
+        </div>
+        <p className="text-xs text-muted">{t('providers.cloudpanel.publicKeyHint')}</p>
+      </div>
+      <div className="space-y-1.5">
+        <div className="text-[13px] font-medium text-text">{t('providers.cloudpanel.installCommand')}</div>
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
+          <Mono className="min-w-0 flex-1 text-xs break-all">{command}</Mono>
+          <CopyButton value={command} />
+        </div>
+        <p className="text-xs text-muted">{t('providers.cloudpanel.installCommandHint')}</p>
+      </div>
+    </div>
+  );
+}
+
 /** Providers whose detail page links to their inventory in Admin > Domains & Webspaces. */
 const INVENTORY_LINKS: Partial<
   Record<ProviderType, { title: TranslationKey; text: TranslationKey; link: TranslationKey; tab: string }>
@@ -881,6 +1204,12 @@ const INVENTORY_LINKS: Partial<
     link: 'providers.mailcow.toDomains',
     tab: 'mail',
   },
+  cloudpanel: {
+    title: 'providers.cloudpanel.websites',
+    text: 'providers.cloudpanel.websitesText',
+    link: 'providers.cloudpanel.toWebsites',
+    tab: 'webspaces',
+  },
 };
 
 function useProviderActions(id: string) {
@@ -897,15 +1226,17 @@ function useProviderActions(id: string) {
   );
   const sync = useApiMutation(() => api.post<ProviderSyncResult>(`/admin/providers/${id}/sync`), {
     // Registrars (Joker.com) and Cloudflare only have domains, Nextcloud instances only cloud
-    // accounts, Mailcow only mail domains.
+    // accounts, Mailcow only mail domains, CloudPanel only websites.
     success: (r) =>
-      r.seen === 0 && r.missing === 0 && r.cloudAccounts
-        ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
-        : r.seen === 0 && r.missing === 0 && r.mailDomains
-          ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
-          : r.seen === 0 && r.missing === 0 && r.domains
-            ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
-            : t('providers.synced', { seen: r.seen, missing: r.missing }),
+      r.seen === 0 && r.missing === 0 && r.websites
+        ? t('websites.admin.synced', { seen: r.websites.seen, missing: r.websites.missing })
+        : r.seen === 0 && r.missing === 0 && r.cloudAccounts
+          ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
+          : r.seen === 0 && r.missing === 0 && r.mailDomains
+            ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
+            : r.seen === 0 && r.missing === 0 && r.domains
+              ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
+              : t('providers.synced', { seen: r.seen, missing: r.missing }),
     invalidate: [
       qk.admin('providers'),
       qk.admin('servers'),
@@ -913,6 +1244,7 @@ function useProviderActions(id: string) {
       ['hosting', 'admin'],
       ['cloud'],
       ['mail'],
+      ['websites'],
     ],
   });
   return { test, sync };
@@ -1272,6 +1604,14 @@ export function ProviderDetailPage() {
               />
             </CardBody>
           </Card>
+          {provider.type === 'cloudpanel' && provider.summary.publicKey && (
+            <Card>
+              <CardHeader title={t('providers.cloudpanel.consoleKey')} />
+              <CardBody>
+                <CloudPanelPublicKey publicKey={provider.summary.publicKey} />
+              </CardBody>
+            </Card>
+          )}
           {canWrite && provider.summary.managedBy !== 'env' && (
             <Card className="border-danger/40">
               <CardHeader title={t('providers.delete')} description={t('providers.deleteText')} />

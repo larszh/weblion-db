@@ -866,24 +866,20 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
 
     const { info } = created.domain;
     const now = new Date();
-    let stored: { id: string; orgId: string | null; moduleEnabled: boolean };
+    let stored: {
+      id: string;
+      orgId: string | null;
+      moduleEnabled: boolean;
+      previousOrgId: string | null | undefined;
+    };
     try {
       stored = await db.transaction(async (tx) => {
-        let moduleEnabled = false;
-        if (target?.enable) {
-          const [org] = await tx
-            .select({ modules: organizations.modules })
-            .from(organizations)
-            .where(eq(organizations.id, target.org.id))
-            .for('update');
-          if (org && !org.modules.includes(MAIL_MODULE)) {
-            await tx
-              .update(organizations)
-              .set({ modules: normalizeModules([...org.modules, MAIL_MODULE]) })
-              .where(eq(organizations.id, target.org.id));
-            moduleEnabled = true;
-          }
-        }
+        // A row marked missing that is revived here (its owner is the requested one now).
+        const [previous] = await tx
+          .select({ orgId: mailDomains.orgId })
+          .from(mailDomains)
+          .where(and(eq(mailDomains.providerConnectionId, connection.id), eq(mailDomains.externalId, ascii)))
+          .for('update');
         const [row] = await tx
           .insert(mailDomains)
           .values({
@@ -906,12 +902,29 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
               active: info.active,
               lastSyncedAt: now,
               missingSince: null,
-              // A sync may have inserted it meanwhile (unassigned); an assignment stays.
-              orgId: sql`coalesce(${mailDomains.orgId}, excluded.org_id)`,
+              // A row marked missing gets the requested owner: the domain was created again for
+              // it. Otherwise a sync inserted it meanwhile (unassigned); an assignment stays.
+              orgId: sql`case when ${mailDomains.missingSince} is not null then excluded.org_id else coalesce(${mailDomains.orgId}, excluded.org_id) end`,
             },
           })
           .returning({ id: mailDomains.id, orgId: mailDomains.orgId });
-        return { id: row!.id, orgId: row!.orgId, moduleEnabled };
+        // Only the organization that holds the domain now gets the module.
+        let moduleEnabled = false;
+        if (target?.enable && row!.orgId === target.org.id) {
+          const [org] = await tx
+            .select({ modules: organizations.modules })
+            .from(organizations)
+            .where(eq(organizations.id, target.org.id))
+            .for('update');
+          if (org && !org.modules.includes(MAIL_MODULE)) {
+            await tx
+              .update(organizations)
+              .set({ modules: normalizeModules([...org.modules, MAIL_MODULE]) })
+              .where(eq(organizations.id, target.org.id));
+            moduleEnabled = true;
+          }
+        }
+        return { id: row!.id, orgId: row!.orgId, moduleEnabled, previousOrgId: previous?.orgId };
       });
     } catch (err) {
       // At Mailcow, but not stored: the next sync shows it unassigned.
@@ -933,6 +946,7 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
         ...entry.details,
         domain: info.displayName,
         orgId: stored.orgId,
+        ...(stored.previousOrgId !== undefined ? { previousOrgId: stored.previousOrgId } : {}),
         moduleEnabled: stored.moduleEnabled ? MAIL_MODULE : null,
         warnings: created.warnings,
       },

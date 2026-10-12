@@ -18,6 +18,7 @@ import { AppError, conflict, unsupported } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import { mapLimit } from '../../providers/http';
 import type { ProviderAdapter, RemoteDomain } from '../../providers/types';
+import { assertNoLinkedService } from '../reseller/service';
 import { DNS_MOVE_MAX_RECORDS, planRecordImport, zoneTargets, type ZoneTarget } from './dns-move';
 import { NAMESERVERS_MIN } from './dns';
 import {
@@ -367,6 +368,7 @@ export async function zoneRoutes(app: FastifyInstance, ctx: AppContext) {
         zone = { ...row, scope: domainScope(row.domain), adapter: target.adapter };
         created = result.created;
       }
+      zone = await claimZone(req, registrar, zone);
     } catch (err) {
       await audit.record(req, {
         action: 'domain.zone_create',
@@ -386,6 +388,55 @@ export async function zoneRoutes(app: FastifyInstance, ctx: AppContext) {
       details: { ...details, zoneExternalId: zone.domain.externalId, created },
     });
     return { zone, created };
+  }
+
+  /**
+   * Once the registrar points to the zone, whoever holds the zone controls the domain's DNS:
+   * a reused zone must belong to the registered domain's organization. An unassigned one is
+   * given to it, one of another organization is refused before anything is copied or switched.
+   */
+  async function claimZone(
+    req: FastifyRequest,
+    registrar: LoadedDomain,
+    zone: LoadedDomain,
+  ): Promise<LoadedDomain> {
+    const { orgId } = registrar.domain;
+    if (zone.domain.orgId === null && orgId !== null) {
+      const assigned = await db.transaction(async (tx) => {
+        await assertNoLinkedService(tx, 'domain', zone.domain.id, orgId);
+        return tx
+          .update(domains)
+          .set({ orgId })
+          .where(and(eq(domains.id, zone.domain.id), isNull(domains.orgId)))
+          .returning({ id: domains.id });
+      });
+      const [row] = await domainRowsQuery(ctx).where(eq(domains.id, zone.domain.id)).limit(1);
+      zone = { ...row!, scope: domainScope(row!.domain), adapter: zone.adapter };
+      if (assigned.length > 0) {
+        await audit.record(req, {
+          action: 'domain.assign',
+          orgId,
+          resourceType: 'domain',
+          resourceId: zone.domain.id,
+          details: {
+            name: zone.domain.name,
+            orgId,
+            previousOrgId: null,
+            reason: 'dns_move',
+            sourceDomainId: registrar.domain.id,
+            moduleEnabled: null,
+          },
+        });
+      }
+    }
+    if (zone.domain.orgId !== orgId) {
+      const owner = (row: LoadedDomain) => row.org?.name ?? 'no organization';
+      throw conflict(
+        `The zone ${zone.domain.name} at ${zone.connection.name} belongs to ${owner(zone)}, ` +
+          `the registered domain to ${owner(registrar)}. Assign both to the same organization first`,
+      );
+    }
+    return zone;
   }
 
   /** Step 2. Audited on the zone whenever records were read or copied. */

@@ -171,6 +171,11 @@ export const cloudflareEn: Record<keyof typeof cloudflareDe, string> = {
     'No Cloudflare connection with an account ID. Enter the account ID of a Cloudflare connection under "Providers" so the console can create zones.',
   'hosting.dnsMove.existingZone':
     'There already is a zone for {name} at {provider} ({status}). If it is in the selected account, it is used instead of a new one.',
+  'hosting.dnsMove.existingZoneOtherOrg':
+    'It belongs to {zoneOrg}, the domain to {domainOrg}. Assign both to the same organization before you start the move.',
+  'hosting.dnsMove.existingZoneClaim':
+    'It is not assigned to an organization, the move assigns it to {domainOrg}.',
+  'hosting.dnsMove.noOrg': 'no organization',
   'hosting.dnsMove.import.label': 'Copy records from the registrar ({n})',
   'hosting.dnsMove.import.hint':
     'Copies the records into the new zone. Copied records are not proxied, so traffic does not change.',

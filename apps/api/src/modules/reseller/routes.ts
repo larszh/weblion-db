@@ -28,6 +28,7 @@ import { conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import { sendInvitationMail } from '../../mail/invitation';
 import { billingCurrency } from '../billing/ledger';
+import { assertWebsiteMoveAllowed } from '../hosting/website-service';
 import { loadOrg, orgCounts } from '../orgs/routes';
 import {
   RESOURCE_MODULES,
@@ -459,6 +460,10 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
       // Mail domains cannot be linked to billing services yet.
       if (current.orgId !== customer.id && body.type !== 'maildomain') {
         await assertNoLinkedService(tx, body.type, body.id, customer.id);
+      }
+      // A website must fit the customer's website allowance (web spaces of 24fire always pass).
+      if (current.orgId !== customer.id && body.type === 'webspace') {
+        await assertWebsiteMoveAllowed(tx, body.id, customer);
       }
       if (body.type === 'server') projectId ??= (await defaultProject(tx, customer.id)).id;
       await moveResource(tx, body.type, body.id, current, { orgId: customer.id, projectId });

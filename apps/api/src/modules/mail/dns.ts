@@ -171,6 +171,11 @@ export function evaluateMailRecords(
   const mxOk = at('@', 'MX').some((r) => mxHost(r.data) === target);
 
   function verdict(record: ExpectedRecord): Verdict {
+    // A CNAME owns its name (e.g. a delegated _dmarc): no other record may be added there.
+    if (record.name !== '@' && record.type !== 'CNAME') {
+      const cnames = at(record.name, 'CNAME');
+      if (cnames.length > 0) return conflict('name_in_use', cnames);
+    }
     switch (record.key) {
       case 'mx': {
         const mx = at('@', 'MX');
@@ -305,7 +310,8 @@ export async function findMailZone(
 
 /**
  * The DNS setup of a mail domain for this caller. A DKIM key that cannot be read leaves
- * the DKIM record "unknown"; records that cannot be listed leave every record "unknown".
+ * the DKIM record "unknown" and dkim.present null (not "no key": that would offer to create
+ * one); records that cannot be listed leave every record "unknown".
  * Pass `zone` when the caller looked it up already (undefined: looked up here).
  */
 export async function buildMailDnsSetup(
@@ -370,7 +376,7 @@ export async function buildMailDnsSetup(
     mailHost,
     dkim: {
       selector: dkim?.selector ?? MAIL_DKIM_SELECTOR,
-      present: dkim !== null,
+      present: dkimUnknown ? null : dkim !== null,
       keyLength: dkim?.keyLength ?? null,
     },
     zone: zoneDto,

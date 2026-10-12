@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { count, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { DEFAULT_INTERNAL_BOUNDARY, type Location, type ProviderType } from '@weblion/shared';
@@ -7,6 +8,7 @@ import { memberships, organizations, projects, providerConnections, users } from
 import { hashPassword, type SecretBox } from './lib/crypto';
 import type {
   CloudflareConfig,
+  CloudPanelConfig,
   DemoConfig,
   Fire24Config,
   HetznerConfig,
@@ -58,7 +60,22 @@ interface EnvProvider {
   config: ProviderConfig;
 }
 
-function envProviders(env: Env): EnvProvider[] {
+/** The CloudPanel key: inline (CLOUDPANEL_PRIVATE_KEY), else the file. Unreadable file: null. */
+function cloudPanelPrivateKey(env: Env, log: FastifyBaseLogger): string | null {
+  if (env.CLOUDPANEL_PRIVATE_KEY) return env.CLOUDPANEL_PRIVATE_KEY;
+  if (!env.CLOUDPANEL_PRIVATE_KEY_FILE) return null;
+  try {
+    return readFileSync(env.CLOUDPANEL_PRIVATE_KEY_FILE, 'utf8');
+  } catch (err) {
+    log.error(
+      { file: env.CLOUDPANEL_PRIVATE_KEY_FILE, code: (err as NodeJS.ErrnoException).code },
+      'CLOUDPANEL_PRIVATE_KEY_FILE cannot be read, the CloudPanel connection from the environment is skipped',
+    );
+    return null;
+  }
+}
+
+function envProviders(env: Env, log: FastifyBaseLogger): EnvProvider[] {
   const list: EnvProvider[] = [];
   if (env.FIRE24_API_KEY) {
     list.push({
@@ -132,6 +149,29 @@ function envProviders(env: Env): EnvProvider[] {
       } satisfies MailcowConfig,
     });
   }
+  if (env.CLOUDPANEL_HOST && env.CLOUDPANEL_HOST_KEY) {
+    const privateKey = cloudPanelPrivateKey(env, log);
+    if (privateKey) {
+      list.push({
+        key: 'cloudpanel',
+        type: 'cloudpanel',
+        name: env.CLOUDPANEL_NAME,
+        location: {
+          country: env.CLOUDPANEL_COUNTRY,
+          city: env.CLOUDPANEL_CITY,
+          label: `${env.CLOUDPANEL_CITY} (CloudPanel)`,
+        },
+        config: {
+          host: env.CLOUDPANEL_HOST,
+          port: env.CLOUDPANEL_PORT,
+          username: env.CLOUDPANEL_USER,
+          privateKey,
+          hostKeySha256: env.CLOUDPANEL_HOST_KEY,
+          ...(env.CLOUDPANEL_ACCESS_HOST ? { accessHost: env.CLOUDPANEL_ACCESS_HOST } : {}),
+        } satisfies CloudPanelConfig,
+      });
+    }
+  }
   if (env.JOKER_API_KEY || (env.JOKER_USERNAME && env.JOKER_PASSWORD)) {
     list.push({
       key: 'joker',
@@ -178,6 +218,15 @@ function envProviders(env: Env): EnvProvider[] {
       config: { flavor: 'cloudflare' } satisfies DemoConfig,
     });
   }
+  if (env.ENABLE_DEMO_PROVIDER && env.ENABLE_DEMO_CLOUDPANEL) {
+    list.push({
+      key: 'demo-cloudpanel',
+      type: 'demo',
+      name: 'Demo CloudPanel',
+      location: { country: 'CH', city: 'Demo', label: 'CloudPanel (simuliert)' },
+      config: { flavor: 'cloudpanel' } satisfies DemoConfig,
+    });
+  }
   return list;
 }
 
@@ -192,7 +241,7 @@ export async function syncEnvProviders(
   env: Env,
   log: FastifyBaseLogger,
 ): Promise<void> {
-  for (const p of envProviders(env)) {
+  for (const p of envProviders(env, log)) {
     const existing = await db.query.providerConnections.findFirst({
       where: eq(providerConnections.envKey, p.key),
     });

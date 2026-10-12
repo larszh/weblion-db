@@ -1,0 +1,31 @@
+#!/usr/bin/python3
+"""
+weblion-clp: the root wrapper the weblion console runs on a CloudPanel server over SSH.
+
+The console's agent user may run exactly this script through sudo, without arguments. A
+request arrives as one JSON line on stdin, the answer leaves as one JSON line on stdout (wire
+protocol v1): exit code 0 with "ok": true, 1 with "ok": false. Python 3 standard library only.
+
+Placeholder until the agent is implemented: every remote request is answered with the error
+code "internal", local commands are refused.
+"""
+
+import json
+import sys
+
+AGENT_VERSION = "0.0.0"
+PROTOCOL = 1
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv:
+        print("weblion-clp: local commands are not implemented yet", file=sys.stderr)
+        return 2
+    error = {"code": "internal", "message": "weblion-clp is not implemented yet"}
+    print(json.dumps({"v": PROTOCOL, "ok": False, "error": error}))
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

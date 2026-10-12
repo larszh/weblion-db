@@ -7,6 +7,7 @@ import { DEFAULT_CUSTOMER_BOUNDARY, DEFAULT_RESELLER_BOUNDARY, TOKEN_SCOPE_POLIC
 const org = { path: 'org' };
 const srv = { path: resourcePath.server('p1', 's1') };
 const dom = { path: resourcePath.domain('d1') };
+const web = { path: resourcePath.webspace('w1') };
 
 const customerBoundary = (modules: Parameters<typeof moduleDenyStatements>[0] = ['servers']) => [
   ...DEFAULT_CUSTOMER_BOUNDARY,
@@ -124,5 +125,43 @@ describe('customers and resellers', () => {
     };
     expect(can(subject, 'server:read', srv)).toBe(true);
     expect(can(subject, 'server:power', srv)).toBe(false);
+  });
+});
+
+describe('websites', () => {
+  it('lets read-write tokens create and delete websites, never see credentials', () => {
+    const token: AccessSubject = {
+      orgRole: 'owner',
+      boundary: customerBoundary(['webhosting']),
+      tokenStatements: TOKEN_SCOPE_POLICIES.read_write,
+    };
+    expect(can(token, 'webspace:write', org)).toBe(true);
+    expect(can(token, 'webspace:write', web)).toBe(true);
+    expect(can(token, 'webspace:delete', web)).toBe(true);
+    expect(can(token, 'webspace:credentials', web)).toBe(false);
+    const read: AccessSubject = { ...token, tokenStatements: TOKEN_SCOPE_POLICIES.read };
+    expect(can(read, 'webspace:read', web)).toBe(true);
+    expect(can(read, 'webspace:write', web)).toBe(false);
+  });
+
+  it('lets viewers read websites only', () => {
+    const viewer: AccessSubject = { orgRole: 'viewer', boundary: customerBoundary(['webhosting']) };
+    expect(can(viewer, 'webspace:read', web)).toBe(true);
+    expect(can(viewer, 'webspace:write', org)).toBe(false);
+    expect(can(viewer, 'webspace:delete', web)).toBe(false);
+    expect(can(viewer, 'webspace:credentials', web)).toBe(false);
+  });
+
+  it('denies website changes while the module is off', () => {
+    const owner: AccessSubject = { orgRole: 'owner', boundary: customerBoundary(['servers']) };
+    expect(can(owner, 'webspace:delete', web)).toBe(false);
+    expect(can(owner, 'webspace:write', org)).toBe(false);
+    const on: AccessSubject = { orgRole: 'owner', boundary: customerBoundary(['webhosting']) };
+    expect(can(on, 'webspace:delete', web)).toBe(true);
+  });
+
+  it('keeps the platform permission away from organizations', () => {
+    const owner: AccessSubject = { orgRole: 'owner', boundary: customerBoundary(['webhosting']) };
+    expect(can(owner, 'platform:website:write', org)).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ import {
   type ProviderConnection,
 } from '../src/db/schema';
 import { hashPassword } from '../src/lib/crypto';
-import { configSummary } from '../src/modules/admin/routes';
+import { configSummary, redactExplorerBody } from '../src/modules/admin/routes';
 import { generateCloudPassword } from '../src/modules/cloud/service';
 import { DemoAdapter } from '../src/providers/demo/adapter';
 import { DEMO_CLOUD_URL, demoCloudState } from '../src/providers/demo/cloud';
@@ -1250,6 +1250,39 @@ describe('secrets', () => {
     });
     const [plain] = (await auditEntries('provider.explorer', demo.id)).slice(-1);
     expect(plain!.details).toMatchObject({ path: `${user}?key=quota&value=5%20GB` });
+  });
+
+  it('audits Mailcow explorer writes without bind passwords and other secrets', () => {
+    // POST /api/v1/edit/identity-provider (LDAP), add/app-passwd, add/dkim with a key import.
+    expect(
+      redactExplorerBody({
+        items: ['identity-provider'],
+        attr: {
+          authsource: 'ldap',
+          host: 'ldap.example',
+          binddn: 'cn=admin,dc=example',
+          bindpass: 'Bind-Secret-1',
+          client_secret: 'Oidc-Secret-2',
+        },
+      }),
+    ).toEqual({
+      items: ['identity-provider'],
+      attr: {
+        authsource: 'ldap',
+        host: 'ldap.example',
+        binddn: 'cn=admin,dc=example',
+        bindpass: '[redacted]',
+        client_secret: '[redacted]',
+      },
+    });
+    expect(
+      redactExplorerBody({ app_passwd: 'a', app_passwd2: 'a', smtp_pass: 'b', private_key_file: 'c' }),
+    ).toEqual({
+      app_passwd: '[redacted]',
+      app_passwd2: '[redacted]',
+      smtp_pass: '[redacted]',
+      private_key_file: '[redacted]',
+    });
   });
 
   it('shows no part of a Nextcloud app password in the provider summary', async () => {

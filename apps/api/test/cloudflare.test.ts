@@ -644,9 +644,17 @@ describe('Cloudflare client', () => {
       'Cloudflare: verify failed: Invalid API Token [redacted] (1000) (HTTP 401). Check the API token (CLOUDFLARE_API_TOKEN): revoked, expired or mistyped',
     );
 
+    // A valid token without a permission (Zone:Read instead of Zone:Edit) gets the same 403
+    // as a revoked one: the permission is named, not only the token.
     mock.override = () => fail(403, [{ code: 10000, message: 'Authentication error' }]);
-    const auth = await caught(client().request('GET', '/zones', { action: 'list zones' }));
-    expect(auth.message).toContain('Check the API token (CLOUDFLARE_API_TOKEN)');
+    const auth = await caught(client().request('POST', '/zones', { action: 'create zone' }));
+    expect(auth.message).toBe(
+      'Cloudflare: create zone failed: Authentication error (10000) (HTTP 403). The API token lacks a permission for this, or it was revoked or expired (CLOUDFLARE_API_TOKEN). The panel needs Zone:Edit, DNS:Edit, Zone Settings:Edit and Cache Purge:Purge on all zones of the account',
+    );
+    mock.override = () => fail(403, [{ code: 9109, message: 'Unauthorized to access requested resource' }]);
+    const resource = await caught(client().request('GET', `/zones/${ZONE_ID}`, { action: 'read zone' }));
+    expect(resource.message).toContain('The API token lacks a permission for this');
+    expect(resource.message).not.toContain('mistyped');
 
     mock.override = () => fail(403, [{ code: 1013, message: 'Permission denied' }]);
     const permission = await caught(
@@ -1012,6 +1020,14 @@ describe('Cloudflare parsing', () => {
       'secondary',
     );
     expect(secondary.readOnly).toBe(true);
+  });
+
+  it('reads a null MX (RFC 7505) with its "." target', () => {
+    const nullMx = toDnsRecord(
+      { id: hex(1), name: 'muster-shop.ch', type: 'MX', content: '.', priority: 0 },
+      'muster-shop.ch',
+    );
+    expect(nullMx).toMatchObject({ type: 'MX', name: '@', data: '0 .' });
   });
 
   it('carries proxy flags, comments and TTL', () => {

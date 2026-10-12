@@ -31,6 +31,7 @@ import { metaRoutes } from './modules/meta/routes';
 import { billingRoutes } from './modules/billing/routes';
 import { paymentRoutes } from './modules/payments/routes';
 import { hostingRoutes } from './modules/hosting/routes';
+import { websiteRoutes } from './modules/hosting/websites';
 import { zoneRoutes } from './modules/hosting/zones';
 import { cloudRoutes } from './modules/cloud/routes';
 import { mailRoutes } from './modules/mail/routes';
@@ -55,6 +56,8 @@ export async function buildApp({
   const app = Fastify({
     trustProxy: env.TRUST_PROXY,
     bodyLimit: 1024 * 1024,
+    // Path parameters up to an e-mail address of 254 characters (Fastify's default is 100).
+    routerOptions: { maxParamLength: 512 },
     logger: logger
       ? {
           level: env.LOG_LEVEL,
@@ -150,6 +153,7 @@ export async function buildApp({
         consoleRoutes,
         adminRoutes,
         hostingRoutes,
+        websiteRoutes,
         zoneRoutes,
         cloudRoutes,
         mailRoutes,

@@ -324,6 +324,65 @@ describe('administration', () => {
     expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
   });
 
+  it('keeps the private key of a CloudPanel connection inside the API', async () => {
+    const pairRes = await admin.post('/admin/cloudpanel/keypair');
+    expect(pairRes.statusCode).toBe(200);
+    expect(pairRes.headers['cache-control']).toBe('no-store');
+    const pair = json<{ privateKey: string; publicKey: string }>(pairRes);
+    expect(pair.privateKey).toMatch(/^-----BEGIN OPENSSH PRIVATE KEY-----\n/);
+    expect(pair.publicKey).toMatch(/^ssh-ed25519 [A-Za-z0-9+/=]+ weblion-console$/);
+    const [entry] = await t.db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.action, 'provider.keypair_generate'));
+    expect(entry).toBeDefined();
+    expect(JSON.stringify(entry)).not.toContain(pair.privateKey.split('\n')[1]!);
+    const anna = new Client(t.app);
+    await anna.login('anna@muster.example');
+    expect((await anna.post('/admin/cloudpanel/keypair')).statusCode).toBe(403);
+
+    type Provider = { id: string; summary: Record<string, string> };
+    const hostKeySha256 = `SHA256:${'A'.repeat(43)}`;
+    const config = { host: '127.0.0.1', port: 9, privateKey: pair.privateKey, hostKeySha256 };
+    const create = (overrides: Record<string, unknown>) =>
+      admin.post('/admin/providers', {
+        type: 'cloudpanel',
+        name: 'CloudPanel Test',
+        location: { country: 'CH', label: 'Test' },
+        config: { ...config, ...overrides },
+      });
+    expect((await create({ privateKey: pair.publicKey })).statusCode).toBe(400);
+    expect((await create({ privateKey: 'not a key' })).statusCode).toBe(400);
+    expect((await create({ hostKeySha256: 'MD5:aa:bb' })).statusCode).toBe(400);
+    expect((await create({ host: 'web1.example; rm -rf /' })).statusCode).toBe(400);
+    expect((await create({ templates: ['Generic; x'] })).statusCode).toBe(400);
+
+    const res = await create({ templates: ['Generic', 'Laravel*'], ipv4: ['203.0.113.10'] });
+    expect(res.statusCode, res.body).toBe(200);
+    const created = json<Provider>(res);
+    expect(created.summary).toMatchObject({
+      host: '127.0.0.1',
+      port: '9',
+      username: 'weblion-agent',
+      hostKeySha256,
+      publicKey: pair.publicKey,
+      privateKey: '••••••',
+      templates: 'Generic, Laravel*',
+      ipv4: '203.0.113.10',
+    });
+    expect(JSON.stringify(created)).not.toContain(pair.privateKey.split('\n')[1]!);
+
+    // An empty key keeps the stored one; lists can be removed.
+    const edited = json<Provider>(
+      await admin.patch(`/admin/providers/${created.id}`, {
+        config: { privateKey: '', nodejs: true, ipv4: null },
+      }),
+    );
+    expect(edited.summary).toMatchObject({ publicKey: pair.publicKey, nodejs: 'true' });
+    expect(edited.summary.ipv4).toBeUndefined();
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+  });
+
   it('removes a stored credential when an edit sends null', async () => {
     type Provider = { id: string; summary: Record<string, string> };
     const created = json<Provider>(

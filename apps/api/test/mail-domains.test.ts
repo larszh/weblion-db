@@ -942,6 +942,26 @@ describe('dns setup', () => {
     const apply = await reto.post(`/mail/domains/${alpen}/dns/apply`, {});
     expect(apply.statusCode).toBe(409);
   });
+
+  it('reports a DKIM key that cannot be read as unknown, not as missing', async () => {
+    const musterAg = await mailId('muster-ag.ch');
+    expect(json<MailDnsSetupDto>(await anna.get(`/mail/domains/${musterAg}/dns`)).dkim.present).toBe(true);
+    const original = DemoAdapter.prototype.getDkim;
+    DemoAdapter.prototype.getDkim = async () => {
+      throw new Error('Mailcow: timeout');
+    };
+    try {
+      const setup = json<MailDnsSetupDto>(await anna.get(`/mail/domains/${musterAg}/dns`));
+      // Not "no key": the console would offer to generate one, which Mailcow refuses.
+      expect(setup.dkim).toEqual({ selector: 'dkim', present: null, keyLength: null });
+      expect(setup.records.find((r) => r.key === 'dkim')).toMatchObject({
+        status: 'unknown',
+        addable: false,
+      });
+    } finally {
+      DemoAdapter.prototype.getDkim = original;
+    }
+  });
 });
 
 describe('admin', () => {
@@ -1181,6 +1201,87 @@ describe('admin', () => {
     expect(await mailRow('weg.ch')).toBeUndefined();
     const entries = await auditEntries('mail.domain_delete', domain.id);
     expect(entries.at(-1)!.details).toMatchObject({ goneAtMailcow: true });
+  });
+
+  it('reaches mailboxes whose address is longer than 100 characters', async () => {
+    const name = 'buchhaltung-und-verwaltung.muster-aktiengesellschaft-zuerich.ch';
+    const created = await admin.post('/admin/mail/domains', {
+      providerId: demo.id,
+      domain: name,
+      limits: LIMITS,
+      orgId: musterId,
+      restartSogo: false,
+    });
+    expect(created.statusCode, created.body).toBe(200);
+    const { id } = json<MailDomainChangeResult>(created).domain;
+    try {
+      const localPart = 'sekretariat.geschaeftsleitung.verwaltungsrat';
+      const address = `${localPart}@${name}`;
+      expect(address.length).toBeGreaterThan(100);
+      const mailbox = await anna.post(`/mail/domains/${id}/mailboxes`, { localPart });
+      expect(mailbox.statusCode, mailbox.body).toBe(200);
+      const url = `/mail/domains/${id}/mailboxes/${encodeURIComponent(address)}`;
+      const changed = await anna.patch(url, { name: 'Sekretariat' });
+      expect(changed.statusCode, changed.body).toBe(200);
+      expect(json<MailboxDto>(changed)).toMatchObject({ address, name: 'Sekretariat' });
+      const password = await anna.post(`${url}/password`, {});
+      expect(password.statusCode, password.body).toBe(200);
+      const deleted = await anna.del(url, { confirm: address });
+      expect(deleted.statusCode, deleted.body).toBe(200);
+      expect(mailState().domains.get(name)!.mailboxes.size).toBe(0);
+    } finally {
+      mailState().domains.delete(name);
+      mailState().dkim.delete(name);
+      await t.db.delete(mailDomains).where(eq(mailDomains.id, id));
+    }
+  });
+
+  it('creates a domain gone at Mailcow again for the owner it is meant for', async () => {
+    const first = await admin.post('/admin/mail/domains', {
+      providerId: demo.id,
+      domain: 'wieder.ch',
+      limits: LIMITS,
+      orgId: musterId,
+      restartSogo: false,
+    });
+    expect(first.statusCode, first.body).toBe(200);
+    const { id } = json<MailDomainChangeResult>(first).domain;
+    // Deleted in Mailcow directly: the row stays, marked missing, with its old owner.
+    mailState().domains.delete('wieder.ch');
+    await sync();
+    expect(await mailRow('wieder.ch')).toMatchObject({ orgId: musterId, missingSince: expect.any(Date) });
+    const modules = await modulesOf(beispielId);
+    await setModules(
+      beispielId,
+      modules.filter((m) => m !== 'mail'),
+    );
+    try {
+      const again = await admin.post('/admin/mail/domains', {
+        providerId: demo.id,
+        domain: 'wieder.ch',
+        limits: LIMITS,
+        orgId: beispielId,
+        restartSogo: false,
+      });
+      expect(again.statusCode, again.body).toBe(200);
+      expect(json<MailDomainChangeResult>(again).domain).toMatchObject({ id, org: { id: beispielId } });
+      expect(await mailRow('wieder.ch')).toMatchObject({ orgId: beispielId, missingSince: null });
+      expect(await modulesOf(beispielId)).toContain('mail');
+      expect((await anna.get(`/mail/domains/${id}`)).statusCode).toBe(404);
+      expect((await dev.get(`/mail/domains/${id}`)).statusCode).toBe(200);
+      const entry = (await auditEntries('mail.domain_create', id)).at(-1);
+      expect(entry).toMatchObject({ status: 'success', orgId: beispielId });
+      expect(entry!.details).toMatchObject({
+        orgId: beispielId,
+        previousOrgId: musterId,
+        moduleEnabled: 'mail',
+      });
+    } finally {
+      await setModules(beispielId, modules);
+      mailState().domains.delete('wieder.ch');
+      mailState().dkim.delete('wieder.ch');
+      await t.db.delete(mailDomains).where(eq(mailDomains.id, id));
+    }
   });
 
   it('assigns and unassigns mail domains', async () => {

@@ -52,9 +52,10 @@ import {
 
 /** Cloud storage in the admin area: allowances per customer and the account inventory. */
 
-/** Provider types that can hold cloud accounts. */
-export const isCloudProvider = (p: Pick<ProviderConnectionDto, 'type'>) =>
-  p.type === 'nextcloud' || p.type === 'demo';
+/** Connections that can hold cloud accounts: Nextcloud, and the demo cloud (not the flavored demos). */
+export const isCloudProvider = (
+  p: Pick<ProviderConnectionDto, 'type'> & { summary?: Record<string, string> },
+) => p.type === 'nextcloud' || (p.type === 'demo' && !p.summary?.flavor);
 
 export const useCloudProviders = () => {
   const providers = useAdminProviders();

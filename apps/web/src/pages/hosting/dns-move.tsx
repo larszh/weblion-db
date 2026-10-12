@@ -84,7 +84,15 @@ export function DnsMoveDialog({ domain, onClose }: { domain: DnsMoveSource; onCl
       ? t('hosting.dnsMove.ns.requiresImport')
       : null;
   const setNameservers = nsBlocked === null && nsChoice;
-  const canStart = planReady && plan.targets.length > 0 && !!plan.targetProviderId;
+  // The move reuses a zone at the target. The API refuses one of another organization and
+  // gives an unassigned one to the domain's organization.
+  const reusedZone =
+    plan?.existingZone && plan.existingZone.provider.id === plan.targetProviderId ? plan.existingZone : null;
+  const zoneOrgId = reusedZone?.org?.id ?? null;
+  const domainOrgId = plan?.domain.org?.id ?? null;
+  const otherOwner = !!reusedZone && zoneOrgId !== null && zoneOrgId !== domainOrgId;
+  const claimsZone = !!reusedZone && zoneOrgId === null && domainOrgId !== null;
+  const canStart = planReady && plan.targets.length > 0 && !!plan.targetProviderId && !otherOwner;
 
   const start = () => {
     if (!canStart || !plan.targetProviderId) return;
@@ -170,12 +178,20 @@ export function DnsMoveDialog({ domain, onClose }: { domain: DnsMoveSource; onCl
             </p>
           )}
           {plan.existingZone && (
-            <Notice tone="info">
+            <Notice tone={otherOwner ? 'warning' : 'info'}>
               {t('hosting.dnsMove.existingZone', {
                 name: plan.domain.name,
                 provider: plan.existingZone.provider.name,
                 status: linkedStatus(t, plan.existingZone).label,
               })}{' '}
+              {otherOwner
+                ? t('hosting.dnsMove.existingZoneOtherOrg', {
+                    zoneOrg: reusedZone.org?.name ?? '',
+                    domainOrg: plan.domain.org?.name ?? t('hosting.dnsMove.noOrg'),
+                  })
+                : claimsZone
+                  ? t('hosting.dnsMove.existingZoneClaim', { domainOrg: plan.domain.org?.name ?? '' })
+                  : null}{' '}
               {t('hosting.dnsMove.import.zoneNotEmpty')}
             </Notice>
           )}

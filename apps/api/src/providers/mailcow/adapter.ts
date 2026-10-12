@@ -6,6 +6,7 @@ import {
   mailLimitsIssue,
   type Capability,
   type MailAliasDto,
+  type MailAliasSpecial,
   type MailClientSettings,
   type MailPasswordPolicy,
   type MailboxDto,
@@ -66,6 +67,12 @@ const DKIM_SELECTOR = /^[a-z0-9][a-z0-9._-]{0,62}$/;
 const MAX_NAME_LENGTH = 255;
 
 const STATE_VALUES: Record<MailboxState, string> = { active: '1', login_disabled: '2', inactive: '0' };
+/** The edit/alias flag that keeps a special target (null@localhost and the like). */
+const SPECIAL_FLAGS: Record<MailAliasSpecial, string> = {
+  discard: 'goto_null',
+  spam: 'goto_spam',
+  ham: 'goto_ham',
+};
 
 /**
  * Reads of the last seconds, keyed "<kind>:<ascii domain>" (or "policy", "version"). Mailcow
@@ -494,6 +501,21 @@ export class MailcowAdapter implements ProviderAdapter {
     return mailbox;
   }
 
+  /** A mailbox with its raw record, uncached; looked up like getMailbox. */
+  private async mailboxRecord(
+    address: string,
+  ): Promise<{ mailbox: MailboxDto; raw: Record<string, unknown> }> {
+    const { localPart, domain, address: full } = splitMailbox(address);
+    const records = PATH_LOCAL_PART.test(localPart)
+      ? asList([await this.client.get(`/api/v1/get/mailbox/${full}`, `read mailbox ${full}`)])
+      : asList(await this.client.get(`/api/v1/get/mailbox/all/${domain}`, `list mailboxes of ${domain}`));
+    for (const raw of records) {
+      const mailbox = parseMailbox(raw);
+      if (mailbox?.address === full) return { mailbox, raw };
+    }
+    throw new ProviderError(PROVIDER, `mailbox ${full} not found`, 404);
+  }
+
   /**
    * Creates a mailbox with the given password (Mailcow has no invitation). force_pw_update is
    * always "0": with 1 the mailbox could only log in to Mailcow's UI until the password is
@@ -580,11 +602,19 @@ export class MailcowAdapter implements ProviderAdapter {
 
   /**
    * Alone in its request: a password that fails Mailcow's policy cancels every other change of
-   * the same edit. An empty password would be ignored silently, so it is refused.
+   * the same edit. An empty password would be ignored silently, so it is refused. So is a
+   * mailbox that signs in through Keycloak, LDAP or OIDC (authsource): Mailcow changes only
+   * passwords of its own mailboxes, yet reports success for the others.
    */
   async setMailboxPassword(address: string, password: string): Promise<void> {
     if (typeof password !== 'string' || password === '') throw badRequest('The password must not be empty');
-    const current = await this.getMailbox(address);
+    const { mailbox: current, raw } = await this.mailboxRecord(address);
+    const authSource = str(raw.authsource)?.toLowerCase();
+    if (authSource && authSource !== 'mailcow') {
+      throw conflict(
+        `${current.address} signs in through ${authSource}, its password is managed there, not at Mailcow`,
+      );
+    }
     try {
       await this.client.write(
         '/api/v1/edit/mailbox',
@@ -686,12 +716,17 @@ export class MailcowAdapter implements ProviderAdapter {
     }
   }
 
+  /**
+   * Without goto, Mailcow checks the stored targets again and drops its own null@localhost
+   * (spam@, ham@) as invalid, saving nothing: a special alias keeps its target by its flag.
+   */
   async updateMailAlias(id: string, patch: MailAliasPatch): Promise<void> {
     const current = await this.getMailAlias(id);
     const attr: Record<string, string> = {};
     if (patch.targets !== undefined) attr.goto = assertTargets(patch.targets, current.address).join(',');
     if (patch.active !== undefined) attr.active = flag(patch.active);
     if (Object.keys(attr).length === 0) return;
+    if (attr.goto === undefined && current.special) attr[SPECIAL_FLAGS[current.special]] = '1';
     try {
       await this.client.write(
         '/api/v1/edit/alias',

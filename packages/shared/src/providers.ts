@@ -12,6 +12,7 @@ export const PROVIDER_TYPES = [
   'nextcloud',
   'cloudflare',
   'mailcow',
+  'cloudpanel',
   'demo',
 ] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
@@ -24,6 +25,7 @@ export const PROVIDER_LABELS: Record<ProviderType, string> = {
   nextcloud: 'Nextcloud',
   cloudflare: 'Cloudflare',
   mailcow: 'Mailcow',
+  cloudpanel: 'CloudPanel',
   demo: 'Demo',
 };
 

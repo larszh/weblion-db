@@ -254,7 +254,8 @@ export interface MailDnsSetupDto {
   /** ASCII name. */
   domain: string;
   mailHost: string;
-  dkim: { selector: string; present: boolean; keyLength: string | null };
+  /** present null: the key could not be read at Mailcow, so whether there is one is unknown. */
+  dkim: { selector: string; present: boolean | null; keyLength: string | null };
   zone: MailDnsZoneDto | null;
   records: MailDnsRecordDto[];
 }

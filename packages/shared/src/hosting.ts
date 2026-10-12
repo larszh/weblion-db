@@ -1,5 +1,12 @@
 import type { Location, ProviderType } from './providers';
 import type { Permission } from './permissions';
+import type {
+  WebsiteAccess,
+  WebsiteDatabaseDto,
+  WebsiteFacts,
+  WebspaceKind,
+  WebspaceStatus,
+} from './websites';
 
 /**
  * Domains (module "dns") and web spaces (module "webhosting").
@@ -7,6 +14,7 @@ import type { Permission } from './permissions';
  * Both come from provider accounts (24fire, Joker.com for domains) and are synced into the
  * panel like servers. Platform staff assign them to an organization. Live details (DNS
  * records, Plesk credentials) are fetched from the provider on demand and never stored.
+ * Websites on CloudPanel servers are web spaces of kind "website" (see websites.ts).
  */
 
 export const DNS_RECORD_TYPES = [
@@ -182,6 +190,8 @@ export interface WebspaceInfo {
   username: string | null;
   email: string | null;
   expiresAt: string | null;
+  /** Websites (kind "website") only: the CloudPanel site. */
+  site?: WebsiteFacts | null;
 }
 
 export interface WebspaceCredentials {
@@ -347,12 +357,19 @@ export interface DnsMoveResult {
 export interface WebspaceDto {
   id: string;
   name: string;
+  /** "website": CloudPanel site with the website actions; "webspace": provider web space (Plesk). */
+  kind: WebspaceKind;
+  status: WebspaceStatus;
   provider: { id: string; type: ProviderType; name: string };
   location: Location;
   org: { id: string; name: string; slug: string } | null;
   resources: WebspaceResources | null;
   panelUrl: string | null;
   expiresAt: string | null;
+  /** Websites only. */
+  site: WebsiteFacts | null;
+  /** Websites only: the creation answer was lost, a new password is needed for access. */
+  credentialsPending: boolean;
   permissions: Permission[];
   lastSyncedAt: string | null;
   missingSince: string | null;
@@ -362,4 +379,8 @@ export interface WebspaceDto {
 export interface WebspaceDetailDto extends WebspaceDto {
   info: WebspaceInfo | null;
   liveError: string | null;
+  /** Websites only. */
+  access: WebsiteAccess | null;
+  /** Websites only, ordered by name. */
+  databases: WebsiteDatabaseDto[];
 }

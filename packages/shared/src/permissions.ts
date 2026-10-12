@@ -117,15 +117,25 @@ export const PERMISSIONS = {
     { dangerous: true },
   ),
 
-  // Web hosting (module "webhosting")
-  'webspace:read': def('webhosting', 'Webspaces ansehen', 'View web spaces'),
+  // Web hosting (module "webhosting"): 24fire web spaces and CloudPanel websites
+  'webspace:read': def('webhosting', 'Webspaces und Websites ansehen', 'View web spaces and websites'),
   'webspace:credentials': def(
     'webhosting',
-    'Zugangsdaten (Plesk) anzeigen',
-    'Show login credentials (Plesk)',
-    {
-      dangerous: true,
-    },
+    'Zugangsdaten anzeigen und neu setzen (Plesk, SFTP/SSH, Datenbanken)',
+    'Show and reset login credentials (Plesk, SFTP/SSH, databases)',
+    { dangerous: true },
+  ),
+  'webspace:write': def(
+    'webhosting',
+    'Websites anlegen, Datenbanken anlegen und löschen, SSL-Zertifikate ausstellen',
+    'Create websites, add and delete databases, issue SSL certificates',
+    { dangerous: true },
+  ),
+  'webspace:delete': def(
+    'webhosting',
+    'Websites löschen (mit allen Dateien und Datenbanken)',
+    'Delete websites (with all files and databases)',
+    { dangerous: true },
   ),
 
   // Cloud storage (module "storage", Nextcloud)
@@ -207,8 +217,8 @@ export const PERMISSIONS = {
   ),
   'platform:server:assign': def(
     'platform',
-    'Server, Domains, Webspaces und E-Mail-Domains Kunden zuweisen',
-    'Assign servers, domains, web spaces and mail domains to customers',
+    'Server, Domains, Webspaces, Websites und E-Mail-Domains Kunden zuweisen',
+    'Assign servers, domains, web spaces, websites and mail domains to customers',
     { platform: true },
   ),
   'platform:server:create': def('platform', 'Server bei Providern erstellen', 'Create servers at providers', {
@@ -264,6 +274,12 @@ export const PERMISSIONS = {
     'platform',
     'E-Mail-Domains bei Mailcow anlegen, Limits ändern und löschen',
     'Create mail domains at Mailcow, change their limits and delete them',
+    { platform: true, dangerous: true },
+  ),
+  'platform:website:write': def(
+    'platform',
+    'Websites auf CloudPanel-Servern für Kunden anlegen, übernehmen, freigeben und löschen',
+    'Create, adopt, release and delete websites on CloudPanel servers for customers',
     { platform: true, dangerous: true },
   ),
 } as const satisfies Record<string, PermissionDef>;

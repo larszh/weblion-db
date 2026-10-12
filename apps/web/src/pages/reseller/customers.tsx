@@ -69,6 +69,7 @@ import {
   useTabParam,
 } from './bits';
 import { ResellerCloudAllowanceCard } from './cloud-allowance';
+import { ResellerWebsiteAllowanceCard } from './website-allowance';
 
 /** Resource types a reseller hands out, with the module each one belongs to. */
 const RESOURCE_TYPES: {
@@ -604,6 +605,8 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
   const types = RESOURCE_TYPES.filter((r) => org.modules.includes(r.module));
   // Cloud storage is no resource that moves, the customer gets a share of the allowance.
   const cloud = org.modules.includes('storage');
+  // Websites move like web spaces, and the customer needs a website allowance to take them.
+  const websites = org.modules.includes('webhosting');
 
   if (resources.isPending) return <LoadingBlock rows={6} />;
   if (resources.isError) {
@@ -670,6 +673,7 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
         );
       })}
       {cloud && <ResellerCloudAllowanceCard customer={customer} />}
+      {websites && <ResellerWebsiteAllowanceCard customer={customer} />}
       <AssignDialog
         type={assigning}
         customer={customer}

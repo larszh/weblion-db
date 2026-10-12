@@ -174,6 +174,11 @@ export const cloudflareDe = {
     'Keine Cloudflare-Verbindung mit Konto-ID. Tragen Sie bei einer Cloudflare-Verbindung unter "Provider" die Konto-ID ein, damit die Console Zonen anlegen kann.',
   'hosting.dnsMove.existingZone':
     'Für {name} gibt es bereits eine Zone bei {provider} ({status}). Liegt sie im gewählten Konto, wird sie verwendet statt neu angelegt.',
+  'hosting.dnsMove.existingZoneOtherOrg':
+    'Sie gehört zu {zoneOrg}, die Domain zu {domainOrg}. Weisen Sie beide derselben Organisation zu, bevor Sie den Umzug starten.',
+  'hosting.dnsMove.existingZoneClaim':
+    'Sie ist keiner Organisation zugewiesen, der Umzug weist sie {domainOrg} zu.',
+  'hosting.dnsMove.noOrg': 'keiner Organisation',
   'hosting.dnsMove.import.label': 'Einträge vom Registrar übernehmen ({n})',
   'hosting.dnsMove.import.hint':
     'Kopiert die Einträge in die neue Zone. Kopierte Einträge laufen nicht über den Proxy, am Verkehr ändert sich also nichts.',

@@ -30,6 +30,11 @@ const demoCloudflare = await db.query.providerConnections.findFirst({
   where: eq(providerConnections.envKey, 'demo-cloudflare'),
 });
 if (demoCloudflare) await sync.syncConnection(demoCloudflare);
+// The demo CloudPanel (ENABLE_DEMO_CLOUDPANEL), so the seed finds its websites.
+const demoCloudPanel = await db.query.providerConnections.findFirst({
+  where: eq(providerConnections.envKey, 'demo-cloudpanel'),
+});
+if (demoCloudPanel) await sync.syncConnection(demoCloudPanel);
 
 const password = process.env.SEED_PASSWORD ?? 'demo-password-123';
 const created = await seedDemo(db, password);

@@ -3,6 +3,7 @@ import type {
   Capability,
   CdnSettingPatch,
   CdnSettings,
+  CreatableWebsiteType,
   DdosSettings,
   DnsRecord,
   DnsRecordInput,
@@ -37,6 +38,11 @@ import type {
   ServerUsage,
   SnapshotInfo,
   TrafficInfo,
+  UnmanagedWebsiteDto,
+  WebsiteFacts,
+  WebsiteServerOptions,
+  WebsiteTemplate,
+  WebsiteType,
   WebspaceCredentials,
   WebspaceInfo,
 } from '@weblion/shared';
@@ -259,6 +265,205 @@ export interface DkimKey {
   txt: string;
 }
 
+/** A managed website as the server reports it. Never carries a password. */
+export interface RemoteWebsite {
+  /** ASCII domain = webspaces.external_id. */
+  domain: string;
+  facts: WebsiteFacts;
+  databases: RemoteWebsiteDatabase[];
+}
+
+export interface RemoteWebsiteDatabase {
+  name: string;
+  /** Database users with access to it (CloudPanel's database_user rows). */
+  users: string[];
+  sizeBytes: number | null;
+}
+
+/** Facts of a CloudPanel server (the wrapper's "info"). Cached 10 minutes by the adapter. */
+export interface WebsiteServerInfo {
+  agentVersion: string;
+  /** Wire protocol version the wrapper speaks (1). */
+  protocol: number;
+  /** Package version, e.g. "2.5.4-3+clp-noble". */
+  cloudpanelVersion: string | null;
+  hostname: string;
+  os: string | null;
+  /** Global addresses of the server. */
+  ipv4: string[];
+  ipv6: string[];
+  /** Installed PHP versions, newest first. */
+  phpVersions: string[];
+  templates: WebsiteTemplate[];
+  nodejsVersions: string[];
+  /** config.json "nodejs" on the server (Node.js sites allowed there at all). */
+  nodejsEnabled: boolean;
+  allowRemoteAdopt: boolean;
+  protectedDomains: string[];
+  counts: { sites: number; managed: number; unmanaged: number };
+}
+
+export interface WebsiteDatabaseInput {
+  /** Full name, e.g. "shop_mueller_wp". */
+  name: string;
+  userName: string;
+  password: string;
+}
+
+export interface WebsiteInput {
+  /** ASCII domain. */
+  domain: string;
+  type: CreatableWebsiteType;
+  phpVersion: string | null;
+  template: string | null;
+  nodejsVersion: string | null;
+  siteUser: string;
+  password: string;
+  database: WebsiteDatabaseInput | null;
+}
+
+// --- CloudPanel wire protocol v1 -------------------------------------------------------
+// The contract between the CloudPanel adapter and the root wrapper weblion-clp on each server:
+// one SSH exec per operation, one JSON line (WireRequest) on stdin, one JSON line (WireAnswer)
+// on stdout, exit code 0 with ok: true or 1 with ok: false. Unknown request fields are an
+// "invalid" error on the server; unknown answer fields are ignored by the console.
+
+export type WireOp =
+  | 'info'
+  | 'list'
+  | 'get'
+  | 'unmanaged'
+  | 'create'
+  | 'delete'
+  | 'password'
+  | 'db-add'
+  | 'db-delete'
+  | 'db-password'
+  | 'cert'
+  | 'adopt'
+  | 'forget';
+
+/** Closed list of the wrapper's error codes. */
+export type WireErrorCode =
+  | 'invalid'
+  | 'exists'
+  | 'not_found'
+  | 'not_managed'
+  | 'protected'
+  | 'adopt_disabled'
+  | 'busy'
+  | 'version'
+  | 'clpctl_failed'
+  | 'timeout'
+  | 'internal';
+
+export interface WireError {
+  code: WireErrorCode;
+  message: string;
+  /** The argument that failed (invalid, exists). */
+  field?: string;
+  /** create: true = nothing of the new site is left on the server. */
+  rolledBack?: boolean;
+  /** clpctl's text, redacted and truncated by the wrapper. */
+  output?: string;
+}
+
+export interface WireCertificate {
+  type: string | null;
+  letsEncrypt: boolean | null;
+  /** ISO time. */
+  expiresAt: string | null;
+}
+
+export interface WireDatabase {
+  name: string;
+  users: string[];
+  sizeBytes: number | null;
+}
+
+/** null until the server measured once (weblion-clp refresh-usage). */
+export interface WireUsage {
+  diskBytes: number | null;
+  databaseBytes: number | null;
+  measuredAt: string | null;
+}
+
+/** A managed site as the wrapper reports it ("site" in every answer that returns one). */
+export interface WireSite {
+  domain: string;
+  type: WebsiteType;
+  siteUser: string;
+  homeDirectory: string;
+  webRoot: string | null;
+  application: string | null;
+  phpVersion: string | null;
+  nodejsVersion: string | null;
+  appPort: number | null;
+  /** ISO time, null on old panels. */
+  createdAt: string | null;
+  certificate: WireCertificate | null;
+  databases: WireDatabase[];
+  usage: WireUsage | null;
+}
+
+/** Answer of "info": the server facts plus the first line of `clpctl --version`. */
+export type WireInfo = WebsiteServerInfo & { cliVersion: string | null };
+
+/** Arguments, secrets and answer data of every operation. Passwords only ever travel in secrets. */
+export interface WireOps {
+  info: { args: Record<string, never>; secrets: never; data: WireInfo };
+  list: { args: Record<string, never>; secrets: never; data: { sites: WireSite[] } };
+  get: { args: { domain: string }; secrets: never; data: { site: WireSite } };
+  unmanaged: {
+    args: Record<string, never>;
+    secrets: never;
+    data: { sites: UnmanagedWebsiteDto[]; allowRemoteAdopt: boolean };
+  };
+  create: {
+    args: {
+      domain: string;
+      type: CreatableWebsiteType;
+      phpVersion?: string;
+      template?: string;
+      nodejsVersion?: string;
+      siteUser: string;
+      database?: { name: string; userName: string };
+    };
+    secrets: { password: string; databasePassword?: string };
+    data: { site: WireSite; warnings: string[] };
+  };
+  delete: { args: { domain: string }; secrets: never; data: { warnings: string[] } };
+  password: { args: { domain: string }; secrets: { password: string }; data: Record<string, never> };
+  'db-add': {
+    args: { domain: string; name: string; userName: string };
+    secrets: { password: string };
+    data: { site: WireSite };
+  };
+  'db-delete': { args: { domain: string; name: string }; secrets: never; data: { site: WireSite } };
+  'db-password': {
+    args: { domain: string; name: string; userName: string };
+    secrets: { password: string };
+    data: Record<string, never>;
+  };
+  cert: { args: { domain: string }; secrets: never; data: { site: WireSite } };
+  adopt: { args: { domain: string }; secrets: never; data: { site: WireSite } };
+  forget: { args: { domain: string }; secrets: never; data: Record<string, never> };
+}
+
+/** One line of JSON on the wrapper's stdin. `secrets` is left out when the operation has none. */
+export interface WireRequest<Op extends WireOp = WireOp> {
+  v: 1;
+  op: Op;
+  /** UUID, for the wrapper's log. */
+  requestId: string;
+  args: WireOps[Op]['args'];
+  secrets?: WireOps[Op]['secrets'];
+}
+
+/** One line of JSON on the wrapper's stdout. */
+export type WireAnswer<Op extends WireOp = WireOp> =
+  { v: 1; ok: true; data: WireOps[Op]['data'] } | { v: 1; ok: false; error: WireError };
+
 export interface ProviderAdapter {
   readonly type: ProviderType;
 
@@ -408,11 +613,47 @@ export interface ProviderAdapter {
   mailPasswordPolicy?(): Promise<MailPasswordPolicy>;
   mailClientSettings?(): MailClientSettings;
 
-  // Web spaces (module "webhosting"). Read only: providers offer no provisioning API.
+  // Web spaces (module "webhosting", kind "webspace"): read only, 24fire/Plesk offer no provisioning API.
   listWebspaces?(): Promise<RemoteWebspace[]>;
   getWebspace?(externalId: string): Promise<WebspaceInfo>;
   /** Control panel login. Only for the audited reveal route, never stored. */
   getWebspaceCredentials?(externalId: string): Promise<WebspaceCredentials>;
+
+  // Websites (module "webhosting", CloudPanel). Addressed by ASCII domain. Only sites on the
+  // server's managed list exist for these methods; others answer 409 not_managed or 404.
+  /** Every managed site of the server with facts and databases. */
+  listWebsites?(): Promise<RemoteWebsite[]>;
+  getWebsite?(domain: string): Promise<RemoteWebsite>;
+  /** Sites on the server the console does not manage (admin import hints). */
+  listUnmanagedWebsites?(): Promise<{ sites: UnmanagedWebsiteDto[]; allowRemoteAdopt: boolean }>;
+  /** Cached 10 minutes; `fresh` asks the server (connection test). */
+  websiteServerInfo?(fresh?: boolean): Promise<WebsiteServerInfo>;
+  /** What customers may choose here: server facts filtered by the connection config. */
+  websiteServerOptions?(): Promise<WebsiteServerOptions>;
+  /** SFTP/SSH host shown to customers. */
+  websiteAccessHost?(): string;
+  /** Rolls back a failed site; a failed database leaves the site and reports a warning. */
+  createWebsite?(input: WebsiteInput): Promise<{ website: RemoteWebsite; warnings: string[] }>;
+  /** Deletes the site with files, databases and site user (clpctl site:delete --force). */
+  deleteWebsite?(domain: string): Promise<{ warnings: string[] }>;
+  /** Only for the audited password route; the password is never stored. */
+  setWebsitePassword?(domain: string, password: string): Promise<void>;
+  createWebsiteDatabase?(domain: string, input: WebsiteDatabaseInput): Promise<RemoteWebsite>;
+  setWebsiteDatabasePassword?(
+    domain: string,
+    name: string,
+    userName: string,
+    password: string,
+  ): Promise<void>;
+  deleteWebsiteDatabase?(domain: string, name: string): Promise<RemoteWebsite>;
+  /** Let's Encrypt for the domain and its www counterpart. */
+  issueWebsiteCertificate?(domain: string): Promise<RemoteWebsite>;
+  /** Only when the server allows remote adoption; refuses protected sites. */
+  adoptWebsite?(domain: string): Promise<RemoteWebsite>;
+  /** Drops the site from the managed list. The site itself stays on the server. */
+  forgetWebsite?(domain: string): Promise<void>;
+  /** Demo only: simulated public DNS answers for the DNS check (real adapters leave it out). */
+  websiteDnsOverride?(name: string): { a: string[]; aaaa: string[] } | null;
 
   /** Unfiltered access to the provider API for the admin explorer. */
   rawRequest?(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse>;
@@ -481,11 +722,39 @@ export interface MailcowConfig {
   mailHost?: string;
 }
 
-export interface DemoConfig {
+/** A CloudPanel server, reached over SSH through the root wrapper weblion-clp. */
+export interface CloudPanelConfig {
+  /** SSH host name or IP address. */
+  host: string;
+  /** Default 22. */
+  port: number;
+  /** Default "weblion-agent". */
+  username: string;
+  /** Unencrypted OpenSSH ed25519 private key ("-----BEGIN OPENSSH PRIVATE KEY-----"). */
+  privateKey: string;
+  /** "SHA256:<base64>" of the server's ed25519 host key (ssh-keygen -lf). */
+  hostKeySha256: string;
+  /** Host customers use for SFTP/SSH, e.g. "web1.weblion.cloud". Default: host. */
+  accessHost?: string;
+  /** Public addresses for the DNS check. Default: what the server reports. */
+  ipv4?: string[];
+  ipv6?: string[];
+  /** PHP versions customers may choose. Default ["8.3", "8.4"]. */
+  phpVersions?: string[];
+  /** Templates customers may choose: exact names or prefixes ending in "*". Default ["Generic", "WordPress", "WooCommerce"]. */
+  templates?: string[];
+  /** Node.js sites for customers on this server (they also need it in their allowance). Default false. */
+  nodejs?: boolean;
+}
+
+export interface DemoConfig extends Pick<CloudPanelConfig, 'phpVersions' | 'templates' | 'nodejs'> {
   seed?: number;
   servers?: number;
-  /** Simulated Cloudflare account instead of the demo cloud (second, opt-in demo connection). */
-  flavor?: 'cloudflare';
+  /**
+   * Second, opt-in demo connections: a Cloudflare account, or a CloudPanel server. The simulated
+   * CloudPanel server reads phpVersions, templates and nodejs like a real connection.
+   */
+  flavor?: 'cloudflare' | 'cloudpanel';
 }
 
 export type ProviderConfig =
@@ -496,4 +765,5 @@ export type ProviderConfig =
   | NextcloudConfig
   | CloudflareConfig
   | MailcowConfig
+  | CloudPanelConfig
   | DemoConfig;

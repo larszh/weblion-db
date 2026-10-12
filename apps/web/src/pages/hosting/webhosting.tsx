@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/primitives';
 import { Flag, ProviderBadge } from '@/components/server-bits';
 import { DetailError, ExpiryText, ModuleOffState, PanelLink, resourceItems, safePanelUrl } from './bits';
+import { WebsiteView } from './website';
 
 /** Revealed credentials disappear again after this time. */
 const REVEAL_MS = 3 * 60_000;
@@ -148,6 +149,8 @@ export function WebspaceDetailPage() {
         <LoadingBlock rows={6} />
       ) : webspace.isError || !webspace.data ? (
         <DetailError kind="webspace" error={webspace.error} onRetry={() => void webspace.refetch()} />
+      ) : webspace.data.kind === 'website' ? (
+        <WebsiteView website={webspace.data} />
       ) : (
         <WebspaceView webspace={webspace.data} />
       )}

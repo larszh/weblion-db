@@ -6,7 +6,9 @@ import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
+import { errorMessage } from '@/lib/api';
 import { useMailDomain } from '@/lib/api/mail';
+import { Button } from '@/components/ui/button';
 import { LoadingBlock, Mono, Notice } from '@/components/ui/primitives';
 import { MailDetailError, MailDomainStatusBadge, MailServer } from './bits';
 import { MailOverview } from './overview';
@@ -29,12 +31,30 @@ export function MailDomainDetailPage() {
       >
         <ChevronLeft className="size-4" /> {t('nav.mail')}
       </Link>
-      {domain.isPending ? (
+      {domain.data ? (
+        // A failed background refetch keeps the view: it holds open dialogs, among them a
+        // generated password that is shown only once.
+        <>
+          {domain.isError && (
+            <Notice tone="warning" title={t('mail.refreshError.title')} className="mb-4">
+              <span className="block break-words">{errorMessage(domain.error)}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                loading={domain.isFetching}
+                onClick={() => void domain.refetch()}
+              >
+                {t('common.retry')}
+              </Button>
+            </Notice>
+          )}
+          <MailDomainView domain={domain.data} />
+        </>
+      ) : domain.isPending ? (
         <LoadingBlock rows={6} />
-      ) : domain.isError || !domain.data ? (
-        <MailDetailError error={domain.error} onRetry={() => void domain.refetch()} />
       ) : (
-        <MailDomainView domain={domain.data} />
+        <MailDetailError error={domain.error} onRetry={() => void domain.refetch()} />
       )}
     </>
   );

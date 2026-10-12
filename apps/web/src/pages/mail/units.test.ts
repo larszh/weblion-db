@@ -54,6 +54,9 @@ describe('fromBytes', () => {
   });
 });
 
+/** The group separator of de-CH in this Node.js build. */
+const SWISS_GROUP = new Intl.NumberFormat('de-CH').format(1000).charAt(1);
+
 describe('formatMailSize', () => {
   it('formats whole GB and MB', () => {
     expect(formatMailSize(2 * GIB, 'de')).toBe('2 GB');
@@ -63,17 +66,18 @@ describe('formatMailSize', () => {
   });
 
   it('formats like the rest of the console (de-CH and en-GB)', () => {
-    // Swiss German writes a decimal point and groups with an apostrophe.
+    // Swiss German writes a decimal point and groups with an apostrophe. Which apostrophe (’ or ')
+    // depends on the ICU data of the Node.js build, so the test asks Intl for it.
     expect(formatMailSize(1.5 * GIB, 'de')).toBe('1.5 GB');
     expect(formatMailSize(1.5 * GIB, 'en')).toBe('1.5 GB');
-    expect(formatMailSize(2048 * GIB, 'de')).toBe('2’048 GB');
+    expect(formatMailSize(2048 * GIB, 'de')).toBe(`2${SWISS_GROUP}048 GB`);
     expect(formatMailSize(2048 * GIB, 'en')).toBe('2,048 GB');
   });
 
   it('shows sizes Mailcow keeps exactly and rounds usage', () => {
     // 1280 MiB is 1.25 GB: shown in MB rather than rounded.
     expect(formatMailSize(1280 * MIB, 'en')).toBe('1,280 MB');
-    expect(formatMailSize(1280 * MIB, 'de')).toBe('1’280 MB');
+    expect(formatMailSize(1280 * MIB, 'de')).toBe(`1${SWISS_GROUP}280 MB`);
     // What a mailbox stores is any number of bytes: one decimal is enough.
     expect(formatMailSize(Math.round(3.4 * GIB), 'de')).toBe('3.4 GB');
     expect(formatMailSize(Math.round(0.6 * GIB), 'en')).toBe('614.4 MB');
