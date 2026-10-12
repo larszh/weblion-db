@@ -15,8 +15,10 @@ fi
 command -v pnpm >/dev/null || npm install -g pnpm@10
 command -v pm2 >/dev/null || npm install -g pm2
 
-# The build comes from CI, the server only needs the runtime dependencies.
-pnpm install --frozen-lockfile --prod
+# The build comes from CI, the server only needs the runtime dependencies. CI=true: switching an
+# earlier full install to --prod rebuilds node_modules, and without a terminal pnpm would stop
+# to ask instead (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY).
+CI=true pnpm install --frozen-lockfile --prod
 
 # Starts the console on the first deploy, reloads it afterwards. Migrations run on start.
 pm2 startOrReload deploy/cloudpanel/ecosystem.config.cjs
