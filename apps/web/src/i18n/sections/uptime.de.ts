@@ -175,6 +175,8 @@ export const uptimeDe = {
     'Statuscodes oder Bereiche wie 200 oder 200-299, mit Komma getrennt, höchstens 10.',
   'uptime.form.ignoreTls': 'TLS-Fehler ignorieren',
   'uptime.form.ignoreTlsHint': 'Ungültige oder abgelaufene Zertifikate gelten dann nicht als Ausfall.',
+  'uptime.form.urlHint':
+    'Nur öffentlich erreichbare Adressen. Weiterleitungen werden nicht verfolgt: Geben Sie die endgültige Adresse an (z. B. https://www.example.ch statt http://example.ch).',
   'uptime.form.publicOnly':
     'Nur öffentlich erreichbare Adressen. Interne Netze und private IP-Adressen werden abgelehnt.',
   'uptime.form.configUnavailable':

@@ -240,8 +240,21 @@ describe('3CX parsing', () => {
     });
     expectNoSecrets(user);
 
-    // Without the primary group: the first group's role.
-    expect(parseUser({ ...raw, PrimaryGroupId: 9 })).toMatchObject({ role: 'users', admin: false });
+    // Without the primary group: the first group's role. admin follows every group.
+    expect(parseUser({ ...raw, PrimaryGroupId: 9 })).toMatchObject({ role: 'users', admin: true });
+    // An admin role in a group other than the primary one still makes an administrator.
+    const secondary = parseUser({
+      ...raw,
+      PrimaryGroupId: 3,
+      Groups: [
+        { GroupId: 3, Rights: { RoleName: 'users' } },
+        { GroupId: 1, Rights: { RoleName: 'system_owners' } },
+      ],
+    });
+    expect(secondary).toMatchObject({ role: 'users', admin: true });
+    expect(
+      parseUser({ ...raw, Groups: [{ GroupId: 1, Rights: { RoleName: 'users' } }, { GroupId: 2 }] }),
+    ).toMatchObject({ role: 'users', admin: false });
     expect(parseUser({ ...raw, Groups: undefined })).toMatchObject({ role: null, admin: false });
     expect(parseUser({ ...raw, DisplayName: 'Empfang' })?.displayName).toBe('Empfang');
     expect(parseUser({ ...raw, FirstName: null, LastName: null })?.displayName).toBeNull();
@@ -627,7 +640,9 @@ describe('3CX client', () => {
       '3CX: sign-in at the phone system failed: The specified client credentials are invalid. Check the ' +
         'client ID and API key (3CX Admin > Integrations > API) and that "XAPI Access Enabled" is on',
     );
-    expect((first as ProviderError).upstreamStatus).toBe(400);
+    // Not an XAPI answer: no upstreamStatus, the token endpoint's status in details.
+    expect((first as ProviderError).upstreamStatus).toBeUndefined();
+    expect(first.details).toEqual({ signInStatus: 400 });
     expect(first.statusCode).toBe(502);
 
     const second = await caught(c.request('GET', '/SystemStatus'));
@@ -840,6 +855,49 @@ describe('3CX adapter', () => {
     expect(calls('GET', '/SystemStatus')[0]!.query.get('$select')).toBe(
       'FQDN,Version,UserExtensions,TrunksTotal,LicenseActive',
     );
+  });
+
+  it('never takes a failed sign-in for an XAPI answer', async () => {
+    const signInFailed = /^3CX: sign-in at the phone system failed: .*Check the client ID and API key/;
+    // A wrong secret (OAuth answers 400 invalid_client) is no invalid user.
+    const wrong = adapter({}, { clientSecret: 'not-the-right-secret' });
+    const create = await caught(wrong.createPhoneUser(THREECX_SYSTEM_ID, { ...INPUT, number: undefined }));
+    expect(create.statusCode).toBe(502);
+    expect(create.code).toBe('provider_error');
+    expect(create.message).toMatch(signInFailed);
+    const remove = await caught(wrong.deletePhoneUser(THREECX_SYSTEM_ID, '2'));
+    expect(remove.statusCode).toBe(502);
+    expect(remove.message).toMatch(signInFailed);
+    expect(mock.api()).toHaveLength(0);
+
+    // A token endpoint that answers 404 (wrong address) is no unknown user or ring group.
+    pbx.override = (req) => (req.path === '/connect/token' ? { status: 404, text: 'Not Found' } : undefined);
+    const user = await caught(adapter().getPhoneUser(THREECX_SYSTEM_ID, '2'));
+    expect(user.statusCode).toBe(502);
+    expect(user.message).toMatch(signInFailed);
+    expect(user.message).toContain('HTTP 404');
+    const group = await caught(adapter().addPhoneRingGroupMember(THREECX_SYSTEM_ID, '1', '101'));
+    expect(group.statusCode).toBe(502);
+    expect(group.message).toMatch(signInFailed);
+    // The number lookup does not read the failure as a free number (system parameters cached,
+    // the token expired).
+    pbx.override = null;
+    pbx.expiresIn = 100;
+    const cached = adapter();
+    await cached.getPhoneSystem(THREECX_SYSTEM_ID);
+    clock += 60_000;
+    pbx.override = (req) => (req.path === '/connect/token' ? { status: 404, text: 'Not Found' } : undefined);
+    const taken = await caught(cached.createPhoneUser(THREECX_SYSTEM_ID, INPUT));
+    expect(taken.statusCode).toBe(502);
+    expect(taken.message).toMatch(signInFailed);
+    expect(calls('POST', '/Users')).toHaveLength(0);
+
+    // A 403 of the token endpoint is no missing role.
+    pbx.override = (req) => (req.path === '/connect/token' ? { status: 403, text: '' } : undefined);
+    const test = await caught(adapter().testConnection());
+    expect(test.statusCode).toBe(502);
+    expect(test.message).toMatch(signInFailed);
+    expect(test.message).not.toContain('may not read');
   });
 
   it('names the area a probe may not read', async () => {

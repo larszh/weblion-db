@@ -67,6 +67,23 @@ const EXPLORER_BLOCKED = [
   /^\/users\/forgotpassword(\/|$)/,
 ];
 
+/**
+ * The path Jellyfin routes: LegacyEmbyRouteRewriteMiddleware drops a leading "/emby" or
+ * "/mediabrowser" (any case, whatever follows). Dropped repeatedly here, to be on the safe side.
+ */
+function routedPath(lower: string): string {
+  let path = lower;
+  for (
+    let prefix = /^\/(?:emby|mediabrowser)/.exec(path);
+    prefix;
+    prefix = /^\/(?:emby|mediabrowser)/.exec(path)
+  ) {
+    path = path.slice(prefix[0].length);
+    if (!path.startsWith('/')) path = `/${path}`;
+  }
+  return path;
+}
+
 /** One cached read shared by concurrent callers. A failed read is not kept. */
 class Cached<T> {
   private entry: { at: number; value: Promise<T> } | null = null;
@@ -103,6 +120,14 @@ function userIdOf(value: string): string {
 function reasonOf(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   return message.startsWith(`${PROVIDER}: `) ? message.slice(PROVIDER.length + 2) : message;
+}
+
+/** What a creation that could not be undone left at the instance, for the customer and the audit. */
+function leftBehind(username: string, id: string, disabled: boolean): string {
+  return (
+    (disabled ? 'Removing the user failed, it was disabled' : 'Removing the user failed too') +
+    `: weblion.one has to delete the Jellyfin user ${username} (${id})`
+  );
 }
 
 /** Explorer values as query parameters: lists comma separated (Jellyfin's convention), objects as JSON. */
@@ -233,8 +258,9 @@ export class JellyfinAdapter implements ProviderAdapter {
   /**
    * Creates the user with its password, then writes its policy. Until then the user has
    * Jellyfin's defaults (all libraries, Live TV, public sharing), so a failed policy write
-   * removes the user again. Once the policy is written, a failed read-back does not fail the
-   * creation: the user is built from what was sent.
+   * removes the user again (disables it when that fails too). The same holds when the creation
+   * itself gets no clear answer: Jellyfin may have created the user anyway. Once the policy is
+   * written, a failed read-back does not fail the creation: the user is built from what was sent.
    */
   async createMediaUser(input: MediaUserInput): Promise<RemoteMediaUser> {
     const username = assertJellyfinUsername(input.username);
@@ -253,9 +279,15 @@ export class JellyfinAdapter implements ProviderAdapter {
         throw new ProviderError(PROVIDER, `create user ${username} failed: unexpected answer`);
       created = body;
     } catch (err) {
+      const status = err instanceof ProviderError ? err.upstreamStatus : undefined;
       // Jellyfin answers 400 "Error processing request." for invalid and for taken names alike.
-      if (err instanceof ProviderError && err.upstreamStatus === 400 && (await this.nameTaken(username))) {
+      if (status === 400 && (await this.nameTaken(username))) {
         throw conflict(`The Jellyfin user "${username}" already exists`);
+      }
+      // A refusal (4xx) created nothing. No answer in time, a lost connection, a proxy's 5xx or
+      // an odd answer may come after Jellyfin created the user with the password.
+      if (status === undefined || status < 400 || status >= 500) {
+        await this.settleUnclearCreate(username, input.policy, secrets, err);
       }
       throw err;
     }
@@ -263,8 +295,8 @@ export class JellyfinAdapter implements ProviderAdapter {
     if (!id) throw new ProviderError(PROVIDER, `create user ${username} failed: the answer has no user id`);
 
     let policy: Record<string, unknown>;
+    let current = isObject(created.Policy) ? created.Policy : null;
     try {
-      let current = isObject(created.Policy) ? created.Policy : null;
       // Without the provider ids Jellyfin refuses the policy (400): read the user first.
       if (!current || typeof current.AuthenticationProviderId !== 'string') {
         const read = await this.readUser(id, secrets);
@@ -275,13 +307,12 @@ export class JellyfinAdapter implements ProviderAdapter {
       await this.client.request('POST', `/Users/${id}/Policy`, { json: policy, secrets });
     } catch (err) {
       const removed = await this.removeHalfCreated(id);
+      const disabled = !removed && (await this.disableHalfCreated(id, current, input.policy));
       throw new ProviderError(
         PROVIDER,
         this.client.scrub(
           `create user ${username} failed while setting its access: ${reasonOf(err)}. ` +
-            (removed
-              ? 'The user was removed again'
-              : 'Removing the user failed too: delete it in Jellyfin (it has all libraries)'),
+            (removed ? 'The user was removed again' : leftBehind(username, id, disabled)),
           secrets,
         ),
       );
@@ -469,6 +500,85 @@ export class JellyfinAdapter implements ProviderAdapter {
     }
   }
 
+  /**
+   * After POST /Users/New failed without a clear answer: a user of that name that nobody has used
+   * yet was created after all, with the password and Jellyfin's defaults. It is removed, else
+   * disabled with the managed policy. Returns when there is no such user (the failure stands),
+   * throws what happened otherwise.
+   */
+  private async settleUnclearCreate(
+    username: string,
+    state: MediaPolicyState,
+    secrets: string[],
+    cause: unknown,
+  ): Promise<void> {
+    const failed = `create user ${username} failed: ${reasonOf(cause)}`;
+    let raw: Record<string, unknown> | undefined;
+    try {
+      const body = await this.client.request('GET', '/Users', { action: 'list users', secrets });
+      if (!Array.isArray(body)) throw new ProviderError(PROVIDER, 'list users failed: unexpected answer');
+      raw = body
+        .filter(isObject)
+        .find((u) => typeof u.Name === 'string' && sameJellyfinUsername(u.Name, username));
+    } catch {
+      throw new ProviderError(
+        PROVIDER,
+        this.client.scrub(
+          `${failed}. Whether Jellyfin created the user is unknown: weblion.one has to check for ` +
+            `"${username}" in Jellyfin`,
+          secrets,
+        ),
+      );
+    }
+    const id = raw ? jellyfinId(raw.Id) : null;
+    // Not created, or a user that has been used (someone else's): the failure stands.
+    if (!raw || !id || raw.LastLoginDate || raw.LastActivityDate) return;
+    const removed = await this.removeHalfCreated(id);
+    const disabled =
+      !removed && (await this.disableHalfCreated(id, isObject(raw.Policy) ? raw.Policy : null, state));
+    throw new ProviderError(
+      PROVIDER,
+      this.client.scrub(
+        `${failed}. ` +
+          (removed
+            ? 'Jellyfin had created the user, it was removed again'
+            : leftBehind(username, id, disabled)),
+        secrets,
+      ),
+    );
+  }
+
+  /**
+   * Best effort after a failed removal: the user never keeps Jellyfin's defaults usable. The
+   * managed policy, disabled, else Jellyfin's policy, disabled.
+   */
+  private async disableHalfCreated(
+    id: string,
+    policy: Record<string, unknown> | null,
+    state: MediaPolicyState,
+  ): Promise<boolean> {
+    try {
+      let current = policy;
+      if (!current || typeof current.AuthenticationProviderId !== 'string') {
+        current = this.policyOf(await this.readUser(id), id);
+      }
+      for (const body of [
+        { ...applyPolicyState(current, state), IsDisabled: true },
+        { ...current, IsDisabled: true },
+      ]) {
+        try {
+          await this.client.request('POST', `/Users/${id}/Policy`, { json: body });
+          return true;
+        } catch {
+          // Try the smaller change.
+        }
+      }
+    } catch {
+      // Nothing to read the policy from.
+    }
+    return false;
+  }
+
   /** Best effort: the error of the creation is what the caller needs to see. */
   private async removeHalfCreated(id: string): Promise<boolean> {
     try {
@@ -526,7 +636,8 @@ export class JellyfinAdapter implements ProviderAdapter {
       .split('/')
       .map((segment) => segment.replace(/\.+$/, ''))
       .join('/');
-    if (EXPLORER_BLOCKED.some((blocked) => blocked.test(lower))) {
+    const routed = routedPath(lower);
+    if (EXPLORER_BLOCKED.some((blocked) => blocked.test(routed))) {
       throw badRequest('This path hands out or creates credentials and is not available in the explorer');
     }
 

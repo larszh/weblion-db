@@ -441,7 +441,9 @@ UptimeKumaAdapter ──> KumaHttpClient (client.ts) ──HTTP(S)──> GET /m
 - **Wenn der Socket scheitert** (Update von Uptime Kuma, Token widerrufen, Uptime Kuma 3.x), liefert
   `listMonitors()` die Monitore aus `/metrics` mit `complete: false` und `managementError`. Der
   Sync läuft weiter, `monitoringStatus()` meldet den Fehler, Änderungen scheitern mit dieser
-  Meldung. Ein Update von Uptime Kuma kann also höchstens die Verwaltung brechen, nie die Liste.
+  Meldung. Lesende Aufrufe lassen den Socket danach eine Minute aus (keine langen Diagramme), statt
+  bei jedem Aufruf auf eine scheiternde Anmeldung zu warten. Ein Update von Uptime Kuma kann also
+  höchstens die Verwaltung brechen, nie die Liste.
 - **Sitzungstoken:** Die Anmeldung (`kumaSignIn()`, eigener kurzer Socket) tauscht Benutzername,
   Passwort und Zwei-Faktor-Code gegen das Token von Uptime Kuma. Gespeichert wird nur das Token,
   verschlüsselt mit der Konfiguration der Verbindung. Ändert sich die Adresse, verwirft die Console
@@ -454,9 +456,10 @@ UptimeKumaAdapter ──> KumaHttpClient (client.ts) ──HTTP(S)──> GET /m
 Im Modul: Kontingente wie beim Cloud-Speicher unter einem Advisory Lock pro Organisation
 (`monitor:<id>`, der Reseller zuerst). Gezählt werden Monitore aus der Console und bei Resellern die
 Höchstwerte der Kundenkontingente. Ziele prüft `assertPublicTarget()` vor der Transaktion (DNS kann
-dauern), private und reservierte Adressen lehnt es ab. Monitore aus der Console heissen in Uptime
-Kuma `[<Kürzel>] <Name>`. Die Monitore auf Server- und Domain-Seiten findet die API über
-`target_host` (exakte Namen, keine DNS-Abfrage). Details in
+dauern), private und reservierte Adressen lehnt es ab. Weiterleitungen folgen Monitore aus der
+Console nicht (`maxredirects` 0), sonst führte eine an dieser Prüfung vorbei. Monitore aus der
+Console heissen in Uptime Kuma `[<Kürzel>] <Name>`. Die Monitore auf Server- und Domain-Seiten
+findet die API über `target_host` (exakte Namen, keine DNS-Abfrage). Details in
 [providers.md](providers.md#uptime-kuma-monitoring).
 
 ## Sync

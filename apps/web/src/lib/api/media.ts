@@ -86,15 +86,18 @@ export const useUpdateMediaAccount = (options: {
  * A new password is set through a mutation, so a generated one never lands in the query cache.
  * Call reset() on the returned mutation to forget it again. Every device of the user is signed out.
  */
-export const useSetMediaPassword = () => {
+export const useSetMediaPassword = (onDone: (result: { password: string | null }) => void) => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, password }: { id: string; password?: string }) =>
       api.post<{ password: string | null }>(`/media/accounts/${id}/password`, password ? { password } : {}),
     gcTime: 0,
-    onSuccess: () => {
+    onSuccess: (result) => {
       // The account has a password now ("no_password" is gone).
       void qc.invalidateQueries({ queryKey: mediaKeys.all });
+      // Here, not in mutate's callbacks: those are dropped when the dialog closed meanwhile, and a
+      // generated password is answered only once.
+      onDone(result);
     },
     onError: (err) => {
       toast.error(errorMessage(err));

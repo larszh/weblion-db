@@ -485,12 +485,14 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
     }
 
     const moduleEnabled = await db.transaction(async (tx) => {
-      // Like an admin assignment: the customer gets the module the resource belongs to.
+      // Like an admin assignment: the customer gets the module the resource belongs to. FOR NO
+      // KEY UPDATE: the allowance checks below wait for locks whose holders insert rows pointing
+      // to this organization (FOR KEY SHARE), which FOR UPDATE would block into a deadlock.
       const [target] = await tx
         .select({ modules: organizations.modules })
         .from(organizations)
         .where(eq(organizations.id, customer.id))
-        .for('update');
+        .for('no key update');
       const enable = !target!.modules.includes(module);
       if (enable) {
         await tx

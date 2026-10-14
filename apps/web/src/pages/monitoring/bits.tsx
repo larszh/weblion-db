@@ -259,7 +259,35 @@ const STRIP_CLASS: Record<StripTone, string> = {
   none: 'bg-surface-3',
 };
 
-/** A thin bar under the chart, one cell per point of the history. */
+/**
+ * Cells a phone can still draw (about 3 px each at 320 px with the 1 px gaps): 24 h of 5-minute
+ * buckets become 96 cells of 15 minutes.
+ */
+export const STRIP_MAX_CELLS = 96;
+
+/**
+ * The points of the history as at most `max` cells: neighbours merged in equal groups, their
+ * counts added, so a single failed check still turns its cell red. `t` is the first point's.
+ */
+export function stripCells(
+  points: MonitorHistoryPoint[],
+  max = STRIP_MAX_CELLS,
+): Pick<MonitorHistoryPoint, 't' | 'up' | 'down' | 'maintenance'>[] {
+  const size = Math.max(1, Math.ceil(points.length / max));
+  const cells: Pick<MonitorHistoryPoint, 't' | 'up' | 'down' | 'maintenance'>[] = [];
+  for (let i = 0; i < points.length; i += size) {
+    const group = points.slice(i, i + size);
+    cells.push({
+      t: group[0]!.t,
+      up: group.reduce((sum, p) => sum + p.up, 0),
+      down: group.reduce((sum, p) => sum + p.down, 0),
+      maintenance: group.reduce((sum, p) => sum + p.maintenance, 0),
+    });
+  }
+  return cells;
+}
+
+/** A thin bar under the chart, one cell per point of the history (merged when there are many). */
 export function AvailabilityStrip({ points }: { points: MonitorHistoryPoint[] }) {
   const { t, locale } = useI18n();
   if (points.length === 0) return null;
@@ -270,7 +298,7 @@ export function AvailabilityStrip({ points }: { points: MonitorHistoryPoint[] })
       aria-label={t('uptime.strip')}
       role="img"
     >
-      {points.map((p) => {
+      {stripCells(points).map((p) => {
         const tone = stripTone(p);
         return (
           <span

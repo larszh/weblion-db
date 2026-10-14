@@ -325,14 +325,16 @@ export async function monitoringRoutes(app: FastifyInstance, ctx: AppContext) {
 
   /**
    * Activates the monitoring module inside the transaction. Returns whether it was off. Takes the
-   * organization's row lock: call it before lockMonitorOrg, like the reseller hand-over does.
+   * organization's row lock: call it before lockMonitorOrg, like the reseller hand-over does. The
+   * lock is FOR NO KEY UPDATE: a monitor creation holding lockMonitorOrg inserts rows that point to
+   * the organization (FOR KEY SHARE), which FOR UPDATE would block into a deadlock.
    */
   async function enableMonitoring(tx: Tx, orgId: string): Promise<boolean> {
     const [target] = await tx
       .select({ modules: organizations.modules })
       .from(organizations)
       .where(eq(organizations.id, orgId))
-      .for('update');
+      .for('no key update');
     if (!target || target.modules.includes(MONITORING_MODULE)) return false;
     await tx
       .update(organizations)

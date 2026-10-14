@@ -23,6 +23,7 @@ import {
   monitorPatch,
   parseStatusCodes,
   sortMonitors,
+  stripCells,
   stripTone,
   targetHref,
   targetIssueText,
@@ -187,6 +188,22 @@ describe('history', () => {
     expect(stripTone(point({ up: 4, maintenance: 1 }))).toBe('up');
     expect(stripTone(point({ maintenance: 2 }))).toBe('maintenance');
     expect(stripTone(point({}))).toBe('none');
+  });
+
+  it('merges long histories into at most 96 strip cells, a failure keeps its cell red', () => {
+    // 24 h of 5-minute buckets, one failed check at 13:05.
+    const day = Array.from({ length: 288 }, (_, i) => point({ t: i * 300, up: 5, down: i === 157 ? 1 : 0 }));
+    const cells = stripCells(day);
+    expect(cells).toHaveLength(96);
+    expect(cells[0]).toEqual({ t: 0, up: 15, down: 0, maintenance: 0 });
+    expect(cells.map(stripTone).filter((tone) => tone === 'down')).toHaveLength(1);
+    expect(stripTone(cells[52]!)).toBe('down');
+    // 7 d (168) and 30 d (120) shrink too, the last checks (100) as well, short series stay.
+    expect(stripCells(day.slice(0, 168))).toHaveLength(84);
+    expect(stripCells(day.slice(0, 120))).toHaveLength(60);
+    expect(stripCells(day.slice(0, 96))).toHaveLength(96);
+    expect(stripCells(day.slice(0, 10)).map((c) => c.t)).toEqual(day.slice(0, 10).map((p) => p.t));
+    expect(stripCells([])).toEqual([]);
   });
 
   it('starts at 24 h, else at the last checks', () => {

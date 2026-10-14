@@ -92,16 +92,19 @@ export function ConfirmDialog({
 }) {
   const t = useT();
   const [typed, setTyped] = useState('');
+  // However it closes (Cancel, Escape, the parent), the next opening asks for the text again.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (!open) setTyped('');
+  }
   const blocked = !!confirmText && typed !== confirmText;
   // Without content (children that render nothing, like `{error && ...}`) there is no body band.
   const hasBody = Children.toArray(children).length > 0 || !!confirmText;
   return (
     <Dialog
       open={open}
-      onOpenChange={(o) => {
-        if (!o) setTyped('');
-        onOpenChange(o);
-      }}
+      onOpenChange={onOpenChange}
       title={title}
       description={description}
       size="sm"

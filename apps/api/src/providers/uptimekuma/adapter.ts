@@ -41,6 +41,7 @@ import {
   redactMonitorSecrets,
   remoteFromJson,
   remoteFromMetrics,
+  restoreMaskedParams,
   statusPagePoints,
   toMonitorConfig,
   toMonitorEvents,
@@ -303,7 +304,7 @@ export class UptimeKumaAdapter implements ProviderAdapter {
       let managementError: string | null = null;
       if (this.socket) {
         const failure = this.managementFailure;
-        if (failure && this.now() - failure.at < STATUS_TTL_MS) {
+        if (failure && this.managementDown()) {
           // A read just failed: report that instead of trying again right away.
           management = 'error';
           managementError = failure.message;
@@ -390,13 +391,16 @@ export class UptimeKumaAdapter implements ProviderAdapter {
     return { monitors, complete: byId !== null, managementError };
   }
 
-  /** Live facts, plus configuration and recent events when signed in for management. */
+  /**
+   * Live facts, plus configuration and recent events when signed in for management. While
+   * management failed recently, the facts come from /metrics without another attempt.
+   */
   async getMonitor(externalId: string): Promise<MonitorLive> {
     const id = kumaId(externalId);
     const metrics = await this.metricsCached();
     const reported = metrics.monitors.get(externalId);
     const socket = this.socket;
-    if (socket) {
+    if (socket && !this.managementDown()) {
       try {
         const { monitor: json } = await socket.call('getMonitor', id);
         if (!isKumaMonitorJson(json)) {
@@ -449,20 +453,27 @@ export class UptimeKumaAdapter implements ProviderAdapter {
       return points ? { range, source: 'statusPage', resolutionSeconds: null, points } : null;
     }
     const socket = this.socket;
-    if (!socket || !(range in CHART_HOURS)) return null;
-    const data = await this.reads.get(`chart:${externalId}:${range}`, CHART_TTL_MS, async () => {
-      const ack = await socket.call('getMonitorChartData', id, CHART_HOURS[range]);
-      return ack.data;
-    });
+    // The long charts need management; while it failed recently they are off (see monitorHistoryRanges).
+    if (!socket || !(range in CHART_HOURS) || this.managementDown()) return null;
+    let data: unknown;
+    try {
+      data = await this.reads.get(`chart:${externalId}:${range}`, CHART_TTL_MS, async () => {
+        const ack = await socket.call('getMonitorChartData', id, CHART_HOURS[range]);
+        return ack.data;
+      });
+    } catch (err) {
+      if (!isNotFound(err)) this.managementResult(message(err));
+      throw err;
+    }
     const { points, resolutionSeconds } = chartPoints(data, range);
     return { range, source: 'kuma', resolutionSeconds, points };
   }
 
-  /** Ranges getMonitorHistory can serve, without network. */
+  /** Ranges getMonitorHistory can serve, without network: the long charts only while management works. */
   monitorHistoryRanges(options: { statusPageSlug: string | null }): MonitorHistoryRange[] {
     return [
       ...(options.statusPageSlug ? (['recent'] as const) : []),
-      ...(this.socket ? (['24h', '7d', '30d'] as const) : []),
+      ...(this.socket && !this.managementDown() ? (['24h', '7d', '30d'] as const) : []),
     ];
   }
 
@@ -521,7 +532,14 @@ export class UptimeKumaAdapter implements ProviderAdapter {
     if (!isKumaMonitorJson(monitor)) {
       throw new ProviderError(PROVIDER, `getMonitor ${externalId}: no monitor in the answer`);
     }
-    const next = applyPatch(monitor, patch);
+    // The console shows secret-looking query values as "***": an edited URL keeps the real ones.
+    const current = str(monitor.url);
+    const next = applyPatch(
+      monitor,
+      typeof patch.url === 'string' && current
+        ? { ...patch, url: restoreMaskedParams(patch.url, current) }
+        : patch,
+    );
     const targetChanged = ['url', 'hostname', 'port', 'keyword'].some(
       (key) => patch[key as keyof MonitorPatch] !== undefined,
     );
@@ -727,6 +745,15 @@ export class UptimeKumaAdapter implements ProviderAdapter {
   private requireSocket(): KumaSocket {
     if (!this.socket) throw unsupported(NOT_SIGNED_IN);
     return this.socket;
+  }
+
+  /**
+   * Management failed less than STATUS_TTL_MS ago: reads skip the socket instead of waiting for
+   * another failing sign-in (up to the ack timeout each), monitoringStatus tries again after it.
+   */
+  private managementDown(): boolean {
+    const failure = this.managementFailure;
+    return failure !== null && this.now() - failure.at < STATUS_TTL_MS;
   }
 
   /** The outcome of a management attempt outside monitoringStatus; a change shows there at once. */

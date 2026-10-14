@@ -314,8 +314,7 @@ export class ThreeCxClient {
     if (this.refused && now < this.refused.until) {
       const seconds = Math.ceil((this.refused.until - now) / 1000);
       return Promise.reject(
-        new ProviderError(
-          PROVIDER,
+        signInError(
           `${this.refused.message} (failed recently, next attempt in ${seconds} s)`,
           this.refused.status,
         ),
@@ -357,17 +356,14 @@ export class ThreeCxClient {
       status = response.status;
       text = await response.text();
     } catch (err) {
-      throw new ProviderError(PROVIDER, this.scrub(`sign-in at the phone system failed: ${causeOf(err)}`));
+      throw signInError(this.scrub(`sign-in at the phone system failed: ${causeOf(err)}`), null);
     }
     const body = parseBody(text);
 
     if (status >= 200 && status < 300) {
       const accessToken = isRecord(body) && typeof body.access_token === 'string' ? body.access_token : '';
       if (!accessToken) {
-        throw new ProviderError(
-          PROVIDER,
-          'sign-in at the phone system failed: the token answer has no access_token',
-        );
+        throw signInError('sign-in at the phone system failed: the token answer has no access_token', status);
       }
       this.cached = {
         accessToken,
@@ -391,7 +387,7 @@ export class ThreeCxClient {
     if (status >= 400 && status < 500) {
       this.refused = { message, status, until: this.now() + this.signInBackoffMs };
     }
-    throw new ProviderError(PROVIDER, message, status);
+    throw signInError(message, status);
   }
 
   /** Neither the client secret nor an access token ever leaves in a message. */
@@ -413,6 +409,21 @@ export class ThreeCxClient {
     if (!isRecord(value)) return value;
     return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, this.scrubDeep(v, extra)])) as T;
   }
+}
+
+/** What a failed sign-in carries in details: the HTTP status of /connect/token. */
+export interface SignInErrorDetails {
+  signInStatus: number | null;
+}
+
+/**
+ * A failed sign-in. It has no upstreamStatus, so it is never read as an XAPI answer (a 404 of
+ * /connect/token is no unknown user, a 400 no invalid write): it surfaces as 502 with its hint.
+ */
+function signInError(message: string, status: number | null): ProviderError {
+  return new ProviderError(PROVIDER, message, undefined, {
+    signInStatus: status,
+  } satisfies SignInErrorDetails);
 }
 
 function parseBody(text: string): unknown {

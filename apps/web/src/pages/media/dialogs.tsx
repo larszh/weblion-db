@@ -383,7 +383,19 @@ export function SetMediaPasswordDialog({
   const { t } = useI18n();
   const [mode, setMode] = useState<PasswordMode>('generate');
   const [password, setPassword] = useState('');
-  const set = useSetMediaPassword();
+  // Shown even when the dialog was closed while the request ran (onPassword lives on the page).
+  const set = useSetMediaPassword((r) => {
+    if (r.password) {
+      onPassword({
+        title: t('media.password.newTitle'),
+        username: account.username,
+        password: r.password,
+        loginUrl: account.loginUrl,
+      });
+    } else {
+      toast.success(t('media.password.setToast', { username: account.username }));
+    }
+  });
   const close = () => {
     // Forget the answer (and with it a generated password) together with the dialog.
     set.reset();
@@ -392,24 +404,7 @@ export function SetMediaPasswordDialog({
   const blocked = !passwordReady(mode, password);
   const submit = () => {
     if (blocked || set.isPending) return;
-    set.mutate(
-      { id: account.id, ...(mode === 'choose' ? { password } : {}) },
-      {
-        onSuccess: (r) => {
-          close();
-          if (r.password) {
-            onPassword({
-              title: t('media.password.newTitle'),
-              username: account.username,
-              password: r.password,
-              loginUrl: account.loginUrl,
-            });
-          } else {
-            toast.success(t('media.password.setToast', { username: account.username }));
-          }
-        },
-      },
-    );
+    set.mutate({ id: account.id, ...(mode === 'choose' ? { password } : {}) }, { onSuccess: () => close() });
   };
 
   return (

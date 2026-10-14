@@ -190,6 +190,32 @@ async function setAllowance(orgId: string, values: { maxMonitors: number; minInt
     .where(eq(monitorAllowances.orgId, orgId));
 }
 
+/**
+ * Holds every monitor creation of the demo instance in "Kuma" (inside the creation's transaction,
+ * with the monitoring locks held) until `release` is called.
+ */
+function holdCreations() {
+  const adapter = t.ctx.providers.forConnection(demo);
+  const original = adapter.createMonitor;
+  let entered!: () => void;
+  let release!: () => void;
+  const inKuma = new Promise<void>((resolve) => (entered = resolve));
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  adapter.createMonitor = async function (this: ProviderAdapter, input) {
+    entered();
+    await gate;
+    return original!.call(this, input);
+  };
+  return {
+    inKuma,
+    release,
+    restore: () => {
+      release();
+      adapter.createMonitor = original;
+    },
+  };
+}
+
 /** Runs `during` while a sync of the demo instance holds on to the monitor list it has read. */
 async function duringSync(during: () => Promise<void>) {
   const original = DemoAdapter.prototype.listMonitors;
@@ -1268,6 +1294,38 @@ describe('customer view', () => {
     }
   });
 
+  it('does not deadlock with an allowance change while Kuma creates a monitor', async () => {
+    const { allowance } = await orgMonitoring(anna, musterId);
+    const hold = holdCreations();
+    let created: Awaited<ReturnType<typeof createMonitor>> | null = null;
+    try {
+      const creating = createMonitor(anna, musterId, {
+        kind: 'ping',
+        name: 'Waehrenddessen',
+        hostname: 'example.com',
+      });
+      await hold.inKuma;
+      // Staff save the allowance meanwhile: it waits for the monitoring lock the creation holds.
+      const changing = put(admin, `/admin/orgs/${musterId}/monitor-allowance`, {
+        providerId: demo.id,
+        maxMonitors: allowance!.maxMonitors,
+        minIntervalSeconds: allowance!.minIntervalSeconds,
+        enableModule: true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      hold.release();
+      const [create, change] = await Promise.all([creating, changing]);
+      created = create;
+      expect(create.statusCode, create.body).toBe(200);
+      expect(change.statusCode, change.body).toBe(200);
+    } finally {
+      hold.restore();
+      if (created?.statusCode === 200) {
+        expect((await deleteMonitor(anna, json<MonitorDto>(created).id)).statusCode).toBe(200);
+      }
+    }
+  });
+
   it('audits a failed creation in Kuma and stores nothing', async () => {
     const adapter = t.ctx.providers.forConnection(demo);
     const original = adapter.createMonitor;
@@ -1909,6 +1967,49 @@ describe('reseller', () => {
     expect((await deleteMonitor(reto, ownId)).statusCode).toBe(200);
     expect((await reto.del(url())).statusCode).toBe(200);
     expect((await admin.post(`/admin/monitors/${status}/assign`, { orgId: null })).statusCode).toBe(200);
+  });
+
+  it('does not deadlock when a monitor moves to a customer that is creating one', async () => {
+    const resources = `/orgs/${alpenId}/customers/${huberId}/resources`;
+    expect((await put(reto, url(), { maxMonitors: 2, minIntervalSeconds: 60 })).statusCode).toBe(200);
+    const own = await createMonitor(reto, alpenId, {
+      kind: 'http',
+      name: 'Umzug',
+      url: 'https://baeckerei-huber.ch',
+    });
+    expect(own.statusCode, own.body).toBe(200);
+    const ownId = json<MonitorDto>(own).id;
+    const hold = holdCreations();
+    let theirs: Awaited<ReturnType<typeof createMonitor>> | null = null;
+    try {
+      const creating = createMonitor(hanna, huberId, {
+        kind: 'ping',
+        name: 'Parallel',
+        hostname: 'baeckerei-huber.ch',
+      });
+      await hold.inKuma;
+      // The hand-over locks the customer's row, then waits for the monitoring lock the creation holds.
+      const moving = reto.post(resources, { type: 'monitor', id: ownId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      hold.release();
+      const [create, move] = await Promise.all([creating, moving]);
+      theirs = create;
+      expect(create.statusCode, create.body).toBe(200);
+      expect(move.statusCode, move.body).toBe(200);
+      expect((await rowById(ownId))!.orgId).toBe(huberId);
+    } finally {
+      hold.restore();
+      if (theirs?.statusCode === 200) {
+        expect((await deleteMonitor(hanna, json<MonitorDto>(theirs).id)).statusCode).toBe(200);
+      }
+      if ((await rowById(ownId))!.orgId === huberId) {
+        expect((await reto.post(`${resources}/release`, { type: 'monitor', id: ownId })).statusCode).toBe(
+          200,
+        );
+      }
+      expect((await deleteMonitor(reto, ownId)).statusCode).toBe(200);
+      expect((await reto.del(url())).statusCode).toBe(200);
+    }
   });
 
   it('blocks deleting an organization with monitors or an allowance', async () => {

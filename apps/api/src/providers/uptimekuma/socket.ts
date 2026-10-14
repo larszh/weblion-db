@@ -214,6 +214,9 @@ export class KumaSocket {
   private inFlight = 0;
   /** Counts "monitorList" events, so a caller can tell a fresh list from the cached one. */
   private listSeq = 0;
+  /** Counts failed sign-ins, so a call that waited for a slot during one gets that failure. */
+  private signInFailures = 0;
+  private lastSignInError: unknown = null;
   private listWaiters: (() => void)[] = [];
   private readonly slots: Limiter;
   private readonly ackTimeoutMs: number;
@@ -249,13 +252,14 @@ export class KumaSocket {
   async callRaw(event: KumaEvent, ...args: unknown[]): Promise<KumaAck> {
     // The type is not enough: explorer input reaches this at runtime.
     if (!isKumaEvent(event)) throw badRequest(`The Uptime Kuma event "${String(event)}" is not allowed`);
+    const failures = this.signInFailures;
     return this.slots.run(async () => {
-      let { ack, socket } = await this.emit(event, args);
+      let { ack, socket } = await this.emit(event, args, failures);
       if (ack.ok !== true && ack.msg === NOT_LOGGED_IN) {
         // Kuma restarted or dropped the session: sign in once more and repeat once. A
         // concurrent call may have started the new session already; that one is kept.
         if (this.socket === socket) this.disconnect();
-        ({ ack, socket } = await this.emit(event, args));
+        ({ ack, socket } = await this.emit(event, args, this.signInFailures));
       }
       return ack;
     });
@@ -292,8 +296,12 @@ export class KumaSocket {
     this.disconnect();
   }
 
-  private async emit(event: KumaEvent, args: unknown[]): Promise<{ ack: KumaAck; socket: Socket }> {
-    const socket = await this.ensureSession();
+  private async emit(
+    event: KumaEvent,
+    args: unknown[],
+    failures: number,
+  ): Promise<{ ack: KumaAck; socket: Socket }> {
+    const socket = await this.ensureSession(failures);
     this.inFlight++;
     this.touch();
     let answer: unknown;
@@ -317,9 +325,13 @@ export class KumaSocket {
     return { ack: answer as KumaAck, socket };
   }
 
-  /** One shared sign-in while connecting. */
-  private ensureSession(): Promise<Socket> {
+  /**
+   * One shared sign-in while connecting. A call that waited for a slot while a sign-in failed
+   * (`failures` is the count when it arrived) gets that failure instead of waiting for another.
+   */
+  private ensureSession(failures: number): Promise<Socket> {
     if (this.socket && this.signedIn && this.socket.connected) return Promise.resolve(this.socket);
+    if (!this.session && this.signInFailures > failures) return Promise.reject(this.lastSignInError);
     if (!this.session) {
       this.session = this.openSession().finally(() => {
         this.session = null;
@@ -376,6 +388,8 @@ export class KumaSocket {
     } catch (err) {
       if (this.socket === socket) this.disconnect();
       else socket.disconnect();
+      this.signInFailures++;
+      this.lastSignInError = err;
       throw err;
     }
   }

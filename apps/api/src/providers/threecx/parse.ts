@@ -226,12 +226,26 @@ export function parseSystemInfo(status: unknown, params: unknown, baseUrl: strin
   };
 }
 
-/** The role of the user's primary group, else of its first group (3CX Rights.RoleName). */
-function roleOf(raw: Record<string, unknown>): string | null {
+/** The role a group membership grants (3CX Rights.RoleName). */
+function groupRole(group: Record<string, unknown> | undefined): string | null {
+  return group && isRecord(group.Rights) ? str(group.Rights.RoleName) : null;
+}
+
+/**
+ * The role shown for the user: that of its primary group, else of its first group. admin is true
+ * when any membership grants an admin role, since 3CX keeps one role per group.
+ */
+function rolesOf(raw: Record<string, unknown>): { role: string | null; admin: boolean } {
   const groups = Array.isArray(raw.Groups) ? raw.Groups.filter(isRecord) : [];
   const primary = num(raw.PrimaryGroupId);
   const group = (primary !== null ? groups.find((g) => num(g.GroupId) === primary) : undefined) ?? groups[0];
-  return group && isRecord(group.Rights) ? str(group.Rights.RoleName) : null;
+  return {
+    role: groupRole(group),
+    admin: groups.some((g) => {
+      const role = groupRole(g);
+      return role !== null && ADMIN_ROLES.includes(role);
+    }),
+  };
 }
 
 /** A user with the safe fields only. null when Id or Number is missing. */
@@ -242,7 +256,7 @@ export function parseUser(raw: unknown): PhoneUser | null {
   if (id === null || number === null) return null;
   const firstName = str(raw.FirstName);
   const lastName = str(raw.LastName);
-  const role = roleOf(raw);
+  const { role, admin } = rolesOf(raw);
   const tags = Array.isArray(raw.Tags) ? raw.Tags.filter((t): t is string => typeof t === 'string') : [];
   return {
     id: String(id),
@@ -257,7 +271,7 @@ export function parseUser(raw: unknown): PhoneUser | null {
     enabled: bool(raw.Enabled),
     registered: bool(raw.IsRegistered),
     role,
-    admin: role !== null && ADMIN_ROLES.includes(role),
+    admin,
     system: tags.some((t) => SYSTEM_TAGS.includes(t)) || raw.AIAgent === true,
   };
 }

@@ -294,6 +294,55 @@ export function sanitizeUrl(url: string): string {
   return out + fragment;
 }
 
+/** A URL split into what comes before "?", the query and the fragment (null when absent). */
+function urlParts(url: string): { base: string; query: string | null; fragment: string | null } {
+  const hash = url.indexOf('#');
+  const rest = hash >= 0 ? url.slice(0, hash) : url;
+  const q = rest.indexOf('?');
+  return {
+    base: q >= 0 ? rest.slice(0, q) : rest,
+    query: q >= 0 ? rest.slice(q + 1) : null,
+    fragment: hash >= 0 ? url.slice(hash + 1) : null,
+  };
+}
+
+function restoreParams(part: string | null, original: string | null): string | null {
+  if (part === null || original === null) return part;
+  const values = new Map<string, string[]>();
+  for (const pair of original.split('&')) {
+    const eq = pair.indexOf('=');
+    if (eq < 0) continue;
+    const name = pair.slice(0, eq);
+    values.set(name, [...(values.get(name) ?? []), pair.slice(eq + 1)]);
+  }
+  const seen = new Map<string, number>();
+  return part
+    .split('&')
+    .map((pair) => {
+      const eq = pair.indexOf('=');
+      if (eq < 0 || pair.slice(eq + 1) !== '***') return pair;
+      const name = pair.slice(0, eq);
+      const index = seen.get(name) ?? 0;
+      seen.set(name, index + 1);
+      const value = values.get(name)?.[index];
+      return value !== undefined ? `${name}=${value}` : pair;
+    })
+    .join('&');
+}
+
+/**
+ * A URL that went out masked (sanitizeUrl), was edited and came back: every "<key>=***" gets
+ * the value the same key has in the current URL again (the n-th to the n-th), so an edit of the
+ * path does not replace a secret only Kuma knows with "***". Other values stay as sent.
+ */
+export function restoreMaskedParams(next: string, current: string): string {
+  const a = urlParts(next);
+  const b = urlParts(current);
+  const query = restoreParams(a.query, b.query);
+  const fragment = restoreParams(a.fragment, b.fragment);
+  return a.base + (query !== null ? `?${query}` : '') + (fragment !== null ? `#${fragment}` : '');
+}
+
 function hostOfUrl(url: string): string | null {
   try {
     return new URL(url).hostname.replace(/^\[|\]$/g, '').toLowerCase() || null;
@@ -447,9 +496,19 @@ export function kumaTime(value: unknown): string | null {
   return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
 
-/** An "important" heartbeat (status change). `at` is empty when Kuma's time cannot be read. */
+/** The excerpt of the response a failed keyword check appends ("..., but keyword is not in [<body>]"). */
+const KEYWORD_EXCERPT = /(, but keyword is (?:present|not)) in \[[\s\S]*\]$/;
+
+/**
+ * An "important" heartbeat (status change). `at` is empty when Kuma's time cannot be read. The
+ * response excerpt of a keyword check is cut off: the message must not carry what the target
+ * answered (an internal page, should a check ever reach one).
+ */
 export function toMonitorEvent(row: Record<string, unknown>): MonitorEvent {
-  const message = typeof row.msg === 'string' ? row.msg.trim().slice(0, 500) : '';
+  const message =
+    typeof row.msg === 'string'
+      ? row.msg.trim().replace(KEYWORD_EXCERPT, '$1 in the response').slice(0, 500)
+      : '';
   const ping = num(row.ping);
   return {
     status: statusFromKuma(num(row.status)),
@@ -561,7 +620,8 @@ export function buildAddPayload(
     ignoreTls: input.ignoreTls,
     upsideDown: false,
     expiryNotification: false,
-    maxredirects: 10,
+    // No redirects: Kuma would follow them to any host, past the check for private targets.
+    maxredirects: 0,
     accepted_statuscodes: input.acceptedStatusCodes.map(String),
     dns_resolve_type: 'A',
     dns_resolve_server: '1.1.1.1',
@@ -592,6 +652,8 @@ export function applyPatch(json: KumaMonitorJson, patch: MonitorPatch): Record<s
   const out: Record<string, unknown> = { ...json };
   const type = json.type;
   const web = type === 'http' || type === 'keyword';
+  // Console monitors follow no redirects (see buildAddPayload), also those created with them.
+  if (web) out.maxredirects = 0;
   if (patch.name !== undefined) out.name = patch.name;
   if (patch.url !== undefined && web) out.url = patch.url;
   if (patch.hostname !== undefined && (type === 'ping' || type === 'port')) out.hostname = patch.hostname;

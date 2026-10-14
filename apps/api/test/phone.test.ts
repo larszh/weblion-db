@@ -8,6 +8,7 @@ import type {
   PhoneSystemDetailDto,
   PhoneSystemDto,
   PhoneTrunk,
+  PhoneUser,
   PhoneUserCreatedDto,
   PhoneUserDto,
   PhoneUserListDto,
@@ -26,6 +27,7 @@ import { hashPassword } from '../src/lib/crypto';
 import { ProviderError } from '../src/lib/errors';
 import { DemoAdapter } from '../src/providers/demo/adapter';
 import { DEMO_PHONE_SYSTEMS, demoPhoneState } from '../src/providers/demo/phone';
+import { parseUser } from '../src/providers/threecx/parse';
 import type { ProviderAdapter } from '../src/providers/types';
 import { ADMIN, Client, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
 
@@ -837,6 +839,47 @@ describe('users', () => {
       const email = await anna.patch(`${usersUrl(zh)}/${ben101}`, { email: 'ben.neu@muster.example' });
       expect(email.statusCode).toBe(403);
       expect(demoUser(ZH, '101')!.email).toBe('ben@muster.example');
+    } finally {
+      DemoAdapter.prototype.getPhoneUser = originalGet;
+      DemoAdapter.prototype.listPhoneUsers = originalList;
+    }
+  });
+
+  it('protects users who administer the phone system through a group other than their primary one', async () => {
+    // 3CX keeps one role per group: Ben's primary department grants users, the default group
+    // System Owner. Parsed like a real 3CX answer.
+    const ben101 = await userId(zh, '101');
+    const owner = parseUser({
+      Id: 7,
+      Number: '101',
+      PrimaryGroupId: 3,
+      Groups: [
+        { GroupId: 3, Rights: { RoleName: 'users' } },
+        { GroupId: 1, Rights: { RoleName: 'system_owners' } },
+      ],
+    })!;
+    const originalGet = DemoAdapter.prototype.getPhoneUser;
+    const originalList = DemoAdapter.prototype.listPhoneUsers;
+    const secondaryOwner = <T extends PhoneUser>(user: T): T =>
+      user.number === '101' ? { ...user, role: owner.role, admin: owner.admin } : user;
+    DemoAdapter.prototype.getPhoneUser = async function (this: DemoAdapter, systemId, id) {
+      return secondaryOwner(await originalGet.call(this, systemId, id));
+    };
+    DemoAdapter.prototype.listPhoneUsers = async function (this: DemoAdapter, systemId) {
+      return (await originalList.call(this, systemId)).map(secondaryOwner);
+    };
+    try {
+      const list = json<PhoneUserListDto>(await anna.get(usersUrl(zh)));
+      expect(list.users.find((u) => u.number === '101')).toMatchObject({
+        role: 'users',
+        admin: true,
+        protected: true,
+      });
+      const del = await anna.del(`${usersUrl(zh)}/${ben101}`, { confirm: '101' });
+      expect(del.statusCode).toBe(403);
+      const email = await anna.patch(`${usersUrl(zh)}/${ben101}`, { email: 'anna@muster.example' });
+      expect(email.statusCode).toBe(403);
+      expect(demoUser(ZH, '101')).toMatchObject({ email: 'ben@muster.example' });
     } finally {
       DemoAdapter.prototype.getPhoneUser = originalGet;
       DemoAdapter.prototype.listPhoneUsers = originalList;

@@ -3321,7 +3321,8 @@ lassen will, meldet sie nicht an und nutzt die Verwaltung nur auf dedizierten In
 
 Scheitert die Verwaltung, zeigt die Console weiter alles aus `/metrics` und meldet "Verwaltung
 gestört" mit dem Grund im Admin-Bereich. Änderungen an Monitoren scheitern dann mit dieser Meldung,
-sonst bricht nichts.
+sonst bricht nichts. Detailseiten versuchen den Socket erst nach einer Minute wieder und bieten bis
+dahin die Diagramme über 24 Stunden, 7 und 30 Tage nicht an.
 
 ### Mehrere Instanzen
 
@@ -3423,7 +3424,11 @@ und IP-Adressen oder aufgelöste Adressen in privaten und reservierten Bereichen
 und `240.0.0.0/4`, bei IPv6 `::`, `::1`, Unique Local `fc00::/7`, Link-Local `fe80::/10`,
 `fec0::/10`, Multicast `ff00::/8`, `2001:db8::/32` und IPv4 in IPv6 nach den Regeln von IPv4). Wer
 interne Ziele überwachen muss, lässt weblion.one den Monitor in Uptime Kuma anlegen und zuweisen,
-dann ist er für den Kunden nur lesbar.
+dann ist er für den Kunden nur lesbar. Weiterleitungen folgen Monitore aus der Console nicht (auch
+ältere nicht mehr, sobald sie geändert werden), sonst käme eine Weiterleitung auf ein internes Ziel
+an der Prüfung vorbei: Wer weiterleitet, trägt die Zieladresse ein oder akzeptiert 3xx-Statuscodes.
+Den Ausschnitt der Antwort, den Uptime Kuma an die Meldung einer gescheiterten Keyword-Prüfung
+hängt, zeigt die Console nicht.
 
 Die Console legt den Monitor mit einer Wiederholung vor "ausgefallen" an (im gleichen Abstand wie
 das Intervall), Zeitlimit 80 % des Intervalls bis höchstens 48 Sekunden (Ping 10 Sekunden), und mit
@@ -3443,7 +3448,9 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
   `editMonitor` setzt jedes Feld aus dem Objekt und leert, was fehlt. Die Console liest den Monitor
   deshalb direkt vorher bei Uptime Kuma und schickt das ganze Objekt mit den geänderten Feldern
   zurück. Ändert jemand denselben Monitor gleichzeitig in Uptime Kuma, gewinnt die letzte Änderung.
-  Ein neues Ziel prüft die Console wieder auf öffentliche Adressen. Im Audit-Log steht
+  Ein neues Ziel prüft die Console wieder auf öffentliche Adressen. Geheim wirkende Werte in der
+  Adresse zeigt die Console als `***`; bleibt `***` beim Ändern stehen, behält der Monitor den
+  bisherigen Wert. Im Audit-Log steht
   `monitor.update` mit altem und neuem Wert (geheim wirkende Werte in Adressen als `***`). Per API:
   `PATCH /api/v1/monitors/<id>` mit z.B. `{"intervalSeconds": 120}`.
 - **Pausieren und fortsetzen:** Ein pausierter Monitor prüft nicht und meldet keine Ausfälle. Ein
@@ -3771,8 +3778,12 @@ gibt, ohne dass die Console ihn verwaltet). Das Anlegen läuft unter einer Sperr
 parallele Anfragen können das Kontingent also nicht überziehen. In Jellyfin legt die Console den
 Benutzer immer mit Passwort an und schreibt gleich danach die Richtlinie. Bis dahin hätte er die
 Standardrechte von Jellyfin (alle Bibliotheken, Live TV, öffentliches Teilen): Scheitert das
-Schreiben, löscht die Console den Benutzer wieder. Im Audit-Log steht `media.account_create` mit
-`password: generated` oder `chosen`.
+Schreiben, löscht die Console den Benutzer wieder. Bekommt das Anlegen keine klare Antwort (keine
+Antwort in der Zeit, Verbindung abgebrochen, 5xx eines Proxys), sucht die Console den Namen und
+löscht einen so angelegten Benutzer ebenfalls. Lässt er sich nicht löschen, deaktiviert sie ihn mit
+der Richtlinie des Kontingents, und die Meldung (auch im Audit-Log) nennt seine Jellyfin-ID, damit
+weblion.one ihn löscht. Im Audit-Log steht `media.account_create` mit `password: generated` oder
+`chosen`.
 
 Per API nur mit eigenem Passwort, ein Token bekommt nie ein erzeugtes (sonst 400):
 
@@ -4035,7 +4046,8 @@ Für alles ohne eigenen Button: Admin > API Explorer, Provider Jellyfin wählen.
 - Gesperrt sind Pfade, die Zugangsdaten herausgeben oder erzeugen: `/Auth/Keys` (listet alle
   API-Schlüssel im Klartext), `/Startup`, die Anmeldungen (`/Users/AuthenticateByName`,
   `/Users/AuthenticateWithQuickConnect`, `/Users/{id}/Authenticate`), `/QuickConnect/Authorize` und
-  `/Users/ForgotPassword`, dazu `..`, `//`, `\`, `#` und kodierte Punkte oder Schrägstriche.
+  `/Users/ForgotPassword`, auch mit `/emby` oder `/mediabrowser` davor (Jellyfin lässt das weg),
+  dazu `..`, `//`, `\`, `#` und kodierte Punkte oder Schrägstriche.
 - In Antworten sind Tokens, Schlüssel, Passwörter und PINs ausgeblendet, der Schlüssel der Console
   steht nie darin.
 - Ändernde Requests stehen mit Pfad und Body im Audit-Log (`provider.explorer`), `NewPw`,

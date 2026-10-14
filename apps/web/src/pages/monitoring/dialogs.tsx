@@ -343,7 +343,7 @@ function MonitorFormDialog({
             label={t('uptime.form.url')}
             htmlFor="mf-url"
             error={errorOf('url', form.url !== initial.url)}
-            hint={t('uptime.form.publicOnly')}
+            hint={t('uptime.form.urlHint')}
           >
             <Input
               id="mf-url"
@@ -570,7 +570,9 @@ export function DeleteMonitorDialog({
 
 // --- Actions -----------------------------------------------------------------------------
 
-type Pending = 'edit' | 'pause' | 'delete' | null;
+/** The actions with a dialog. */
+export type MonitorAction = 'edit' | 'pause' | 'delete';
+type Pending = MonitorAction | null;
 
 /** Which actions the user may take on a monitor (the API's permissions already say where they work). */
 export function monitorActions(monitor: Pick<MonitorDto, 'permissions' | 'active' | 'status'>) {
@@ -594,36 +596,37 @@ function useMonitorActionState(monitor: MonitorDto) {
   return { pending, setPending, resume, close: () => setPending(null), monitor };
 }
 
-function MonitorActionDialogs({
-  state,
-  minIntervalSeconds,
-  onDeleted,
-}: {
-  state: ReturnType<typeof useMonitorActionState>;
-  minIntervalSeconds: number;
-  onDeleted?: () => void;
-}) {
-  const { pending, close, monitor } = state;
-  return (
-    <>
-      {pending === 'edit' && (
-        <EditMonitorDialog monitor={monitor} minIntervalSeconds={minIntervalSeconds} onClose={close} />
-      )}
-      {pending === 'pause' && <PauseMonitorDialog monitor={monitor} onClose={close} />}
-      {pending === 'delete' && (
-        <DeleteMonitorDialog monitor={monitor} onClose={close} onDeleted={onDeleted} />
-      )}
-    </>
-  );
-}
-
-/** The row menu of the list: edit, pause or resume, delete, each only where the user may. */
-export function MonitorActionsMenu({
+/** The dialog of one action on a monitor. */
+export function MonitorActionDialog({
+  action,
   monitor,
   minIntervalSeconds,
+  onClose,
+  onDeleted,
 }: {
+  action: MonitorAction;
   monitor: MonitorDto;
   minIntervalSeconds: number;
+  onClose: () => void;
+  onDeleted?: () => void;
+}) {
+  if (action === 'edit') {
+    return <EditMonitorDialog monitor={monitor} minIntervalSeconds={minIntervalSeconds} onClose={onClose} />;
+  }
+  if (action === 'pause') return <PauseMonitorDialog monitor={monitor} onClose={onClose} />;
+  return <DeleteMonitorDialog monitor={monitor} onClose={onClose} onDeleted={onDeleted} />;
+}
+
+/**
+ * The row menu of the list: edit, pause or resume, delete, each only where the user may. The list
+ * shows the dialogs (`onAction`): a refresh that filters the row out must not close them.
+ */
+export function MonitorActionsMenu({
+  monitor,
+  onAction,
+}: {
+  monitor: MonitorDto;
+  onAction: (action: MonitorAction) => void;
 }) {
   const { t } = useI18n();
   const state = useMonitorActionState(monitor);
@@ -643,12 +646,12 @@ export function MonitorActionsMenu({
         }
       >
         {can.edit && (
-          <MenuItem icon={<Pencil />} onSelect={() => state.setPending('edit')}>
+          <MenuItem icon={<Pencil />} onSelect={() => onAction('edit')}>
             {t('common.edit')}
           </MenuItem>
         )}
         {can.pause && (
-          <MenuItem icon={<Pause />} onSelect={() => state.setPending('pause')}>
+          <MenuItem icon={<Pause />} onSelect={() => onAction('pause')}>
             {t('uptime.pause.action')}
           </MenuItem>
         )}
@@ -658,12 +661,11 @@ export function MonitorActionsMenu({
           </MenuItem>
         )}
         {can.delete && (
-          <MenuItem icon={<Trash2 />} danger onSelect={() => state.setPending('delete')}>
+          <MenuItem icon={<Trash2 />} danger onSelect={() => onAction('delete')}>
             {t('common.delete')}
           </MenuItem>
         )}
       </Menu>
-      <MonitorActionDialogs state={state} minIntervalSeconds={minIntervalSeconds} />
     </>
   );
 }
@@ -711,7 +713,15 @@ export function MonitorActionButtons({
           {t('common.delete')}
         </Button>
       )}
-      <MonitorActionDialogs state={state} minIntervalSeconds={minIntervalSeconds} onDeleted={onDeleted} />
+      {state.pending && (
+        <MonitorActionDialog
+          action={state.pending}
+          monitor={monitor}
+          minIntervalSeconds={minIntervalSeconds}
+          onClose={state.close}
+          onDeleted={onDeleted}
+        />
+      )}
     </>
   );
 }

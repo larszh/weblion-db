@@ -19,6 +19,7 @@ import {
   parsePrometheusText,
   redactMonitorSecrets,
   remoteFromJson,
+  restoreMaskedParams,
   sanitizeUrl,
   statusFromKuma,
   statusPagePoints,
@@ -152,7 +153,7 @@ function addPayload(fields: Record<string, unknown>) {
     ignoreTls: false,
     upsideDown: false,
     expiryNotification: false,
-    maxredirects: 10,
+    maxredirects: 0,
     accepted_statuscodes: ['200-299'],
     dns_resolve_type: 'A',
     dns_resolve_server: '1.1.1.1',
@@ -319,6 +320,20 @@ describe('Uptime Kuma parsing', () => {
     expect(kumaTarget('group', 'https://', null, null)).toEqual({ target: null, targetHost: null });
   });
 
+  it('puts the real values back into an edited URL that was shown masked', () => {
+    const current = 'https://shop.ch/health?key=abc123&page=2&key=def456#access_token=xyz&b=1';
+    expect(
+      restoreMaskedParams('https://shop.ch/status?key=***&page=3&key=***#access_token=***', current),
+    ).toBe('https://shop.ch/status?key=abc123&page=3&key=def456#access_token=xyz');
+    // A masked value round-trips to the original URL.
+    expect(restoreMaskedParams(sanitizeUrl(current), current)).toBe(current);
+    // New values stay, and so does "***" for a key the current URL does not have.
+    expect(restoreMaskedParams('https://shop.ch/?key=new&token=***', current)).toBe(
+      'https://shop.ch/?key=new&token=***',
+    );
+    expect(restoreMaskedParams('https://other.ch/x', current)).toBe('https://other.ch/x');
+  });
+
   it('turns Kuma heartbeat times (UTC without zone) into ISO 8601', () => {
     expect(kumaTime('2026-10-10 08:15:02.123')).toBe('2026-10-10T08:15:02.123Z');
     expect(kumaTime('2026-10-10 08:15:02')).toBe('2026-10-10T08:15:02.000Z');
@@ -333,6 +348,23 @@ describe('Uptime Kuma parsing', () => {
       message: null,
       responseMs: 13,
     });
+  });
+
+  it('cuts the response excerpt off failed keyword checks', () => {
+    const event = (msg: string) => toMonitorEvent({ status: 0, time: '2026-10-10 08:15:02', msg }).message;
+    // Kuma 2.5.6 monitor.js: bean.msg + ", but keyword is not in [" + first 47 characters + "...]".
+    expect(event('200 - OK, but keyword is not in [ami-id ami-0abc [secret] instance-id i-0123...]')).toBe(
+      '200 - OK, but keyword is not in the response',
+    );
+    expect(event('200 - OK, but keyword is present in [Wartung]')).toBe(
+      '200 - OK, but keyword is present in the response',
+    );
+    expect(event('200 - OK, but keyword is not in []')).toBe('200 - OK, but keyword is not in the response');
+    // Other messages stay as Kuma wrote them.
+    expect(event('200 - OK, keyword is found')).toBe('200 - OK, keyword is found');
+    expect(event('Request failed with status code 503 [upstream]')).toBe(
+      'Request failed with status code 503 [upstream]',
+    );
   });
 
   it('buckets chart data with a ping weighted by successful checks', () => {
@@ -709,6 +741,66 @@ describe('Uptime Kuma management session', () => {
     await expect(adapter.pauseMonitor('1')).rejects.toThrow('not supported for management');
   });
 
+  it('does not wait for the socket again for a minute after management failed, and drops the long charts', async () => {
+    const mock = await kuma({ version3: true });
+    let now = 5_000_000;
+    const adapter = adapterFor(mock, { token: true, ackTimeoutMs: 400, now: () => now });
+    const slug = { statusPageSlug: KUMA_STATUS_PAGE };
+    expect(adapter.monitorHistoryRanges(slug)).toEqual(['recent', '24h', '7d', '30d']);
+
+    // The first detail read waits for the sign-in once and falls back to /metrics.
+    expect(await adapter.getMonitor('1')).toMatchObject({ config: null, events: null });
+    const attempts = mock.eventCount('loginByToken');
+    expect(attempts).toBe(1);
+
+    // Further reads answer from /metrics at once, the long charts are off.
+    const started = Date.now();
+    for (let i = 0; i < 3; i++) {
+      expect(await adapter.getMonitor('2')).toMatchObject({ config: null, monitor: { status: 'down' } });
+    }
+    expect(await adapter.getMonitorHistory('1', '24h', slug)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(400);
+    expect(mock.eventCount('loginByToken')).toBe(attempts);
+    expect(adapter.monitorHistoryRanges(slug)).toEqual(['recent']);
+    expect(adapter.monitorHistoryRanges({ statusPageSlug: null })).toEqual([]);
+    expect(await adapter.getMonitorHistory('1', 'recent', slug)).toMatchObject({ source: 'statusPage' });
+
+    // A minute later the socket is tried again.
+    now += 60_000;
+    expect(adapter.monitorHistoryRanges({ statusPageSlug: null })).toEqual(['24h', '7d', '30d']);
+    await adapter.getMonitor('1');
+    expect(mock.eventCount('loginByToken')).toBe(attempts + 1);
+    expect(adapter.monitorHistoryRanges({ statusPageSlug: null })).toEqual([]);
+  });
+
+  it('turns the long charts off when a chart read finds the token revoked', async () => {
+    const mock = await kuma();
+    const adapter = adapterFor(mock, { token: true });
+    mock.rotatePassword();
+    const err = await rejection(adapter.getMonitorHistory('1', '24h', { statusPageSlug: null }));
+    expect(err.message).toContain('Sign in again under Admin > Monitoring');
+    expect(adapter.monitorHistoryRanges({ statusPageSlug: KUMA_STATUS_PAGE })).toEqual(['recent']);
+    expect(await adapter.getMonitorHistory('1', '7d', { statusPageSlug: null })).toBeNull();
+    expect(mock.eventCount('loginByToken')).toBe(1);
+    expect((await adapter.monitoringStatus()).managementError).toContain('Sign in again');
+  });
+
+  it('gives calls queued behind a failed sign-in that failure instead of signing in again', async () => {
+    const mock = await kuma({ version3: true });
+    const socket = socketFor(mock, mock.token(), { ackTimeoutMs: 300, maxInFlight: 2 });
+    const started = Date.now();
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, (_, i) => socket.call('getMonitor', i + 1)),
+    );
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    expect(mock.eventCount('loginByToken')).toBe(1);
+    expect(Date.now() - started).toBeLessThan(900);
+
+    // A call that starts after the failure signs in again.
+    await expect(socket.call('getMonitor', 1)).rejects.toThrow();
+    expect(mock.eventCount('loginByToken')).toBe(2);
+  });
+
   it('lists paused monitors with management and opens a session at most every 10 minutes', async () => {
     const mock = await kuma();
     let now = 5_000_000;
@@ -895,6 +987,8 @@ describe('Uptime Kuma monitor writes', () => {
     const adapter = adapterFor(mock, { token: true });
     await adapter.updateMonitor('1', { name: '[muster-ag] Neu', intervalSeconds: 30, ignoreTls: true });
     const sent = lastEvent(mock, 'editMonitor').args[0];
+    // The monitor was created with redirects (fixture maxredirects 10): an edit turns them off.
+    expect(fixtureMonitor().maxredirects).toBe(10);
     expect(sent).toEqual({
       ...fixtureMonitor(),
       name: '[muster-ag] Neu',
@@ -902,6 +996,7 @@ describe('Uptime Kuma monitor writes', () => {
       retryInterval: 30,
       timeout: 24,
       ignoreTls: true,
+      maxredirects: 0,
     });
     // Nothing was nulled: the secrets of the monitor are still set in Kuma.
     expect(mock.monitors.get(1)).toMatchObject({
@@ -909,6 +1004,12 @@ describe('Uptime Kuma monitor writes', () => {
       headers: '{"X-Api-Key": "hdr-secret-4711"}',
       parent: 5,
       notificationIDList: { '1': true, '2': true },
+    });
+
+    // The URL was shown with "token=***" (live config): editing the path keeps the real token.
+    await adapter.updateMonitor('1', { url: 'https://www.muster-ag.ch/status?token=***' });
+    expect(lastEvent(mock, 'editMonitor').args[0]).toMatchObject({
+      url: 'https://www.muster-ag.ch/status?token=abc123',
     });
 
     await adapter.updateMonitor('2', {
@@ -936,7 +1037,9 @@ describe('Uptime Kuma monitor writes', () => {
     });
     await expect(adapter.updateMonitor('999', { name: 'x' })).rejects.toMatchObject({ statusCode: 404 });
 
-    expect(applyPatch(fixtureMonitor(), {})).toEqual(fixtureMonitor());
+    expect(applyPatch(fixtureMonitor(), {})).toEqual({ ...fixtureMonitor(), maxredirects: 0 });
+    const ping = { ...fixtureMonitor(), type: 'ping', maxredirects: 10 };
+    expect(applyPatch(ping, {})).toEqual(ping);
   });
 
   it('pauses, resumes and deletes with numeric ids and refuses malformed ids before any traffic', async () => {

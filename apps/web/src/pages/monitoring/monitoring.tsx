@@ -46,7 +46,7 @@ import {
   sortMonitors,
   type StatusFilter,
 } from './bits';
-import { CreateMonitorDialog, MonitorActionsMenu } from './dialogs';
+import { CreateMonitorDialog, MonitorActionDialog, MonitorActionsMenu, type MonitorAction } from './dialogs';
 
 /** Monitors of an organization (/o/:slug/monitoring): status, uptime, response time and its allowance. */
 export function MonitoringPage() {
@@ -233,6 +233,9 @@ function MonitorsCard({
   const { base } = useOrg();
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
+  // Here, not in the row: a refresh may filter the row out while its dialog is open.
+  const [action, setAction] = useState<{ action: MonitorAction; id: string } | null>(null);
+  const acting = action ? monitors.find((m) => m.id === action.id) : undefined;
   const list = sortMonitors(filterMonitors(monitors, q, status));
   const multi = instanceCount(monitors) > 1;
   const withActions = monitors.some(
@@ -357,13 +360,22 @@ function MonitorsCard({
                 )}
                 {withActions && (
                   <TD className="w-12 text-right">
-                    <MonitorActionsMenu monitor={m} minIntervalSeconds={minIntervalSeconds} />
+                    <MonitorActionsMenu monitor={m} onAction={(a) => setAction({ action: a, id: m.id })} />
                   </TD>
                 )}
               </TR>
             ))}
           </TBody>
         </Table>
+      )}
+      {action && acting && (
+        <MonitorActionDialog
+          key={`${action.action}:${action.id}`}
+          action={action.action}
+          monitor={acting}
+          minIntervalSeconds={minIntervalSeconds}
+          onClose={() => setAction(null)}
+        />
       )}
     </Card>
   );

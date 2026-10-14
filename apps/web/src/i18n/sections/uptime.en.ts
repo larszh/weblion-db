@@ -168,6 +168,8 @@ export const uptimeEn: Record<keyof typeof uptimeDe, string> = {
     'Status codes or ranges like 200 or 200-299, separated by commas, at most 10.',
   'uptime.form.ignoreTls': 'Ignore TLS errors',
   'uptime.form.ignoreTlsHint': 'Invalid or expired certificates then do not count as an outage.',
+  'uptime.form.urlHint':
+    'Publicly reachable addresses only. Redirects are not followed: enter the final address (e.g. https://www.example.ch instead of http://example.ch).',
   'uptime.form.publicOnly':
     'Publicly reachable addresses only. Internal networks and private IP addresses are refused.',
   'uptime.form.configUnavailable':

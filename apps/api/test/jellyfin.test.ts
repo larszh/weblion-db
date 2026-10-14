@@ -915,8 +915,131 @@ describe('Jellyfin users', () => {
     const stuck = await caught(
       adapter().createMediaUser({ username: 'mia-kemaro', password: PASSWORD, policy: MUSTER }),
     );
-    expect(stuck.message).toContain('Removing the user failed too: delete it in Jellyfin');
+    const mia = [...mock.state.users.values()].find((u) => u.name === 'mia-kemaro')!;
+    expect(stuck.message).toMatch(
+      new RegExp(
+        `Removing the user failed too: weblion.one has to delete the Jellyfin user mia-kemaro \\(${mia.id}\\)$`,
+      ),
+    );
+    expect(stuck.message).not.toContain('all libraries');
     expect(stuck.message).not.toContain(PASSWORD);
+
+    // The managed policy is refused once and removing fails: the user is disabled with it.
+    let refused = false;
+    mock.state.override = (req) => {
+      if (req.method === 'DELETE') return { status: 500, text: 'Error processing request.' };
+      if (req.path.endsWith('/Policy') && !refused) {
+        refused = true;
+        return { status: 503, text: 'Service Unavailable' };
+      }
+      return undefined;
+    };
+    const disabled = await caught(
+      adapter().createMediaUser({ username: 'nora-kemaro', password: PASSWORD, policy: MUSTER }),
+    );
+    const nora = [...mock.state.users.values()].find((u) => u.name === 'nora-kemaro')!;
+    expect(disabled.message).toContain(
+      `Removing the user failed, it was disabled: weblion.one has to delete the Jellyfin user nora-kemaro (${nora.id})`,
+    );
+    expect(nora.policy).toMatchObject({
+      IsDisabled: true,
+      EnableAllFolders: false,
+      EnableLiveTvAccess: false,
+    });
+  });
+
+  it('removes a user that Jellyfin created although the creation got no clear answer', async () => {
+    // A proxy answers 504 after Jellyfin created the user with the chosen password.
+    mock.state.override = (req) => {
+      if (req.path !== '/Users/New') return undefined;
+      const body = req.body as { Name: string; Password: string };
+      add(mockUser(body.Name, { password: body.Password }));
+      return { status: 504, text: 'Gateway Timeout' };
+    };
+    const gateway = await caught(
+      adapter().createMediaUser({ username: 'anna-kemaro', password: PASSWORD, policy: MUSTER }),
+    );
+    expect(gateway.statusCode).toBe(502);
+    expect(gateway.message).toMatch(/Jellyfin had created the user, it was removed again$/);
+    expect(gateway.message).not.toContain(PASSWORD);
+    const id = /^DELETE \/Users\/([0-9a-f]{32})$/.exec(lines()[2] ?? '')![1]!;
+    expect(lines()).toEqual(['POST /Users/New', 'GET /Users', `DELETE /Users/${id}`]);
+    expect([...mock.state.users.values()].map((u) => u.name)).toEqual(['admin']);
+
+    // No answer in time: the same.
+    mock.requests.length = 0;
+    mock.state.override = (req) => {
+      if (req.path !== '/Users/New') return undefined;
+      const body = req.body as { Name: string; Password: string };
+      add(mockUser(body.Name, { password: body.Password }));
+      mock.state.delayMs = 300;
+      setImmediate(() => (mock.state.delayMs = 0));
+      return undefined;
+    };
+    const slow = await caught(
+      adapter({}, { timeoutMs: 100 }).createMediaUser({
+        username: 'ben-kemaro',
+        password: PASSWORD,
+        policy: MUSTER,
+      }),
+    );
+    expect(slow.message).toMatch(
+      /no answer within 100 ms\. Jellyfin had created the user, it was removed again$/,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect([...mock.state.users.values()].map((u) => u.name)).toEqual(['admin']);
+
+    // Removing fails: the user is disabled with the managed policy, never left with the defaults.
+    mock.requests.length = 0;
+    mock.state.override = (req) => {
+      if (req.method === 'DELETE') return { status: 500, text: 'Error processing request.' };
+      if (req.path !== '/Users/New') return undefined;
+      const body = req.body as { Name: string; Password: string };
+      add(mockUser(body.Name, { password: body.Password }));
+      return { status: 502, text: 'Bad Gateway' };
+    };
+    const stuck = await caught(
+      adapter().createMediaUser({ username: 'lea-kemaro', password: PASSWORD, policy: MUSTER }),
+    );
+    const lea = [...mock.state.users.values()].find((u) => u.name === 'lea-kemaro')!;
+    expect(stuck.message).toContain(
+      `Removing the user failed, it was disabled: weblion.one has to delete the Jellyfin user lea-kemaro (${lea.id})`,
+    );
+    expect(lea.policy).toMatchObject({
+      IsDisabled: true,
+      EnableAllFolders: false,
+      EnabledFolders: [FILME, SERIEN].sort(),
+      EnableLiveTvAccess: false,
+      EnablePublicSharing: false,
+      SyncPlayAccess: 'None',
+    });
+    mock.state.users.delete(lea.id);
+
+    // Nothing was created, or the name belongs to a user someone has used: the failure stands.
+    mock.requests.length = 0;
+    mock.state.override = (req) =>
+      req.path === '/Users/New' ? { status: 503, text: 'Service Unavailable' } : undefined;
+    const plain = await caught(
+      adapter().createMediaUser({ username: 'mia-kemaro', password: PASSWORD, policy: MUSTER }),
+    );
+    expect(plain.message).toMatch(
+      /^Jellyfin: create user mia-kemaro failed: Service Unavailable \(HTTP 503\)/,
+    );
+    expect(lines()).toEqual(['POST /Users/New', 'GET /Users']);
+    const used = add(mockUser('Mia-Kemaro', { lastActivityDate: '2026-10-01T10:00:00.0000000Z' }));
+    await caught(adapter().createMediaUser({ username: 'mia-kemaro', password: PASSWORD, policy: MUSTER }));
+    expect(mock.state.users.get(used.id)!.policy).toMatchObject({ IsDisabled: false });
+
+    // The lookup fails too: the message says whom to ask.
+    mock.state.users.delete(used.id);
+    mock.state.override = (req) =>
+      req.path.startsWith('/Users') ? { status: 503, text: 'Service Unavailable' } : undefined;
+    const unknown = await caught(
+      adapter().createMediaUser({ username: 'mia-kemaro', password: PASSWORD, policy: MUSTER }),
+    );
+    expect(unknown.message).toMatch(
+      /Whether Jellyfin created the user is unknown: weblion.one has to check for "mia-kemaro" in Jellyfin$/,
+    );
   });
 
   it('changes only the managed policy fields, read, modify, write', async () => {
@@ -1207,6 +1330,13 @@ describe('Jellyfin API explorer', () => {
       '/QuickConnect/Authorize',
       '/Users/ForgotPassword',
       '/Users/ForgotPassword/Pin',
+      // Jellyfin drops a leading /emby or /mediabrowser before routing.
+      '/emby/Auth/Keys',
+      '/Emby/QuickConnect/Authorize',
+      '/mediabrowser/Startup/User',
+      '/MediaBrowser/emby/Users/AuthenticateByName',
+      '/embyAuth/Keys',
+      '/emby/Auth/Keys.',
     ]) {
       for (const method of ['GET', 'POST', 'DELETE']) {
         const err = await caught(a.rawRequest(method, path, { Pw: 'x' }));
