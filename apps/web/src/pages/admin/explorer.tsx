@@ -17,6 +17,7 @@ import {
   Select,
   Textarea,
 } from '@/components/ui/primitives';
+import { isWebsiteProvider } from './websites';
 
 const PRESETS: Record<string, { method: string; path: string; label: string }[]> = {
   proxmox: [
@@ -81,6 +82,12 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/api/v1/get/status/version', label: 'Version' },
     { method: 'GET', path: '/api/v1/get/passwordpolicy', label: 'Password policy' },
   ],
+  // Only these reads through the agent weblion-clp; it has no other API.
+  cloudpanel: [
+    { method: 'GET', path: '/info', label: 'Server facts (versions, templates)' },
+    { method: 'GET', path: '/list', label: 'Managed sites' },
+    { method: 'GET', path: '/unmanaged', label: 'Unmanaged sites' },
+  ],
   demo: [{ method: 'GET', path: '/echo', label: 'Echo' }],
 };
 
@@ -108,6 +115,7 @@ const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
     path: '/api/v1/edit/mailbox',
     body: '{ "items": ["anna@kunde.ch"], "attr": { "quota": "4096" } }',
   },
+  cloudpanel: { path: '/list', body: '' },
 };
 
 interface Result {
@@ -128,15 +136,20 @@ export function ExplorerPage() {
   const [busy, setBusy] = useState(false);
   const provider = providers.data?.find((p) => p.id === providerId) ?? providers.data?.[0];
   const isJoker = provider?.type === 'joker';
-  /** Joker and Mailcow derive the method from the path, the others take it from the select. */
+  /** CloudPanel servers (and the demo CloudPanel) only answer the reads of their agent. */
+  const isCloudPanel = !!provider && isWebsiteProvider(provider);
+  const presetType = isCloudPanel ? 'cloudpanel' : (provider?.type ?? 'proxmox');
+  /** Joker and Mailcow derive the method from the path, CloudPanel only reads, the others take it from the select. */
   const derivedMethod = isJoker
     ? jokerMethod(path)
     : provider?.type === 'mailcow'
       ? mailcowMethod(path)
-      : null;
+      : isCloudPanel
+        ? 'GET'
+        : null;
   /** Joker takes parameters with every request, the others only with a body method. */
   const withBody = isJoker || (derivedMethod ?? method) !== 'GET';
-  const placeholder = PLACEHOLDERS[provider?.type ?? 'proxmox'] ?? PLACEHOLDERS.proxmox!;
+  const placeholder = PLACEHOLDERS[presetType] ?? PLACEHOLDERS.proxmox!;
 
   const run = async () => {
     if (!provider) return;
@@ -231,6 +244,7 @@ export function ExplorerPage() {
               {provider?.type === 'mailcow' && (
                 <p className="text-xs text-muted">{t('explorer.mailcowPath')}</p>
               )}
+              {isCloudPanel && <p className="text-xs text-muted">{t('providers.cloudpanel.explorerHint')}</p>}
               {withBody && (
                 <Field
                   label={t('explorer.body')}
@@ -288,7 +302,7 @@ export function ExplorerPage() {
         <Card className="h-fit">
           <CardHeader title={t('explorer.presets')} />
           <CardBody className="space-y-1 py-2">
-            {(PRESETS[provider?.type ?? 'proxmox'] ?? []).map((p) => (
+            {(PRESETS[presetType] ?? []).map((p) => (
               <button
                 key={p.path}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3"

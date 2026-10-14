@@ -1,30 +1,1909 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -I
 """
 weblion-clp: the root wrapper the weblion console runs on a CloudPanel server over SSH.
 
-The console's agent user may run exactly this script through sudo, without arguments. A
-request arrives as one JSON line on stdin, the answer leaves as one JSON line on stdout (wire
-protocol v1): exit code 0 with "ok": true, 1 with "ok": false. Python 3 standard library only.
+Remote mode (no arguments): the console's agent user may run exactly this script through sudo,
+without arguments. A request arrives as one JSON line on stdin, the answer leaves as one JSON
+line on stdout (wire protocol v1): exit code 0 with "ok": true, 1 with "ok": false. Any other
+exit code means the script itself failed.
 
-Placeholder until the agent is implemented: every remote request is answered with the error
-code "internal", local commands are refused.
+Local mode (arguments, root on the server): status, adopt, forget, protect, refresh-usage,
+selftest. "weblion-clp --help" lists them.
+
+This script is the security boundary between the console and the server:
+- a closed list of operations, every argument checked against a strict pattern;
+- commands run as argument lists without a shell and with a fixed environment;
+- only sites on the managed list are changed, protected sites and users never;
+- real passwords only travel on stdin of chpasswd and the mysql client; clpctl only ever sees
+  random throw-away passwords that are replaced right afterwards; every text that leaves the
+  script is cleaned of secrets;
+- CloudPanel's SQLite database is only read (read-only, short, outside clp-agent's write slot);
+- every change is verified by reading CloudPanel's database afterwards, never by exit codes.
+
+Python 3.9 or newer, standard library only.
 """
 
+import binascii
+import collections
+import contextlib
+import datetime
+import errno
+import fcntl
+import ipaddress
 import json
+import os
+import pwd
+import re
+import secrets
+import select
+import signal
+import socket
+import sqlite3
+import stat
+import subprocess
 import sys
+import tempfile
+import time
+import traceback
+import urllib.parse
 
-AGENT_VERSION = "0.0.0"
+AGENT_VERSION = "1.0.0"
 PROTOCOL = 1
 
+MAX_REQUEST = 65536
+READ_TIMEOUT = 10
+LOCK_WAIT = 120
+MAX_TEXT = 2000
+MASK = "•••"
+ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "HOME": "/root"}
 
-def main(argv=None):
-    argv = sys.argv[1:] if argv is None else argv
-    if argv:
-        print("weblion-clp: local commands are not implemented yet", file=sys.stderr)
+# Patterns of the design (section 2.5), used with fullmatch only: "$" would accept a trailing
+# newline, and "\d" or IGNORECASE would accept non-ASCII look-alikes.
+DOMAIN_RE = re.compile(r"(?=.{4,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})")
+SITE_USER_RE = re.compile(r"[a-z][a-z0-9-]{1,30}[a-z0-9]")
+LINUX_USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
+PHP_VERSION_RE = re.compile(r"[0-9]\.[0-9]")
+TEMPLATE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,40}")
+DB_NAME_RE = re.compile(r"[a-z][a-z0-9_]{1,31}")
+PASSWORD_RE = re.compile(r"[A-Za-z0-9!#%*+,\-./;<=>?@^_{|}~]{12,128}")
+UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+# Names CloudPanel may have left behind after a site deletion (UI-made ones may contain "-").
+LEFTOVER_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+MYSQL_HOST_RE = re.compile(r"[A-Za-z0-9.:%_-]{1,255}")
+
+NODEJS_VERSIONS = ("12", "14", "16", "18", "20", "22", "24")
+OFFERED_NODEJS_VERSIONS = ["18", "20", "22", "24"]
+CREATABLE_TYPES = ("php", "static", "nodejs")
+KNOWN_TYPES = ("php", "static", "nodejs", "python", "reverse-proxy")
+# Templates of other site types: never used for PHP sites.
+TYPE_TEMPLATES = ("Static", "Nodejs", "Python", "ReverseProxy")
+RESERVED_USERS = (
+    "root",
+    "clp",
+    "mysql",
+    "nginx",
+    "www-data",
+    "proftpd",
+    "varnish",
+    "redis",
+    "admin",
+    "ubuntu",
+    "debian",
+)
+SYSTEM_SCHEMAS = ("mysql", "sys", "information_schema", "performance_schema")
+NEVER_DROPPED_USERS = ("root", "mysql", "clp", "debian-sys-maint")
+
+DEFAULT_CONFIG = {
+    "agentUser": "weblion-agent",
+    "allowRemoteAdopt": False,
+    "nodejs": False,
+    "nodejsPorts": [3001, 3999],
+    "phpVersions": None,
+    "dbQuietSeconds": [2, 9],
+    "panelDb": "/home/clp/htdocs/app/data/db.sq3",
+    "clpctl": "/usr/bin/clpctl",
+    "mysql": "/usr/bin/mysql",
+    "minCloudPanel": "2.5.0",
+}
+
+# Columns read from CloudPanel's database. Only the required ones must exist; every other one is
+# selected as NULL when an older or newer panel lacks it. The table "user" (panel logins) and
+# site.user_password are never read.
+PANEL_COLUMNS = collections.OrderedDict(
+    [
+        (
+            "site",
+            ("id", "domain_name", "type", "user", "root_directory", "application", "created_at", "certificate_id"),
+        ),
+        ("php_settings", ("site_id", "php_version")),
+        ("nodejs_settings", ("site_id", "nodejs_version", "port")),
+        ("python_settings", ("site_id", "port")),
+        ("certificate", ("id", "site_id", "type", "expires_at", "certificate")),
+        ("database", ("id", "site_id", "name")),
+        ("database_user", ("database_id", "user_name")),
+    ]
+)
+REQUIRED_COLUMNS = {"site": ("id", "domain_name", "type", "user"), "database": ("id", "site_id", "name")}
+
+USAGE = """usage: weblion-clp                    answer one request of the weblion console (JSON on stdin)
+       weblion-clp status             list CloudPanel's sites and whether the console manages them
+       weblion-clp adopt <domain>     let the console manage an existing site
+       weblion-clp forget <domain>    stop managing a site (the site stays on the server)
+       weblion-clp protect domain <name>
+       weblion-clp protect user <name>
+                                      never let the console touch this site or user
+       weblion-clp refresh-usage      measure disk and database usage (run by a systemd timer)
+       weblion-clp selftest           check the installation"""
+
+
+class AgentError(Exception):
+    """An answer with ok: false. Codes are the closed list of the wire protocol."""
+
+    def __init__(self, code, message, field=None, rolled_back=None, output=None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.field = field
+        self.rolled_back = rolled_back
+        self.output = output
+
+    def as_dict(self, redact):
+        error = {"code": self.code, "message": redact(self.message)}
+        if self.field:
+            error["field"] = self.field
+        if self.rolled_back is not None:
+            error["rolledBack"] = bool(self.rolled_back)
+        if self.output:
+            error["output"] = redact(self.output)
+        return error
+
+
+class Paths:
+    """Every file and program outside the script. Fixed in production: no environment variable
+    or argument changes them; the tests replace the object. clpctl, the mysql client and
+    CloudPanel's database come from config.json."""
+
+    def __init__(self):
+        self.config = "/etc/weblion-clp/config.json"
+        self.protected = "/etc/weblion-clp/protected.conf"
+        self.managed = "/var/lib/weblion-clp/managed.json"
+        self.usage = "/var/lib/weblion-clp/usage.json"
+        # Not /run/lock: that directory is world-writable, a site user could hold a lock file there.
+        self.run_dir = "/run/weblion-clp"
+        self.lock = "/run/weblion-clp/weblion-clp.lock"
+        self.log = "/var/log/weblion-clp.log"
+        self.os_release = "/etc/os-release"
+        self.php_bin_dir = "/usr/bin"
+        self.php_etc_dir = "/etc/php"
+        self.proc_net_tcp = ("/proc/net/tcp", "/proc/net/tcp6")
+        self.crontabs = "/var/spool/cron/crontabs"
+        self.sudoers = "/etc/sudoers.d/weblion-agent"
+        self.sshd_dropin = "/etc/ssh/sshd_config.d/50-weblion-agent.conf"
+        # clpctl is a bash script whose shebang was broken before 2.5.0: always run it with bash.
+        self.shell = "/bin/bash"
+        self.chpasswd = "/usr/sbin/chpasswd"
+        self.pkill = "/usr/bin/pkill"
+        self.crontab = "/usr/bin/crontab"
+        self.dpkg_query = "/usr/bin/dpkg-query"
+        self.ip = "/bin/ip"
+        self.du = "/usr/bin/du"
+        self.nice = "/usr/bin/nice"
+        self.ionice = "/usr/bin/ionice"
+
+
+Protected = collections.namedtuple("Protected", "domains users")
+Guarded = collections.namedtuple("Guarded", "snap record site")
+Op = collections.namedtuple("Op", "exclusive timeout gated parse")
+
+
+# ---------------------------------------------------------------------------------------------
+# Small helpers
+
+
+def iso(timestamp):
+    return datetime.datetime.fromtimestamp(timestamp, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def panel_time(value):
+    """CloudPanel's "YYYY-MM-DD HH:MM:SS", read as UTC, or None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.datetime.strptime(value.strip()[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=datetime.timezone.utc)
+
+
+def panel_iso(value):
+    parsed = panel_time(value)
+    return parsed.strftime("%Y-%m-%dT%H:%M:%SZ") if parsed else None
+
+
+def parse_version(value):
+    """(major, minor, patch) of a Debian package version like "1:2.5.4-3+clp-noble", or None."""
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"(?:[0-9]+:)?([0-9]+)\.([0-9]+)(?:\.([0-9]+))?", value.strip())
+    return tuple(int(part or 0) for part in match.groups()) if match else None
+
+
+def clip(value, length):
+    if value is None:
+        return None
+    value = str(value)
+    return value[:length]
+
+
+def to_int(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[0-9]{1,18}", value.strip()):
+        return int(value.strip())
+    return None
+
+
+def www_counterpart(domain):
+    return domain[4:] if domain.startswith("www.") else "www." + domain
+
+
+def db_prefix(site_user):
+    """Prefix of a site's databases: site user with "-" as "_", at most 16 characters, then "_"."""
+    return site_user.replace("-", "_")[:16].rstrip("_") + "_"
+
+
+def sql_str(value):
+    """A pattern-checked value as an SQL string literal, escaped anyway."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'"
+
+
+def last_line(text):
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return lines[-1][:300] if lines else ""
+
+
+def pem_is_lets_encrypt(pem):
+    """True when the first certificate of a PEM names Let's Encrypt (its issuer), None when unreadable."""
+    if not isinstance(pem, str):
+        return None
+    match = re.search(r"-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\s]+)-----END CERTIFICATE-----", pem)
+    if not match:
+        return None
+    try:
+        der = binascii.a2b_base64("".join(match.group(1).split()))
+    except (binascii.Error, ValueError):
+        return None
+    return b"Let's Encrypt" in der
+
+
+def parse_table(text):
+    """Rows of a clpctl table ("| a | b |"), without separator lines."""
+    rows = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if line.startswith("|") and line.endswith("|") and len(line) > 1:
+            rows.append([cell.strip() for cell in line[1:-1].split("|")])
+    return rows
+
+
+def parse_templates(text):
+    templates, seen = [], set()
+    for row in parse_table(text):
+        name = row[0] if row else ""
+        if name == "Name" or name in seen or not TEMPLATE_RE.fullmatch(name):
+            continue
+        seen.add(name)
+        templates.append({"name": name, "rootDirectory": row[1] if len(row) > 1 else None})
+    return templates
+
+
+def parse_master_credentials(text):
+    """Host, User Name, Password, Port of "clpctl db:show:master-credentials". The password may
+    contain "|", so each row is matched from both ends."""
+    values = {}
+    for line in (text or "").splitlines():
+        match = re.fullmatch(r"\s*\|\s*(Host|User Name|Password|Port)\s*\|\s?(.*?)\s*\|\s*", line)
+        if match:
+            values[match.group(1)] = match.group(2)
+    return values
+
+
+# ---------------------------------------------------------------------------------------------
+# Validation (the console checks the same patterns; this script is the authority)
+
+
+def invalid(message, field):
+    return AgentError("invalid", message, field=field)
+
+
+def v_domain(value, field="domain"):
+    if not isinstance(value, str) or not DOMAIN_RE.fullmatch(value):
+        raise invalid("Not a valid domain name (lower-case ASCII, punycode for umlauts)", field)
+    return value
+
+
+def v_site_user(value, agent_user, field="siteUser"):
+    if not isinstance(value, str) or not SITE_USER_RE.fullmatch(value):
+        raise invalid("A site user has 3 to 32 characters: a-z, 0-9 and -, starting with a letter", field)
+    if value in RESERVED_USERS or value.startswith("weblion") or value == agent_user:
+        raise invalid("This user name is reserved", field)
+    return value
+
+
+def v_type(value):
+    if value in ("python", "reverse-proxy"):
+        raise invalid("Python sites and reverse proxies are not created through the console", "type")
+    if not isinstance(value, str) or value not in CREATABLE_TYPES:
+        raise invalid("The site type must be php, static or nodejs", "type")
+    return value
+
+
+def v_php_version(value):
+    if not isinstance(value, str) or not PHP_VERSION_RE.fullmatch(value):
+        raise invalid("Not a PHP version such as 8.4", "phpVersion")
+    return value
+
+
+def v_template(value):
+    if not isinstance(value, str) or not TEMPLATE_RE.fullmatch(value):
+        raise invalid("Not a valid application template name", "template")
+    return value
+
+
+def v_nodejs_version(value):
+    if not isinstance(value, str) or value not in NODEJS_VERSIONS:
+        raise invalid("The Node.js version must be one of " + ", ".join(NODEJS_VERSIONS), "nodejsVersion")
+    return value
+
+
+def v_db_name(value, field, prefix=None):
+    if not isinstance(value, str) or not DB_NAME_RE.fullmatch(value) or value in SYSTEM_SCHEMAS:
+        raise invalid("A database name has 2 to 32 characters: a-z, 0-9 and _, starting with a letter", field)
+    if prefix is not None and not value.startswith(prefix):
+        raise invalid("Database names of this site start with " + prefix, field)
+    return value
+
+
+def v_password(value, field):
+    if not isinstance(value, str) or not PASSWORD_RE.fullmatch(value):
+        raise invalid("A password has 12 to 128 characters: letters, digits and !#%*+,-./;<=>?@^_{|}~", field)
+    return value
+
+
+def expect_keys(args, allowed, secret_values, allowed_secrets):
+    for key in args:
+        if key not in allowed:
+            raise invalid("Unknown argument " + clip(key, 40), key[:100])
+    for key in secret_values:
+        if key not in allowed_secrets:
+            raise invalid("Unknown secret " + clip(key, 40), key[:100])
+
+
+def parse_nothing(_config, args, secret_values):
+    expect_keys(args, (), secret_values, ())
+    return {}
+
+
+def parse_domain(_config, args, secret_values):
+    expect_keys(args, ("domain",), secret_values, ())
+    return {"domain": v_domain(args.get("domain"))}
+
+
+def parse_password(_config, args, secret_values):
+    expect_keys(args, ("domain",), secret_values, ("password",))
+    return {"domain": v_domain(args.get("domain")), "password": v_password(secret_values.get("password"), "password")}
+
+
+def parse_db_user(_config, args, secret_values):
+    expect_keys(args, ("domain", "name", "userName"), secret_values, ("password",))
+    return {
+        "domain": v_domain(args.get("domain")),
+        "name": v_db_name(args.get("name"), "name"),
+        "userName": v_db_name(args.get("userName"), "userName"),
+        "password": v_password(secret_values.get("password"), "password"),
+    }
+
+
+def parse_db_delete(_config, args, secret_values):
+    expect_keys(args, ("domain", "name"), secret_values, ())
+    return {"domain": v_domain(args.get("domain")), "name": v_db_name(args.get("name"), "name")}
+
+
+def parse_create(config, args, secret_values):
+    expect_keys(
+        args,
+        ("domain", "type", "phpVersion", "template", "nodejsVersion", "siteUser", "database"),
+        secret_values,
+        ("password", "databasePassword"),
+    )
+    out = {
+        "domain": v_domain(args.get("domain")),
+        "type": v_type(args.get("type")),
+        "siteUser": v_site_user(args.get("siteUser"), config["agentUser"]),
+        "password": v_password(secret_values.get("password"), "password"),
+    }
+    kind = out["type"]
+    for key, needed in (
+        ("phpVersion", kind == "php"),
+        ("template", kind == "php"),
+        ("nodejsVersion", kind == "nodejs"),
+    ):
+        if needed and key not in args:
+            raise invalid("A %s site needs %s" % (kind, key), key)
+        if not needed and key in args:
+            raise invalid("%s is not used for %s sites" % (key, kind), key)
+    if kind == "php":
+        out["phpVersion"] = v_php_version(args["phpVersion"])
+        out["template"] = v_template(args["template"])
+    if kind == "nodejs":
+        out["nodejsVersion"] = v_nodejs_version(args["nodejsVersion"])
+    database = args.get("database")
+    if database is not None:
+        if not isinstance(database, dict) or set(database) != {"name", "userName"}:
+            raise invalid("database needs exactly name and userName", "database")
+        prefix = db_prefix(out["siteUser"])
+        out["database"] = {
+            "name": v_db_name(database["name"], "database", prefix),
+            "userName": v_db_name(database["userName"], "database", prefix),
+        }
+        out["databasePassword"] = v_password(secret_values.get("databasePassword"), "databasePassword")
+    elif "databasePassword" in secret_values:
+        raise invalid("databasePassword is only sent with a database", "databasePassword")
+    return out
+
+
+# Lock (shared for reads), the script's own time limit in seconds (the console waits a little
+# longer), whether the CloudPanel version gate applies, and the argument parser.
+OPS = {
+    "info": Op(False, 20, False, parse_nothing),
+    "list": Op(False, 45, False, parse_nothing),
+    "get": Op(False, 20, False, parse_domain),
+    "unmanaged": Op(False, 20, False, parse_nothing),
+    "create": Op(True, 300, True, parse_create),
+    "delete": Op(True, 180, True, parse_domain),
+    "password": Op(True, 20, True, parse_password),
+    "db-add": Op(True, 75, True, parse_db_user),
+    "db-delete": Op(True, 75, True, parse_db_delete),
+    "db-password": Op(True, 20, True, parse_db_user),
+    "cert": Op(True, 180, True, parse_domain),
+    "adopt": Op(True, 20, True, parse_domain),
+    # Only edits the managed list, so it also works on a panel the gate refuses.
+    "forget": Op(True, 20, False, parse_domain),
+}
+
+
+def read_stdin(stream, limit=MAX_REQUEST, timeout=READ_TIMEOUT):
+    """The first line of stdin (at most limit + 1 bytes), within timeout seconds."""
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return stream.readline(limit + 1).split(b"\n", 1)[0]
+    deadline = time.monotonic() + timeout
+    data = b""
+    while len(data) <= limit and b"\n" not in data:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise invalid("No complete request on stdin within %d s" % timeout, None)
+        ready, _write, _error = select.select([fd], [], [], left)
+        if not ready:
+            continue
+        chunk = os.read(fd, limit + 1 - len(data))
+        if not chunk:
+            break
+        data += chunk
+    return data.split(b"\n", 1)[0]
+
+
+def parse_envelope(raw):
+    if len(raw) > MAX_REQUEST:
+        raise invalid("The request is larger than 64 KiB", None)
+    try:
+        request = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise invalid("The request is not one line of UTF-8 JSON", None)
+    if not isinstance(request, dict):
+        raise invalid("The request is not a JSON object", None)
+    for key in request:
+        if key not in ("v", "op", "requestId", "args", "secrets"):
+            raise invalid("Unknown request field " + clip(key, 40), clip(key, 100))
+    version = request.get("v")
+    if type(version) is not int or version != PROTOCOL:
+        raise invalid("weblion-clp speaks protocol %d; update the console or the agent" % PROTOCOL, "v")
+    op = request.get("op")
+    if not isinstance(op, str) or op not in OPS:
+        raise invalid("Unknown operation", "op")
+    request_id = request.get("requestId")
+    if not isinstance(request_id, str) or not UUID_RE.fullmatch(request_id):
+        raise invalid("requestId must be a UUID", "requestId")
+    args = request.get("args")
+    if not isinstance(args, dict):
+        raise invalid("args must be an object", "args")
+    secret_values = request.get("secrets", {})
+    if not isinstance(secret_values, dict) or not all(isinstance(v, str) for v in secret_values.values()):
+        raise invalid("secrets must be an object of strings", "secrets")
+    return op, request_id, args, secret_values
+
+
+def load_config(path):
+    config = dict(DEFAULT_CONFIG)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except FileNotFoundError:
+        return config
+    except (OSError, ValueError) as err:
+        raise AgentError("internal", "%s cannot be read: %s" % (path, err))
+    if not isinstance(loaded, dict):
+        raise AgentError("internal", "%s is not a JSON object" % path)
+    config.update({key: value for key, value in loaded.items() if key in DEFAULT_CONFIG})
+
+    def pair(value, low, high):
+        return (
+            isinstance(value, list)
+            and len(value) == 2
+            and all(type(v) is int for v in value)
+            and low <= value[0] <= value[1] <= high
+        )
+
+    checks = [
+        ("agentUser", isinstance(config["agentUser"], str) and LINUX_USER_RE.fullmatch(config["agentUser"])),
+        ("allowRemoteAdopt", isinstance(config["allowRemoteAdopt"], bool)),
+        ("nodejs", isinstance(config["nodejs"], bool)),
+        ("nodejsPorts", pair(config["nodejsPorts"], 1024, 65535)),
+        ("dbQuietSeconds", pair(config["dbQuietSeconds"], 0, 59)),
+        (
+            "phpVersions",
+            config["phpVersions"] is None
+            or (
+                isinstance(config["phpVersions"], list)
+                and all(isinstance(v, str) and PHP_VERSION_RE.fullmatch(v) for v in config["phpVersions"])
+            ),
+        ),
+        ("minCloudPanel", parse_version(config["minCloudPanel"]) is not None),
+    ]
+    checks += [
+        (key, isinstance(config[key], str) and config[key].startswith("/")) for key in ("panelDb", "clpctl", "mysql")
+    ]
+    for key, good in checks:
+        if not good:
+            raise AgentError("internal", "%s: %s has an invalid value" % (path, key))
+    return config
+
+
+class Snapshot:
+    """One read of CloudPanel's database: sites by lower-case domain, databases, used app ports."""
+
+    def __init__(self, rows, has_certificate_id):
+        php = {r[0]: r[1] for r in rows["php_settings"]}
+        node = {r[0]: (r[1], to_int(r[2])) for r in rows["nodejs_settings"]}
+        python = {r[0]: to_int(r[1]) for r in rows["python_settings"]}
+        certs_by_id, certs_by_site = {}, {}
+        for cert in rows["certificate"]:
+            entry = {"id": cert[0], "type": cert[2], "expires": cert[3], "pem": cert[4]}
+            certs_by_id[cert[0]] = entry
+            current = certs_by_site.get(cert[1])
+            if cert[1] is not None and (current is None or str(cert[3] or "") > str(current["expires"] or "")):
+                certs_by_site[cert[1]] = entry
+        self.ports = {port for _version, port in node.values() if port} | {port for port in python.values() if port}
+        self.sites = {}
+        for site_id, domain, kind, user, root, application, created, cert_id in rows["site"]:
+            if not isinstance(domain, str) or not isinstance(user, str) or not domain or not user:
+                continue
+            kind = str(kind).lower() if kind is not None else ""
+            if has_certificate_id:
+                cert = certs_by_id.get(cert_id) if cert_id is not None else None
+            else:
+                cert = certs_by_site.get(site_id)
+            node_version, port = node.get(site_id, (None, None))
+            self.sites[domain.lower()] = {
+                "id": site_id,
+                "domain": domain.lower(),
+                "type": kind,
+                "user": user,
+                "root": root,
+                "application": application,
+                "created": created,
+                "php": php.get(site_id),
+                "nodejs": node_version,
+                "port": python.get(site_id) if kind == "python" else port,
+                "cert": cert,
+            }
+        users = {}
+        for database_id, user_name in rows["database_user"]:
+            if isinstance(user_name, str):
+                users.setdefault(database_id, set()).add(user_name)
+        self.databases = [
+            {"id": db_id, "site_id": site_id, "name": name, "users": sorted(users.get(db_id, ()))}
+            for db_id, site_id, name in rows["database"]
+            if isinstance(name, str)
+        ]
+
+    def site(self, domain):
+        return self.sites.get(domain)
+
+    def site_databases(self, site):
+        return sorted((d for d in self.databases if d["site_id"] == site["id"]), key=lambda d: d["name"])
+
+    def database(self, name):
+        return next((d for d in self.databases if d["name"] == name), None)
+
+
+class Agent:
+    """One run of the script. Files, programs, the clock, the user database and the identity of
+    the caller are attributes, so the tests can replace them."""
+
+    def __init__(
+        self,
+        paths=None,
+        clock=time.time,
+        sleep=time.sleep,
+        geteuid=os.geteuid,
+        getpwnam=pwd.getpwnam,
+        environ=None,
+        hostname=socket.getfqdn,
+    ):
+        self.paths = paths or Paths()
+        self.clock = clock
+        self.sleep = sleep
+        self.geteuid = geteuid
+        self.getpwnam = getpwnam
+        self.environ = os.environ if environ is None else environ
+        self.hostname = hostname
+        self.lock_wait = LOCK_WAIT
+        # Every secret of this run (request secrets, throw-away passwords, the MySQL master
+        # password): replaced by the mask in everything that leaves the script.
+        self.secrets = []
+        self.deadline = None
+        self.request_id = None
+        self._config = None
+        self._master = None
+
+    @property
+    def config(self):
+        if self._config is None:
+            self._config = load_config(self.paths.config)
+        return self._config
+
+    # --- secrets ---------------------------------------------------------------------------
+
+    def scrub(self, text, mask=MASK):
+        text = str(text)
+        for secret in sorted({s for s in self.secrets if len(s) >= 4}, key=len, reverse=True):
+            text = text.replace(secret, mask)
+        return text
+
+    def redact(self, text):
+        """Secrets of this run plus what CloudPanel and MySQL print with passwords, cut to 2000 characters."""
+        text = self.scrub(text)
+        text = re.sub(r"passwd -6 '[^']*'", "passwd -6 '%s'" % MASK, text)
+        text = re.sub(r"IDENTIFIED BY '[^']*'", "IDENTIFIED BY '%s'" % MASK, text, flags=re.IGNORECASE)
+        text = re.sub(r"--([A-Za-z]*[Pp]assword)=\S*", r"--\1=" + MASK, text)
+        return text[:MAX_TEXT]
+
+    def throwaway(self):
+        value = "".join(secrets.choice(ALNUM) for _ in range(32))
+        self.secrets.append(value)
+        return value
+
+    # --- files -----------------------------------------------------------------------------
+
+    def now_iso(self):
+        return iso(self.clock())
+
+    def ensure_dir(self, path):
+        """A directory only root can enter (state, run directory)."""
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        info = os.lstat(path)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+            raise AgentError("internal", "%s is not a directory owned by root" % path)
+        if stat.S_IMODE(info.st_mode) & 0o077:
+            os.chmod(path, 0o700)
+
+    def read_json(self, path, default):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                return json.load(handle)
+        except FileNotFoundError:
+            return default
+        except (OSError, ValueError) as err:
+            raise AgentError("internal", "%s cannot be read: %s" % (path, err))
+
+    def write_file(self, path, text, mode=0o600, private_dir=True):
+        """Atomic replace: a crash leaves the old or the new file, never half of one."""
+        directory = os.path.dirname(path)
+        if private_dir:
+            self.ensure_dir(directory)
+        fd, temporary = tempfile.mkstemp(dir=directory, prefix=".tmp-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, mode)
+            os.replace(temporary, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary)
+            raise
+
+    def write_json(self, path, data):
+        self.write_file(path, json.dumps(data, indent=2, sort_keys=True) + "\n")
+
+    def load_managed(self):
+        data = self.read_json(self.paths.managed, {"version": 1, "sites": {}})
+        if not isinstance(data, dict) or not isinstance(data.get("sites"), dict):
+            raise AgentError("internal", "%s has an unknown layout" % self.paths.managed)
+        data["sites"] = {d: r for d, r in data["sites"].items() if isinstance(r, dict)}
+        return data
+
+    def record_site(self, domain, record):
+        managed = self.load_managed()
+        managed["sites"][domain] = record
+        self.write_json(self.paths.managed, managed)
+
+    def drop_site(self, domain):
+        managed = self.load_managed()
+        if managed["sites"].pop(domain, None) is not None:
+            self.write_json(self.paths.managed, managed)
+        usage = self.load_usage()
+        if usage.pop(domain, None) is not None:
+            self.write_json(self.paths.usage, usage)
+
+    def load_usage(self):
+        data = self.read_json(self.paths.usage, {})
+        return data if isinstance(data, dict) else {}
+
+    def load_protected(self):
+        domains, users = set(), set()
+        try:
+            with open(self.paths.protected, encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+        except FileNotFoundError:
+            lines = []
+        except OSError as err:
+            raise AgentError("internal", "%s cannot be read: %s" % (self.paths.protected, err))
+        for number, line in enumerate(lines, 1):
+            parts = line.split("#", 1)[0].split()
+            if not parts:
+                continue
+            if len(parts) == 2 and parts[0] == "domain":
+                domains.add(parts[1].lower())
+            elif len(parts) == 2 and parts[0] == "user":
+                users.add(parts[1])
+            else:
+                # Fail closed: a typo must not silently unprotect a site.
+                raise AgentError(
+                    "internal", "%s line %d is not 'domain <name>' or 'user <name>'" % (self.paths.protected, number)
+                )
+        return Protected(domains, users)
+
+    def log(self, entry):
+        """One JSON line per request in the log (root 0600). Never fails the request."""
+        entry = dict(entry, time=self.now_iso())
+        try:
+            fd = os.open(self.paths.log, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as handle:
+                handle.write(self.scrub(json.dumps(entry, ensure_ascii=True, sort_keys=True), "***") + "\n")
+        except (OSError, ValueError):
+            pass
+
+    def log_traceback(self):
+        self.log({"requestId": self.request_id, "traceback": traceback.format_exc()[-8000:]})
+
+    @contextlib.contextmanager
+    def locked(self, exclusive):
+        """flock on the lock file: exclusive for changes, shared for reads. Waits at most 120 s
+        and never beyond the request's time limit, then answers busy."""
+        self.ensure_dir(os.path.dirname(self.paths.lock))
+        fd = os.open(self.paths.lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            give_up = self.clock() + self.lock_wait
+            if self.deadline is not None:
+                give_up = min(give_up, self.deadline)
+            while True:
+                try:
+                    fcntl.flock(fd, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+                    break
+                except OSError as err:
+                    if err.errno not in (errno.EAGAIN, errno.EACCES):
+                        raise
+                if self.clock() >= give_up:
+                    raise AgentError("busy", "Another operation is running on this server; try again in a minute")
+                self.sleep(0.5)
+            yield
+        finally:
+            os.close(fd)
+
+    # --- commands --------------------------------------------------------------------------
+
+    def run(self, argv, input=None, timeout=20, budget=True, what=None):
+        """(exit code, output with stderr) of a command: argv list, no shell, fixed environment.
+        The output is raw (for parsing); it is redacted when it leaves the script."""
+        what = what or os.path.basename(argv[0])
+        if budget and self.deadline is not None:
+            left = self.deadline - self.clock()
+            if left <= 0:
+                raise AgentError("timeout", "The operation ran out of time before %s" % what)
+            timeout = min(timeout, left)
+        try:
+            # A session of its own: on a timeout the whole group goes, not only the first process
+            # (clpctl is bash running PHP, which would otherwise go on and change things later).
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL if input is None else subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=dict(ENV),
+                shell=False,
+                encoding="utf-8",
+                errors="replace",
+                start_new_session=True,
+            )
+        except OSError as err:
+            raise AgentError("internal", "%s cannot be run: %s" % (what, err.strerror))
+        try:
+            output, _none = process.communicate(input, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(OSError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            process.stdout.close()
+            raise AgentError("timeout", "%s did not finish within %d s" % (what, timeout))
+        return process.returncode, output or ""
+
+    def clpctl(self, *args, timeout=60, budget=True):
+        return self.run(
+            [self.paths.shell, self.config["clpctl"]] + list(args),
+            timeout=timeout,
+            budget=budget,
+            what="clpctl " + args[0],
+        )
+
+    def user(self, name):
+        try:
+            return self.getpwnam(name)
+        except (KeyError, ValueError, TypeError):
+            return None
+
+    def home_of(self, name):
+        entry = self.user(name)
+        home = getattr(entry, "pw_dir", None)
+        return home if isinstance(home, str) and home.startswith("/") else "/home/" + name
+
+    def cloudpanel_version(self):
+        code, output = self.run(
+            [self.paths.dpkg_query, "-W", "--showformat=${Version}", "cloudpanel"], timeout=15, what="dpkg-query"
+        )
+        value = output.strip().splitlines()[0].strip() if code == 0 and output.strip() else None
+        return clip(value, 100)
+
+    def version_gate(self):
+        """Changes need CloudPanel 2.5.0 or newer (clpctl's shebang and the clpctlWrapper
+        privilege escalation are fixed there). The database layout is probed by every read."""
+        version = self.cloudpanel_version()
+        found = parse_version(version)
+        if found is None:
+            raise AgentError("version", "The CloudPanel version could not be read (dpkg-query)")
+        if found < parse_version(self.config["minCloudPanel"]):
+            raise AgentError(
+                "version",
+                "CloudPanel %s is older than %s; update CloudPanel first" % (version, self.config["minCloudPanel"]),
+            )
+        return version
+
+    def templates(self):
+        code, output = self.clpctl("vhost-templates:list", timeout=30)
+        templates = parse_templates(output)
+        if code != 0 or not templates:
+            raise AgentError("clpctl_failed", "clpctl vhost-templates:list gave no templates", output=output)
+        return templates
+
+    def php_versions(self):
+        """Installed PHP versions, newest first, limited to config.json phpVersions when set."""
+        found = set()
+        with contextlib.suppress(OSError):
+            for name in os.listdir(self.paths.php_bin_dir):
+                match = re.fullmatch(r"php([0-9]\.[0-9])", name)
+                if match:
+                    found.add(match.group(1))
+        if not found:
+            with contextlib.suppress(OSError):
+                for name in os.listdir(self.paths.php_etc_dir):
+                    if PHP_VERSION_RE.fullmatch(name) and os.path.isdir(
+                        os.path.join(self.paths.php_etc_dir, name, "fpm")
+                    ):
+                        found.add(name)
+        if self.config["phpVersions"] is not None:
+            found &= set(self.config["phpVersions"])
+        return sorted(found, key=lambda v: tuple(int(p) for p in v.split(".")), reverse=True)
+
+    def addresses(self):
+        """Public IPv4 and IPv6 addresses of the server (private, link-local and the like left out)."""
+        code, output = self.run([self.paths.ip, "-j", "addr", "show", "scope", "global"], timeout=10, what="ip")
+        found = {4: [], 6: []}
+        try:
+            interfaces = json.loads(output) if code == 0 else []
+        except ValueError:
+            interfaces = []
+        for interface in interfaces if isinstance(interfaces, list) else []:
+            for entry in interface.get("addr_info", []) if isinstance(interface, dict) else []:
+                try:
+                    address = ipaddress.ip_address(entry.get("local"))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+                if (
+                    address.is_private
+                    or address.is_link_local
+                    or address.is_loopback
+                    or address.is_multicast
+                    or address.is_reserved
+                    or address.is_unspecified
+                ):
+                    continue
+                if str(address) not in found[address.version]:
+                    found[address.version].append(str(address))
+        return found[4], found[6]
+
+    def listening_ports(self):
+        ports = set()
+        for path in self.paths.proc_net_tcp:
+            with contextlib.suppress(OSError):
+                with open(path, encoding="ascii", errors="replace") as handle:
+                    for line in handle.read().splitlines()[1:]:
+                        fields = line.split()
+                        if len(fields) > 3 and fields[3] == "0A" and ":" in fields[1]:
+                            with contextlib.suppress(ValueError):
+                                ports.add(int(fields[1].rsplit(":", 1)[1], 16))
+        return ports
+
+    def free_port(self, snap):
+        low, high = self.config["nodejsPorts"]
+        listening = self.listening_ports()
+        for port in range(low, high + 1):
+            if port not in snap.ports and port not in listening:
+                return port
+        raise invalid("No free Node.js app port left on this server (%d to %d)" % (low, high), "type")
+
+    # --- CloudPanel's database -------------------------------------------------------------
+
+    def wait_quiet(self):
+        """clp-agent writes its metrics at the start of every minute and dies when a reader holds
+        the database then (CloudPanel issue #815): wait until that slot is over."""
+        low, high = self.config["dbQuietSeconds"]
+        second = self.clock() % 60
+        if low <= second < high + 1:
+            self.sleep(high + 1 - second)
+
+    def panel(self):
+        for attempt in range(3):
+            self.wait_quiet()
+            try:
+                return self.read_panel()
+            except sqlite3.Error as err:
+                text = str(err).lower()
+                if "locked" not in text and "busy" not in text:
+                    raise AgentError("internal", "CloudPanel's database cannot be read: %s" % err)
+                if attempt == 2:
+                    raise AgentError("busy", "CloudPanel's database is busy; try again in a minute")
+                self.sleep(1)
+
+    def read_panel(self):
+        uri = "file:%s?mode=ro" % urllib.parse.quote(self.config["panelDb"], safe="/")
+        conn = sqlite3.connect(uri, uri=True, timeout=2, isolation_level=None)
+        try:
+            conn.execute("PRAGMA query_only = 1")
+            have = {}
+            for table in PANEL_COLUMNS:
+                have[table] = {row[1] for row in conn.execute('PRAGMA table_info("%s")' % table)}
+            missing = ["%s.%s" % (t, c) for t, columns in REQUIRED_COLUMNS.items() for c in columns if c not in have[t]]
+            if missing:
+                raise AgentError(
+                    "version", "CloudPanel's database layout is not recognised (missing %s)" % ", ".join(missing)
+                )
+            rows = {}
+            # One short read transaction for everything (no values, so no parameters needed).
+            conn.execute("BEGIN")
+            for table, columns in PANEL_COLUMNS.items():
+                if columns[0] not in have[table]:
+                    rows[table] = []
+                    continue
+                names = ", ".join('"%s"' % c if c in have[table] else "NULL" for c in columns)
+                rows[table] = conn.execute('SELECT %s FROM "%s"' % (names, table)).fetchall()
+        finally:
+            conn.close()
+        return Snapshot(rows, "certificate_id" in have["site"])
+
+    def domain_protected(self, domain, protected):
+        return domain in protected.domains or www_counterpart(domain) in protected.domains
+
+    def user_protected(self, name, protected):
+        if name in protected.users or name in ("root", "clp", self.config["agentUser"]):
+            return True
+        entry = self.user(name)
+        return entry is not None and getattr(entry, "pw_uid", 0) < 1000
+
+    def site_protected(self, site, protected):
+        return self.domain_protected(site["domain"], protected) or self.user_protected(site["user"], protected)
+
+    def managed_site(self, snap, domain):
+        record = self.load_managed()["sites"].get(domain)
+        if record is None:
+            raise AgentError("not_managed", "%s is not managed by the console on this server" % domain)
+        site = snap.site(domain)
+        if site is None:
+            raise AgentError("not_found", "%s does not exist in CloudPanel" % domain)
+        return record, site
+
+    def guard(self, domain):
+        """A managed site that may be changed: not protected, in CloudPanel, same site user."""
+        protected = self.load_protected()
+        if self.domain_protected(domain, protected):
+            raise AgentError("protected", "%s is on the protected list of this server" % domain)
+        snap = self.panel()
+        record, site = self.managed_site(snap, domain)
+        if self.user_protected(site["user"], protected):
+            raise AgentError("protected", "The site user of %s is protected on this server" % domain)
+        if record.get("siteUser") != site["user"]:
+            raise AgentError("not_managed", "The site user of %s changed in CloudPanel; adopt the site again" % domain)
+        return Guarded(snap, record, site)
+
+    def wire_site(self, snap, site, record, usage):
+        if site is None:
+            raise AgentError("not_found", "The site disappeared from CloudPanel")
+        domain, kind = site["domain"], site["type"]
+        home = self.home_of(site["user"])
+        root = site["root"]
+        if isinstance(root, str) and root.startswith("/"):
+            web_root = root
+        else:
+            web_root = "%s/htdocs/%s" % (home, domain)
+            if isinstance(root, str) and root.strip("/"):
+                web_root += "/" + root.strip("/")
+        entry = usage.get(domain) if isinstance(usage.get(domain), dict) else None
+        sizes = entry.get("databases") if entry and isinstance(entry.get("databases"), dict) else {}
+        databases = [
+            {"name": d["name"][:64], "users": [u[:64] for u in d["users"]], "sizeBytes": to_int(sizes.get(d["name"]))}
+            for d in snap.site_databases(site)
+        ]
+        measured = None
+        if entry:
+            known = [to_int(v) for v in sizes.values() if to_int(v) is not None]
+            measured = {
+                "diskBytes": to_int(entry.get("diskBytes")),
+                "databaseBytes": sum(known) if known else None,
+                "measuredAt": clip(entry.get("measuredAt"), 64) if isinstance(entry.get("measuredAt"), str) else None,
+            }
+        port = to_int(site["port"]) if kind in ("nodejs", "python") else None
+        return {
+            "domain": domain,
+            "type": kind,
+            "siteUser": site["user"][:64],
+            "homeDirectory": home,
+            "webRoot": web_root,
+            "application": clip(site["application"], 100) if kind == "php" else None,
+            "phpVersion": clip(site["php"], 16) if kind == "php" else None,
+            "nodejsVersion": clip(site["nodejs"], 16) if kind == "nodejs" else None,
+            "appPort": port if port and 1 <= port <= 65535 else None,
+            "createdAt": panel_iso(site["created"]),
+            "certificate": self.wire_certificate(site["cert"], record),
+            "databases": databases,
+            "usage": measured,
+        }
+
+    def wire_certificate(self, cert, record):
+        if not cert:
+            return None
+        issuer = pem_is_lets_encrypt(cert["pem"])
+        lets_encrypt = True if record.get("letsEncrypt") is True or issuer else (False if issuer is False else None)
+        return {
+            "type": clip(cert["type"], 64),
+            "letsEncrypt": lets_encrypt,
+            "expiresAt": panel_iso(cert["expires"]),
+        }
+
+    # --- MySQL -----------------------------------------------------------------------------
+
+    def master_credentials(self):
+        if self._master is None:
+            code, output = self.clpctl("db:show:master-credentials", timeout=30)
+            values = parse_master_credentials(output)
+            if values.get("Password"):
+                self.secrets.append(values["Password"])
+            port = values.get("Port") or "3306"
+            if (
+                code != 0
+                or not re.fullmatch(r"[A-Za-z0-9.:_-]{1,255}", values.get("Host", ""))
+                or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", values.get("User Name", ""))
+                or not values.get("Password")
+                or "\n" in values["Password"]
+                or not re.fullmatch(r"[0-9]{1,5}", port)
+            ):
+                # The output holds the master password: it never goes into the error.
+                raise AgentError(
+                    "clpctl_failed",
+                    "The MySQL master credentials could not be read (clpctl db:show:master-credentials)",
+                )
+            self._master = {
+                "host": values["Host"],
+                "user": values["User Name"],
+                "password": values["Password"],
+                "port": port,
+            }
+        return self._master
+
+    def mysql(self, sql, force=False, check=True, timeout=30):
+        """Rows (tab separated) of SQL sent on the mysql client's stdin. The master credentials
+        live in a 0600 option file in a fresh 0700 directory only for this call."""
+        master = self.master_credentials()
+        self.ensure_dir(self.paths.run_dir)
+        directory = tempfile.mkdtemp(dir=self.paths.run_dir)
+        option_file = os.path.join(directory, "client.cnf")
+        try:
+            fd = os.open(option_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            password = master["password"].replace("\\", "\\\\").replace('"', '\\"')
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(
+                    '[client]\nhost=%s\nport=%s\nuser=%s\npassword="%s"\n'
+                    % (master["host"], master["port"], master["user"], password)
+                )
+            argv = [
+                self.config["mysql"],
+                "--defaults-extra-file=" + option_file,
+                "--batch",
+                "--skip-column-names",
+                "--connect-timeout=10",
+            ]
+            code, output = self.run(argv + (["--force"] if force else []), input=sql, timeout=timeout, what="mysql")
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(option_file)
+            with contextlib.suppress(OSError):
+                os.rmdir(directory)
+        if code != 0 and check:
+            raise AgentError("clpctl_failed", "The MySQL client failed", output=output)
+        return [line.split("\t") for line in output.splitlines() if line.strip()]
+
+    def mysql_lookup(self, schemas, users):
+        """Which of these schemas exist, and the hosts of these MySQL users."""
+        sql = ""
+        if schemas:
+            sql += (
+                "SELECT 'schema', SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME IN (%s);\n"
+                % ", ".join(sql_str(s) for s in schemas)
+            )
+        if users:
+            sql += "SELECT 'user', User, Host FROM mysql.user WHERE User IN (%s);\n" % ", ".join(
+                sql_str(u) for u in users
+            )
+        found_schemas, found_users = [], []
+        for row in self.mysql(sql) if sql else []:
+            if len(row) == 2 and row[0] == "schema" and row[1] in schemas:
+                found_schemas.append(row[1])
+            elif len(row) == 3 and row[0] == "user" and row[1] in users and MYSQL_HOST_RE.fullmatch(row[2]):
+                found_users.append((row[1], row[2]))
+        return found_schemas, found_users
+
+    def check_database_free(self, snap, name, user_name, name_field, user_field):
+        if snap.database(name) is not None:
+            raise AgentError("exists", "The database %s already exists" % name, field=name_field)
+        if any(user_name in d["users"] for d in snap.databases):
+            raise AgentError("exists", "The database user %s already exists" % user_name, field=user_field)
+        schemas, users = self.mysql_lookup([name], [user_name])
+        if schemas:
+            raise AgentError("exists", "The database %s already exists in MySQL" % name, field=name_field)
+        if users:
+            raise AgentError("exists", "The database user %s already exists in MySQL" % user_name, field=user_field)
+
+    def set_mysql_password(self, user_name, password):
+        hosts = [host for _user, host in self.mysql_lookup([], [user_name])[1]]
+        if not hosts:
+            raise AgentError("not_found", "The MySQL user %s does not exist" % user_name, field="userName")
+        self.mysql(
+            "".join(
+                "ALTER USER %s@%s IDENTIFIED BY %s;\n" % (sql_str(user_name), sql_str(host), sql_str(password))
+                for host in hosts
+            )
+        )
+
+    def kill_mysql_sessions(self, user_name):
+        query = "SELECT ID FROM information_schema.PROCESSLIST WHERE USER = %s AND COMMAND <> 'Killed';\n" % sql_str(
+            user_name
+        )
+
+        def sessions():
+            return [row[0] for row in self.mysql(query) if row and re.fullmatch(r"[0-9]{1,20}", row[0])]
+
+        found = sessions()
+        if found:
+            # A session may end on its own in between: errors are ignored, the check afterwards counts.
+            self.mysql("".join("KILL %s;\n" % session for session in found), force=True, check=False)
+            if sessions():
+                raise AgentError("clpctl_failed", "The MySQL sessions of %s could not be closed" % user_name)
+
+    # --- steps of the changing operations ----------------------------------------------------
+
+    def set_linux_password(self, user, password, budget=True):
+        code, output = self.run(
+            [self.paths.chpasswd], input="%s:%s\n" % (user, password), budget=budget, what="chpasswd"
+        )
+        if code != 0:
+            raise AgentError("clpctl_failed", "The password of %s could not be set" % user, output=output)
+
+    def empty_authorized_keys(self, home):
+        """Empties ~/.ssh/authorized_keys of a new site user without following links: the user
+        may already have replaced parts of the path."""
+        directory = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        fds = []
+        try:
+            fds.append(os.open(home, directory))
+            fds.append(os.open(".ssh", directory, dir_fd=fds[-1]))
+            fds.append(os.open("authorized_keys", os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fds[-1]))
+            info = os.fstat(fds[-1])
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise AgentError("clpctl_failed", "%s/.ssh/authorized_keys is not a plain file" % home)
+            os.ftruncate(fds[-1], 0)
+        except FileNotFoundError:
+            pass
+        except OSError as err:
+            raise AgentError("clpctl_failed", "%s/.ssh/authorized_keys cannot be emptied: %s" % (home, err.strerror))
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def kill_processes(self, user):
+        code, output = self.run([self.paths.pkill, "-KILL", "-u", user], what="pkill")
+        if code not in (0, 1):  # 1: no process
+            raise AgentError("clpctl_failed", "The processes of %s could not be stopped" % user, output=output)
+
+    def close_creation_window(self, user):
+        """The throw-away password was visible in ps for a few seconds: end everything somebody
+        might have started with it (the site is new and empty, nothing of the customer is lost).
+        Processes are killed before and after, so none can put a key or a cron job back."""
+        self.kill_processes(user)
+        self.empty_authorized_keys(self.home_of(user))
+        code, output = self.run([self.paths.crontab, "-r", "-u", user], what="crontab")
+        if code != 0 and "no crontab" not in output.lower():
+            raise AgentError("clpctl_failed", "The crontab of %s could not be removed" % user, output=output)
+        self.kill_processes(user)
+
+    def rollback_site(self, domain, user, record):
+        """Removes a half-created site. True when nothing of it is left. A site that is left is
+        put on the managed list as incomplete, so the console can see and delete it."""
+        site = "unknown"
+        with contextlib.suppress(AgentError):
+            snap = self.panel()
+            if snap.site(domain) is not None:
+                self.clpctl("site:delete", "--domainName=" + domain, "--force", timeout=170, budget=False)
+                snap = self.panel()
+            site = snap.site(domain)
+        if self.user(user) is not None:
+            # Best effort: replace the throw-away password somebody may have seen.
+            with contextlib.suppress(AgentError):
+                self.set_linux_password(user, self.throwaway(), budget=False)
+                self.run([self.paths.pkill, "-KILL", "-u", user], budget=False, what="pkill")
+        if site is None:
+            return self.user(user) is None
+        try:
+            self.record_site(domain, dict(record, incomplete=True))
+        except Exception:
+            self.log_traceback()
+        return False
+
+    def add_database(self, domain, name, user_name, password):
+        throw = self.throwaway()
+        try:
+            _code, output = self.clpctl(
+                "db:add",
+                "--domainName=" + domain,
+                "--databaseName=" + name,
+                "--databaseUserName=" + user_name,
+                "--databaseUserPassword=" + throw,
+                timeout=60,
+            )
+            snap = self.panel()
+            site, database = snap.site(domain), snap.database(name)
+            if (
+                site is None
+                or database is None
+                or database["site_id"] != site["id"]
+                or user_name not in database["users"]
+            ):
+                raise AgentError("clpctl_failed", "CloudPanel did not create the database", output=output)
+            self.set_mysql_password(user_name, password)
+            self.kill_mysql_sessions(user_name)
+        except Exception as err:
+            rolled_back = self.rollback_database(name)
+            if not isinstance(err, AgentError):
+                self.log_traceback()
+                err = AgentError("internal", "unexpected error")
+            code = err.code if err.code in ("timeout", "clpctl_failed") else "clpctl_failed"
+            raise AgentError(code, err.message, output=err.output, rolled_back=rolled_back)
+
+    def rollback_database(self, name):
+        try:
+            snap = self.panel()
+            if snap.database(name) is not None:
+                self.clpctl("db:delete", "--databaseName=" + name, "--force", timeout=60, budget=False)
+                snap = self.panel()
+            return snap.database(name) is None
+        except AgentError:
+            return False
+
+    def delete_leftovers(self, user, databases):
+        """What CloudPanel left after site:delete: databases and users of the site (only the
+        names read before), a crontab of the removed user. Every finding is a warning."""
+        warnings = []
+        schemas = sorted({n for n, _users in databases if LEFTOVER_RE.fullmatch(n) and n not in SYSTEM_SCHEMAS})
+        users = sorted({u for _name, names in databases for u in names if LEFTOVER_RE.fullmatch(u)})
+        try:
+            if schemas or users:
+                users = [u for u in users if u not in NEVER_DROPPED_USERS and u != self.master_credentials()["user"]]
+                found_schemas, found_users = self.mysql_lookup(schemas, users)
+                statements = [("DROP DATABASE `%s`;\n" % s, "database " + s) for s in found_schemas]
+                statements += [
+                    ("DROP USER %s@%s;\n" % (sql_str(u), sql_str(h)), "database user %s@%s" % (u, h))
+                    for u, h in found_users
+                ]
+                for statement, what in statements:
+                    try:
+                        self.mysql(statement)
+                        warnings.append("CloudPanel left the %s behind; it has been removed" % what)
+                    except AgentError as err:
+                        warnings.append("CloudPanel left the %s behind; removing it failed: %s" % (what, err.message))
+        except AgentError as err:
+            warnings.append("Leftover databases could not be checked: " + err.message)
+        if self.user(user) is not None:
+            warnings.append("The Linux user %s still exists on the server" % user)
+        elif LINUX_USER_RE.fullmatch(user):
+            crontab = os.path.join(self.paths.crontabs, user)
+            if os.path.lexists(crontab):
+                try:
+                    os.unlink(crontab)
+                    warnings.append("The crontab of the removed user %s has been deleted" % user)
+                except OSError as err:
+                    warnings.append(
+                        "The crontab of the removed user %s could not be deleted: %s" % (user, err.strerror)
+                    )
+        return [self.redact(w) for w in warnings]
+
+    # --- operations ----------------------------------------------------------------------
+
+    def op_info(self, _args):
+        snap = self.panel()
+        managed = self.load_managed()["sites"]
+        protected = self.load_protected()
+        count = sum(1 for d, site in snap.sites.items() if d in managed and not self.site_protected(site, protected))
+        code, output = self.clpctl("--version", timeout=15)
+        ipv4, ipv6 = self.addresses()
+        nodejs = bool(self.config["nodejs"])
+        return {
+            "agentVersion": AGENT_VERSION,
+            "protocol": PROTOCOL,
+            "cloudpanelVersion": self.cloudpanel_version(),
+            "cliVersion": clip(output.strip().splitlines()[0], 200) if code == 0 and output.strip() else None,
+            "hostname": clip(self.hostname(), 253),
+            "os": self.os_name(),
+            "ipv4": ipv4,
+            "ipv6": ipv6,
+            "phpVersions": self.php_versions(),
+            "templates": self.templates(),
+            "nodejsVersions": list(OFFERED_NODEJS_VERSIONS) if nodejs else [],
+            "nodejsEnabled": nodejs,
+            "allowRemoteAdopt": bool(self.config["allowRemoteAdopt"]),
+            "protectedDomains": sorted(protected.domains),
+            "counts": {"sites": len(snap.sites), "managed": count, "unmanaged": len(snap.sites) - count},
+        }
+
+    def os_name(self):
+        with contextlib.suppress(OSError):
+            with open(self.paths.os_release, encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if line.startswith("PRETTY_NAME="):
+                        return clip(line.split("=", 1)[1].strip().strip('"'), 200)
+        return None
+
+    def op_list(self, _args):
+        snap, protected, usage = self.panel(), self.load_protected(), self.load_usage()
+        sites, missing = [], []
+        for domain, record in sorted(self.load_managed()["sites"].items()):
+            site = snap.site(domain)
+            if site is None:
+                missing.append(domain)
+            elif not self.site_protected(site, protected) and site["type"] in KNOWN_TYPES:
+                sites.append(self.wire_site(snap, site, record, usage))
+        if missing:
+            # The console marks them missing; the operator finds them here.
+            self.log({"requestId": self.request_id, "event": "managed_missing", "domains": missing})
+        return {"sites": sites}
+
+    def op_get(self, args):
+        protected = self.load_protected()
+        snap = self.panel()
+        record, site = self.managed_site(snap, args["domain"])
+        if self.site_protected(site, protected):
+            raise AgentError("protected", "%s is protected on this server" % args["domain"])
+        if site["type"] not in KNOWN_TYPES:
+            raise AgentError("version", "%s has a site type this agent does not know" % args["domain"])
+        return {"site": self.wire_site(snap, site, record, self.load_usage())}
+
+    def op_unmanaged(self, _args):
+        snap, protected = self.panel(), self.load_protected()
+        managed = self.load_managed()["sites"]
+        sites = []
+        for domain, site in sorted(snap.sites.items()):
+            is_protected = self.site_protected(site, protected)
+            if (domain in managed and not is_protected) or site["type"] not in KNOWN_TYPES:
+                continue
+            sites.append(
+                {"domain": domain[:253], "type": site["type"], "siteUser": site["user"][:64], "protected": is_protected}
+            )
+        return {"sites": sites, "allowRemoteAdopt": bool(self.config["allowRemoteAdopt"])}
+
+    def op_create(self, a):
+        try:
+            command = self.create_command(a)
+        except AgentError as err:
+            # Nothing exists yet: the console may drop its placeholder whatever went wrong.
+            if err.code in ("clpctl_failed", "timeout", "internal") and err.rolled_back is None:
+                err.rolled_back = True
+            raise
+        return self.create_site(a, command)
+
+    def create_command(self, a):
+        """Checks of a new site; the clpctl command that creates it (without the user part)."""
+        domain, kind, user = a["domain"], a["type"], a["siteUser"]
+        protected = self.load_protected()
+        if self.domain_protected(domain, protected):
+            raise AgentError("protected", "%s is on the protected list of this server" % domain, field="domain")
+        if self.user_protected(user, protected):
+            raise AgentError("protected", "The user %s is protected on this server" % user, field="siteUser")
+        if self.user(user) is not None:
+            raise AgentError("exists", "The Linux user %s already exists on this server" % user, field="siteUser")
+        snap = self.panel()
+        for name in (domain, www_counterpart(domain)):
+            if snap.site(name) is not None:
+                raise AgentError("exists", "%s already exists in CloudPanel" % name, field="domain")
+        if kind == "php":
+            template, version = a["template"], a["phpVersion"]
+            if template in TYPE_TEMPLATES or template not in [t["name"] for t in self.templates()]:
+                raise invalid("The application template %s does not exist on this server" % template, "template")
+            if version not in self.php_versions():
+                raise invalid("PHP %s is not available on this server" % version, "phpVersion")
+            command = [
+                "site:add:php",
+                "--domainName=" + domain,
+                "--phpVersion=" + version,
+                "--vhostTemplate=" + template,
+            ]
+        elif kind == "nodejs":
+            if not self.config["nodejs"]:
+                raise invalid("Node.js sites are not enabled on this server", "type")
+            port = self.free_port(snap)
+            command = [
+                "site:add:nodejs",
+                "--domainName=" + domain,
+                "--nodejsVersion=" + a["nodejsVersion"],
+                "--appPort=%d" % port,
+            ]
+        else:
+            command = ["site:add:static", "--domainName=" + domain]
+        database = a.get("database")
+        if database:
+            self.check_database_free(snap, database["name"], database["userName"], "database", "database")
+        return command
+
+    def create_site(self, a, command):
+        domain, kind, user, database = a["domain"], a["type"], a["siteUser"], a.get("database")
+        # CloudPanel puts the password into shell strings, ps and error texts: it only ever gets
+        # a random value that is replaced right after the site exists.
+        command = command + ["--siteUser=" + user, "--siteUserPassword=" + self.throwaway()]
+        record = {
+            "siteUser": user,
+            "source": "create",
+            "createdAt": self.now_iso(),
+            "requestId": self.request_id,
+            "letsEncrypt": False,
+            "incomplete": False,
+        }
+        try:
+            _code, output = self.clpctl(*command, timeout=240)
+            site = self.panel().site(domain)
+            if site is None or site["type"] != kind or site["user"] != user or self.user(user) is None:
+                raise AgentError("clpctl_failed", "CloudPanel did not create the site", output=output)
+            self.set_linux_password(user, a["password"])
+            self.close_creation_window(user)
+            self.record_site(domain, record)
+        except Exception as err:
+            rolled_back = self.rollback_site(domain, user, record)
+            if not isinstance(err, AgentError):
+                self.log_traceback()
+                err = AgentError("internal", "unexpected error")
+            code = err.code if err.code in ("timeout", "clpctl_failed") else "clpctl_failed"
+            raise AgentError(
+                code, "Creating %s failed: %s" % (domain, err.message), output=err.output, rolled_back=rolled_back
+            )
+        warnings = []
+        if database:
+            # A failed database leaves the site: it exists and works, the customer adds the database later.
+            try:
+                self.add_database(domain, database["name"], database["userName"], a["databasePassword"])
+            except AgentError as err:
+                warnings.append(self.redact("The database could not be created: " + err.message))
+        snap = self.panel()
+        return {"site": self.wire_site(snap, snap.site(domain), record, self.load_usage()), "warnings": warnings}
+
+    def op_delete(self, a):
+        domain = a["domain"]
+        guarded = self.guard(domain)
+        user = guarded.site["user"]
+        # Leftovers are looked for by these names only; a user another site also has is kept.
+        others = {u for d in guarded.snap.databases if d["site_id"] != guarded.site["id"] for u in d["users"]}
+        databases = [
+            (d["name"], [u for u in d["users"] if u not in others]) for d in guarded.snap.site_databases(guarded.site)
+        ]
+        _code, output = self.clpctl("site:delete", "--domainName=" + domain, "--force", timeout=170)
+        if self.panel().site(domain) is not None:
+            raise AgentError("clpctl_failed", "CloudPanel did not delete %s" % domain, output=output)
+        self.drop_site(domain)
+        return {"warnings": self.delete_leftovers(user, databases)}
+
+    def op_password(self, a):
+        guarded = self.guard(a["domain"])
+        # Running processes and sessions stay: killing them would stop the customer's Node.js app.
+        self.set_linux_password(guarded.site["user"], a["password"])
+        if guarded.record.get("incomplete"):
+            self.record_site(a["domain"], dict(guarded.record, incomplete=False))
+        return {}
+
+    def op_db_add(self, a):
+        domain, name, user_name = a["domain"], a["name"], a["userName"]
+        guarded = self.guard(domain)
+        prefix = db_prefix(guarded.site["user"])
+        v_db_name(name, "name", prefix)
+        v_db_name(user_name, "userName", prefix)
+        self.check_database_free(guarded.snap, name, user_name, "name", "userName")
+        try:
+            self.add_database(domain, name, user_name, a["password"])
+        except AgentError as err:
+            err.message = "The database %s could not be created: %s" % (name, err.message)
+            raise
+        snap = self.panel()
+        return {"site": self.wire_site(snap, snap.site(domain), guarded.record, self.load_usage())}
+
+    def site_database(self, guarded, name):
+        database = guarded.snap.database(name)
+        if database is None or database["site_id"] != guarded.site["id"]:
+            raise AgentError(
+                "not_found", "The database %s does not belong to %s" % (name, guarded.site["domain"]), field="name"
+            )
+        return database
+
+    def op_db_delete(self, a):
+        domain, name = a["domain"], a["name"]
+        guarded = self.guard(domain)
+        self.site_database(guarded, name)
+        _code, output = self.clpctl("db:delete", "--databaseName=" + name, "--force", timeout=60)
+        snap = self.panel()
+        if snap.database(name) is not None:
+            raise AgentError("clpctl_failed", "CloudPanel did not delete the database %s" % name, output=output)
+        return {"site": self.wire_site(snap, snap.site(domain), guarded.record, self.load_usage())}
+
+    def op_db_password(self, a):
+        guarded = self.guard(a["domain"])
+        database = self.site_database(guarded, a["name"])
+        if a["userName"] not in database["users"]:
+            raise AgentError(
+                "not_found", "%s is not a user of the database %s" % (a["userName"], a["name"]), field="userName"
+            )
+        self.set_mysql_password(a["userName"], a["password"])
+        return {}
+
+    def op_cert(self, a):
+        domain = a["domain"]
+        guarded = self.guard(domain)
+        before = guarded.site["cert"] or {}
+        _code, output = self.clpctl("lets-encrypt:install:certificate", "--domainName=" + domain, timeout=170)
+        snap = self.panel()
+        site = snap.site(domain)
+        cert = site["cert"] if site else None
+        expires = panel_time(cert["expires"]) if cert else None
+        changed = cert is not None and (cert["id"] != before.get("id") or cert["expires"] != before.get("expires"))
+        # Let's Encrypt is shortening its lifetimes: no fixed 90 days, just clearly in the future.
+        if not changed or expires is None or expires.timestamp() < self.clock() + 7 * 86400:
+            reason = last_line(output)
+            raise AgentError(
+                "clpctl_failed",
+                "Let's Encrypt did not issue a certificate for %s%s" % (domain, ": " + reason if reason else ""),
+                output=output,
+            )
+        record = dict(guarded.record, letsEncrypt=True)
+        self.record_site(domain, record)
+        return {"site": self.wire_site(snap, site, record, self.load_usage())}
+
+    def op_adopt(self, a, local=False):
+        domain = a["domain"]
+        if not local and not self.config["allowRemoteAdopt"]:
+            raise AgentError(
+                "adopt_disabled",
+                "Adopting sites from the console is turned off on this server; run 'weblion-clp adopt %s' as root there"
+                % domain,
+            )
+        protected = self.load_protected()
+        if self.domain_protected(domain, protected):
+            raise AgentError("protected", "%s is on the protected list of this server" % domain)
+        snap = self.panel()
+        site = snap.site(domain)
+        if site is None:
+            raise AgentError("not_found", "%s does not exist in CloudPanel" % domain)
+        if self.user_protected(site["user"], protected):
+            raise AgentError("protected", "The site user of %s is protected on this server" % domain)
+        if site["type"] not in KNOWN_TYPES or not LINUX_USER_RE.fullmatch(site["user"]):
+            raise invalid("%s has a site type or site user this agent cannot manage" % domain, "domain")
+        if domain in self.load_managed()["sites"]:
+            raise AgentError("exists", "%s is already managed by the console" % domain, field="domain")
+        record = {
+            "siteUser": site["user"],
+            "source": "adopt",
+            "createdAt": self.now_iso(),
+            "requestId": self.request_id,
+            "letsEncrypt": False,
+            "incomplete": False,
+        }
+        self.record_site(domain, record)
+        return {"site": self.wire_site(snap, site, record, self.load_usage())}
+
+    def op_forget(self, a):
+        self.drop_site(a["domain"])
+        return {}
+
+    # --- remote mode -----------------------------------------------------------------------
+
+    def serve(self, stdin, stdout):
+        """Answers one request. Returns the exit code (0 ok, 1 not ok)."""
+        started = time.monotonic()
+        op, domain, code = None, None, "ok"
+        try:
+            if self.geteuid() != 0:
+                raise AgentError("internal", "weblion-clp must run as root (through sudo)")
+            op, self.request_id, args, secret_values = parse_envelope(read_stdin(stdin))
+            self.secrets.extend(secret_values.values())
+            if isinstance(args.get("domain"), str) and DOMAIN_RE.fullmatch(args["domain"]):
+                domain = args["domain"]
+            spec = OPS[op]
+            parsed = spec.parse(self.config, args, secret_values)
+            self.deadline = self.clock() + spec.timeout
+            with self.locked(spec.exclusive):
+                if spec.gated:
+                    self.version_gate()
+                data = getattr(self, "op_" + op.replace("-", "_"))(parsed)
+            answer = {"v": PROTOCOL, "ok": True, "data": data}
+        except AgentError as err:
+            code = err.code
+            answer = {"v": PROTOCOL, "ok": False, "error": err.as_dict(self.redact)}
+        except Exception:
+            code = "internal"
+            self.log_traceback()
+            message = "weblion-clp failed unexpectedly; details are in %s on the server" % self.paths.log
+            answer = {"v": PROTOCOL, "ok": False, "error": {"code": "internal", "message": message}}
+        # Last net: no secret of this run leaves, whatever path it took into the answer.
+        line = self.scrub(json.dumps(answer, ensure_ascii=True, separators=(",", ":")), "\\u2022\\u2022\\u2022")
+        self.log(
+            {
+                "requestId": self.request_id,
+                "op": op,
+                "domain": domain,
+                "code": code,
+                "ms": int((time.monotonic() - started) * 1000),
+            }
+        )
+        with contextlib.suppress(OSError, ValueError):
+            stdout.write(line + "\n")
+            stdout.flush()
+        return 0 if answer["ok"] else 1
+
+    # --- local mode --------------------------------------------------------------------------
+
+    def local(self, argv, out, err):
+        command, rest = argv[0], argv[1:]
+        if command in ("-h", "--help", "help"):
+            print(USAGE, file=out)
+            return 0
+        if self.geteuid() != 0:
+            print("weblion-clp: run this as root", file=err)
+            return 1
+        try:
+            if self.environ.get("SUDO_USER") == self.config["agentUser"]:
+                print("weblion-clp: local commands are not available to %s" % self.config["agentUser"], file=err)
+                return 1
+            if command == "status" and not rest:
+                return self.cli_status(out)
+            if command in ("adopt", "forget") and len(rest) == 1:
+                domain = v_domain(rest[0].strip().lower())
+                with self.locked(True):
+                    if command == "adopt":
+                        self.version_gate()
+                        site = self.op_adopt({"domain": domain}, local=True)["site"]
+                        print(
+                            "%s is managed by the console now (site user %s). Synchronise the connection in the "
+                            "console and assign the website to its customer." % (domain, site["siteUser"]),
+                            file=out,
+                        )
+                    else:
+                        self.op_forget({"domain": domain})
+                        print(
+                            "%s is no longer managed by the console; the site stays on the server." % domain, file=out
+                        )
+                self.log({"op": "local " + command, "domain": domain, "code": "ok"})
+                return 0
+            if command == "protect" and len(rest) == 2 and rest[0] in ("domain", "user"):
+                return self.cli_protect(rest[0], rest[1].strip(), out)
+            if command == "refresh-usage" and not rest:
+                return self.cli_refresh_usage(out)
+            if command == "selftest" and not rest:
+                return self.cli_selftest(out)
+        except AgentError as error:
+            print("weblion-clp: " + self.redact(error.message), file=err)
+            if error.output:
+                print(self.redact(error.output), file=err)
+            return 1
+        print(USAGE, file=err)
         return 2
-    error = {"code": "internal", "message": "weblion-clp is not implemented yet"}
-    print(json.dumps({"v": PROTOCOL, "ok": False, "error": error}))
-    return 1
+
+    def cli_status(self, out):
+        with self.locked(False):
+            snap, protected, managed = self.panel(), self.load_protected(), self.load_managed()["sites"]
+        rows = [("DOMAIN", "TYPE", "USER", "STATE")]
+        for domain, site in sorted(snap.sites.items()):
+            record = managed.get(domain)
+            if self.site_protected(site, protected):
+                state = "protected"
+            elif record is not None:
+                state = "managed"
+                if record.get("incomplete"):
+                    state += ", incomplete"
+                if record.get("siteUser") != site["user"]:
+                    state += ", site user changed"
+            else:
+                state = "unmanaged"
+            rows.append((domain, site["type"], site["user"], state))
+        for domain in sorted(set(managed) - set(snap.sites)):
+            rows.append((domain, "-", "-", "managed, missing in CloudPanel"))
+        widths = [max(len(row[i]) for row in rows) for i in range(3)]
+        for row in rows:
+            print("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row[:3])) + "  " + row[3], file=out)
+        return 0
+
+    def cli_protect(self, kind, name, out):
+        if kind == "domain":
+            name = v_domain(name.lower())
+        elif not LINUX_USER_RE.fullmatch(name):
+            raise invalid("Not a valid user name", "user")
+        with self.locked(True):
+            protected = self.load_protected()
+            if name in (protected.domains if kind == "domain" else protected.users):
+                print("%s %s is protected already" % (kind, name), file=out)
+                return 0
+            try:
+                with open(self.paths.protected, encoding="utf-8") as handle:
+                    text = handle.read()
+            except FileNotFoundError:
+                text = "# Sites and users weblion-clp never adopts, creates, changes or deletes.\n"
+                directory = os.path.dirname(self.paths.protected)
+                if not os.path.isdir(directory):
+                    os.makedirs(directory)
+                    os.chmod(directory, 0o755)
+            if text and not text.endswith("\n"):
+                text += "\n"
+            self.write_file(self.paths.protected, text + "%s %s\n" % (kind, name), mode=0o644, private_dir=False)
+        self.log({"op": "local protect", "domain": name if kind == "domain" else None, "code": "ok"})
+        print("Protected %s %s" % (kind, name), file=out)
+        return 0
+
+    def disk_usage(self, home):
+        code, output = self.run(
+            [self.paths.nice, "-n", "19", self.paths.ionice, "-c", "3", self.paths.du, "-s", "-B1", "-x", home],
+            timeout=300,
+            what="du",
+        )
+        # du prints its own complaints first (unreadable directories); the total is its last line.
+        totals = [int(m.group(1)) for m in re.finditer(r"^([0-9]+)\t", output, re.MULTILINE)]
+        return totals[-1] if totals else None
+
+    def cli_refresh_usage(self, out):
+        """Disk usage of every managed site and the size of its databases, for usage.json. Runs
+        without the lock (du can take minutes); the result is merged under the lock."""
+        with self.locked(False):
+            snap, managed = self.panel(), self.load_managed()["sites"]
+        sizes = None
+        try:
+            rows = self.mysql(
+                "SELECT table_schema, SUM(data_length + index_length) FROM information_schema.TABLES"
+                " GROUP BY table_schema;\n"
+            )
+            sizes = {row[0]: to_int(row[1]) or 0 for row in rows if len(row) == 2}
+        except AgentError as error:
+            print("weblion-clp: database sizes are not available: " + self.redact(error.message), file=out)
+        usage = {}
+        for domain in sorted(managed):
+            site = snap.site(domain)
+            if site is None:
+                continue
+            databases = {
+                d["name"]: (sizes.get(d["name"], 0) if sizes is not None else None) for d in snap.site_databases(site)
+            }
+            usage[domain] = {
+                "diskBytes": self.disk_usage(self.home_of(site["user"])),
+                "databases": databases,
+                "measuredAt": self.now_iso(),
+            }
+        with self.locked(True):
+            still = self.load_managed()["sites"]
+            self.write_json(self.paths.usage, {d: u for d, u in usage.items() if d in still})
+        print("Measured %d websites" % len(usage), file=out)
+        return 0
+
+    def cli_selftest(self, out):
+        failures = []
+
+        def check(label, test):
+            try:
+                detail = test()
+            except AgentError as error:
+                failures.append(label)
+                print("FAIL  %s: %s" % (label, self.redact(error.message)), file=out)
+                return
+            print("OK    %s%s" % (label, ": " + detail if detail else ""), file=out)
+
+        def need(condition, message):
+            if not condition:
+                raise AgentError("internal", message)
+
+        check("config.json", lambda: need(self.config is not None, "missing"))
+        check("running as root", lambda: need(self.geteuid() == 0, "run selftest as root"))
+        check("CloudPanel version", self.version_gate)
+        check("clpctl", lambda: need(self.clpctl("--version", timeout=30)[0] == 0, "clpctl --version failed"))
+        check("CloudPanel database", lambda: "%d sites" % len(self.panel().sites))
+        check("vhost templates", lambda: "%d templates" % len(self.templates()))
+        for label, path in (("chpasswd", self.paths.chpasswd), ("mysql client", self.config["mysql"])):
+            check(label, lambda path=path: need(os.access(path, os.X_OK), "%s is missing" % path))
+        check("MySQL master credentials", lambda: need(self.mysql("SELECT 1;\n") == [["1"]], "SELECT 1 failed"))
+        check("sudoers file", lambda: need(os.path.isfile(self.paths.sudoers), "%s is missing" % self.paths.sudoers))
+        check(
+            "sshd drop-in",
+            lambda: need(os.path.isfile(self.paths.sshd_dropin), "%s is missing" % self.paths.sshd_dropin),
+        )
+        check("protected list", lambda: "%d domains, %d users" % tuple(len(x) for x in self.load_protected()))
+        with contextlib.suppress(AgentError):
+            protected, snap, managed = self.load_protected(), self.panel(), self.load_managed()["sites"]
+            others = [
+                d for d, site in snap.sites.items() if d not in managed and not self.site_protected(site, protected)
+            ]
+            if others and not protected.domains and not protected.users:
+                print(
+                    "WARN  the protected list is empty but the server hosts %d sites the console does not manage; "
+                    "protect the operator's own sites (weblion-clp protect domain <name>)" % len(others),
+                    file=out,
+                )
+            for domain in sorted(set(managed) - set(snap.sites)):
+                print(
+                    "WARN  %s is managed but missing in CloudPanel (weblion-clp forget %s)" % (domain, domain), file=out
+                )
+        return 1 if failures else 0
+
+
+def main(argv=None, agent=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    agent = agent or Agent()
+    os.umask(0o077)
+    if argv:
+        return agent.local(argv, sys.stdout, sys.stderr)
+    # The console may drop the SSH channel (timeout): finish what was started, the sync reconciles.
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+    return agent.serve(sys.stdin.buffer, sys.stdout)
 
 
 if __name__ == "__main__":

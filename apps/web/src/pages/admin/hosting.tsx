@@ -65,6 +65,7 @@ import {
   type RenewalTarget,
 } from '@/pages/hosting/domain-actions';
 import { DnsMoveDialog, useCanMoveDns } from '@/pages/hosting/dns-move';
+import { CertificateText, websiteTypeLabel } from '@/pages/hosting/website-bits';
 import { AdminCloudTab, isCloudProvider } from './cloud';
 import { AdminMailTab, isMailProvider } from './mail';
 import { AdminWebsitesPanel, isWebsiteProvider } from './websites';
@@ -613,14 +614,25 @@ function WebspaceInventory({
                 </div>
               </TD>
               <TD className="hidden text-sm whitespace-nowrap text-muted md:table-cell">
-                {t('hosting.admin.resourcesLine', {
-                  storage: res.storage,
-                  emails: res.emails,
-                  databases: res.databases,
-                })}
+                {w.kind === 'website'
+                  ? w.site
+                    ? t('websites.admin.inventoryLine', {
+                        type: websiteTypeLabel(t, w.site),
+                        databases: w.site.databases,
+                      })
+                    : '–'
+                  : t('hosting.admin.resourcesLine', {
+                      storage: res.storage,
+                      emails: res.emails,
+                      databases: res.databases,
+                    })}
               </TD>
               <TD className="hidden whitespace-nowrap lg:table-cell">
-                <ExpiryText expiresAt={w.expiresAt} />
+                {w.kind === 'website' ? (
+                  <CertificateText certificate={w.site?.certificate ?? null} className="text-sm" />
+                ) : (
+                  <ExpiryText expiresAt={w.expiresAt} />
+                )}
               </TD>
               <TD>
                 <CustomerCell org={w.org} />

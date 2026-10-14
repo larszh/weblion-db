@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft, EyeOff, KeyRound, Layers, Mail } from 'lucide-react';
-import type { WebspaceDetailDto, WebspaceDto } from '@weblion/shared';
-import { formatDate, formatMemoryMb, formatRelative } from '@/lib/format';
+import { ChevronLeft, EyeOff, Globe, KeyRound, Layers, Mail, Plus, ServerOff } from 'lucide-react';
+import type {
+  WebsiteAllowanceDto,
+  WebsiteServerOptions,
+  WebspaceDetailDto,
+  WebspaceDto,
+} from '@weblion/shared';
+import { errorMessage } from '@/lib/api';
+import { formatBytes, formatDate, formatMemoryMb, formatRelative } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { useRevealWebspaceCredentials, useWebspace, useWebspaces } from '@/lib/api/hosting';
+import { useWebsiteOptions } from '@/lib/api/websites';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
+import { Tooltip } from '@/components/ui/menu';
 import {
   Badge,
   Card,
@@ -26,54 +34,234 @@ import {
 import { Flag, ProviderBadge } from '@/components/server-bits';
 import { DetailError, ExpiryText, ModuleOffState, PanelLink, resourceItems, safePanelUrl } from './bits';
 import { WebsiteView } from './website';
+import {
+  CertificateText,
+  InstanceLocation,
+  WebsiteAllowanceFigures,
+  WebsiteStatusBadges,
+  WebsiteTypeBadge,
+  allowanceRoom,
+  websiteUrl,
+  websiteUsageBytes,
+  websitesFirst,
+} from './website-bits';
+import { CreateWebsiteDialog } from './website-dialogs';
 
 /** Revealed credentials disappear again after this time. */
 const REVEAL_MS = 3 * 60_000;
 
 // --- List ----------------------------------------------------------------------------
 
+/**
+ * Websites (CloudPanel) and web spaces (Plesk) of the organization. Websites come first; the
+ * allowance decides whether and what the organization may create.
+ */
 export function WebspacesPage() {
   const { t } = useI18n();
-  const { org, hasModule } = useOrg();
+  const { org, can, hasModule } = useOrg();
   const webspaces = useWebspaces(org.id);
   const moduleOn = hasModule('webhosting');
+  const options = useWebsiteOptions(org.id, moduleOn && can('webspace:read'));
+  // The dialog gets the allowance and options it was opened with: a refresh of the options
+  // (after creating, they count one more website) must not close it with the passwords in it.
+  const [creating, setCreating] = useState<{
+    allowance: WebsiteAllowanceDto;
+    options: WebsiteServerOptions;
+  } | null>(null);
+
+  const allowance = options.data?.allowance ?? null;
+  const serverOptions = options.data?.options ?? null;
+  const canCreate = can('webspace:write') && !!allowance && !!serverOptions && serverOptions.types.length > 0;
+  const full = !!allowance && allowanceRoom(allowance).sites === 0;
+  const createBlocked = full ? t('websites.list.full') : null;
+  const items = websitesFirst(webspaces.data ?? []);
+  const openCreate = () => allowance && serverOptions && setCreating({ allowance, options: serverOptions });
+
+  const createButton = canCreate ? (
+    <Button
+      variant="primary"
+      icon={<Plus className="size-4" />}
+      disabled={!!createBlocked}
+      title={createBlocked ?? undefined}
+      onClick={openCreate}
+    >
+      {t('websites.list.create')}
+    </Button>
+  ) : allowance && options.data?.optionsError && can('webspace:write') ? (
+    <Tooltip content={options.data.optionsError}>
+      <span className="inline-flex items-center gap-1.5 text-sm text-muted">
+        <ServerOff className="size-4" aria-hidden /> {t('websites.list.serverDown')}
+      </span>
+    </Tooltip>
+  ) : null;
+
+  let body;
+  if (webspaces.isPending) {
+    body = (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }, (_, i) => (
+          <Skeleton key={i} className="h-60 rounded-xl" />
+        ))}
+      </div>
+    );
+  } else if (webspaces.isError) {
+    body = <ErrorState error={webspaces.error} onRetry={() => void webspaces.refetch()} />;
+  } else if (items.length === 0) {
+    body = (
+      <Card>
+        {!moduleOn ? (
+          <ModuleOffState module="webhosting" />
+        ) : allowance ? (
+          <EmptyState
+            icon={<Globe className="size-6" />}
+            title={t('websites.list.empty')}
+            description={t('websites.list.emptyText')}
+            action={
+              canCreate && !createBlocked ? (
+                <Button variant="primary" icon={<Plus className="size-4" />} onClick={openCreate}>
+                  {t('websites.list.create')}
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : options.isPending && can('webspace:read') ? (
+          <LoadingBlock rows={2} />
+        ) : (
+          <EmptyState
+            icon={<Layers className="size-6" />}
+            title={t('websites.list.noAllowance')}
+            description={
+              org.parent
+                ? t('websites.list.noAllowanceReseller', { reseller: org.parent.name })
+                : t('websites.list.noAllowanceText')
+            }
+          />
+        )}
+      </Card>
+    );
+  } else {
+    body = (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {items.map((w) =>
+          w.kind === 'website' ? (
+            <WebsiteCard key={w.id} website={w} />
+          ) : (
+            <WebspaceCard key={w.id} webspace={w} />
+          ),
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
-      <PageHeader title={t('nav.webhosting')} description={t('hosting.webspaces.subtitle')} />
-      {!moduleOn && !!webspaces.data?.length && (
+      <PageHeader
+        title={t('nav.webhosting')}
+        description={t('websites.list.subtitle')}
+        actions={createButton}
+      />
+      {!moduleOn && items.length > 0 && (
         <Notice tone="warning" className="mb-4">
           {t('hosting.moduleOff.staff')}
         </Notice>
       )}
-      {webspaces.isPending ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 3 }, (_, i) => (
-            <Skeleton key={i} className="h-60 rounded-xl" />
-          ))}
-        </div>
-      ) : webspaces.isError ? (
-        <ErrorState error={webspaces.error} onRetry={() => void webspaces.refetch()} />
-      ) : webspaces.data.length === 0 ? (
-        <Card>
-          {moduleOn ? (
-            <EmptyState
-              icon={<Layers className="size-6" />}
-              title={t('hosting.webspaces.empty')}
-              description={t('hosting.webspaces.emptyText')}
-            />
-          ) : (
-            <ModuleOffState module="webhosting" />
-          )}
+      {options.isError && (
+        <Notice tone="warning" className="mb-4" title={t('websites.list.optionsError')}>
+          <span className="block break-words">{errorMessage(options.error)}</span>
+        </Notice>
+      )}
+      {allowance && (
+        <Card className="mb-4">
+          <CardBody>
+            <WebsiteAllowanceFigures allowance={allowance} />
+          </CardBody>
         </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {webspaces.data.map((w) => (
-            <WebspaceCard key={w.id} webspace={w} />
-          ))}
-        </div>
+      )}
+      {body}
+      {creating && (
+        <CreateWebsiteDialog
+          orgId={org.id}
+          allowance={creating.allowance}
+          options={creating.options}
+          onClose={() => setCreating(null)}
+        />
       )}
     </>
+  );
+}
+
+/** One website: type, certificate, databases, usage. */
+function WebsiteCard({ website }: { website: WebspaceDto }) {
+  const { t, locale } = useI18n();
+  const { base } = useOrg();
+  const link = `${base}/webhosting/${website.id}`;
+  const site = website.site;
+  const usage = site ? websiteUsageBytes(site) : null;
+  return (
+    <Card className="flex flex-col">
+      <div className="flex items-start justify-between gap-3 px-5 pt-5">
+        <div className="min-w-0">
+          <Link to={link} className="flex items-center gap-2 hover:underline">
+            <Globe className="size-4 shrink-0 text-muted" aria-hidden />
+            <span className="truncate text-[15px] font-semibold text-text">{website.name}</span>
+          </Link>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted">
+            <WebsiteTypeBadge site={site} />
+            <InstanceLocation location={website.location} />
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <WebsiteStatusBadges website={website} />
+        </div>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-3 px-5 pt-4 pb-4">
+        <div className="col-span-2 min-w-0">
+          <dt className="truncate text-xs text-muted">{t('websites.ssl.title')}</dt>
+          <dd className="mt-0.5 text-sm">
+            <CertificateText certificate={site?.certificate ?? null} icon />
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="truncate text-xs text-muted">{t('websites.db.title')}</dt>
+          <dd className="mt-0.5 truncate text-sm font-semibold text-text tabular">
+            {site ? site.databases : '–'}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="truncate text-xs text-muted">{t('websites.usage.title')}</dt>
+          <dd className="mt-0.5 min-w-0 text-sm text-text">
+            {site && usage !== null ? (
+              <>
+                <span className="block truncate font-semibold tabular">{formatBytes(usage)}</span>
+                {site.usageMeasuredAt && (
+                  <span className="block truncate text-xs text-muted">
+                    {t('websites.usage.measuredAt', { when: formatRelative(site.usageMeasuredAt, locale) })}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="text-muted">{site ? t('websites.usage.notMeasured') : '–'}</span>
+            )}
+          </dd>
+        </div>
+      </dl>
+      {website.credentialsPending && (
+        <p className="px-5 pb-4 text-xs font-medium text-warning">{t('websites.list.credentialsPending')}</p>
+      )}
+      <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
+        {website.status === 'active' && !website.missingSince && (
+          <PanelLink href={websiteUrl(website.name)} size="sm" variant="secondary">
+            {t('websites.detail.open')}
+          </PanelLink>
+        )}
+        <Link
+          to={link}
+          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-primary-text hover:bg-surface-3"
+        >
+          {t('common.details')}
+        </Link>
+      </div>
+    </Card>
   );
 }
 
@@ -145,14 +333,34 @@ export function WebspaceDetailPage() {
       >
         <ChevronLeft className="size-4" /> {t('nav.webhosting')}
       </Link>
-      {webspace.isPending ? (
+      {webspace.data ? (
+        // A failed background refresh keeps the view: it holds open dialogs, among them
+        // passwords that are shown only once.
+        <>
+          {webspace.isError && (
+            <Notice tone="warning" title={t('websites.detail.refreshError')} className="mb-4">
+              <span className="block break-words">{errorMessage(webspace.error)}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                loading={webspace.isFetching}
+                onClick={() => void webspace.refetch()}
+              >
+                {t('common.retry')}
+              </Button>
+            </Notice>
+          )}
+          {webspace.data.kind === 'website' ? (
+            <WebsiteView website={webspace.data} />
+          ) : (
+            <WebspaceView webspace={webspace.data} />
+          )}
+        </>
+      ) : webspace.isPending ? (
         <LoadingBlock rows={6} />
-      ) : webspace.isError || !webspace.data ? (
-        <DetailError kind="webspace" error={webspace.error} onRetry={() => void webspace.refetch()} />
-      ) : webspace.data.kind === 'website' ? (
-        <WebsiteView website={webspace.data} />
       ) : (
-        <WebspaceView webspace={webspace.data} />
+        <DetailError kind="webspace" error={webspace.error} onRetry={() => void webspace.refetch()} />
       )}
     </>
   );
