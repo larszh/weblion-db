@@ -23,9 +23,22 @@ import type {
   MailRateLimit,
   MailboxDto,
   MailboxState,
+  MediaLibraryRef,
+  MediaPolicyState,
   MetricRange,
   MetricsResult,
+  MonitorConfig,
+  MonitorEvent,
+  MonitorFacts,
+  MonitorHistoryDto,
+  MonitorHistoryRange,
+  MonitorKind,
+  MonitorStatus,
   MonitoringInfo,
+  PhoneRingGroup,
+  PhoneSystemInfo,
+  PhoneTrunk,
+  PhoneUser,
   PowerAction,
   ProviderLocation,
   ProviderTask,
@@ -464,6 +477,143 @@ export interface WireRequest<Op extends WireOp = WireOp> {
 export type WireAnswer<Op extends WireOp = WireOp> =
   { v: 1; ok: true; data: WireOps[Op]['data'] } | { v: 1; ok: false; error: WireError };
 
+/** A phone system as a provider reports it. */
+export interface RemotePhoneSystem {
+  /** 3CX: always "pbx" (one PBX per connection). */
+  externalId: string;
+  /** 3CX: the FQDN, else the host of the base URL. */
+  name: string;
+  info: PhoneSystemInfo;
+  /**
+   * false: the provider knows the phone system but cannot reach it right now (demo). The sync
+   * keeps the stored facts and marks it "unreachable". 3CX throws instead.
+   */
+  reachable?: boolean;
+}
+
+/** A new phone user. All values are checked and normalized by the API before. */
+export interface PhoneUserInput {
+  /** Omitted: the PBX picks the next free number. */
+  number?: string;
+  firstName: string;
+  lastName: string | null;
+  email: string;
+  mobile: string | null;
+  outboundCallerId: string | null;
+  language: string | null;
+}
+
+/** Fields left out keep their value. null clears an optional field. */
+export type PhoneUserPatch = Partial<Omit<PhoneUserInput, 'number'>>;
+
+/** A Jellyfin user as the server reports it. Never carries a password or a token. */
+export interface RemoteMediaUser {
+  /** Jellyfin user id, 32 lower-case hex characters. */
+  externalId: string;
+  username: string;
+  enabled: boolean;
+  administrator: boolean;
+  hasPassword: boolean;
+  /** Disabled by Jellyfin after failed sign-ins (InvalidLoginAttemptCount reached LoginAttemptsBeforeLockout). */
+  lockedOut: boolean;
+  /** Legacy BlockedMediaFolders set: Jellyfin then ignores EnabledFolders, and no API clears it. */
+  blockedFolders: boolean;
+  lastLoginAt: string | null;
+  lastActivityAt: string | null;
+  policy: MediaPolicyState;
+}
+
+/** A new Jellyfin user. Name and password are checked by the API before. */
+export interface MediaUserInput {
+  /** Final login name, e.g. "anna-kemaro". */
+  username: string;
+  /** Never empty: a Jellyfin user without a password signs in without one. */
+  password: string;
+  policy: MediaPolicyState;
+}
+
+export interface MediaServerInfo {
+  serverName: string | null;
+  version: string | null;
+  /** Jellyfin's server id, 32 hex. */
+  serverId: string | null;
+  /** null when it could not be read. */
+  quickConnect: boolean | null;
+  startupWizardCompleted: boolean | null;
+}
+
+/** Counts only: never titles, user names, devices or addresses. */
+export interface MediaActivity {
+  /** Sessions with a user, active within MEDIA_ACTIVE_WITHIN_SECONDS. */
+  activeSessions: number;
+  /** Of them playing something now. */
+  playing: number;
+}
+
+/** A monitor as Uptime Kuma reports it. Never carries the monitor's secrets. */
+export interface RemoteMonitor {
+  /** Kuma's numeric monitor id as text. */
+  externalId: string;
+  name: string;
+  /** Kuma type: "http", "keyword", "ping", "port", "dns", "group", "push", ... */
+  type: string;
+  /** URL (without credentials, secret-looking query values masked), host, or host:port. */
+  target: string | null;
+  /** Lower-case host or IP of the target. */
+  targetHost: string | null;
+  status: MonitorStatus;
+  /** false = paused. null = unknown (only /metrics). */
+  active: boolean | null;
+  intervalSeconds: number | null;
+  /** Kuma group (parent monitor) id. */
+  parentId: string | null;
+  facts: MonitorFacts;
+}
+
+export interface MonitorInventory {
+  monitors: RemoteMonitor[];
+  /**
+   * true: the list holds every monitor of the instance, paused ones too (from the management
+   * session). false: only what /metrics reports (paused monitors are absent).
+   */
+  complete: boolean;
+  /** Set when management is configured but failed; the list then comes from /metrics. */
+  managementError: string | null;
+}
+
+export interface MonitorLive {
+  monitor: RemoteMonitor;
+  /** null without management. */
+  config: MonitorConfig | null;
+  /** Newest first, at most 20. null without management. */
+  events: MonitorEvent[] | null;
+}
+
+export interface MonitorInput {
+  kind: MonitorKind;
+  /** Name as it should appear in Kuma (the route adds the "[<org slug>] " prefix). */
+  name: string;
+  url: string | null;
+  hostname: string | null;
+  port: number | null;
+  keyword: string | null;
+  invertKeyword: boolean;
+  method: 'GET' | 'HEAD';
+  acceptedStatusCodes: string[];
+  intervalSeconds: number;
+  ignoreTls: boolean;
+}
+
+/** Fields left out keep their value. The kind never changes. */
+export type MonitorPatch = Partial<Omit<MonitorInput, 'kind'>>;
+
+export interface MonitoringStatus {
+  version: string | null;
+  management: 'off' | 'ok' | 'error';
+  managementError: string | null;
+  uptimeMetrics: boolean;
+}
+
 export interface ProviderAdapter {
   readonly type: ProviderType;
 
@@ -655,8 +805,104 @@ export interface ProviderAdapter {
   /** Demo only: simulated public DNS answers for the DNS check (real adapters leave it out). */
   websiteDnsOverride?(name: string): { a: string[]; aaaa: string[] } | null;
 
+  // Telephony (module "phone"). Addressed by the provider's id of the phone system
+  // (RemotePhoneSystem.externalId) and the PBX's ids of users and ring groups.
+  /** Every phone system of the connection (3CX: exactly one). */
+  listPhoneSystems?(): Promise<RemotePhoneSystem[]>;
+  getPhoneSystem?(systemId: string): Promise<RemotePhoneSystem>;
+  /** Every user of the phone system, ordered by number. */
+  listPhoneUsers?(systemId: string): Promise<PhoneUser[]>;
+  getPhoneUser?(systemId: string, userId: string): Promise<PhoneUser>;
+  /** Next free user extension, null when the PBX has none left. */
+  nextPhoneNumber?(systemId: string): Promise<string | null>;
+  createPhoneUser?(systemId: string, input: PhoneUserInput): Promise<PhoneUser>;
+  /** Returns the user as the PBX has it after the change. */
+  updatePhoneUser?(systemId: string, userId: string, patch: PhoneUserPatch): Promise<PhoneUser>;
+  deletePhoneUser?(systemId: string, userId: string): Promise<void>;
+  /** The PBX sends its welcome e-mail to the user's address. Needs an e-mail address. */
+  sendPhoneWelcome?(systemId: string, userId: string): Promise<void>;
+  listPhoneRingGroups?(systemId: string): Promise<PhoneRingGroup[]>;
+  /** Appends the extension to the ring group. Already a member: no change. Returns the group. */
+  addPhoneRingGroupMember?(systemId: string, groupId: string, number: string): Promise<PhoneRingGroup>;
+  /** Not a member: 404. Returns the group. */
+  removePhoneRingGroupMember?(systemId: string, groupId: string, number: string): Promise<PhoneRingGroup>;
+  listPhoneTrunks?(systemId: string): Promise<PhoneTrunk[]>;
+
+  // Streaming (module "media", Jellyfin). Users by their Jellyfin id (32 hex). Missing users
+  // throw a ProviderError with upstreamStatus 404.
+  /** Every user of the instance (the sync only updates accounts the console knows). */
+  listMediaUsers?(): Promise<RemoteMediaUser[]>;
+  getMediaUser?(userId: string): Promise<RemoteMediaUser>;
+  /** Creates the user with its password, then writes the policy. A failed policy removes the user again. */
+  createMediaUser?(input: MediaUserInput): Promise<RemoteMediaUser>;
+  /** Read, modify, write of the whole Jellyfin policy: only the fields of MediaPolicyState change. */
+  setMediaUserPolicy?(userId: string, policy: MediaPolicyState): Promise<RemoteMediaUser>;
+  /** Disabling signs out every device of the user; enabling also clears the failed sign-in counter. */
+  setMediaUserEnabled?(userId: string, enabled: boolean): Promise<RemoteMediaUser>;
+  /** Only for the audited password routes, never stored. Signs out every device of the user. */
+  setMediaUserPassword?(userId: string, password: string): Promise<void>;
+  /** Deletes the user with its devices (sessions end), playlists and watch history. */
+  deleteMediaUser?(userId: string): Promise<void>;
+  /** Libraries with an id, cached 5 minutes; `fresh` reads them now. */
+  listMediaLibraries?(fresh?: boolean): Promise<MediaLibraryRef[]>;
+  /** Cached 10 minutes; `fresh` reads it now. */
+  mediaServerInfo?(fresh?: boolean): Promise<MediaServerInfo>;
+  /** Aggregate counts for the admin overview, cached 30 seconds. */
+  mediaActivity?(): Promise<MediaActivity>;
+  /** Where users sign in and what they enter in the apps, e.g. https://media.weblion.one. */
+  mediaLoginUrl?(): string;
+
+  // Monitoring (module "monitoring", Uptime Kuma). Monitors by Kuma id (text). Missing monitors
+  // throw a ProviderError with upstreamStatus 404.
+  /** Every monitor /metrics (and, when signed in, the management session) reports. */
+  listMonitors?(): Promise<MonitorInventory>;
+  /** Live facts, plus configuration and recent events when signed in for management. */
+  getMonitor?(externalId: string): Promise<MonitorLive>;
+  /** null when no history is available for this monitor and range. */
+  getMonitorHistory?(
+    externalId: string,
+    range: MonitorHistoryRange,
+    options: { statusPageSlug: string | null },
+  ): Promise<MonitorHistoryDto | null>;
+  /** Ranges getMonitorHistory can serve, without network. */
+  monitorHistoryRanges?(options: { statusPageSlug: string | null }): MonitorHistoryRange[];
+  /** Whether write operations are configured (a session token is stored). No network. */
+  monitorManagement?(): boolean;
+  /** Version, management state (checks the session, cached for 60 s). */
+  monitoringStatus?(): Promise<MonitoringStatus>;
+  /** Returns the new monitor (status "pending" until its first check). */
+  createMonitor?(input: MonitorInput): Promise<RemoteMonitor>;
+  updateMonitor?(externalId: string, patch: MonitorPatch): Promise<void>;
+  pauseMonitor?(externalId: string): Promise<void>;
+  resumeMonitor?(externalId: string): Promise<void>;
+  /** Deletes the monitor and its history in Kuma. */
+  deleteMonitor?(externalId: string): Promise<void>;
+  /** A public status page; 404 if the slug does not exist. */
+  getStatusPage?(slug: string): Promise<{ slug: string; title: string; monitorIds: string[] }>;
+  statusPageUrl?(slug: string): string;
+  /** Exchanges a Kuma login for a session token. The password is never stored or logged. */
+  signInForManagement?(credentials: {
+    username: string;
+    password: string;
+    totp?: string;
+  }): Promise<{ sessionToken: string; version: string | null }>;
+
   /** Unfiltered access to the provider API for the admin explorer. */
   rawRequest?(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse>;
+  /**
+   * Explorer request as it is audited, secrets blanked. The generic redaction of the admin route
+   * runs on the result as well.
+   */
+  redactExplorerAudit?(
+    path: string,
+    body: Record<string, unknown> | undefined,
+  ): { path: string; body: unknown };
+
+  /**
+   * Releases what the adapter holds open (Uptime Kuma: the management socket). The registry calls
+   * it when it drops the adapter after a credential change, instead of waiting for an idle timer.
+   */
+  close?(): void;
 }
 
 export interface Fire24Config {
@@ -747,6 +993,37 @@ export interface CloudPanelConfig {
   nodejs?: boolean;
 }
 
+/** 3CX V20 Configuration API (XAPI), one PBX per connection. Needs a 3CX Enterprise license. */
+export interface ThreeCxConfig {
+  /** https://<PBX FQDN>[:port] without path, e.g. https://muster.3cx.ch. */
+  baseUrl: string;
+  /** Client ID of the API client (3CX Admin > Integrations > API). */
+  clientId: string;
+  /** API key shown once when the client was created. */
+  clientSecret: string;
+}
+
+/** Jellyfin media server, one instance per connection. */
+export interface JellyfinConfig {
+  /**
+   * Where the console reaches the API and users sign in, with Jellyfin's base URL path if one is
+   * set, without a trailing slash, e.g. https://media.weblion.one or https://weblion.one/jellyfin.
+   */
+  baseUrl: string;
+  /** API key from Dashboard > API Keys: 32 lower-case hex characters, full administrator rights. */
+  apiKey: string;
+}
+
+/** Uptime Kuma 2.x. API key for /metrics; session token only when signed in for management. */
+export interface UptimeKumaConfig {
+  /** e.g. https://status.weblion.one (no path, no trailing slash) */
+  baseUrl: string;
+  /** "uk<id>_<key>" from Kuma Settings > API Keys. */
+  apiKey: string;
+  /** JWT from Kuma's login (management sign-in). Absent = read-only. */
+  sessionToken?: string;
+}
+
 export interface DemoConfig extends Pick<CloudPanelConfig, 'phpVersions' | 'templates' | 'nodejs'> {
   seed?: number;
   servers?: number;
@@ -766,4 +1043,7 @@ export type ProviderConfig =
   | CloudflareConfig
   | MailcowConfig
   | CloudPanelConfig
+  | ThreeCxConfig
+  | JellyfinConfig
+  | UptimeKumaConfig
   | DemoConfig;

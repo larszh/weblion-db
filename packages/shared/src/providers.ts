@@ -13,6 +13,9 @@ export const PROVIDER_TYPES = [
   'cloudflare',
   'mailcow',
   'cloudpanel',
+  'threecx',
+  'jellyfin',
+  'uptimekuma',
   'demo',
 ] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
@@ -26,6 +29,9 @@ export const PROVIDER_LABELS: Record<ProviderType, string> = {
   cloudflare: 'Cloudflare',
   mailcow: 'Mailcow',
   cloudpanel: 'CloudPanel',
+  threecx: '3CX',
+  jellyfin: 'Jellyfin',
+  uptimekuma: 'Uptime Kuma',
   demo: 'Demo',
 };
 

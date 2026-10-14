@@ -54,6 +54,8 @@ import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { ServerTable } from '@/components/server-table';
 import { SellerBillingPanel } from '@/pages/billing/seller-panel';
 import { CloudAllowanceAdminCard } from './cloud';
+import { MediaAllowanceAdminCard } from './media';
+import { MonitorAllowanceAdminCard } from './monitoring';
 import { WebsiteAllowanceAdminCard } from './websites';
 import {
   DeleteError,
@@ -895,6 +897,8 @@ function OverviewTab({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
         {org.kind === 'reseller' && <ResellerCustomersCard org={org} canWrite={canWrite} />}
         <ModulesCard org={org} parent={parent} canWrite={canWrite} />
         <CloudAllowanceAdminCard org={org} parent={parent} canWrite={canWrite} />
+        <MediaAllowanceAdminCard org={org} parent={parent} canWrite={canWrite} />
+        <MonitorAllowanceAdminCard org={org} parent={parent} canWrite={canWrite} />
         {(org.modules.includes('webhosting') || canWrite) && (
           <WebsiteAllowanceAdminCard org={org} parent={parent} canWrite={canWrite} />
         )}

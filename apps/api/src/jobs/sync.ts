@@ -24,6 +24,9 @@ import type {
   RemoteWebspace,
 } from '../providers/types';
 import { syncMailDomains } from './sync-mail';
+import { syncMediaAccounts, type MediaSyncCounts } from './sync-media';
+import { syncMonitors, type MonitorSyncCounts } from './sync-monitoring';
+import { syncPhoneSystems } from './sync-phone';
 import { syncWebsites } from './sync-websites';
 
 export interface SyncCounts {
@@ -32,8 +35,8 @@ export interface SyncCounts {
 }
 
 /**
- * Servers on the top level; domains, web spaces, cloud accounts, mail domains and websites only
- * for providers that have them.
+ * Servers on the top level; domains, web spaces, cloud accounts, mail domains, websites, phone
+ * systems, streaming accounts and monitors only for providers that have them.
  */
 export interface SyncResult extends SyncCounts {
   domains?: SyncCounts;
@@ -43,6 +46,12 @@ export interface SyncResult extends SyncCounts {
   mailDomains?: SyncCounts;
   /** CloudPanel: managed sites; `databases`: their databases. */
   websites?: SyncCounts & { databases: number };
+  /** 3CX: the phone system of the connection (the demo has three). */
+  phoneSystems?: SyncCounts;
+  /** Jellyfin: accounts the console manages; repaired: policies written. */
+  mediaAccounts?: MediaSyncCounts;
+  /** Uptime Kuma: monitors of the instance; managementError when the management session failed. */
+  monitors?: MonitorSyncCounts;
 }
 
 /** Postgres advisory lock ids, so only one API instance runs each job at a time. */
@@ -54,7 +63,10 @@ const LOCKS = { sync: 742_001, actions: 742_002 } as const;
  */
 export class SyncService {
   private timers: NodeJS.Timeout[] = [];
-  private running = new Set<string>();
+  /** The sync of each connection that is running now. */
+  private running = new Map<string, Promise<SyncResult>>();
+  /** At most one follow-up sync per connection, shared by everyone who asked while one was running. */
+  private followUps = new Map<string, { connection: ProviderConnection; result: Promise<SyncResult> }>();
   /** For changes the sync makes on its own (zone assignments). */
   private readonly audit: AuditService;
 
@@ -352,9 +364,37 @@ export class SyncService {
     return { seen, missing: missing.length };
   }
 
-  async syncConnection(connection: ProviderConnection): Promise<SyncResult> {
-    if (this.running.has(connection.id)) return { seen: 0, missing: 0 };
-    this.running.add(connection.id);
+  /**
+   * Syncs one connection. While a sync of the same connection is running (the initial sync of a new
+   * connection, the timer), the caller gets a follow-up sync that starts when it is done, so the
+   * result always covers the provider as it was at the call, never an empty "skipped" answer.
+   */
+  syncConnection(connection: ProviderConnection): Promise<SyncResult> {
+    const current = this.running.get(connection.id);
+    if (!current) {
+      const run = this.runSync(connection).finally(() => this.running.delete(connection.id));
+      this.running.set(connection.id, run);
+      return run;
+    }
+    const queued = this.followUps.get(connection.id);
+    if (queued) {
+      queued.connection = connection;
+      return queued.result;
+    }
+    const followUp: { connection: ProviderConnection; result: Promise<SyncResult> } = {
+      connection,
+      result: current
+        .catch(() => undefined)
+        .then((): Promise<SyncResult> => {
+          this.followUps.delete(connection.id);
+          return this.syncConnection(followUp.connection);
+        }),
+    };
+    this.followUps.set(connection.id, followUp);
+    return followUp.result;
+  }
+
+  private async runSync(connection: ProviderConnection): Promise<SyncResult> {
     try {
       const adapter = this.providers.forConnection(connection);
       const remote = await adapter.listServers();
@@ -378,6 +418,20 @@ export class SyncService {
       if (adapter.listCloudAccounts) result.cloudAccounts = await this.syncCloudAccounts(connection, adapter);
       if (adapter.listMailDomains) result.mailDomains = await syncMailDomains(this.db, connection, adapter);
       if (adapter.listWebsites) result.websites = await syncWebsites(this.db, connection, adapter);
+      if (adapter.listPhoneSystems)
+        result.phoneSystems = await syncPhoneSystems(this.db, connection, adapter);
+      if (adapter.listMediaUsers)
+        result.mediaAccounts = await syncMediaAccounts(this.db, connection, adapter, this.audit, this.log);
+      if (adapter.listMonitors) {
+        result.monitors = await syncMonitors(this.db, connection, adapter);
+        // The monitors came from /metrics anyway; the connection stays "ok".
+        if (result.monitors.managementError) {
+          this.log.warn(
+            { provider: connection.name, error: result.monitors.managementError },
+            'monitor management unavailable',
+          );
+        }
+      }
 
       await this.db
         .update(providerConnections)
@@ -391,8 +445,6 @@ export class SyncService {
         .set({ status: 'error', lastError: message.slice(0, 1000), lastSyncAt: new Date() })
         .where(eq(providerConnections.id, connection.id));
       throw err;
-    } finally {
-      this.running.delete(connection.id);
     }
   }
 

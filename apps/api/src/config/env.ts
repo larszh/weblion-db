@@ -91,6 +91,23 @@ const EnvSchema = z.object({
   CLOUDPANEL_COUNTRY: z.string().default('CH'),
   CLOUDPANEL_CITY: z.string().default('Zürich'),
 
+  // Jellyfin (streaming). An API key from Dashboard > API Keys (full admin rights). More instances
+  // in Admin > Provider.
+  JELLYFIN_URL: optionalString,
+  JELLYFIN_API_KEY: optionalString,
+  JELLYFIN_NAME: z.string().default('Jellyfin'),
+  JELLYFIN_COUNTRY: z.string().default('CH'),
+  JELLYFIN_CITY: z.string().default('Zürich'),
+
+  // Uptime Kuma 2.x (monitoring). API key for /metrics; session token only for management
+  // (pnpm --filter @weblion/api kuma:token). More instances in Admin > Provider.
+  UPTIMEKUMA_URL: optionalString,
+  UPTIMEKUMA_API_KEY: optionalString,
+  UPTIMEKUMA_SESSION_TOKEN: optionalString,
+  UPTIMEKUMA_NAME: z.string().default('Uptime Kuma'),
+  UPTIMEKUMA_COUNTRY: z.string().default('CH'),
+  UPTIMEKUMA_CITY: z.string().default('Zürich'),
+
   // Joker.com domains (DMAPI). An API key, or reseller username and password.
   JOKER_API_KEY: optionalString,
   JOKER_USERNAME: optionalString,

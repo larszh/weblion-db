@@ -17,6 +17,7 @@ import {
   Select,
   Textarea,
 } from '@/components/ui/primitives';
+import { isWebsiteProvider } from './websites';
 
 const PRESETS: Record<string, { method: string; path: string; label: string }[]> = {
   proxmox: [
@@ -81,6 +82,48 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/api/v1/get/status/version', label: 'Version' },
     { method: 'GET', path: '/api/v1/get/passwordpolicy', label: 'Password policy' },
   ],
+  // Only these reads through the agent weblion-clp; it has no other API.
+  cloudpanel: [
+    { method: 'GET', path: '/info', label: 'Server facts (versions, templates)' },
+    { method: 'GET', path: '/list', label: 'Managed sites' },
+    { method: 'GET', path: '/unmanaged', label: 'Unmanaged sites' },
+  ],
+  // Relative to /xapi/v1 (OData). Updates are PATCH; secrets in answers are blanked out.
+  threecx: [
+    {
+      method: 'GET',
+      path: '/SystemStatus?$select=FQDN,Version,UserExtensions,TrunksRegistered,TrunksTotal,CallsActive',
+      label: 'System status',
+    },
+    { method: 'GET', path: '/Defs/Pbx.GetSystemParameters()', label: 'System parameters' },
+    {
+      method: 'GET',
+      path: '/Users?$select=Id,Number,FirstName,LastName,EmailAddress&$orderby=Number&$top=50',
+      label: 'Users',
+    },
+    { method: 'GET', path: '/Users/Pbx.GetFirstAvailableExtensionNumber()', label: 'Next free extension' },
+    { method: 'GET', path: '/RingGroups?$expand=Members&$top=50', label: 'Ring groups' },
+    { method: 'GET', path: '/Trunks?$select=Id,Number,IsOnline,Gateway&$top=50', label: 'Trunks' },
+    { method: 'GET', path: '/ActiveCalls?$count=true&$top=20', label: 'Active calls' },
+  ],
+  // Relative to the instance address (with Jellyfin's base path). Keys, tokens and passwords in
+  // answers are blanked; /Auth/Keys and the sign-in endpoints are refused.
+  jellyfin: [
+    { method: 'GET', path: '/System/Info', label: 'System info' },
+    { method: 'GET', path: '/System/Info/Public', label: 'Public info' },
+    { method: 'GET', path: '/Users', label: 'Users' },
+    { method: 'GET', path: '/Library/VirtualFolders', label: 'Libraries' },
+    { method: 'GET', path: '/QuickConnect/Enabled', label: 'Quick Connect' },
+    { method: 'GET', path: '/Sessions?activeWithinSeconds=600', label: 'Active sessions' },
+  ],
+  // HTTP reads relative to the instance; socket/<event> needs the management sign-in, writes are POST.
+  uptimekuma: [
+    { method: 'GET', path: '/metrics', label: 'Metrics' },
+    { method: 'GET', path: '/api/status-page/heartbeat/<slug>', label: 'Status page heartbeats' },
+    { method: 'GET', path: 'socket/getMonitorList', label: 'Monitor list' },
+    { method: 'GET', path: 'socket/getMonitor?args=[1]', label: 'Monitor' },
+    { method: 'GET', path: 'socket/getMonitorChartData?args=[1,24]', label: 'Chart data (24 h)' },
+  ],
   demo: [{ method: 'GET', path: '/echo', label: 'Echo' }],
 };
 
@@ -108,6 +151,10 @@ const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
     path: '/api/v1/edit/mailbox',
     body: '{ "items": ["anna@kunde.ch"], "attr": { "quota": "4096" } }',
   },
+  cloudpanel: { path: '/list', body: '' },
+  threecx: { path: '/Users(<id>)', body: '{ "FirstName": "Anna" }' },
+  jellyfin: { path: '/Users/<userId>', body: '{ }' },
+  uptimekuma: { path: 'socket/getMonitor?args=[1]', body: '{ "args": [1] }' },
 };
 
 interface Result {
@@ -128,15 +175,20 @@ export function ExplorerPage() {
   const [busy, setBusy] = useState(false);
   const provider = providers.data?.find((p) => p.id === providerId) ?? providers.data?.[0];
   const isJoker = provider?.type === 'joker';
-  /** Joker and Mailcow derive the method from the path, the others take it from the select. */
+  /** CloudPanel servers (and the demo CloudPanel) only answer the reads of their agent. */
+  const isCloudPanel = !!provider && isWebsiteProvider(provider);
+  const presetType = isCloudPanel ? 'cloudpanel' : (provider?.type ?? 'proxmox');
+  /** Joker and Mailcow derive the method from the path, CloudPanel only reads, the others take it from the select. */
   const derivedMethod = isJoker
     ? jokerMethod(path)
     : provider?.type === 'mailcow'
       ? mailcowMethod(path)
-      : null;
+      : isCloudPanel
+        ? 'GET'
+        : null;
   /** Joker takes parameters with every request, the others only with a body method. */
   const withBody = isJoker || (derivedMethod ?? method) !== 'GET';
-  const placeholder = PLACEHOLDERS[provider?.type ?? 'proxmox'] ?? PLACEHOLDERS.proxmox!;
+  const placeholder = PLACEHOLDERS[presetType] ?? PLACEHOLDERS.proxmox!;
 
   const run = async () => {
     if (!provider) return;
@@ -231,6 +283,16 @@ export function ExplorerPage() {
               {provider?.type === 'mailcow' && (
                 <p className="text-xs text-muted">{t('explorer.mailcowPath')}</p>
               )}
+              {provider?.type === 'threecx' && (
+                <p className="text-xs text-muted">{t('explorer.threecxPath')}</p>
+              )}
+              {provider?.type === 'jellyfin' && (
+                <p className="text-xs text-muted">{t('explorer.jellyfinPath')}</p>
+              )}
+              {provider?.type === 'uptimekuma' && (
+                <p className="text-xs text-muted">{t('explorer.uptimekumaPath')}</p>
+              )}
+              {isCloudPanel && <p className="text-xs text-muted">{t('providers.cloudpanel.explorerHint')}</p>}
               {withBody && (
                 <Field
                   label={t('explorer.body')}
@@ -243,7 +305,13 @@ export function ExplorerPage() {
                           ? t('explorer.nextcloudBodyHint')
                           : provider?.type === 'mailcow'
                             ? t('explorer.mailcowBodyHint')
-                            : t('explorer.bodyHint')
+                            : provider?.type === 'threecx'
+                              ? t('explorer.threecxBodyHint')
+                              : provider?.type === 'jellyfin'
+                                ? t('explorer.jellyfinBodyHint')
+                                : provider?.type === 'uptimekuma'
+                                  ? t('explorer.uptimekumaBodyHint')
+                                  : t('explorer.bodyHint')
                   }
                   htmlFor="ex-body"
                 >
@@ -288,7 +356,7 @@ export function ExplorerPage() {
         <Card className="h-fit">
           <CardHeader title={t('explorer.presets')} />
           <CardBody className="space-y-1 py-2">
-            {(PRESETS[provider?.type ?? 'proxmox'] ?? []).map((p) => (
+            {(PRESETS[presetType] ?? []).map((p) => (
               <button
                 key={p.path}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3"

@@ -95,6 +95,22 @@ const MailDomainsPage = lazy(() => import('@/pages/mail/mail').then((m) => ({ de
 const MailDomainDetailPage = lazy(() =>
   import('@/pages/mail/domain').then((m) => ({ default: m.MailDomainDetailPage })),
 );
+const PhonePage = lazy(() => import('@/pages/phone/phone').then((m) => ({ default: m.PhonePage })));
+const PhoneSystemPage = lazy(() =>
+  import('@/pages/phone/system').then((m) => ({ default: m.PhoneSystemPage })),
+);
+const AdminPhonePage = lazy(() => import('@/pages/admin/phone').then((m) => ({ default: m.AdminPhonePage })));
+const MediaPage = lazy(() => import('@/pages/media/media').then((m) => ({ default: m.MediaPage })));
+const AdminMediaPage = lazy(() => import('@/pages/admin/media').then((m) => ({ default: m.AdminMediaPage })));
+const MonitoringPage = lazy(() =>
+  import('@/pages/monitoring/monitoring').then((m) => ({ default: m.MonitoringPage })),
+);
+const MonitorDetailPage = lazy(() =>
+  import('@/pages/monitoring/detail').then((m) => ({ default: m.MonitorDetailPage })),
+);
+const AdminMonitoringPage = lazy(() =>
+  import('@/pages/admin/monitoring').then((m) => ({ default: m.AdminMonitoringPage })),
+);
 
 function FullScreenSpinner() {
   return (
@@ -237,6 +253,11 @@ export function App() {
             <Route path="cloud" element={<CloudPage />} />
             <Route path="mail" element={<MailDomainsPage />} />
             <Route path="mail/:mailDomainId" element={<MailDomainDetailPage />} />
+            <Route path="phone" element={<PhonePage />} />
+            <Route path="phone/:systemId" element={<PhoneSystemPage />} />
+            <Route path="media" element={<MediaPage />} />
+            <Route path="monitoring" element={<MonitoringPage />} />
+            <Route path="monitoring/:monitorId" element={<MonitorDetailPage />} />
             <Route path="customers" element={<ResellerCustomersPage />} />
             <Route path="customers/:customerId" element={<ResellerCustomerPage />} />
             <Route path="products" element={<ResellerProductsPage />} />
@@ -259,6 +280,9 @@ export function App() {
             <Route path="explorer" element={<ExplorerPage />} />
             <Route path="audit" element={<AdminAuditPage />} />
             <Route path="hosting" element={<AdminHostingPage />} />
+            <Route path="phone" element={<AdminPhonePage />} />
+            <Route path="media" element={<AdminMediaPage />} />
+            <Route path="monitoring" element={<AdminMonitoringPage />} />
             <Route path="billing" element={<AdminBillingPage />} />
             <Route path="billing/invoices/:invoiceId" element={<AdminInvoicePage />} />
             <Route path="products" element={<AdminProductsPage />} />

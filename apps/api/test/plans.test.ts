@@ -29,12 +29,18 @@ const server = (name: string) => servers.find((s) => s.name === name)!;
 type PlanOption = ServerPlan & { current: boolean };
 
 /** The create route works in the background, so wait until the sync stored the server. */
-async function waitForServer(name: string): Promise<ServerDto> {
+/**
+ * Waits for a server the background job created. With `done`, also until the job has finished its
+ * steps after the sync (the sync shows the server before the job assigns its project).
+ */
+async function waitForServer(name: string, done: (s: ServerDto) => boolean = () => true): Promise<ServerDto> {
+  let found: ServerDto | undefined;
   for (let i = 0; i < 50; i++) {
-    const found = json<ServerDto[]>(await admin.get(`/admin/servers?q=${name}`)).find((s) => s.name === name);
-    if (found) return found;
+    found = json<ServerDto[]>(await admin.get(`/admin/servers?q=${name}`)).find((s) => s.name === name);
+    if (found && done(found)) return found;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+  if (found) return found;
   throw new Error(`server ${name} did not appear`);
 }
 
@@ -193,7 +199,7 @@ describe('create a server from a plan', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(json(res).status).toBe('started');
-    const created = await waitForServer('plan-hel-01');
+    const created = await waitForServer('plan-hel-01', (s) => Boolean(s.project));
     expect(created.specs).toMatchObject({ cores: 4, memoryMb: 8192, diskGb: 160 });
     // Country and city come from the server, the label from the connection.
     expect(created.location).toMatchObject({ country: 'FI', city: 'Helsinki', label: 'Demo (simuliert)' });

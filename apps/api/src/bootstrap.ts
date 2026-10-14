@@ -12,11 +12,13 @@ import type {
   DemoConfig,
   Fire24Config,
   HetznerConfig,
+  JellyfinConfig,
   JokerConfig,
   MailcowConfig,
   NextcloudConfig,
   ProviderConfig,
   ProxmoxConfig,
+  UptimeKumaConfig,
 } from './providers/types';
 
 /** Creates the first superadmin and the weblion organization on an empty database. */
@@ -171,6 +173,39 @@ function envProviders(env: Env, log: FastifyBaseLogger): EnvProvider[] {
         } satisfies CloudPanelConfig,
       });
     }
+  }
+  if (env.JELLYFIN_URL && env.JELLYFIN_API_KEY) {
+    list.push({
+      key: 'jellyfin',
+      type: 'jellyfin',
+      name: env.JELLYFIN_NAME,
+      location: {
+        country: env.JELLYFIN_COUNTRY,
+        city: env.JELLYFIN_CITY,
+        label: `${env.JELLYFIN_CITY} (Jellyfin)`,
+      },
+      config: {
+        baseUrl: env.JELLYFIN_URL.trim().replace(/\/+$/, ''),
+        apiKey: env.JELLYFIN_API_KEY.trim().toLowerCase(),
+      } satisfies JellyfinConfig,
+    });
+  }
+  if (env.UPTIMEKUMA_URL && env.UPTIMEKUMA_API_KEY) {
+    list.push({
+      key: 'uptimekuma',
+      type: 'uptimekuma',
+      name: env.UPTIMEKUMA_NAME,
+      location: {
+        country: env.UPTIMEKUMA_COUNTRY,
+        city: env.UPTIMEKUMA_CITY,
+        label: `${env.UPTIMEKUMA_CITY} (Uptime Kuma)`,
+      },
+      config: {
+        baseUrl: env.UPTIMEKUMA_URL.trim().replace(/\/+$/, ''),
+        apiKey: env.UPTIMEKUMA_API_KEY,
+        ...(env.UPTIMEKUMA_SESSION_TOKEN ? { sessionToken: env.UPTIMEKUMA_SESSION_TOKEN } : {}),
+      } satisfies UptimeKumaConfig,
+    });
   }
   if (env.JOKER_API_KEY || (env.JOKER_USERNAME && env.JOKER_PASSWORD)) {
     list.push({

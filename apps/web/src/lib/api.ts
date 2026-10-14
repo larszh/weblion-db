@@ -43,7 +43,13 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  const data = text ? (JSON.parse(text) as unknown) : null;
+  let data: unknown = null;
+  try {
+    data = text ? (JSON.parse(text) as unknown) : null;
+  } catch (err) {
+    // An error page of a proxy in between (502, 504): its status still says what happened.
+    if (res.ok) throw err;
+  }
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
     if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.();

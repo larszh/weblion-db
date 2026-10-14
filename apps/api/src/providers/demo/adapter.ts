@@ -16,10 +16,17 @@ import type {
   MailClientSettings,
   MailPasswordPolicy,
   MailboxDto,
+  MediaLibraryRef,
+  MediaPolicyState,
   MetricPoint,
   MetricRange,
   MetricsResult,
+  MonitorHistoryDto,
+  MonitorHistoryRange,
   MonitoringInfo,
+  PhoneRingGroup,
+  PhoneTrunk,
+  PhoneUser,
   PowerAction,
   ProviderLocation,
   ProviderTask,
@@ -48,11 +55,24 @@ import type {
   MailDomainPatch,
   MailboxInput,
   MailboxPatch,
+  MediaActivity,
+  MediaServerInfo,
+  MediaUserInput,
+  MonitorInput,
+  MonitorInventory,
+  MonitorLive,
+  MonitorPatch,
+  MonitoringStatus,
+  PhoneUserInput,
+  PhoneUserPatch,
   ProviderAdapter,
   RawResponse,
   RemoteCloudAccount,
   RemoteDomain,
   RemoteMailDomain,
+  RemoteMediaUser,
+  RemoteMonitor,
+  RemotePhoneSystem,
   RemoteServer,
   RemoteWebspace,
   ServerRef,
@@ -61,6 +81,9 @@ import { DemoCloud, demoCloudState, resetDemoCloud } from './cloud';
 import { resetDemoCloudflare } from './cloudflare';
 import { DemoHosting, demoHostingState, resetDemoHosting } from './hosting';
 import { DemoMail, demoMailState, resetDemoMail } from './mail';
+import { DemoMedia, demoMediaState, resetDemoMedia } from './media';
+import { DemoMonitoring, demoMonitoringState, resetDemoMonitoring } from './monitoring';
+import { DemoPhone, demoPhoneState, resetDemoPhone } from './phone';
 
 /**
  * Simulated provider for local development, UI work and automated tests.
@@ -159,6 +182,9 @@ export class DemoAdapter implements ProviderAdapter {
   private readonly hosting: DemoHosting;
   private readonly cloud: DemoCloud;
   private readonly mail: DemoMail;
+  private readonly phone: DemoPhone;
+  private readonly media: DemoMedia;
+  private readonly monitoring: DemoMonitoring;
 
   constructor(
     private readonly connectionId: string,
@@ -173,6 +199,12 @@ export class DemoAdapter implements ProviderAdapter {
     this.hosting = new DemoHosting(demoHostingState(connectionId));
     this.cloud = new DemoCloud(demoCloudState(connectionId));
     this.mail = new DemoMail(demoMailState(connectionId));
+    this.phone = new DemoPhone(demoPhoneState(connectionId));
+    this.media = new DemoMedia(demoMediaState(connectionId));
+    this.monitoring = new DemoMonitoring(
+      demoMonitoringState(connectionId),
+      (externalId) => this.servers.get(externalId)?.ips.map((ip) => ip.address) ?? [],
+    );
   }
 
   /** Test helper: forget all simulated state. */
@@ -182,6 +214,9 @@ export class DemoAdapter implements ProviderAdapter {
     resetDemoCloud();
     resetDemoCloudflare();
     resetDemoMail();
+    resetDemoPhone();
+    resetDemoMedia();
+    resetDemoMonitoring();
   }
 
   private generate(): Map<string, DemoServer> {
@@ -746,6 +781,8 @@ export class DemoAdapter implements ProviderAdapter {
         { label: 'Domains', value: String(this.hosting.listDomains().length) },
         { label: 'Web spaces', value: String(this.hosting.listWebspaces().length) },
         { label: 'Mail domains', value: String(this.mail.listMailDomains().length) },
+        { label: 'Phone systems', value: String(this.phone.listPhoneSystems().length) },
+        { label: 'Streaming users', value: String(this.media.listMediaUsers().length) },
       ],
     };
   }
@@ -939,6 +976,169 @@ export class DemoAdapter implements ProviderAdapter {
 
   mailClientSettings(): MailClientSettings {
     return this.mail.mailClientSettings();
+  }
+
+  // --- Telephony (simulated 3CX) --------------------------------------------------
+
+  async listPhoneSystems(): Promise<RemotePhoneSystem[]> {
+    return this.phone.listPhoneSystems();
+  }
+
+  async getPhoneSystem(systemId: string): Promise<RemotePhoneSystem> {
+    return this.phone.getPhoneSystem(systemId);
+  }
+
+  async listPhoneUsers(systemId: string): Promise<PhoneUser[]> {
+    return this.phone.listPhoneUsers(systemId);
+  }
+
+  async getPhoneUser(systemId: string, userId: string): Promise<PhoneUser> {
+    return this.phone.getPhoneUser(systemId, userId);
+  }
+
+  async nextPhoneNumber(systemId: string): Promise<string | null> {
+    return this.phone.nextPhoneNumber(systemId);
+  }
+
+  async createPhoneUser(systemId: string, input: PhoneUserInput): Promise<PhoneUser> {
+    return this.phone.createPhoneUser(systemId, input);
+  }
+
+  async updatePhoneUser(systemId: string, userId: string, patch: PhoneUserPatch): Promise<PhoneUser> {
+    return this.phone.updatePhoneUser(systemId, userId, patch);
+  }
+
+  async deletePhoneUser(systemId: string, userId: string): Promise<void> {
+    this.phone.deletePhoneUser(systemId, userId);
+  }
+
+  async sendPhoneWelcome(systemId: string, userId: string): Promise<void> {
+    this.phone.sendPhoneWelcome(systemId, userId);
+  }
+
+  async listPhoneRingGroups(systemId: string): Promise<PhoneRingGroup[]> {
+    return this.phone.listPhoneRingGroups(systemId);
+  }
+
+  async addPhoneRingGroupMember(systemId: string, groupId: string, number: string): Promise<PhoneRingGroup> {
+    return this.phone.addPhoneRingGroupMember(systemId, groupId, number);
+  }
+
+  async removePhoneRingGroupMember(
+    systemId: string,
+    groupId: string,
+    number: string,
+  ): Promise<PhoneRingGroup> {
+    return this.phone.removePhoneRingGroupMember(systemId, groupId, number);
+  }
+
+  async listPhoneTrunks(systemId: string): Promise<PhoneTrunk[]> {
+    return this.phone.listPhoneTrunks(systemId);
+  }
+
+  // --- Streaming (simulated Jellyfin) ----------------------------------------------
+
+  async listMediaUsers(): Promise<RemoteMediaUser[]> {
+    return this.media.listMediaUsers();
+  }
+
+  async getMediaUser(userId: string): Promise<RemoteMediaUser> {
+    return this.media.getMediaUser(userId);
+  }
+
+  async createMediaUser(input: MediaUserInput): Promise<RemoteMediaUser> {
+    return this.media.createMediaUser(input);
+  }
+
+  async setMediaUserPolicy(userId: string, policy: MediaPolicyState): Promise<RemoteMediaUser> {
+    return this.media.setMediaUserPolicy(userId, policy);
+  }
+
+  async setMediaUserEnabled(userId: string, enabled: boolean): Promise<RemoteMediaUser> {
+    return this.media.setMediaUserEnabled(userId, enabled);
+  }
+
+  async setMediaUserPassword(userId: string, password: string): Promise<void> {
+    this.media.setMediaUserPassword(userId, password);
+  }
+
+  async deleteMediaUser(userId: string): Promise<void> {
+    this.media.deleteMediaUser(userId);
+  }
+
+  /** The simulation has no cache: `fresh` changes nothing. */
+  async listMediaLibraries(_fresh?: boolean): Promise<MediaLibraryRef[]> {
+    return this.media.listMediaLibraries();
+  }
+
+  async mediaServerInfo(_fresh?: boolean): Promise<MediaServerInfo> {
+    return this.media.mediaServerInfo();
+  }
+
+  async mediaActivity(): Promise<MediaActivity> {
+    return this.media.mediaActivity();
+  }
+
+  mediaLoginUrl(): string {
+    return this.media.mediaLoginUrl();
+  }
+
+  // --- Monitoring (simulated Uptime Kuma, management always on) ---------------------
+
+  async listMonitors(): Promise<MonitorInventory> {
+    return this.monitoring.listMonitors();
+  }
+
+  async getMonitor(externalId: string): Promise<MonitorLive> {
+    return this.monitoring.getMonitor(externalId);
+  }
+
+  async getMonitorHistory(
+    externalId: string,
+    range: MonitorHistoryRange,
+    options: { statusPageSlug: string | null },
+  ): Promise<MonitorHistoryDto | null> {
+    return this.monitoring.getMonitorHistory(externalId, range, options);
+  }
+
+  monitorHistoryRanges(options: { statusPageSlug: string | null }): MonitorHistoryRange[] {
+    return this.monitoring.monitorHistoryRanges(options);
+  }
+
+  monitorManagement(): boolean {
+    return this.monitoring.monitorManagement();
+  }
+
+  async monitoringStatus(): Promise<MonitoringStatus> {
+    return this.monitoring.monitoringStatus();
+  }
+
+  async createMonitor(input: MonitorInput): Promise<RemoteMonitor> {
+    return this.monitoring.createMonitor(input);
+  }
+
+  async updateMonitor(externalId: string, patch: MonitorPatch): Promise<void> {
+    return this.monitoring.updateMonitor(externalId, patch);
+  }
+
+  async pauseMonitor(externalId: string): Promise<void> {
+    return this.monitoring.pauseMonitor(externalId);
+  }
+
+  async resumeMonitor(externalId: string): Promise<void> {
+    return this.monitoring.resumeMonitor(externalId);
+  }
+
+  async deleteMonitor(externalId: string): Promise<void> {
+    return this.monitoring.deleteMonitor(externalId);
+  }
+
+  async getStatusPage(slug: string): Promise<{ slug: string; title: string; monitorIds: string[] }> {
+    return this.monitoring.getStatusPage(slug);
+  }
+
+  statusPageUrl(slug: string): string {
+    return this.monitoring.statusPageUrl(slug);
   }
 
   async rawRequest(method: string, path: string, body?: Record<string, unknown>): Promise<RawResponse> {

@@ -579,7 +579,12 @@ describe('paying from credit', () => {
       (p) => p.method === 'credit',
     )!;
     await waitFor(async () => (await paymentRow(payment.id)).zohoPaymentId);
-    expect((await invoiceRow(open.id)).zohoStatus).toBe('synced');
+    // The invoice is marked synced only after its payments are pushed: wait for the sync to end.
+    const pushed = await waitFor(async () => {
+      const row = await invoiceRow(open.id);
+      return row.zohoStatus !== 'pending' && row;
+    });
+    expect(pushed.zohoStatus).toBe('synced');
     const contact = zoho.requests.find(
       (r) => r.method === 'POST' && r.path.endsWith('/contacts') && r.body.contact_name === 'Muster AG',
     );

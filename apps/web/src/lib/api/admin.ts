@@ -164,16 +164,20 @@ export interface CustomerResources {
   domains: { id: string; name: string }[];
   webspaces: { id: string; name: string }[];
   mailDomains: { id: string; name: string }[];
+  phoneSystems: { id: string; name: string }[];
+  monitors: { id: string; name: string }[];
   /** What the reseller organization itself holds and can hand out. */
   pool: {
     servers: { id: string; name: string; projectId: string }[];
     domains: { id: string; name: string }[];
     webspaces: { id: string; name: string }[];
     mailDomains: { id: string; name: string }[];
+    phoneSystems: { id: string; name: string }[];
+    monitors: { id: string; name: string }[];
   };
 }
 
-export type ResourceType = 'server' | 'domain' | 'webspace' | 'maildomain';
+export type ResourceType = 'server' | 'domain' | 'webspace' | 'maildomain' | 'phone_system' | 'monitor';
 
 export const useCustomerResources = (resellerId: string, customerId: string, enabled = true) =>
   useQuery({
@@ -196,8 +200,19 @@ export function useMoveResource(
       ),
     {
       success,
-      // Counts, modules (assigning can switch one on) and the hosting/server lists change.
-      invalidate: [['reseller', resellerId], ['org'], ['hosting'], ['mail'], ['servers'], ['projects']],
+      // Counts, modules (assigning can switch one on), the hosting/server lists and website
+      // allowances (a released website takes its slot along) change.
+      invalidate: [
+        ['reseller', resellerId],
+        ['org'],
+        ['hosting'],
+        ['mail'],
+        ['servers'],
+        ['projects'],
+        ['websites'],
+        ['phone'],
+        ['monitoring'],
+      ],
     },
   );
 }

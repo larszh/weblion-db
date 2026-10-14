@@ -131,6 +131,9 @@ const PROVIDER_STYLE: Record<ProviderType, string> = {
   cloudflare: 'bg-[#fef1e6] text-[#c2500a] dark:bg-[#3a2410] dark:text-[#fdba74]',
   mailcow: 'bg-[#eef5ea] text-[#3f7d2b] dark:bg-[#18291a] dark:text-[#9fd58a]',
   cloudpanel: 'bg-[#e8f1fd] text-[#1d5fbf] dark:bg-[#132339] dark:text-[#93c0f5]',
+  threecx: 'bg-[#e9f7ef] text-[#1f7a43] dark:bg-[#12301f] dark:text-[#86efac]',
+  jellyfin: 'bg-[#f3ecfd] text-[#7a3fd0] dark:bg-[#271a3d] dark:text-[#c4a5f7]',
+  uptimekuma: 'bg-[#e8f7ee] text-[#167a3d] dark:bg-[#10301d] dark:text-[#7ee2a8]',
   demo: 'bg-info-soft text-[#0a8d90] dark:text-brand-teal',
 };
 
@@ -143,20 +146,27 @@ const PROVIDER_LABEL: Record<ProviderType, string> = {
   cloudflare: 'Cloudflare',
   mailcow: 'Mailcow',
   cloudpanel: 'CloudPanel',
+  threecx: '3CX',
+  jellyfin: 'Jellyfin',
+  uptimekuma: 'Uptime Kuma',
   demo: 'Demo',
 };
 
 /**
  * Registrars (Joker.com) and DNS providers (Cloudflare) only have domains, Nextcloud and
- * Mailcow only accounts and mail domains, CloudPanel only websites: keep them out of server
- * pickers and filters.
+ * Mailcow only accounts and mail domains, CloudPanel only websites, 3CX only a phone system,
+ * Jellyfin only streaming accounts, Uptime Kuma only monitors: keep them out of server pickers
+ * and filters.
  */
 export const providerHasServers = (type: ProviderType): boolean =>
   type !== 'joker' &&
   type !== 'nextcloud' &&
   type !== 'cloudflare' &&
   type !== 'mailcow' &&
-  type !== 'cloudpanel';
+  type !== 'cloudpanel' &&
+  type !== 'threecx' &&
+  type !== 'jellyfin' &&
+  type !== 'uptimekuma';
 
 export function ProviderBadge({
   type,

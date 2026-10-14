@@ -10,3 +10,6 @@ export * from './hosting';
 export * from './cloud';
 export * from './mail';
 export * from './websites';
+export * from './phone';
+export * from './media';
+export * from './monitoring';

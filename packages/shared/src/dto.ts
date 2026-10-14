@@ -76,6 +76,12 @@ export interface OrgCounts {
   webspaces: number;
   /** Mail domains assigned to the organization. */
   mailDomains: number;
+  /** Phone systems (PBX) assigned to the organization. */
+  phoneSystems: number;
+  /** Streaming accounts (Jellyfin) of the organization. */
+  mediaAccounts: number;
+  /** Monitors (Uptime Kuma) assigned to the organization. */
+  monitors: number;
   /** Customer organizations below a reseller. 0 for everyone else. */
   customers: number;
 }

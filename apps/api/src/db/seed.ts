@@ -15,6 +15,9 @@ import { seedBillingDemo } from './seed-billing';
 import { seedCloudDemo } from './seed-cloud';
 import { seedHostingDemo } from './seed-hosting';
 import { seedMailDemo } from './seed-mail';
+import { seedMediaDemo } from './seed-media';
+import { seedMonitoringDemo } from './seed-monitoring';
+import { seedPhoneDemo } from './seed-phone';
 import { seedResellerDemo } from './seed-reseller';
 import { seedWebsitesDemo } from './seed-websites';
 
@@ -163,6 +166,9 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
   await seedCloudDemo(db, log);
   await seedMailDemo(db, log);
   await seedWebsitesDemo(db, log);
+  await seedPhoneDemo(db, log);
+  await seedMediaDemo(db, log);
+  await seedMonitoringDemo(db, log);
   await seedBillingDemo(db, log);
   return log;
 }

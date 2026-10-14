@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import {
   DEFAULT_RESELLER_BOUNDARY,
+  normalizeModules,
   type AdminOrgDto,
   type DomainDto,
   type OrgDto,
@@ -14,9 +15,14 @@ import {
   creditTransactions,
   invitations,
   invoices,
+  mediaAccounts,
+  mediaAllowances,
   memberships,
+  monitors,
   organizations,
   payments,
+  phoneSystems,
+  providerConnections,
   services,
 } from '../src/db/schema';
 import { seedDemo } from '../src/db/seed';
@@ -620,6 +626,8 @@ describe('resource moves', () => {
       domains: [],
       webspaces: [],
       mailDomains: [{ id: expect.any(String), name: 'alpen-hosting.ch' }],
+      phoneSystems: [],
+      monitors: [],
     });
     // Huber had no web hosting yet: moving a web space switched it on.
     expect((await orgBySlug('baeckerei-huber')).modules).toEqual(['servers', 'dns', 'webhosting', 'mail']);
@@ -827,5 +835,164 @@ describe('resource moves', () => {
         })
       ).statusCode,
     ).toBe(200);
+  });
+});
+
+describe('phone systems', () => {
+  it('hands a phone system from the pool to a customer and back', async () => {
+    const demo = (await t.db.query.providerConnections.findFirst({
+      where: eq(providerConnections.envKey, 'demo'),
+    }))!;
+    const [system] = await t.db
+      .insert(phoneSystems)
+      .values({ providerConnectionId: demo.id, externalId: 'test-pbx', name: 'Alpen PBX', orgId: alpenId })
+      .returning();
+    const id = system!.id;
+    type PhoneResources = { phoneSystems: { id: string; name: string }[]; pool: { phoneSystems: unknown[] } };
+    const resources = async () =>
+      json<PhoneResources>(await reto.get(`/orgs/${alpenId}/customers/${huberId}/resources`));
+    const move = () =>
+      reto.post(`/orgs/${alpenId}/customers/${huberId}/resources`, { type: 'phone_system', id });
+    expect((await resources()).pool.phoneSystems).toEqual([{ id, name: 'Alpen PBX' }]);
+
+    // The reseller needs the module itself.
+    const refused = await move();
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error.message).toContain('phone');
+    const alpen = await orgBySlug('alpen-hosting');
+    await t.db
+      .update(organizations)
+      .set({ modules: normalizeModules([...alpen.modules, 'phone']) })
+      .where(eq(organizations.id, alpenId));
+
+    const handed = await move();
+    expect(handed.statusCode, handed.body).toBe(200);
+    expect((await orgBySlug('baeckerei-huber')).modules).toContain('phone');
+    expect(await resources()).toMatchObject({
+      phoneSystems: [{ id, name: 'Alpen PBX' }],
+      pool: { phoneSystems: [] },
+    });
+    const customer = json<ResellerCustomerDto>(await reto.get(`/orgs/${alpenId}/customers/${huberId}`));
+    expect(customer.counts.phoneSystems).toBe(1);
+    const blocked = await admin.del(`/admin/orgs/${huberId}`);
+    expect(blocked.statusCode).toBe(409);
+    expect(json(blocked).error.details).toMatchObject({ phoneSystems: 1 });
+    const audit = await t.db.query.auditLogs.findFirst({
+      where: eq(auditLogs.resourceId, id),
+    });
+    expect(audit).toMatchObject({ action: 'reseller.resource_assign', resourceType: 'phone_system' });
+
+    const released = await reto.post(`/orgs/${alpenId}/customers/${huberId}/resources/release`, {
+      type: 'phone_system',
+      id,
+    });
+    expect(released.statusCode, released.body).toBe(200);
+    expect((await resources()).pool.phoneSystems).toEqual([{ id, name: 'Alpen PBX' }]);
+    // Phone systems outside the reseller's reach do not exist for it.
+    await t.db.update(phoneSystems).set({ orgId: musterOrgId }).where(eq(phoneSystems.id, id));
+    expect((await move()).statusCode).toBe(404);
+    await t.db.delete(phoneSystems).where(eq(phoneSystems.id, id));
+  });
+});
+
+describe('monitors', () => {
+  it('hands a monitor from the pool to a customer and back', async () => {
+    const demo = (await t.db.query.providerConnections.findFirst({
+      where: eq(providerConnections.envKey, 'demo'),
+    }))!;
+    const [monitor] = await t.db
+      .insert(monitors)
+      .values({
+        providerConnectionId: demo.id,
+        externalId: '9001',
+        name: 'Alpen Website',
+        providerName: 'Alpen Website',
+        type: 'http',
+        orgId: alpenId,
+      })
+      .returning();
+    const id = monitor!.id;
+    const item = { id, name: 'Alpen Website' };
+    type MonitorResources = { monitors: { id: string; name: string }[]; pool: { monitors: unknown[] } };
+    const resources = async () =>
+      json<MonitorResources>(await reto.get(`/orgs/${alpenId}/customers/${huberId}/resources`));
+    const move = () => reto.post(`/orgs/${alpenId}/customers/${huberId}/resources`, { type: 'monitor', id });
+    const before = await resources();
+    // Monitors the demo seed gave the customer count along.
+    const held = before.monitors.length;
+    expect(before.pool.monitors).toContainEqual(item);
+
+    // The reseller needs the module itself (whether the demo seed gave it or not).
+    const alpen = await orgBySlug('alpen-hosting');
+    const withoutMonitoring = alpen.modules.filter((m) => m !== 'monitoring');
+    await t.db.update(organizations).set({ modules: withoutMonitoring }).where(eq(organizations.id, alpenId));
+    const refused = await move();
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error.message).toContain('monitoring');
+    await t.db
+      .update(organizations)
+      .set({ modules: normalizeModules([...withoutMonitoring, 'monitoring']) })
+      .where(eq(organizations.id, alpenId));
+
+    const handed = await move();
+    expect(handed.statusCode, handed.body).toBe(200);
+    expect((await orgBySlug('baeckerei-huber')).modules).toContain('monitoring');
+    const after = await resources();
+    expect(after.monitors).toContainEqual(item);
+    expect(after.pool.monitors).not.toContainEqual(item);
+    const customer = json<ResellerCustomerDto>(await reto.get(`/orgs/${alpenId}/customers/${huberId}`));
+    expect(customer.counts.monitors).toBe(held + 1);
+    const blocked = await admin.del(`/admin/orgs/${huberId}`);
+    expect(blocked.statusCode).toBe(409);
+    expect(json(blocked).error.details).toMatchObject({ monitors: held + 1 });
+    const audit = await t.db.query.auditLogs.findFirst({ where: eq(auditLogs.resourceId, id) });
+    expect(audit).toMatchObject({ action: 'reseller.resource_assign', resourceType: 'monitor' });
+
+    const released = await reto.post(`/orgs/${alpenId}/customers/${huberId}/resources/release`, {
+      type: 'monitor',
+      id,
+    });
+    expect(released.statusCode, released.body).toBe(200);
+    expect((await resources()).pool.monitors).toContainEqual(item);
+    // Monitors outside the reseller's reach do not exist for it.
+    await t.db.update(monitors).set({ orgId: musterOrgId }).where(eq(monitors.id, id));
+    const outside = await move();
+    expect(outside.statusCode).toBe(404);
+    expect(json(outside).error.message).toMatch(/Monitor/);
+    await t.db.delete(monitors).where(eq(monitors.id, id));
+  });
+});
+
+describe('streaming', () => {
+  it('counts streaming accounts and the streaming allowance as delete blockers', async () => {
+    const org = json<AdminOrgDto>(await admin.post('/admin/orgs', { name: 'Stream AG' }));
+    const demo = (await t.db.query.providerConnections.findFirst({
+      where: eq(providerConnections.envKey, 'demo'),
+    }))!;
+    await t.db.insert(mediaAllowances).values({
+      orgId: org.id,
+      providerConnectionId: demo.id,
+      accountCode: 'streamag',
+      maxAccounts: 2,
+      maxStreams: 1,
+    });
+    await t.db.insert(mediaAccounts).values({
+      providerConnectionId: demo.id,
+      externalId: 'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0',
+      username: 'kino-streamag',
+      orgId: org.id,
+    });
+    const detail = json<AdminOrgDto>(await admin.get(`/admin/orgs/${org.id}`));
+    expect(detail.counts?.mediaAccounts).toBe(1);
+
+    const blocked = await admin.del(`/admin/orgs/${org.id}`);
+    expect(blocked.statusCode).toBe(409);
+    expect(json(blocked).error.details).toMatchObject({ mediaAccounts: 1, mediaAllowances: 1 });
+    expect(json(blocked).error.message).toContain('1 streaming accounts');
+    expect(json(blocked).error.message).toContain('1 streaming allowance');
+
+    await t.db.delete(mediaAccounts).where(eq(mediaAccounts.orgId, org.id));
+    await t.db.delete(mediaAllowances).where(eq(mediaAllowances.orgId, org.id));
+    expect((await admin.del(`/admin/orgs/${org.id}`)).statusCode).toBe(200);
   });
 });

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Globe, Layers, Mail, MailWarning, Server } from 'lucide-react';
+import { Clapperboard, Globe, HeartPulse, Layers, Mail, MailWarning, Phone, Server } from 'lucide-react';
 import {
   MODULE_DEFS,
   MODULES,
@@ -122,8 +122,8 @@ export function StatusBadge({
 }
 
 /**
- * Server, domain, web space and mail domain counts as small icons. Types whose module is off are left
- * out unless something is still attached.
+ * Server, domain, web space, mail domain, phone system, streaming account and monitor counts as small
+ * icons. Types whose module is off are left out unless something is still attached.
  */
 export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules: ModuleKey[] }) {
   const { t } = useI18n();
@@ -132,6 +132,14 @@ export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules
     { module: 'dns', icon: <Globe />, n: counts.domains, label: t('admin.resources.domains') },
     { module: 'webhosting', icon: <Layers />, n: counts.webspaces, label: t('admin.resources.webspaces') },
     { module: 'mail', icon: <Mail />, n: counts.mailDomains, label: t('admin.resources.mailDomains') },
+    { module: 'phone', icon: <Phone />, n: counts.phoneSystems, label: t('admin.resources.phoneSystems') },
+    {
+      module: 'media',
+      icon: <Clapperboard />,
+      n: counts.mediaAccounts,
+      label: t('admin.resources.mediaAccounts'),
+    },
+    { module: 'monitoring', icon: <HeartPulse />, n: counts.monitors, label: t('admin.resources.monitors') },
   ].filter((i) => modules.includes(i.module as ModuleKey) || i.n > 0);
   if (items.length === 0) return <span className="text-subtle">–</span>;
   return (
@@ -304,6 +312,11 @@ const BLOCKERS = [
   'domains',
   'webspaces',
   'mailDomains',
+  'phoneSystems',
+  'mediaAccounts',
+  'mediaAllowances',
+  'monitors',
+  'monitorAllowances',
   'cloudAccounts',
   'cloudAllowances',
   'invoices',

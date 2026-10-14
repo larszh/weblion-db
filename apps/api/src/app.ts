@@ -35,6 +35,9 @@ import { websiteRoutes } from './modules/hosting/websites';
 import { zoneRoutes } from './modules/hosting/zones';
 import { cloudRoutes } from './modules/cloud/routes';
 import { mailRoutes } from './modules/mail/routes';
+import { phoneRoutes } from './modules/phone/routes';
+import { mediaRoutes } from './modules/media/routes';
+import { monitoringRoutes } from './modules/monitoring/routes';
 import { resellerRoutes } from './modules/reseller/routes';
 import { settingsRoutes } from './modules/settings/routes';
 import { MailService } from './mail/service';
@@ -157,6 +160,9 @@ export async function buildApp({
         zoneRoutes,
         cloudRoutes,
         mailRoutes,
+        phoneRoutes,
+        mediaRoutes,
+        monitoringRoutes,
         billingRoutes,
         paymentRoutes,
         resellerRoutes,

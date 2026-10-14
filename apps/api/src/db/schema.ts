@@ -25,10 +25,18 @@ import type {
   InvoiceIssuerSettings,
   InvoiceStatus,
   MailDomainInfo,
+  MediaAccountIssue,
+  MediaLibraryRef,
   ModuleKey,
+  MonitorFacts,
+  MonitorOrigin,
+  MonitorStatus,
   PaymentMethod,
   PaymentProvider,
   PaymentStatus,
+  PhoneStatusReason,
+  PhoneSystemInfo,
+  PhoneSystemStatus,
   PostalAddress,
   ServiceResourceType,
   ServiceStatus,
@@ -505,6 +513,191 @@ export const mailDomains = pgTable(
   ],
 );
 
+// --- Telephony (3CX) ------------------------------------------------------------------
+
+/** A phone system (PBX) a provider connection reports. 3CX: exactly one per connection. */
+export const phoneSystems = pgTable(
+  'phone_systems',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** The provider's id of the phone system: "pbx" for 3CX, "demo-pbx-zh" in the demo. */
+    externalId: text('external_id').notNull(),
+    /** Organization the phone system is assigned to, null = not assigned yet. */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    /** Display name. Starts as the provider name, can be renamed in the panel (e.g. "Zürich"). */
+    name: text('name').notNull(),
+    /** Last name the provider reported (3CX: the FQDN). */
+    providerName: text('provider_name'),
+    /** Host name the PBX reports, for search and display. */
+    fqdn: text('fqdn'),
+    status: text('status').$type<PhoneSystemStatus>().notNull().default('unknown'),
+    statusReasons: jsonb('status_reasons').$type<PhoneStatusReason[]>().notNull().default([]),
+    /** Last known facts (no secrets, never the license key). */
+    info: jsonb('info').$type<PhoneSystemInfo>(),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('phone_systems_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('phone_systems_org_idx').on(t.orgId),
+  ],
+);
+
+// --- Streaming (Jellyfin) -------------------------------------------------------------
+
+/** What an organization may have on one Jellyfin instance, and the access its accounts get. */
+export const mediaAllowances = pgTable(
+  'media_allowances',
+  {
+    orgId: uuid('org_id')
+      .primaryKey()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    /** The Jellyfin instance. Kept while the allowance exists (restrict). */
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'restrict' }),
+    /** Login names of new accounts end with "-<code>", e.g. "anna-kemaro". Unique on the platform. */
+    accountCode: text('account_code').notNull(),
+    /** Own accounts plus, for a reseller, its customers' maxAccounts on the instance. */
+    maxAccounts: integer('max_accounts').notNull(),
+    /** Libraries the accounts see: Jellyfin library ids with name and type as last read. */
+    libraries: jsonb('libraries').$type<MediaLibraryRef[]>().notNull().default([]),
+    /** Jellyfin MaxActiveSessions of every account (signed-in devices at sign-in time). */
+    maxStreams: integer('max_streams').notNull(),
+    downloads: boolean('downloads').notNull().default(false),
+    /** Limit for clients outside the server's network, Mbit/s. null = the server's own setting. */
+    remoteBitrateMbit: integer('remote_bitrate_mbit'),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('media_allowances_account_code_idx').on(t.accountCode),
+    index('media_allowances_provider_idx').on(t.providerConnectionId),
+  ],
+);
+
+/** A Jellyfin user managed through the console. The password is never stored. */
+export const mediaAccounts = pgTable(
+  'media_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** Jellyfin user id, 32 lower-case hex characters. Stays the same when the user is renamed. */
+    externalId: text('external_id').notNull(),
+    /** Login name as Jellyfin has it, e.g. "anna-kemaro". */
+    username: text('username').notNull(),
+    /** Organization the account belongs to, null = not assigned. */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    enabled: boolean('enabled').notNull().default(true),
+    hasPassword: boolean('has_password').notNull().default(true),
+    /** As Jellyfin reports it (minute precise). The API only hands out the calendar day. */
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
+    /** Problems found by the last sync or change (policy drift, administrator, ...). */
+    issues: jsonb('issues').$type<MediaAccountIssue[]>().notNull().default([]),
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('media_accounts_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('media_accounts_org_idx').on(t.orgId),
+    index('media_accounts_username_lower_idx').on(sql`lower(${t.username})`),
+  ],
+);
+
+// --- Monitoring (Uptime Kuma) ---------------------------------------------------------
+
+/** A monitor of an Uptime Kuma instance. Never carries the monitor's secrets. */
+export const monitors = pgTable(
+  'monitors',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** Kuma's numeric monitor id as text (unique per instance only). */
+    externalId: text('external_id').notNull(),
+    /** Organization the monitor is assigned to, null = not assigned. */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    /** "kuma": found by the sync (read-only for customers). "console": created in the console. */
+    origin: text('origin').$type<MonitorOrigin>().notNull().default('kuma'),
+    /** Display name. Follows Kuma renames unless renamed in the console (like servers). */
+    name: text('name').notNull(),
+    /** Name in Kuma, e.g. "[muster-ag] Website". */
+    providerName: text('provider_name').notNull(),
+    /** Kuma type: "http", "keyword", "ping", "port", "dns", "group", "push", ... */
+    type: text('type').notNull(),
+    /** Display target (URL without credentials, host, or host:port). */
+    target: text('target'),
+    /** Lower-case host or IP of the target, for matching servers and domains. */
+    targetHost: text('target_host'),
+    status: text('status').$type<MonitorStatus>().notNull().default('unknown'),
+    /** false = paused. null = unknown (only /metrics, never seen in a complete list). */
+    active: boolean('active'),
+    intervalSeconds: integer('interval_seconds'),
+    /** Last facts from /metrics (and socket stats). */
+    facts: jsonb('facts').$type<MonitorFacts>(),
+    /** { parentId?: string } (Kuma group). No secrets. */
+    meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
+    /** Who created it in the console. */
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    missingSince: timestamp('missing_since', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('monitors_provider_external_idx').on(t.providerConnectionId, t.externalId),
+    index('monitors_org_idx').on(t.orgId),
+    index('monitors_org_host_idx').on(t.orgId, t.targetHost),
+  ],
+);
+
+/** How many console monitors an organization may create, on which instance, how often they check. */
+export const monitorAllowances = pgTable('monitor_allowances', {
+  orgId: uuid('org_id')
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: 'cascade' }),
+  /** The instance console monitors are created on. Kept while they exist (restrict). */
+  providerConnectionId: uuid('provider_connection_id')
+    .notNull()
+    .references(() => providerConnections.id, { onDelete: 'restrict' }),
+  /** Own console monitors plus, for a reseller, its customers' maxMonitors on the instance. */
+  maxMonitors: integer('max_monitors').notNull(),
+  /** Shortest check interval the organization may choose. */
+  minIntervalSeconds: integer('min_interval_seconds').notNull(),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
+
+/** The public Kuma status page of an organization on one instance. */
+export const monitorStatusPages = pgTable(
+  'monitor_status_pages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orgId: uuid('org_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    providerConnectionId: uuid('provider_connection_id')
+      .notNull()
+      .references(() => providerConnections.id, { onDelete: 'cascade' }),
+    /** Kuma slug, lower case, [a-z0-9-]. */
+    slug: text('slug').notNull(),
+    /** Public URL when the page has its own domain; null = <baseUrl>/status/<slug>. */
+    url: text('url'),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('monitor_status_pages_org_provider_idx').on(t.orgId, t.providerConnectionId)],
+);
+
 // --- Billing ------------------------------------------------------------------------
 // Money columns are integer minor units (Rappen/cents), tax rates basis points.
 
@@ -749,3 +942,9 @@ export type CloudAccount = typeof cloudAccounts.$inferSelect;
 export type MailDomain = typeof mailDomains.$inferSelect;
 export type WebspaceDatabase = typeof webspaceDatabases.$inferSelect;
 export type WebsiteAllowance = typeof websiteAllowances.$inferSelect;
+export type PhoneSystem = typeof phoneSystems.$inferSelect;
+export type MediaAllowance = typeof mediaAllowances.$inferSelect;
+export type MediaAccount = typeof mediaAccounts.$inferSelect;
+export type Monitor = typeof monitors.$inferSelect;
+export type MonitorAllowance = typeof monitorAllowances.$inferSelect;
+export type MonitorStatusPage = typeof monitorStatusPages.$inferSelect;

@@ -53,7 +53,8 @@ async function auditEntries(action: string, resourceId: string) {
   return t.db
     .select()
     .from(auditLogs)
-    .where(and(eq(auditLogs.action, action), eq(auditLogs.resourceId, resourceId)));
+    .where(and(eq(auditLogs.action, action), eq(auditLogs.resourceId, resourceId)))
+    .orderBy(auditLogs.id);
 }
 
 async function demoConnection() {

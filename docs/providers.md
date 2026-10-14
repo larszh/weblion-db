@@ -2081,6 +2081,2052 @@ mit denselben Prüfungen und Antworten wie die echte Anbindung. Der Mailserver
 - `müller.ch` (Umlaut-Domain) und die Relay-Domain `alpenblick-hotel.ch` sind keinem Kunden
   zugewiesen.
 
+## CloudPanel (Websites)
+
+- Zugang: CloudPanel hat keine API. Die Console meldet sich per SSH als Benutzer `weblion-agent`
+  mit einem ed25519-Schlüssel an und darf dort nur einen Befehl ausführen: den Root-Wrapper
+  `weblion-clp`. Wrapper, Installer und Tests liegen in
+  [`deploy/cloudpanel-agent/`](../deploy/cloudpanel-agent/), die Anleitung für den Server in
+  [deploy/cloudpanel-agent/README.md](../deploy/cloudpanel-agent/README.md).
+- Voraussetzung: CloudPanel CE 2.5.0 oder neuer auf Debian oder Ubuntu
+- Konfiguration: `CLOUDPANEL_*` in der `.env` (ein Server) oder im Admin-Bereich unter Provider >
+  Provider hinzufügen > CloudPanel (beliebig viele Server)
+- CloudPanel liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der
+  Provider deshalb nicht auf.
+
+### Was das Modul macht
+
+weblion.one betreibt eigene CloudPanel-Server und verkauft darauf Websites. Das Modul
+**Webhosting** (`webhosting`), in dem bisher nur die Webspaces von 24fire lagen, bringt das in die
+Console. Eine Website ist eine Domain mit ihrem www-Gegenstück (CloudPanel liefert beide aus),
+ein Linux-Benutzer für SFTP und SSH (in CloudPanel "Site-User") und beliebig viele
+MySQL-Datenbanken.
+
+- **Kontingent pro Kunde:** weblion.one (oder ein Reseller für seine Kunden) legt fest, auf
+  welchem Server die Websites eines Kunden entstehen, wie viele Websites und Datenbanken er
+  höchstens hat und welche Arten erlaubt sind (PHP, statisch, Node.js).
+- **Selbstverwaltung:** Im Kontingent legt der Kunde Websites selbst an: PHP mit einer Anwendung
+  (Vhost-Vorlage, Standard Generic, WordPress, WooCommerce), statische Websites und, wo freigegeben,
+  Node.js. Er setzt Passwörter neu, legt Datenbanken an und löscht sie, stellt Zertifikate von
+  Let's Encrypt aus und löscht Websites. In der Console unter "Webhosting", sobald das Modul aktiv
+  ist.
+- **Zugangsdaten einmal:** Passwörter für SFTP/SSH und Datenbanken erzeugt die Console (oder nimmt
+  ein gewähltes), zeigt sie einmal an und speichert sie nirgends.
+- **DNS-Prüfung:** Vor einem Zertifikat prüft die Console, ob Domain und www-Gegenstück auf den
+  Server zeigen.
+- **Verbrauch:** Der Server misst alle sechs Stunden den Platz der Dateien und Datenbanken jeder
+  Website. Ein Limit gibt es nicht.
+
+Websites sind Zeilen der Tabelle `webspaces` mit `kind = 'website'`, ihre Datenbanken stehen in
+`webspace_databases`, die Kontingente in `website_allowances`. Die Webspaces von 24fire bleiben,
+wie sie sind (`kind = 'webspace'`), und erscheinen auf derselben Seite.
+
+Wer darf was:
+
+| Wer                           | Darf                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Owner, Admin                  | Websites im Kontingent anlegen, Datenbanken anlegen und löschen, Zertifikate ausstellen (`webspace:write`), Websites löschen (`webspace:delete`), Passwörter neu setzen (`webspace:credentials`) |
+| Member, Nur lesen             | Websites, Zugang ohne Passwort, Datenbanken, DNS-Prüfung und Verbrauch ansehen (`webspace:read`)                                                                                                 |
+| Eingeschränkt, Buchhaltung    | nichts, per Policy erweiterbar (Ressource `webspace/<id>` für eine Website, Anlegen braucht `org` oder `*`)                                                                                      |
+| API-Token "Lesen & Schreiben" | Websites und Datenbanken anlegen, aber nur mit Passwörtern, die es selbst mitschickt, Zertifikate ausstellen, löschen. Nie `webspace:credentials`                                                |
+| Mitarbeitende eines Resellers | im Panel seiner Kunden, was ihre Reseller-Rolle erlaubt, dazu Kontingente der Kunden und Websites aus dem eigenen Bestand weitergeben (`reseller:customer:write`)                                |
+| weblion.one Superadmin        | alles, dazu Websites für jeden Kunden auf jedem Server anlegen, übernehmen und aus der Console entfernen (`platform:website:write`), Kontingente (`platform:org:write`)                          |
+| weblion.one Support           | alles ansehen, nichts ändern                                                                                                                                                                     |
+
+Gesperrte Kunden sehen ihre Websites nur noch lesend, die Websites laufen weiter.
+
+### Warum SSH und ein Wrapper
+
+CloudPanel ist ein Panel für einen Admin, ohne API und ohne Mandanten. Was die Console braucht,
+geht nur über das Kommandozeilenwerkzeug `clpctl` als root, und auch das nur zum Teil. Root-Zugang
+per SSH für die Console wäre zu viel: Wer die Console übernimmt, hätte dann alle Server. Deshalb
+läuft auf jedem Server ein kleines Python-Skript als Grenze:
+
+- **Geschlossene Liste:** Der Wrapper kennt genau 13 Operationen (lesen, anlegen, löschen,
+  Passwort, Datenbanken, Zertifikat, übernehmen, vergessen) und prüft jedes Argument gegen ein
+  festes Muster. Befehle laufen ohne Shell und mit fester Umgebung.
+- **Nur verwaltete Sites:** Der Wrapper ändert nur Sites auf seiner Liste verwalteter Sites
+  (angelegt von der Console oder von root übernommen). Sites auf der Schutzliste, etwa die Console
+  selbst, fasst er nie an, auch wenn die Console es verlangt.
+- **Passwörter nie an CloudPanel:** `clpctl` will Passwörter auf der Kommandozeile, CloudPanel
+  setzt sie selbst in Shell-Befehle, `ps` und Fehlermeldungen, und `$` oder `)` im Passwort
+  verderben es (CloudPanel-Issues #284, #351, #798). Der Wrapper gibt `clpctl` deshalb ein
+  zufälliges Wegwerf-Passwort aus Buchstaben und Ziffern und setzt gleich danach das echte über
+  stdin (`chpasswd`, `ALTER USER` über den MySQL-Client). Beim Anlegen beendet er danach alle
+  Prozesse des neuen Benutzers, leert `~/.ssh/authorized_keys` und löscht seine Crontab (bei einer
+  neuen Datenbank die MySQL-Sitzungen ihres Benutzers), falls jemand das Wegwerf-Passwort in den
+  paar Sekunden gelesen hat.
+- **Nachprüfen statt Exit-Codes:** Ob `clpctl` etwas getan hat, sieht der Wrapper in der
+  SQLite-Datenbank von CloudPanel, die er nur liest. Die Exit-Codes von `clpctl` sind nicht
+  dokumentiert.
+- **Was `clpctl` nicht kann,** übernimmt der Wrapper mit Linux-Werkzeugen: Sites auflisten (aus der
+  Datenbank von CloudPanel), Passwörter ändern, Belegung messen (`du`).
+
+Eine übernommene Console (Schlüssel und Datenbank) kann so höchstens verwaltete Kundenwebsites auf
+den Servern beschädigen, auf denen ihr Schlüssel liegt (mit `--allow-remote-adopt` auch Sites, die
+sie vorher übernimmt). Geschützte Sites wie die Console selbst, das Panel und alles ausserhalb der
+13 Operationen bleiben ausser Reichweite.
+
+### Eigener Server für Kundenwebsites
+
+Empfehlung: Kundenwebsites auf einem oder mehreren eigenen CloudPanel-Servern, **nicht** auf dem
+Server, auf dem die Console läuft. Site-User haben eine echte Shell, CloudPanel hatte in den
+letzten Jahren mehrere lokale Rechteausweitungen (Changelog 2023 bis 2.5.0), und eine übernommene
+Kundenwebsite auf derselben Maschine könnte die `.env` der Console lesen, mit dem
+`ENCRYPTION_KEY` und damit allen Zugangsdaten.
+
+Die Console erzwingt das nicht, es ist eine Voreinstellung. Wer Websites trotzdem auf dem Server
+der Console verkauft, setzt die Site der Console beim Installieren auf die Schutzliste
+(`--protect-domain cp.weblion.cloud --protect-user <Site-User der Console>`, siehe
+[deployment.md](deployment.md#auf-cloudpanel)) und richtet `hidepid` ein (siehe README des
+Agents).
+
+### Voraussetzungen
+
+1. **CloudPanel-Server.** Eine VM mit CloudPanel CE 2.5.0 oder neuer (Debian oder Ubuntu), in der
+   Hetzner Cloud, bei 24fire oder auf dem eigenen Proxmox. Ältere Versionen lehnt der Agent für
+   Änderungen ab: Vor 2.5.0 war die erste Zeile von `clpctl` kaputt, und 2.5.0 schliesst eine
+   Rechteausweitung über `clpctlWrapper`. CloudPanel mit seinem eigenen Updater aktuell halten.
+2. **Firewall** (in der Admin Area von CloudPanel): 80 und 443 offen, 22 für Kunden (SFTP/SSH)
+   und die Console, 8443 (das Panel) nur für die IPs von weblion.one.
+3. **Ein Name für Kunden**, z.B. `web1.weblion.cloud` mit A- und AAAA-Eintrag. Diesen Namen zeigt
+   die Console für SFTP und SSH.
+4. **Feste ausgehende IP der Console.** Der Schlüssel der Console gilt auf dem Server nur von ihren
+   Adressen aus (`from=` in `authorized_keys`). Läuft die Console in Docker ohne eigene
+   IPv6-Konfiguration, geht sie über IPv4 hinaus.
+5. **Zeitlimit im Reverse Proxy** vor der Console: Website anlegen wartet bis 330 Sekunden,
+   Zertifikate und Löschen bis 200 Sekunden. nginx braucht `proxy_read_timeout` von mindestens 360
+   Sekunden, siehe [deployment.md](deployment.md#reverse-proxy-tls).
+6. **Backups:** CloudPanel sichert jede Nacht die Datenbanken jeder Site nach `~/backups` (7 Tage).
+   Für Dateien und diese Sicherungen das Remote-Backup von CloudPanel einrichten (im Panel unter
+   Admin Area > Backups, z.B. auf eine Hetzner Storage Box). Die Console stellt nichts wieder her.
+7. **`hidepid`** für `/proc`, damit Site-User fremde Prozesse nicht sehen. Ohne `hidepid` legt der
+   Agent keine Websites und Datenbanken an (abschaltbar mit `"requireHidepid": false` in
+   `/etc/weblion-clp/config.json`, wenn kein Kunde SSH hat). Erst auf einem Test-Server
+   ausprobieren, Details im README des Agents.
+
+### Server anbinden
+
+1. **Schlüsselpaar.** Admin > Provider > Provider hinzufügen, Typ CloudPanel, "Schlüsselpaar
+   erzeugen". Der Dialog setzt den privaten Schlüssel ins Formular und zeigt den öffentlichen mit
+   der fertigen Zeile für den Installer. Das Paar gilt erst beim Speichern, und Speichern braucht
+   den Fingerabdruck aus Schritt 2: Den Dialog also offen lassen, bis der Installer gelaufen ist.
+   Alternativ das Paar selbst erzeugen
+   (`ssh-keygen -t ed25519 -N "" -C weblion-console -f cloudpanel_web1`) und den privaten
+   Schlüssel später einfügen. Empfohlen ist ein eigener Schlüssel pro Server.
+2. **Agent installieren**, als root auf dem Server. Den Ordner `deploy/cloudpanel-agent` aus dem
+   Repository kopieren (z.B. `scp -r deploy/cloudpanel-agent root@web1.weblion.cloud:`) und dort:
+
+   ```bash
+   cd cloudpanel-agent
+   sudo ./install.sh --public-key "ssh-ed25519 AAAA... weblion-console" \
+     --from "203.0.113.5,2001:db8::5" \
+     --protect-domain kunde-des-betreibers.ch --protect-user betreiber-site
+   ```
+
+   `--from` sind die ausgehenden IPv4- und IPv6-Adressen der Console (oder Netze), getrennt durch
+   Komma. `--protect-domain` und `--protect-user` nennen jede Site und jeden Site-User, den die
+   Console nie anfassen darf, beide wiederholbar. Die Zeile aus dem Dialog hat dafür Platzhalter:
+   ersetzen oder, ohne Sites des Betreibers auf dem Server, weglassen. `--nodejs` gibt
+   Node.js-Websites auf dem Server frei, `--allow-remote-adopt` das Übernehmen aus der Console
+   (sonst nur als root, siehe unten).
+   Am Ende läuft `weblion-clp selftest`, und das Skript zeigt Host, Port, Benutzer, den
+   Fingerabdruck des Host-Schlüssels und die Adressen des Servers. Was es auf dem Server ändert,
+   steht im [README des Agents](../deploy/cloudpanel-agent/README.md).
+
+3. **Verbindung in der Console** fertig ausfüllen und speichern:
+
+   | Feld                               | Inhalt                                                                                                                                                        |
+   | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | SSH-Host, SSH-Port                 | Name oder IP, unter der die Console den Server erreicht, Port meist 22                                                                                        |
+   | SSH-Benutzer                       | `weblion-agent` (Standard)                                                                                                                                    |
+   | Privater Schlüssel (ed25519)       | unverschlüsselter OpenSSH-Schlüssel. Beim Bearbeiten behält ein leeres Feld den gespeicherten                                                                 |
+   | Fingerabdruck des Host-Schlüssels  | `SHA256:...` aus der Ausgabe von `install.sh` oder von `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` auf dem Server                                      |
+   | Host für Kunden (optional)         | der Name für SFTP/SSH, z.B. `web1.weblion.cloud`. Standard: der SSH-Host                                                                                      |
+   | IPv4- und IPv6-Adressen (optional) | Adressen für die DNS-Prüfung, je höchstens 8. Standard: was der Server als öffentliche Adressen meldet. Bei NAT (nur private Adressen auf dem Server) Pflicht |
+   | PHP-Versionen (optional)           | was Kunden wählen dürfen, Standard `8.3, 8.4`. Angeboten wird nur, was auf dem Server installiert ist                                                         |
+   | Anwendungen (optional)             | Vhost-Vorlagen für Kunden, ein `*` am Ende passt auf alle Namen mit diesem Anfang (`Laravel*`). Standard `Generic, WordPress, WooCommerce`                    |
+   | Node.js-Websites für Kunden        | nur zusammen mit `--nodejs` auf dem Server. Kunden brauchen Node.js zusätzlich in ihrem Kontingent                                                            |
+
+4. **"Verbindung testen"** fragt den Agent frisch und meldet Version von CloudPanel und Agent,
+   Zahl der Sites (verwaltet, nicht verwaltet), die installierten PHP-Versionen und ob Übernehmen
+   aus der Console erlaubt ist. Er scheitert, wenn CloudPanel älter als 2.5.0 ist oder Console und
+   Agent verschiedene Protokolle sprechen. Danach "Jetzt synchronisieren".
+5. **Kontingente** für Kunden einrichten (siehe unten).
+
+Die Seite des Providers zeigt die Einstellungen (vom privaten Schlüssel nichts) und die Karte
+"SSH-Schlüssel der Console" mit dem öffentlichen Schlüssel und der Zeile für den Installer, z.B.
+für einen neuen Server mit demselben Schlüssel. Der Host-Schlüssel ist gepinnt: Meldet der Server
+einen anderen (neu installiert, oder jemand dazwischen), bricht die Console vor der Anmeldung ab
+und nennt den neuen Fingerabdruck. Ihn erst prüfen, dann in der Verbindung
+ändern. Ein "Neuen Schlüssel übernehmen" gibt es bewusst nicht.
+
+**Über die `.env`** für den ersten Server (Werte mit Sonderzeichen in einfache Anführungszeichen
+setzen):
+
+```env
+CLOUDPANEL_HOST=web1.weblion.cloud
+CLOUDPANEL_PORT=22
+CLOUDPANEL_USER=weblion-agent
+# Datei nur für den Benutzer der Console lesbar (0600), oder der Schlüssel inline mit \n
+CLOUDPANEL_PRIVATE_KEY_FILE=/home/weblion-cp/.ssh/cloudpanel_web1
+CLOUDPANEL_PRIVATE_KEY=
+CLOUDPANEL_HOST_KEY=SHA256:...
+CLOUDPANEL_ACCESS_HOST=web1.weblion.cloud
+CLOUDPANEL_NAME=CloudPanel
+CLOUDPANEL_COUNTRY=CH
+CLOUDPANEL_CITY=Zürich
+```
+
+Sind Host, Fingerabdruck und ein Schlüssel gesetzt, legt die Console den Provider beim Start an,
+speichert alles verschlüsselt und übernimmt Änderungen bei jedem Start (Schlüssel tauschen heisst:
+`.env` ändern und neu starten). `CLOUDPANEL_PRIVATE_KEY` gewinnt über die Datei. Lässt sich die
+Datei nicht lesen, fehlt der Provider, und im Log steht ein Fehler. In Docker muss die Datei im
+Container liegen (als Volume einbinden) oder der Schlüssel inline stehen. Name, Land und Stadt
+gelten beim ersten Start, danach ändert man sie im Admin-Bereich.
+
+Die Einstellungen einer Verbindung aus der `.env` lassen sich im Admin-Bereich nicht ändern, und
+für PHP-Versionen, Anwendungen, Node.js und Adressen gibt es keine Variablen. Diese Verbindung
+bietet also immer PHP 8.3 und 8.4, Generic, WordPress und WooCommerce, kein Node.js für Kunden und
+die Adressen, die der Server meldet. Wer anderes braucht, legt den Server im Admin-Bereich an.
+
+### Mehrere Server
+
+Jeder CloudPanel-Server ist ein eigener Provider: der aus der `.env` und beliebig viele aus dem
+Admin-Bereich, jeder mit eigenem Schlüssel (oder demselben öffentlichen Schlüssel auf mehreren
+Servern, empfohlen ist einer pro Server), Host-Schlüssel, Standort und eigener Auswahl für Kunden.
+
+- Jede Website gehört zu genau einem Server, jede Route adressiert sie über ihre ID und spricht mit
+  dem Server ihrer Verbindung. MySQL-Namen sind pro Server eindeutig.
+- Das Kontingent eines Kunden nennt den Server, auf dem seine neuen Websites entstehen. Kunden
+  wählen keinen Server. weblion.one wählt beim Anlegen im Admin-Bereich frei.
+- Dieselbe Domain (oder ihr www-Gegenstück) auf zwei Servern lehnt die Console beim Anlegen ab
+  (409), auch über verschiedene Kunden hinweg.
+- Ein Server nur für einen Kunden ist ein Server, auf den nur das Kontingent dieses Kunden zeigt.
+  Die Console behandelt ihn nicht anders.
+- Ein Provider lässt sich nicht löschen, solange eine seiner Websites einem Kunden zugewiesen ist
+  oder ein Kontingent auf ihn zeigt. Nicht zugewiesene Websites verschwinden mit ihm aus der
+  Console, auf dem Server bleiben sie (auch auf seiner Liste verwalteter Sites).
+- Website zwischen Servern umziehen ist Handarbeit: Dateien und Dumps kopieren, auf dem neuen Server
+  anlegen oder dort als root übernehmen, auf dem alten löschen.
+- Reseller sehen nur Name und Standort des Servers ihres Kontingents, nie die Verbindung.
+
+### Websites anlegen
+
+Webhosting > "Website anlegen" (`webspace:write`, im Kontingent):
+
+- **Domain**, mit oder ohne www, Umlaut-Domains gehen (gespeichert in der `xn--`-Form, angezeigt in
+  Unicode). CloudPanel liefert beide Namen aus und leitet einen auf den anderen um.
+- **Art**, soweit Kontingent und Server sie erlauben: PHP-Anwendung, statische Website, Node.js.
+  Python-Sites und Reverse Proxies legt die Console nie an (ein Reverse Proxy könnte auf das Panel
+  oder interne Dienste zeigen).
+- **PHP:** Anwendung (Vhost-Vorlage des Servers, Standard Generic) und PHP-Version (Standard die
+  neueste erlaubte). Die Website startet leer, auch mit WordPress: Die Dateien lädt der Kunde per
+  SFTP hoch.
+- **Node.js:** Version 20, 22 oder 24. Den App-Port vergibt der Server (der erste freie zwischen
+  3001 und 3999), die App startet der Kunde per SSH, z.B. mit PM2. Das Anlegen dauert länger, weil
+  CloudPanel Node.js für den Benutzer installiert.
+- **Benutzername** (der Site-User): vorgeschlagen aus der Domain (`www.mueller-shop.ch` wird
+  `mueller-shop-ch`), änderbar. 3 bis 32 Zeichen, Kleinbuchstaben, Ziffern und `-`, am Anfang ein
+  Buchstabe. Reserviert sind `root`, `clp`, `mysql`, `nginx`, `www-data`, `proftpd`, `varnish`,
+  `redis`, `admin`, `ubuntu`, `debian` und alles, was mit `weblion` beginnt. Der Server lehnt
+  zusätzlich jeden Linux-Benutzer ab, den es schon gibt.
+- **Datenbank anlegen** (bei WordPress und WooCommerce vorausgewählt), siehe Datenbanken.
+- **Passwort:** erzeugt (Standard) oder selbst gewählt.
+
+Vorher prüft die Console: Kontingent vorhanden (409 `no_allowance`), Art im Kontingent und auf dem
+Server (409 `type_not_allowed`), noch Platz für eine Website und gegebenenfalls eine Datenbank (409
+`allowance_exceeded`), Version und Anwendung angeboten (400), und die Domain ist frei: keine andere
+Website mit der Domain oder ihrem www-Gegenstück auf irgendeinem Server, und im Modul "Domains &
+DNS" gehört keiner der beiden Namen einem anderen Kunden (409 `exists`, `details.field` =
+`domain`, der eigene Reseller darf ihn halten). Wartet die Domain auf demselben Server noch als
+fehlende Website, entfernt weblion.one diese zuerst. Die Console reserviert die Website unter einer
+Sperre pro Kunde und pro Domain und ruft erst danach den Server. Parallele Anfragen können das
+Kontingent also nicht überziehen.
+
+Der Server prüft alles noch einmal, legt die Site an, setzt das echte Passwort und nimmt sie auf
+seine Liste verwalteter Sites. Scheitert ein Schritt, löscht er die halbe Site wieder. Eine
+Datenbank, die nicht klappt, lässt die Website stehen: Die Antwort kommt mit einem Hinweis, die
+Datenbank legt der Kunde später an. Dauert es zu lange, reisst die Verbindung ab oder lässt sich
+die halbe Site nicht wieder löschen, steht die Website auf "Unklar" (Status `error`, Antwort 502
+`website_error`), und der nächste Sync klärt sie: Hat der Server sie, wird sie aktiv, aber niemand
+hat das Passwort gesehen, der Kunde setzt ein neues. Hat er sie nicht, verschwindet sie nach 10
+Minuten.
+
+Die Antwort zeigt die Zugangsdaten einmal: Host, Port 22, Benutzername, Passwort, eine
+`sftp://`-Adresse und die Zeile für `ssh`, dazu gegebenenfalls Datenbank, Benutzer und Passwort.
+Im Audit-Log steht `website.create` mit Art, Versionen, Anwendung, Benutzer, Datenbank, Server und
+ob die Passwörter erzeugt oder gewählt waren, die Passwörter nie.
+
+Per API mit Token nur mit mitgeschickten Passwörtern (sonst 400):
+
+```bash
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"domain":"shop.kunde.ch","type":"php","template":"WordPress","phpVersion":"8.4",
+       "password":"…","database":{"suffix":"wp","password":"…"}}' \
+  https://cp.weblion.cloud/api/v1/orgs/<org-id>/websites
+```
+
+Die Antwort (201, `Cache-Control: no-store`) ist
+`{ "website": {...}, "access": {..., "password": null}, "database": {..., "password": null}, "warnings": [] }`.
+Was sich anlegen lässt, liefert `GET /api/v1/orgs/<org-id>/websites/options`.
+
+### Zugang und Passwörter
+
+Die Detailseite (Webhosting > Website) zeigt Host, Port, Benutzername, Home- und Web-Verzeichnis.
+SFTP und SSH nutzen denselben Benutzer, der eine normale Shell hat: Dateien hochladen, `crontab -e`
+für geplante Aufgaben, Logs in `~/logs`, Composer, WP-CLI, PM2.
+
+- **Erzeugte Passwörter** haben 24 Zeichen ohne verwechselbare Zeichen (I, l, O, 0, 1) und ohne
+  Sonderzeichen, damit sie sich leicht in SFTP-Programme und Konfigurationsdateien abtippen lassen
+  (rund 140 Bit).
+- **Selbst gewählte Passwörter:** 12 bis 128 Zeichen aus Buchstaben, Ziffern und
+  `!#%*+,-./;<=>?@^_{|}~`. Leerzeichen, Anführungszeichen, `$`, `:`, `\`, `` ` ``, `(`, `)` und `&`
+  lehnt die Console ab.
+- **Neues Passwort** (`webspace:credentials`, Owner und Admin) geht nur mit Login, nie per
+  API-Token. Laufende Prozesse und offene SSH-Sitzungen bleiben, damit eine Node.js-App nicht
+  stehen bleibt. Im Audit-Log steht `website.password_reset` (wer, wann, erzeugt oder gewählt).
+  Per API nur mit Session: `POST /api/v1/webspaces/<id>/password`, ohne Body erzeugt, mit
+  `{"password": "…"}` gewählt.
+- Die Passwörter laufen nur über stdin von `chpasswd` und dem MySQL-Client auf dem Server. Sie
+  stehen in keiner Kommandozeile, keinem Log, keiner Datenbank und keinem Audit-Eintrag.
+- **Schlüssel der Console:** verschlüsselt gespeichert (AES-256-GCM). Der Admin-Bereich zeigt nur
+  den öffentlichen Schlüssel, vom privaten nichts.
+- Ein Login für das Panel von CloudPanel (Port 8443) bekommen Kunden nicht. SSH-Schlüssel für
+  Site-User verwaltet die Console noch nicht, Kunden tragen sie per SSH selbst in
+  `~/.ssh/authorized_keys` ein.
+
+### Datenbanken
+
+- **Anlegen** (`webspace:write`, im Kontingent): Name und Benutzer sind gleich und beginnen mit
+  dem festen Präfix der Website, dem Site-User mit `_` statt `-`, höchstens 16 Zeichen. Der Kunde
+  wählt nur den Rest: Kleinbuchstaben, Ziffern und `_`, höchstens 15 Zeichen, zusammen höchstens
+  32 (`shop-mueller` und `wp` ergeben `shop_mueller_wp`). Das Passwort erscheint einmal.
+- **Neues Passwort** (`webspace:credentials`, nur mit Login) und **Löschen** (`webspace:write`,
+  mit dem Namen als Bestätigung, `clpctl db:delete`, alle Daten sind weg). Fehlt die Datenbank auf
+  dem Server schon, entfernt Löschen nur den Eintrag.
+- Anwendungen auf dem Server verbinden sich mit Host `127.0.0.1`, Port 3306. phpMyAdmin bietet die
+  Console nicht an. Von aussen geht es über einen SSH-Tunnel
+  (`ssh -L 3306:127.0.0.1:3306 <Benutzer>@<Host>`).
+- Datenbanken, die jemand im Panel von CloudPanel angelegt hat, zeigt die Console mit dem Sync,
+  auch mit anderen Namen, und zählt sie zum Kontingent. Neue legt sie nur mit dem Präfix an.
+
+Im Audit-Log stehen `website.db_create`, `website.db_password_reset` und `website.db_delete`. Per
+API: `POST /api/v1/webspaces/<id>/databases` mit `{"suffix": "wp", "password": "…"}` (Token nur mit
+Passwort), `POST .../databases/<db-id>/password` (nur Session), `DELETE .../databases/<db-id>` mit
+`{"confirm": "<Name>"}`.
+
+### SSL-Zertifikate und DNS-Prüfung
+
+Eine neue Website hat das selbst signierte Zertifikat von CloudPanel, dem Browser nicht trauen.
+"Let's-Encrypt-Zertifikat ausstellen" (`webspace:write`) gilt für die Domain und ihr
+www-Gegenstück:
+
+1. **DNS-Prüfung:** Die Console fragt öffentliche Resolver (`DNS_CHECK_RESOLVERS`, Standard
+   `1.1.1.1,9.9.9.9`, nie den Resolver des Systems) nach A und AAAA beider Namen. Erwartet werden
+   die Adressen der Verbindung oder, ohne Angabe, die öffentlichen Adressen, die der Server meldet.
+   Status pro Name: "Zeigt auf den Server" (mindestens eine Adresse, alle vom Server), "Zeigt
+   anderswohin" (eine fremde Adresse, z.B. CDN oder alter Server), "Kein Eintrag" oder "Abfrage
+   fehlgeschlagen". Das Ergebnis gilt 60 Sekunden.
+2. Zeigen nicht beide Namen auf den Server, antwortet die Console mit 409 `dns_not_ready` und den
+   Namen. "Trotzdem versuchen" (`force`) überspringt die Prüfung, z.B. hinter Cloudflare. Let's
+   Encrypt sperrt nach wiederholten Fehlern eine Weile, deshalb die Prüfung.
+3. Der Server ruft `clpctl lets-encrypt:install:certificate` auf und prüft danach, dass ein neues
+   Zertifikat da ist, das noch mindestens 7 Tage gilt. Sonst kommt die Meldung von Let's Encrypt
+   zurück (z.B. "DNS problem: NXDOMAIN ..."). Das dauert bis zu drei Minuten.
+
+Die Karte "DNS" zeigt die nötigen A- und AAAA-Einträge zum Kopieren und verlinkt die Domain im
+Modul "Domains & DNS", wenn sie dort liegt und die Person sie lesen darf. Eintragen muss der Kunde
+sie selbst (siehe Grenzen). Die Console färbt das Zertifikat unter 30 Tagen gelb, unter 14 Tagen,
+abgelaufen, fehlend oder selbst signiert rot. Verlängern soll CloudPanel selbst (siehe Offene
+Punkte). Im Audit-Log steht `website.certificate` mit `force`, DNS-Ergebnis und Ablaufdatum. Per
+API: `GET /api/v1/webspaces/<id>/dns-check`, `POST /api/v1/webspaces/<id>/certificate` mit
+`{"force": false}`.
+
+### Löschen
+
+- Website löschen (`webspace:delete`) verlangt die Domain als Bestätigung. Der Server löscht die
+  Site mit `clpctl site:delete --force`: alle Dateien in `/home/<Benutzer>`, alle Datenbanken, die
+  nächtlichen Sicherungen in `~/backups`, Cron-Jobs und den Benutzer. Rückgängig machen geht nicht.
+- Was CloudPanel liegen lässt, räumt der Server auf und meldet es als Hinweis: Datenbanken und
+  Datenbank-Benutzer der Site (nur die Namen, die er vorher gelesen hat) und eine verwaiste
+  Crontab. Bleibt der Linux-Benutzer bestehen, meldet er das nur.
+- Hängt ein laufender Dienst der Abrechnung an der Website, lehnt die Console mit 409 ab: zuerst
+  den Dienst kündigen.
+- Meldet der Server die Site beim Löschen nicht mehr (gelöscht oder nicht mehr verwaltet),
+  entfernt Löschen nur noch den Eintrag in der Console. Hat der Sync sie schon als fehlend
+  markiert, geht Löschen nicht mehr (409 `website_missing`): weblion.one entfernt sie dann mit "Aus
+  der Console entfernen". Eine Website mit Status "Unklar" kann nur weblion.one löschen.
+- Ein Kunde mit Websites lässt sich (wie mit Webspaces) nicht löschen. Sein Website-Kontingent
+  verschwindet mit ihm.
+
+Im Audit-Log steht `website.delete` mit Benutzer, Server und Hinweisen. Per API:
+`DELETE /api/v1/webspaces/<id>` mit `{"confirm": "shop.kunde.ch"}`.
+
+### Kontingente einrichten
+
+Admin > Kunden > Kunde, Karte "Website-Kontingent" > Einrichten (Berechtigung
+`platform:org:write`):
+
+- **Server:** alle CloudPanel-Provider (und der Demo-Server). Neue Websites des Kunden entstehen
+  dort. Ein anderer Server gilt nur für neue Websites, bestehende bleiben, wo sie sind.
+- **Websites höchstens** (0 bis 1000) und **Datenbanken höchstens** (0 bis 5000). 0 ist erlaubt:
+  Das Kontingent besteht, angelegt werden kann nichts.
+- **Erlaubte Arten:** PHP, statisch, Node.js, mindestens eine. Standard PHP und statisch. Node.js
+  bekommen Kunden nur, wenn auch die Verbindung es anbietet.
+- **Modul "Webhosting" aktivieren** (Standard an). Bei einem Kunden eines Resellers nur, wenn der
+  Reseller das Modul hat (sonst 409).
+
+Gezählt werden alle Websites der Organisation auf allen Servern und in jedem Zustand (auch "Wird
+angelegt", "Unklar" und fehlende) und ihre Datenbanken. Senken geht nicht unter das, was schon
+besteht (409 `allowance_exceeded`). Entfernen geht nur ohne Websites (beim Reseller auch ohne
+Kontingente seiner Kunden) und schaltet das Modul nicht ab. Im Audit-Log stehen
+`website.allowance_set` (mit den bisherigen Werten) und `website.allowance_delete`. Per API nur mit
+Login:
+`PUT /api/v1/admin/orgs/<org-id>/website-allowance` mit z.B.
+`{"providerId": "<provider-id>", "maxSites": 5, "maxDatabases": 10, "siteTypes": ["php", "static"], "enableModule": true}`,
+`DELETE` auf denselben Pfad entfernt es.
+
+Ohne Kontingent sieht der Kunde unter "Webhosting" den Hinweis, sich an weblion.one (oder seinen
+Reseller) zu wenden. Bei Websites, die weblion.one ihm zuweist, gehen Passwörter, Zertifikate und
+Löschen trotzdem, neue Datenbanken nur mit Kontingent.
+
+### Reseller
+
+- Ein Reseller bekommt von weblion.one ein Kontingent wie jeder Kunde, dazu das Modul. Es deckt
+  seine eigenen Websites und alles, was er seinen Kunden gibt: Seine Websites plus die Höchstwerte
+  aller Kundenkontingente auf seinem Server müssen hineinpassen.
+- Kontingente der Kunden: Reseller > Meine Kunden > Kunde > Ressourcen, Karte
+  "Website-Kontingent". Der Server ist immer der des Resellers, die Arten höchstens seine.
+  Speichern aktiviert beim Kunden das Modul. "Kontingent entfernen" gibt es an den Reseller zurück,
+  solange der Kunde keine Websites hat. Per API: `PUT` und
+  `DELETE /api/v1/reseller/customers/<id>/website-allowance`, PUT mit
+  `{"maxSites": 3, "maxDatabases": 5, "siteTypes": ["php"]}`.
+- Auch weblion.one gibt einem Kunden eines Resellers ein Kontingent nur aus dem des Resellers:
+  derselbe Server, höchstens seine Arten, und es muss Platz sein (anders als beim
+  Cloud-Speicher).
+- Den Server seines Kontingents kann weblion.one nur wechseln, solange keine Kunden des Resellers
+  dort ein Kontingent haben. Eine Art, die Kunden haben, lässt sich dem Reseller erst nehmen, wenn
+  sie sie nicht mehr haben.
+- Websites aus seinem Bestand gibt der Reseller wie Webspaces weiter (Ressourcen > "Webspace
+  zuweisen"). Dabei muss die Website ins Kontingent des Kunden passen, auf demselben Server, mit
+  Platz für die Website und alle ihre Datenbanken (409 sonst). Zurückholen in den eigenen Bestand
+  prüft kein Kontingent.
+- Im Audit-Log des Resellers stehen `reseller.website_allowance_set` und
+  `reseller.website_allowance_delete`.
+
+### Admin-Bereich: anlegen, übernehmen, entfernen
+
+Admin > Domains & Webspaces > Webspaces zeigt Webspaces und Websites gemeinsam (Filter nach
+Provider, zugewiesen oder nicht). Websites tragen das Abzeichen "Website", ihren Zustand und das
+Zertifikat statt eines Ablaufdatums. Zuweisen und Zuweisung aufheben wie bei Webspaces
+(`platform:server:assign`, ohne Prüfung des Kontingents). Darüber die Karte "Websites auf
+CloudPanel-Servern", ihre Aktionen brauchen `platform:website:write` und einen Login:
+
+- **Website anlegen** für einen Kunden oder vorerst ohne Zuweisung, auf einem beliebigen Server.
+  Ohne Prüfung des Kontingents (die Website zählt danach trotzdem beim Kunden), mit allen
+  Anwendungen des Servers und Node.js, wenn der Server es erlaubt (`--nodejs`), die PHP-Versionen
+  wie für Kunden. Der Kunde bekommt das Modul. Die Zugangsdaten erscheinen einmal.
+- **Nicht verwaltete Sites** eines Servers: alle Sites, die die Console nicht verwaltet, geschützte
+  mit Abzeichen. Pro Site entweder "Übernehmen" (nur wenn der Server mit `--allow-remote-adopt`
+  installiert ist) oder der Befehl zum Kopieren, mit dem root sie auf dem Server übernimmt:
+  `sudo weblion-clp adopt <Domain>`. Die Website erscheint dann beim nächsten Sync als nicht
+  zugewiesen. Geschützte Sites lassen sich nie übernehmen. Übernehmen ändert auf dem Server nichts
+  ausser der Liste verwalteter Sites, auch kein Passwort.
+- **Aus der Console entfernen** für Websites ohne Kunden oder solche, die auf dem Server fehlen:
+  Der Server nimmt die Site von seiner Liste, sie bleibt mit allen Dateien bestehen. Die Zeile und
+  ihre Datenbanken verschwinden aus der Console.
+
+Wer eine übernommene Website zugewiesen bekommt, kann ihr Passwort setzen, Datenbanken anlegen und
+löschen und sie löschen. Übernehmen also nur, was wirklich dem Kunden gehört. Im Audit-Log stehen
+`website.adopt` und `website.forget`. Per API nur mit Login: `POST /api/v1/admin/websites` (wie
+beim Kunden, dazu `providerId` und `orgId`, `null` für keine Zuweisung),
+`GET /api/v1/admin/providers/<id>/websites/unmanaged`,
+`POST /api/v1/admin/providers/<id>/websites/adopt` mit `{"domain": "..."}`,
+`POST /api/v1/admin/webspaces/<id>/forget`.
+
+### Sync
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) eine Anfrage pro Server (`list`): alle verwalteten
+  Sites mit Art, Versionen, Anwendung, Zertifikat, Datenbanken und Belegung.
+- Neue Sites (von root übernommen, oder angelegt und die Zeile ging verloren) kommen als nicht
+  zugewiesen dazu. Sites, die fehlen (im Panel gelöscht, mit `weblion-clp forget` entfernt),
+  werden als fehlend markiert und behalten ihren Kunden. Ändern geht dann nicht mehr (409
+  `website_missing`).
+- Eine Website mit Status "Unklar", die der Server hat, wird aktiv. Steht eine länger als 10
+  Minuten auf "Wird angelegt", gilt die Anfrage als verloren: Hat der Server die Site, wird sie
+  aktiv (der Kunde setzt ein neues Passwort). Unklare und verlorene Websites, die der Server nicht
+  hat, verschwinden nach 10 Minuten. Löschvorgänge lässt der Sync in Ruhe.
+- Datenbanken gleicht er pro Website ab: neue kommen dazu, fehlende werden markiert.
+- Was jemand im Panel von CloudPanel ändert (PHP-Version, Datenbanken), übernimmt der Sync. Eine
+  Zeile, die die Console während des Laufs geändert hat, überschreibt er nicht.
+- Die Detailseite liest eine Website live nach, wenn ihr Stand älter als eine Minute ist.
+- Von Hand: Admin > Provider > CloudPanel > "Jetzt synchronisieren", oder der Sync-Button im Tab
+  "Webspaces".
+
+### Was die Console nutzt
+
+Jede Operation ist ein SSH-Aufruf, die Anfrage eine Zeile JSON auf stdin, die Antwort eine Zeile
+JSON auf stdout (Protokoll v1, Aufbau in [architecture.md](architecture.md#websites-cloudpanel)).
+
+| Funktion in der Console             | Operation des Agents | Auf dem Server                                                                                                                 | Wartet (Agent / Console) |
+| ----------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| Verbindungstest, Auswahl für Kunden | `info`               | `dpkg-query`, `clpctl --version`, `clpctl vhost-templates:list`, `ip -j addr`, PHP-Versionen, Datenbank von CloudPanel lesen   | 20 s / 30 s              |
+| Sync                                | `list`               | Datenbank von CloudPanel lesen                                                                                                 | 45 s / 60 s              |
+| Detailseite                         | `get`                | Datenbank von CloudPanel lesen                                                                                                 | 20 s / 30 s              |
+| Nicht verwaltete Sites              | `unmanaged`          | Datenbank von CloudPanel lesen                                                                                                 | 20 s / 30 s              |
+| Website anlegen                     | `create`             | `clpctl site:add:php`, `site:add:static` oder `site:add:nodejs`, `chpasswd`, `pkill`, `crontab -r`, mit Datenbank wie `db-add` | 300 s / 330 s            |
+| Website löschen                     | `delete`             | `clpctl site:delete --force`, Reste mit dem MySQL-Client                                                                       | 180 s / 200 s            |
+| Neues Passwort                      | `password`           | `chpasswd`                                                                                                                     | 20 s / 30 s              |
+| Datenbank anlegen                   | `db-add`             | `clpctl db:add`, `ALTER USER`, Sitzungen des Benutzers beenden                                                                 | 75 s / 90 s              |
+| Datenbank löschen                   | `db-delete`          | `clpctl db:delete --force`                                                                                                     | 75 s / 90 s              |
+| Neues Datenbank-Passwort            | `db-password`        | `ALTER USER` für jeden Host des Benutzers                                                                                      | 20 s / 30 s              |
+| Let's-Encrypt-Zertifikat            | `cert`               | `clpctl lets-encrypt:install:certificate`                                                                                      | 180 s / 200 s            |
+| Übernehmen (Admin)                  | `adopt`              | Liste verwalteter Sites                                                                                                        | 20 s / 30 s              |
+| Aus der Console entfernen (Admin)   | `forget`             | Liste verwalteter Sites                                                                                                        | 20 s / 30 s              |
+
+Für den MySQL-Client liest der Agent die Master-Zugangsdaten mit
+`clpctl db:show:master-credentials` und legt sie nur für den Aufruf in eine Datei (0600) unter
+`/run/weblion-clp`. Die Console hält pro Server eine SSH-Verbindung (nach 60 Sekunden ohne Anfrage
+geschlossen), schickt eine Operation nach der anderen und lässt höchstens 20 warten (dann 503
+`busy`). `info` behält sie 10 Minuten, `list` 15 Sekunden, jede Änderung leert den Speicher der
+Liste.
+
+### Fehler der API
+
+Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
+Websites:
+
+| HTTP | `code`               | Wann                                                                                                                                                                     |
+| ---- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 400  | `bad_request`        | Ungültige Eingabe (`details` nennt das Feld), API-Token ohne Passwort, falsche Bestätigung beim Löschen, Version oder Anwendung nicht angeboten, Benutzername reserviert |
+| 403  | `forbidden`          | Recht fehlt, Modul nicht aktiv, Kunde gesperrt (nur lesen), Passwort mit API-Token                                                                                       |
+| 404  | `not_found`          | Website, Datenbank, Kunde oder Kontingent gibt es nicht, oder die Person sieht sie nicht                                                                                 |
+| 404  | `provider_error`     | Die Site oder Datenbank gibt es in CloudPanel nicht (mehr)                                                                                                               |
+| 409  | `no_allowance`       | Kein Kontingent (beim Anlegen, beim Weitergeben durch einen Reseller)                                                                                                    |
+| 409  | `allowance_exceeded` | Kontingent voll oder zu klein, `details` mit Höchstwert und Belegung                                                                                                     |
+| 409  | `type_not_allowed`   | Art nicht im Kontingent oder auf dem Server nicht angeboten                                                                                                              |
+| 409  | `exists`             | Domain, Benutzername oder Datenbank vergeben, `details.field` nennt das Feld (`domain`, `siteUser`, `database`, ...)                                                     |
+| 409  | `dns_not_ready`      | Zertifikat ohne `force`, aber das DNS zeigt nicht auf den Server, `details` mit der Prüfung                                                                              |
+| 409  | `website_busy`       | Die Website oder Datenbank wird gerade angelegt oder gelöscht                                                                                                            |
+| 409  | `website_error`      | Die letzte Änderung ist unklar, der nächste Sync klärt sie                                                                                                               |
+| 409  | `website_missing`    | Der Server meldet die Website nicht mehr                                                                                                                                 |
+| 409  | `not_managed`        | Die Site ist auf dem Server nicht (mehr) verwaltet, oder ihr Site-User hat sich in CloudPanel geändert                                                                   |
+| 409  | `protected`          | Site oder Benutzer stehen auf der Schutzliste des Servers                                                                                                                |
+| 409  | `adopt_disabled`     | Übernehmen aus der Console ist auf dem Server aus                                                                                                                        |
+| 409  | `conflict`           | Laufender Dienst an der Website, Kontingent mit Websites entfernen, Server des Kontingents wechseln, Reseller ohne Modul                                                 |
+| 422  | `unsupported`        | Der Provider kann keine Websites, CloudPanel ist älter als 2.5.0 bzw. seine Datenbank unbekannt, oder `/proc` hat kein `hidepid`                                         |
+| 502  | `provider_error`     | Der Server hat abgelehnt oder war nicht erreichbar, `message` mit dem Grund, `details.rolledBack` und `details.output` (die Ausgabe von `clpctl`, ohne Passwörter)       |
+| 502  | `website_error`      | Ergebnis unklar (Zeit abgelaufen, Verbindung abgerissen): Die Website oder Datenbank entsteht vielleicht trotzdem, der Sync zeigt es                                     |
+| 503  | `busy`               | Der Server ist mit einer anderen Änderung beschäftigt (Sperre, höchstens 120 Sekunden Warten) oder seine CloudPanel-Datenbank gesperrt, oder zu viele Anfragen warten    |
+| 504  | `timeout`            | Keine Antwort in der Wartezeit (alles ausser Anlegen). Der Server arbeitet vielleicht weiter, ein Löschen steht danach auf "Unklar"                                      |
+
+Jede Änderung steht im Audit-Log, gescheiterte mit `status: failure` und der Meldung. Meldungen
+und Ausgaben des Servers laufen zweimal durch die Bereinigung (Agent und Console): Passwörter der
+Anfrage und Muster wie `passwd -6 '...'`, `IDENTIFIED BY '...'` oder `--...Password=...` werden
+`•••`.
+
+### API Explorer
+
+Admin > API Explorer, Provider CloudPanel: nur lesend, `GET /info` (Versionen, Vorlagen, Adressen,
+Schutzliste), `/list` (verwaltete Sites) und `/unmanaged` (nicht verwaltete Sites), so wie der
+Agent antwortet. Ändern geht nur über die Buttons der Console.
+
+### Grenzen
+
+- **Kein Speicherlimit:** CloudPanel kennt keine Kontingente auf der Platte. Das Kontingent zählt
+  Websites und Datenbanken, der belegte Platz (Home-Verzeichnis und Datenbanken, alle sechs
+  Stunden gemessen) ist nur zur Information. Wer mehr verkauft, als die Disk hat, überwacht den
+  Server selbst.
+- **Keine E-Mail:** CloudPanel-Server haben keinen Mailserver. Postfächer für die Domain gibt es im
+  Modul "E-Mail" (Mailcow), WordPress und andere Anwendungen versenden per SMTP über ein Postfach
+  (Plugin).
+- **Keine Wiederherstellung:** Die Console stellt nichts wieder her. Datenbanken sichert CloudPanel
+  jede Nacht nach `~/backups` (7 Tage), Dateien nur das Remote-Backup des Betreibers. Löschen der
+  Website löscht auch `~/backups`.
+- **Eine Domain pro Website** (mit www). Weitere Domains oder Aliase brauchen eine Änderung am
+  Vhost im Panel.
+- **Nicht in der Console**, das geht im Panel von CloudPanel durch weblion.one: PHP-Version
+  wechseln (der Sync zeigt danach die neue), PHP-Einstellungen, Vhost, Wurzelverzeichnis, weitere
+  SSH- oder FTP-Benutzer, Basic Auth, IP- und Bot-Sperren, Varnish, Cron-Jobs im Panel (Kunden
+  nutzen `crontab -e`).
+- **Sperren:** Ein gesperrter Kunde sieht seine Websites nur noch lesend, auf dem Server laufen sie
+  weiter, SFTP und SSH auch. Ebenso lassen ein abgeschaltetes Modul und eine aufgehobene Zuweisung
+  den Server unberührt. Websites stilllegen gibt es nicht.
+- **Abrechnung:** Kontingent und Dienst sind getrennt. Ein Dienst lässt sich wie ein Webspace mit
+  einer Website verknüpfen (dann lässt sie sich nicht löschen, solange er läuft), mehr nicht. Siehe
+  [Roadmap](roadmap.md).
+- **Fehlende DNS-Einträge** trägt die Console noch nicht selbst ein, auch wenn die Domain im Modul
+  "Domains & DNS" liegt.
+- **WordPress** installiert die Console nicht. Die Vorlage richtet nur den Webserver ein.
+- **Verbindung aus der `.env`:** feste Auswahl für Kunden (siehe oben).
+- **phpMyAdmin, Panel-Login für Kunden, SSH-Schlüssel verwalten, Umzug zwischen Servern** gibt es
+  nicht.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen einen echten CloudPanel-Server ist die Anbindung noch nicht getestet. Die Console ist gegen
+einen Fake-Transport und einen SSH-Server im Test geprüft, der Agent mit Python-Tests gegen
+nachgebaute Werkzeuge (`clpctl`, `chpasswd`, `mysql`, `dpkg-query`, ...) und eine SQLite-Datenbank
+mit dem Schema, das die Community-Werkzeuge lesen. Grundlage sind die Doku von CloudPanel, sein
+Issue-Tracker und Community-Code, der `clpctl` aufruft. Vor dem ersten echten Einsatz auf einem
+Test-Server prüfen:
+
+- `install.sh` auf Debian 12 und Ubuntu 24.04 mit CloudPanel 2.5.x, danach `weblion-clp selftest`
+- Website anlegen (PHP, statisch, Node.js), Passwort setzen, Datenbank anlegen und löschen,
+  Zertifikat ausstellen, Website löschen, je mit einem Blick in `weblion-clp status` und das Log
+- Übernehmen einer im Panel angelegten Site als root, danach Sync
+
+Ungeprüfte Annahmen über CloudPanel (Grundlage: Doku, Issues, Community-Code). Der Agent ist so
+gebaut, dass er bei den meisten auch dann richtig handelt, wenn sie falsch sind:
+
+1. **Exit-Codes von `clpctl`** bei Validierungsfehlern und internen Fehlern. Der Agent prüft das
+   Ergebnis in der Datenbank von CloudPanel, nicht den Exit-Code.
+2. Ob die Kommandozeile dieselben Fehlertexte mit dem Passwort im Klartext ausgibt wie das Panel
+   ("Command ... passwd -6 '...' failed"). Die Bereinigung entfernt sie so oder so.
+3. Ob `clpctl db:delete --force` so funktioniert (nicht in der Doku, nur in zwei
+   Community-Werkzeugen) und ob `db:delete` ohne `--force` fragt. Der Agent schliesst stdin, eine
+   Rückfrage scheitert also sofort statt zu hängen.
+4. Ob `clpctl site:delete` auch die Datenbanken und ihre Benutzer löscht, wie es das Panel sagt.
+   Der Agent räumt Reste auf, die er kennt.
+5. **Das Schema der SQLite-Datenbank** (nicht dokumentiert): die Werte von `certificate.type`, die
+   Zeitzone von `created_at` und `expires_at` (gelesen als UTC) und ob `site.user_password` das
+   Passwort im Klartext hält (der Agent liest die Spalte nie, ebenso nie die Tabelle `user`).
+6. Das Schreibfenster von `clp-agent`: Er schreibt jede Minute in die Datenbank und stirbt, wenn
+   gerade jemand liest (Issue #815, Sekunden 5 bis 6 laut vier Log-Zeilen). Der Agent liest nie
+   zwischen Sekunde 2 und 9 (`dbQuietSeconds` in `config.json`), kurz und nur lesend.
+7. **Wie Zertifikate verlängert werden**, seit die Befehle zum Verlängern aus `clpctl`
+   verschwunden sind (Issue #720), vermutlich durch `clp-agent`. Die Console zeigt das
+   Ablaufdatum und färbt es unter 30 Tagen gelb. Der Text "CloudPanel verlängert das Zertifikat
+   automatisch" auf der Detailseite gilt erst nach dieser Prüfung.
+8. Die installierten PHP-Versionen erkennt der Agent an `/usr/bin/phpX.Y` (sonst
+   `/etc/php/X.Y/fpm`), den MySQL-Client erwartet er unter `/usr/bin/mysql` (in `config.json`
+   änderbar).
+9. Welche Zeichen CloudPanel selbst in Datenbank-Namen, Datenbank-Benutzern und Site-Usern annimmt.
+   Die Muster der Console sind strenger, `_` in Datenbank-Namen ist angenommen (die Doku zeigt nur
+   `-`).
+10. Die Tabellen von `clpctl vhost-templates:list` (Spalten Name, Root Directory, Type) und
+    `clpctl db:show:master-credentials` (Zeilen Host, User Name, Password, Port), gelesen wie die
+    Community-Parser.
+11. Ob CloudPanel (Panel und `clp-agent`) mit `hidepid` auf `/proc` weiter läuft.
+12. Wie lange das Anlegen dauert, vor allem bei Node.js (CloudPanel lädt Node.js mit nvm herunter).
+13. Ob CloudPanel beim Anlegen etwas nach `~/.ssh/authorized_keys` kopiert. Der Agent leert die
+    Datei ohnehin.
+14. Was ssh2 bei einem abgelehnten Host-Schlüssel genau meldet: geprüft nur gegen den SSH-Server im
+    Test.
+
+### Demo
+
+Der Demo-Provider simuliert mit `ENABLE_DEMO_PROVIDER=true` und `ENABLE_DEMO_CLOUDPANEL=true` einen
+CloudPanel-Server ("Demo CloudPanel", `web1.demo.weblion.example`, 203.0.113.10 und 2001:db8::10)
+im Speicher, mit denselben Prüfungen und Fehlern wie der Agent. Den Server gibt es nicht, SFTP und
+"Website öffnen" führen ins Leere. Mit `pnpm db:seed`:
+
+- Muster AG hat ein Kontingent für 5 Websites und 10 Datenbanken (PHP, statisch, Node.js) und die
+  Websites `www.muster-ag.example` (WordPress, PHP 8.3, mit Datenbank), `shop.muster-ag.example`
+  (WooCommerce, Zertifikat läuft in 10 Tagen ab) und `api.muster-ag.example` (Node.js 22, kein
+  Zertifikat).
+- Alpen Hosting (Reseller) hat ein Kontingent für 20 Websites und 40 Datenbanken (PHP, statisch),
+  daraus Bäckerei Huber 3 und 5, mit der statischen Website `baeckerei-huber.example` (selbst
+  signiertes Zertifikat).
+- Nicht verwaltet: `cp.weblion.demo` (geschützt, wie die Console selbst) und
+  `legacy.kunde.example` (PHP 7.4), das sich im Admin-Bereich übernehmen lässt, weil Übernehmen aus
+  der Console im Demo an ist.
+- Der simulierte Server erlaubt Node.js, die Demo-Verbindung bietet es Kunden aber nicht an (ihre
+  Einstellungen kommen aus der Umgebung, wie bei einer Verbindung aus der `.env`). Node.js-Websites
+  legt weblion.one im Admin-Bereich an. Installiert sind PHP 8.5 bis 7.4, angeboten werden wie beim
+  echten Server 8.3 und 8.4.
+- Simuliertes DNS: verwaltete Websites zeigen auf den Server, Namen mit `nodns` haben keinen
+  Eintrag, Namen mit `elsewhere` zeigen auf 198.51.100.7. Eine Datenbank mit `fail` im Namen
+  scheitert, um den Hinweis beim Anlegen zu sehen.
+
+## 3CX (Telefonie)
+
+- API: die Configuration API von 3CX V20 ("XAPI"), ein OData-v4-Dienst unter `<Base URL>/xapi/v1`.
+  Die Console folgt der offiziellen OpenAPI-Beschreibung (`swagger.yaml`, 3CX 20.0.10.1479) und dem
+  offiziellen Tutorial-Repository von 3CX zur XAPI.
+- Anmeldung: OAuth2 Client Credentials. Die Console holt mit Client-ID und API-Schlüssel an
+  `POST <Base URL>/connect/token` ein Access-Token (Formular als `multipart/form-data`, wie im
+  Tutorial) und schickt es als `Authorization: Bearer <Token>`.
+- Lizenz: Die XAPI gibt es nur mit einer **3CX-Enterprise-Lizenz**. Lizenzen kaufen, verlängern oder
+  wechseln geht nicht über die Console. Sie zeigt Edition, Ablauf und gleichzeitige Gespräche nur
+  an.
+- Konfiguration: nur im Admin-Bereich unter Provider > Provider hinzufügen > 3CX, eine Verbindung
+  pro Telefonanlage. Variablen in der `.env` gibt es für 3CX nicht.
+- 3CX liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der Provider deshalb
+  nicht auf.
+
+### Was das Modul macht
+
+weblion.one betreibt 3CX-Telefonanlagen für Kunden. Das Modul **Telefonie** (`phone`) bringt sie in
+die Console:
+
+- **Telefonanlagen:** Jede 3CX-Verbindung liefert genau eine Telefonanlage. weblion.one weist sie
+  einem Kunden zu, ein Reseller gibt sie an seine Kunden weiter. Eine Organisation kann mehrere
+  Anlagen haben, z.B. eine pro Standort.
+- **Übersicht:** Status, Version, Edition, Lizenz und Updates bis wann, laufende und erlaubte
+  gleichzeitige Gespräche, Benutzer (mit Höchstzahl, wenn die Lizenz eine durchsetzt), angemeldete
+  Nebenstellen, registrierte Leitungen, Länge der Nebenstellennummern und der Link "3CX öffnen" zum
+  Webclient.
+- **Benutzer und Nebenstellen:** Kunden legen Benutzer an (mit der nächsten freien Nummer oder einer
+  eigenen), ändern Vorname, Nachname, E-Mail, Mobilnummer, ausgehende Rufnummer und Sprache, senden
+  die Willkommens-E-Mail der Anlage erneut und löschen Benutzer.
+- **Ringgruppen:** ansehen und Benutzer als Mitglieder hinzufügen oder entfernen.
+- **Leitungen:** die SIP-Leitungen zu Telefonanbietern mit Status und Problemen, nur lesend.
+
+In der Console unter dem Menüpunkt "Telefonie", sobald das Modul aktiv ist: eine Karte pro Anlage,
+jede mit den Tabs Übersicht, Benutzer, Ringgruppen und Leitungen. Das Dashboard der Organisation
+zeigt die Zahl der Anlagen.
+
+Gespeichert werden nur die Telefonanlagen mit ihren Fakten (Tabelle `phone_systems`). Benutzer,
+Ringgruppen und Leitungen liest die Console live bei der Anlage. Passwörter, PINs, SIP-Zugangsdaten,
+Provisioning-Links und den Lizenzschlüssel liest, setzt und zeigt sie nie.
+
+Wer darf was:
+
+| Wer                           | Darf                                                                                                                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner, Admin                  | Anlagen umbenennen, Benutzer anlegen, ändern, löschen, Ringgruppen ändern (`phone:write`), Willkommens-E-Mail senden und E-Mail-Adresse ändern (`phone:credentials`) |
+| Member, Nur lesen             | Anlagen, Benutzer, Ringgruppen und Leitungen ansehen (`phone:read`)                                                                                                  |
+| Eingeschränkt, Buchhaltung    | nichts, per Policy erweiterbar (Ressource `phone/<id>`, `org` oder `*`)                                                                                              |
+| API-Token "Lesen & Schreiben" | was die Person darf, der das Token gehört, aber ohne `phone:credentials`: Benutzer anlegen geht (auch mit Willkommens-E-Mail), erneut senden und E-Mail ändern nicht |
+| Mitarbeitende eines Resellers | im Panel seiner Kunden, was ihre Reseller-Rolle erlaubt, dazu Telefonanlagen aus dem eigenen Bestand an Kunden geben (`reseller:customer:write`)                     |
+| weblion.one Superadmin        | alles, dazu Anlagen zuweisen (`platform:server:assign`) und geschützte Benutzer löschen oder ihre E-Mail ändern (`platform:provider:write`)                          |
+| weblion.one Support           | alles ansehen, nichts ändern                                                                                                                                         |
+
+`phone:credentials` ist ein eigenes Recht, weil die Willkommens-E-Mail den Zugang zur Nebenstelle
+enthält (Webclient, App). Wer sie erneut sendet oder die Adresse ändert, an die sie geht, gibt die
+Nebenstelle weiter, ähnlich wie "Passwort neu setzen" bei Nextcloud. Mit dem Pfad `phone/<id>` lässt
+sich eine Person auf die Anlage eines Standorts beschränken. Benutzer, Ringgruppen und Leitungen
+haben keinen eigenen Pfad.
+
+**Geschützte Benutzer:** Administratoren der Anlage (Rollen `system_owners` und `system_admins`),
+Systembenutzer (Fax-Server, Weckdienst, Service Principal, KI-Agent) und Benutzer, deren Rolle die
+Anlage nicht meldet: Nur weblion.one löscht sie oder ändert ihre E-Mail-Adresse. Kunden sehen sie
+mit einem Hinweis.
+
+Den Produktcode von 3CX sieht nur weblion.one, Kunden sehen Edition, Lizenz und gleichzeitige
+Gespräche.
+
+### Voraussetzungen
+
+1. **3CX V20 mit Enterprise-Lizenz**, erreichbar unter `https://` mit einem gültigen, öffentlichen
+   Zertifikat, z.B. `https://muster.3cx.ch` oder `https://pbx.kunde.ch:5001`. Einen Schalter "TLS
+   nicht prüfen" gibt es nicht, Anlagen mit privatem Zertifikat gehen also nicht. Weiterleitungen
+   folgt die Console nicht, damit Schlüssel und Token nie an einen anderen Host gehen.
+2. **Ein eigener API-Client nur für weblion.one.** In der Admin-Konsole der 3CX unter
+   Integrationen > API > Hinzufügen:
+   - eine Client-ID wählen, z.B. `weblion` (Buchstaben, Ziffern, Punkt, Binde- und Unterstrich,
+     höchstens 64 Zeichen). Die Client-ID belegt einen Eintrag im Nummernraum der Anlage.
+   - "XAPI Access Enabled" einschalten
+   - die Standardgruppe und die Rolle **System Admin** wählen (System Owner geht auch). Mit einer
+     Rolle, die nur eine Gruppe sieht, fehlen vermutlich Benutzer (nicht geprüft). Darf die Rolle
+     einen Bereich gar nicht lesen, sagt "Verbindung testen", welchen.
+   - den API-Schlüssel kopieren. 3CX zeigt ihn nur einmal.
+
+   Den API-Client in keinem anderen Programm verwenden: 3CX lässt pro Client nur ein gültiges Token
+   zu, ein neues Token macht das vorherige ungültig. Zwei Programme mit demselben Client nehmen sich
+   das Token bei jeder Anfrage gegenseitig weg.
+
+3. **Ein API-Prozess der Console.** Aus demselben Grund hält die Console pro Anlage ein Token im
+   Speicher des Prozesses. Laufen mehrere API-Prozesse, holen sie sich das Token reihum weg. Die
+   Installation mit Docker Compose hat einen Prozess, siehe
+   [deployment.md](deployment.md#3cx-für-telefonie).
+4. **E-Mail-Versand in der 3CX.** Die Willkommens-E-Mail verschickt die Anlage selbst, nicht die
+   Console. Ohne funktionierenden Mailserver in der 3CX kommt sie nicht an.
+5. **Sperren nach Fehlversuchen:** 3CX sperrt IPs nach fehlgeschlagenen Anmeldungen. Ob das auch für
+   `/connect/token` gilt, ist nicht geprüft. Nach einer abgelehnten Anmeldung versucht es die
+   Console deshalb 60 Sekunden lang nicht wieder, auch der Sync nicht. Ein falscher Schlüssel ergibt
+   so höchstens eine abgelehnte Anmeldung pro Minute.
+
+### Konfiguration
+
+Admin > Provider > Provider hinzufügen, Typ 3CX:
+
+- **Adresse der Telefonanlage:** `https://` mit Port, falls nicht 443, ohne Pfad. `/xapi/v1` hängt
+  die Console selbst an. Unter dieser Adresse öffnen auch die Kunden den Webclient.
+- **Client-ID** des API-Clients
+- **API-Schlüssel** (mindestens 8 Zeichen). Beim Bearbeiten behält ein leeres Feld den
+  gespeicherten. Vom Schlüssel zeigt die Console kein Zeichen, er verwaltet die ganze Anlage.
+
+"Verbindung testen" meldet sich an und liest nacheinander Systemparameter, Systemstatus, Benutzer,
+Ringgruppen und Leitungen. Fehlt der Rolle ein Bereich (HTTP 403), nennt die Meldung ihn. Das
+Ergebnis zeigt Version, FQDN, Edition, Zahl der Benutzer, Nummernlänge und ob die Lizenz aktiv ist.
+Antwortet die Anlage ohne JSON (z.B. mit ihrer Weboberfläche), ist die XAPI nicht verfügbar:
+Adresse, Enterprise-Lizenz und "XAPI Access Enabled" prüfen.
+
+Die Seite des Providers zeigt Version, FQDN, Edition mit Produktcode, Lizenz und Updates bis,
+gleichzeitige Gespräche, Benutzer, angemeldete Nebenstellen, registrierte Leitungen, Nummernlänge
+und den Webclient, dazu einen Link auf die Seite "Telefonanlagen".
+
+### Mehrere Anlagen
+
+- Jede Telefonanlage ist ein eigener Provider vom Typ 3CX. Die zehnte legt man an wie die erste.
+  Token, Zwischenspeicher und Anfrage-Slots gehören zur Verbindung, zwei Anlagen teilen nie etwas.
+- Eine Anlage gehört genau einer Organisation, jede 3CX ist also "dediziert". Eine 3CX im
+  Multi-Company-Modus für mehrere Kunden unterstützt die Console nicht.
+- Eine Organisation kann beliebig viele Anlagen haben, z.B. Zürich und Bern. Nichts in der Console
+  geht von "der" Anlage eines Kunden aus.
+- Die Anlage heisst zuerst wie ihr FQDN. Kunden (`phone:write`) und weblion.one benennen sie in der
+  Console um, z.B. in "Zürich". Das ändert an der 3CX nichts, danach folgt der Name dem FQDN nicht
+  mehr.
+- Eine neue Adresse im Formular behält Zeile und Zuweisung (die Anlage hat immer die ID `pbx`).
+  Zieht ein Kunde auf eine neue 3CX um, legt weblion.one dafür eine neue Verbindung an, weist deren
+  Anlage dem Kunden zu und löst die alte.
+- Ein Provider lässt sich nicht löschen, solange seine Anlage einem Kunden zugewiesen ist.
+
+### Zuweisen
+
+Admin > Telefonanlagen: alle Anlagen aller 3CX-Verbindungen mit Status, Version, Edition, Lizenz,
+Benutzern und Leitungen, Filter nach Verbindung, Zuweisung und Kunde, Suche nach Name, Adresse oder
+ID. "Zuweisen" (`platform:server:assign`) gibt eine Anlage einem Kunden und schaltet bei ihm das
+Modul "Telefonie" ein. Bei einem Kunden eines Resellers geht das nur, wenn der Reseller das Modul
+hat (sonst 409). "Zuweisung entfernen" ändert an der Anlage und ihren Benutzern nichts. Im Audit-Log
+stehen `phone.system_assign` und `phone.system_unassign`. Per API nur mit Login:
+`POST /api/v1/admin/phone-systems/<id>/assign` mit `{"orgId": "<org-id>", "enableModule": true}`,
+`{"orgId": null}` löst die Zuweisung.
+
+Reseller geben eine Anlage aus ihrem Bestand unter Reseller > Meine Kunden > Kunde > Ressourcen an
+einen Kunden weiter und nehmen sie zurück. Der Reseller braucht dafür das Modul, der Kunde bekommt
+es. Per API: `POST /api/v1/orgs/<reseller-id>/customers/<customer-id>/resources` mit
+`{"type": "phone_system", "id": "<id>"}`, zurück mit `.../resources/release`. Ein Kunde mit
+Telefonanlagen lässt sich nicht löschen.
+
+### Benutzer und Nebenstellen
+
+Telefonie > Anlage > Benutzer zeigt Nebenstelle, Name, E-Mail, Mobilnummer, ausgehende Rufnummer,
+Rolle und ob ein Gerät angemeldet ist. "Benutzer anlegen":
+
+- **Nebenstelle:** Die Länge kommt aus der Einstellung `ENL` der Anlage, z.B. 3 Ziffern. Meldet die
+  Anlage keine, gelten 2 bis 10 Ziffern. Der Dialog schlägt die nächste freie Nummer der Anlage vor.
+  Bleibt das Feld leer, wählt die Anlage selbst. Die Nummer lässt sich später nicht ändern, wer eine
+  andere will, löscht den Benutzer und legt ihn neu an.
+- **Vorname** (Pflicht) und **Nachname**, je höchstens 50 Zeichen
+- **E-Mail** (Pflicht): An diese Adresse schickt die Anlage die Zugangsdaten.
+- **Mobilnummer** und **ausgehende Rufnummer** (die Nummer, die Angerufene sehen, leer: die
+  Einstellung der Leitung): Ziffern, optional mit führendem `+`, 3 bis 20 Stellen. Leerzeichen,
+  Punkte, Binde- und Schrägstriche und Klammern entfernt die Console.
+- **Sprache:** Deutsch, Englisch, Französisch, Italienisch oder der Standard der Anlage
+- **Willkommens-E-Mail senden** (Standard an)
+
+Vorher prüft die Console die Länge und ob ein Benutzer die Nummer schon hat. Nummern teilen sich
+aber einen Nummernraum mit Ringgruppen, Warteschlangen, Zentralen, Leitungen und dem API-Client: Die
+Antwort der Anlage gilt (409, wenn die Nummer vergeben ist). Erzwingt die Lizenz eine Höchstzahl an
+Benutzern und ist sie erreicht, antwortet die Console mit 409 `phone_user_limit`. 3CX lizenziert
+sonst nach gleichzeitigen Gesprächen, nicht nach Benutzern.
+
+Scheitert nur die Willkommens-E-Mail, ist der Benutzer trotzdem angelegt. Die Antwort sagt das
+(`welcomeSent: false`, `welcomeError`), und im Audit-Log steht `phone.user_welcome` mit
+`status: failure`. Per API:
+
+```bash
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"firstName":"Anna","lastName":"Muster","email":"anna@muster.ch","sendWelcome":true}' \
+  https://cp.weblion.cloud/api/v1/phone-systems/<id>/users
+```
+
+Die Antwort ist `{ "user": { ... }, "welcomeSent": true, "welcomeError": null }`. Ein Token darf die
+Willkommens-E-Mail beim Anlegen auslösen, wie eine Einladung bei Nextcloud: Sie geht an die Adresse,
+die es selbst angibt.
+
+**Ändern:** Die Console schickt nur Felder, die sich wirklich ändern, ein leeres Feld löscht den
+Wert. Eine neue E-Mail-Adresse braucht `phone:credentials` und einen Login. Im Audit-Log steht
+`phone.user_update` mit altem und neuem Wert. Per API:
+`PATCH /api/v1/phone-systems/<id>/users/<userId>` mit z.B. `{"mobile": "+41791234567"}`.
+
+**Willkommens-E-Mail erneut senden** (`phone:credentials`, nur mit Login, nie per API-Token): Die
+Anlage schickt die Zugangsdaten noch einmal an die Adresse des Benutzers. Ohne Adresse 400. Im
+Audit-Log steht `phone.user_welcome`. Per API mit Session:
+`POST /api/v1/phone-systems/<id>/users/<userId>/welcome`.
+
+**Löschen** verlangt die Nebenstellennummer als Bestätigung. Die Nebenstelle verschwindet mit ihren
+Einstellungen, auch aus den Ringgruppen. Ob Voicemails, Aufnahmen und Ansagen bleiben, hängt von der
+3CX ab. Benutzer, die die 3CX nicht löschen lässt (z.B. den Fax-Server), lehnt sie mit 409 ab. Im
+Audit-Log steht `phone.user_delete`. Per API: `DELETE /api/v1/phone-systems/<id>/users/<userId>` mit
+`{"confirm": "<Nebenstelle>"}`.
+
+Rollen, Gruppen (Abteilungen), Weiterleitungen und Passwörter der Benutzer ändert die Console nie.
+Neue Benutzer landen vermutlich in der Standardgruppe der Anlage mit deren Standardrolle (siehe
+Offene Punkte).
+
+### Ringgruppen und Leitungen
+
+**Ringgruppen** zeigen Nummer, Name, Strategie (der Reihe nach, alle gleichzeitig, Durchsage),
+Klingeldauer und die Mitglieder in ihrer Reihenfolge. "Mitglied hinzufügen" nimmt nur Benutzer der
+Anlage (sonst 400) und hängt sie ans Ende, ein bestehendes Mitglied bleibt, wie es ist. Die XAPI
+ersetzt die Mitgliederliste immer als Ganzes: Die Console liest die Gruppe direkt vor dem Schreiben
+und ändert pro Gruppe eins nach dem anderen. Was jemand zwischen Lesen und Schreiben im
+3CX-Webclient an derselben Gruppe ändert, geht verloren. Neue Ringgruppen, Strategien und Zeiten
+richtet man im Webclient ein. Im Audit-Log stehen `phone.ring_group_member_add` und
+`phone.ring_group_member_remove`. Per API:
+`POST /api/v1/phone-systems/<id>/ring-groups/<groupId>/members` mit `{"number": "101"}`,
+`DELETE .../members/101`.
+
+**Leitungen** sind nur lesbar: Nummer, Name des Anbieters, Host, online oder offline, Richtung,
+externe Nummer, gleichzeitige Gespräche, Zahl der Durchwahlen und das Problem, das die Anlage
+meldet. SIP-Zugangsdaten liest die Console nicht. Leitungen ändert weblion.one in der 3CX.
+
+### Sync
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) und Anlage: der Systemstatus und alle 10 Minuten die
+  Systemparameter, dazu ein Token, wenn das alte abgelaufen ist. Benutzer, Ringgruppen und Leitungen
+  synchronisiert die Console nicht.
+- Daraus entsteht der Status: **Fehler**, wenn die Anlage nicht erreichbar, nicht aktiviert oder die
+  Lizenz inaktiv oder abgelaufen ist. **Warnung**, wenn die Lizenz in weniger als 30 Tagen abläuft,
+  Updates und Support abgelaufen sind, Dienste der Anlage nicht laufen, eine Leitung nicht
+  registriert ist oder die Benutzergrenze erreicht ist.
+- Eine neue Anlage ist nicht zugewiesen. Ist die Anlage nicht erreichbar, behält sie ihre Fakten,
+  ihr Status wird "Fehler" (nicht erreichbar), und der Provider bekommt den Fehler. Eine Anlage, die
+  die Verbindung nicht mehr meldet, gilt als "nicht mehr gefunden" und behält ihren Kunden.
+- Die Seite einer Anlage liest die Fakten live (höchstens 30 Sekunden alt) und speichert sie. Klappt
+  das nicht, zeigt sie die gespeicherten mit einem Hinweis.
+- Von Hand: Admin > Telefonanlagen > Synchronisieren, oder Admin > Provider > 3CX > "Jetzt
+  synchronisieren".
+
+Live-Daten hält die Console kurz im Speicher, damit viele Leute auf der Seite die Anlage nicht
+überlasten: Benutzer 20 Sekunden, Ringgruppen und Systemstatus 30 Sekunden, Leitungen 60 Sekunden,
+Systemparameter 10 Minuten. Änderungen über die Console leeren den betroffenen Speicher, Änderungen
+direkt in der 3CX erscheinen nach dieser Zeit. Pro Anlage laufen höchstens vier Anfragen
+gleichzeitig, jede mit 20 Sekunden Timeout (Token 15 Sekunden). Ein 401 holt einmal ein neues Token,
+ein 429 mit `Retry-After` bis 5 Sekunden wird einmal wiederholt.
+
+### Was die Console nutzt
+
+Pfade relativ zu `/xapi/v1`, ausser dem Token.
+
+| Funktion in der Console | Endpunkt                                                                                                              | Berechtigung                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Anmeldung               | `POST <Base URL>/connect/token` mit `client_id`, `client_secret`, `grant_type=client_credentials`                     | intern                                                               |
+| Verbindungstest         | `GET /Defs/Pbx.GetSystemParameters()`, `GET /SystemStatus`, je ein Eintrag von `GET /Users`, `/RingGroups`, `/Trunks` | Admin-Bereich                                                        |
+| Fakten, Sync, Übersicht | `GET /SystemStatus?$select=...`, `GET /Defs/Pbx.GetSystemParameters()`                                                | Sync-Job, `phone:read`                                               |
+| Benutzer ansehen        | `GET /Users?$select=...&$expand=Groups(...)&$orderby=Number&$top=100&$skip=…&$count=true`, `GET /Users(<id>)`         | `phone:read`                                                         |
+| Nächste freie Nummer    | `GET /Users/Pbx.GetFirstAvailableExtensionNumber()`                                                                   | `phone:write`                                                        |
+| Benutzer anlegen        | `GET /Users(Number='<Nummer>')` (vergeben?), `POST /Users`                                                            | `phone:write`                                                        |
+| Benutzer ändern         | `PATCH /Users(<id>)` nur mit den geänderten Feldern                                                                   | `phone:write`, E-Mail mit `phone:credentials`                        |
+| Benutzer löschen        | `DELETE /Users(<id>)`                                                                                                 | `phone:write`                                                        |
+| Willkommens-E-Mail      | `POST /Users(<id>)/Pbx.SendWelcomeEmail`                                                                              | beim Anlegen `phone:write`, sonst `phone:credentials`, nur mit Login |
+| Ringgruppen             | `GET /RingGroups?$select=...&$expand=Members`, `GET /RingGroups(<id>)`                                                | `phone:read`                                                         |
+| Mitglieder ändern       | `PATCH /RingGroups(<id>)` mit der ganzen Liste `{"Members": [{"Number": "100"}, ...]}`                                | `phone:write`                                                        |
+| Leitungen               | `GET /Trunks?$select=...`                                                                                             | `phone:read`                                                         |
+| API Explorer            | Pfade unter `/xapi/v1` ausser Token und API-Client der Console                                                        | `platform:explorer`, nur mit Login                                   |
+
+`$select` ist hier eine Sicherheitsgrenze: Ohne ihn liefert die XAPI SIP-Passwörter, das Passwort
+für den Webclient, die Voicemail-PIN und den Lizenzschlüssel mit. Jede Anfrage der Console nennt
+ihre Felder deshalb einzeln, und aus der Antwort auf `POST /Users`, die den ganzen neuen Benutzer
+enthält, liest sie nur `Id` und `Number`. Listen liest sie in Seiten zu 100 mit `$count=true`,
+sortiert nach Nummer (die XAPI hat keine Folgelinks), und bricht ab, wenn die Anlage `$skip`
+ignoriert. Die Rolle eines Benutzers kommt über ein verschachteltes `$expand`. Lehnt die Anlage das
+ab (400), liest die Console ohne Rollen weiter, alle Benutzer gelten dann als geschützt.
+
+Die Felder stammen aus der Beschreibung von 3CX 20.0.10. Ältere Builds von V20 kennen manche davon
+nicht (z.B. `HasNotRunningServices`, `Tags`) und antworten mit 400. Dann die Anlage aktualisieren.
+
+### Fehler der API
+
+Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
+Telefonie:
+
+| HTTP | `code`             | Wann                                                                                                                                                                                                                                                                                           |
+| ---- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `bad_request`      | Ungültige Eingabe (`details` nennt das Feld), Nebenstelle mit falscher Länge, Löschen ohne die Nebenstelle als Bestätigung, Willkommens-E-Mail ohne Adresse, Mitglied einer Ringgruppe, das kein Benutzer ist, Werte, die die Anlage ablehnt (`3CX: ...`, `details` mit Feld und Code von 3CX) |
+| 403  | `forbidden`        | Recht fehlt, Kunde gesperrt (nur lesen), Willkommens-E-Mail oder neue E-Mail-Adresse mit API-Token, geschützter Benutzer für Kunden                                                                                                                                                            |
+| 404  | `not_found`        | Anlage oder Organisation gibt es nicht oder die Person sieht sie nicht (auch bei abgeschaltetem Modul), Nebenstelle ist kein Mitglied der Ringgruppe                                                                                                                                           |
+| 404  | `provider_error`   | Die Anlage kennt den Benutzer oder die Ringgruppe nicht (mehr)                                                                                                                                                                                                                                 |
+| 409  | `conflict`         | Nebenstelle vergeben, die Anlage lässt einen Benutzer nicht löschen (z.B. den Fax-Server), Reseller ohne Modul, Kunde oder Provider löschen, solange Anlagen zugewiesen sind                                                                                                                   |
+| 409  | `phone_user_limit` | Die Lizenz erlaubt keine weiteren Benutzer                                                                                                                                                                                                                                                     |
+| 422  | `unsupported`      | Der Provider kann die Funktion nicht                                                                                                                                                                                                                                                           |
+| 502  | `provider_error`   | Die Anlage hat abgelehnt oder war nicht erreichbar, `message` mit dem Text von 3CX, HTTP-Status und Hinweisen zu Anmeldung und Rolle                                                                                                                                                           |
+
+Jede Änderung steht im Audit-Log, gescheiterte mit `status: failure` und der Meldung. Passwörter und
+PINs stehen nie darin.
+
+### API Explorer
+
+Für alles ohne eigenen Button: Admin > API Explorer, Provider 3CX wählen.
+
+- Pfade relativ zu `/xapi/v1`, z.B. `/Users?$select=Id,Number,FirstName&$top=10` oder
+  `/SystemStatus`. Base URL und `/xapi/v1` davor sind erlaubt. Vorlagen: Systemstatus,
+  Systemparameter, Benutzer, nächste freie Nebenstelle, Ringgruppen, Leitungen, laufende Gespräche.
+- GET und DELETE senden das JSON-Feld als Query (Listen mit Komma), POST und PATCH als JSON. PUT
+  lehnt die Console ab, 3CX ändert mit PATCH.
+- Gesperrt sind `..`, `//`, `\`, `@`, `#` und kodierte Punkte oder Schrägstriche, der
+  Token-Endpunkt, `Pbx.GenerateAppToken`, `Pbx.APIToken` und Änderungen an `ServicePrincipals` (der
+  API-Client der Console selbst).
+- In Antworten sind Passwörter, Secrets, Tokens, Tickets, der Lizenzschlüssel, PINs, `AuthID` und
+  Provisioning-Links ausgeblendet. Token und API-Schlüssel der Console stehen nie darin.
+- Ändernde Requests stehen mit Pfad und Body im Audit-Log (`provider.explorer`), Werte von `AuthID`,
+  `AuthPassword`, `VMPIN`, Lizenzschlüssel, Tickets und Provisioning-Links ausgeblendet.
+- Was über den Explorer geändert wird, prüft die Console nicht (z.B. geschützte Benutzer). Die
+  Anlage setzt ihre eigenen Regeln trotzdem durch.
+
+### Grenzen
+
+- **Sperren:** Ein gesperrter Kunde sieht seine Anlagen in der Console nur noch lesend. Die Anlage
+  läuft weiter, die Leute telefonieren weiter. Ebenso lassen ein abgeschaltetes Modul und eine
+  gelöste Zuweisung die Anlage unberührt.
+- **Abrechnung:** Eine Telefonanlage lässt sich noch nicht mit einem Dienst verknüpfen. Die Anlage
+  wird mit einem Dienst ohne Ressource abgerechnet, siehe [Roadmap](roadmap.md#telefonie-3cx).
+- **Lizenzen** kauft und verlängert weblion.one ausserhalb der Console.
+- **Nicht in der Console**, das geht im 3CX-Webclient: Benutzer aktivieren und deaktivieren, Rollen
+  und Abteilungen, Weiterleitungen und Profile, Warteschlangen, digitale Rezeption, eingehende
+  Regeln und Durchwahlen, Leitungen einrichten, neue Ringgruppen, Anrufliste, Aufnahmen, Telefone
+  provisionieren.
+- **Ein API-Prozess** wegen des einen Tokens pro API-Client (siehe Voraussetzungen).
+- **Kein privates Zertifikat** und kein Multi-Company-Modus (eine Anlage für mehrere Kunden)
+- **Nebenstellennummern** lassen sich nicht ändern, nur löschen und neu anlegen.
+- **Keine Benachrichtigung**, wenn eine Anlage ausfällt oder die Lizenz bald abläuft. Die Liste im
+  Admin-Bereich zeigt es.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen eine echte 3CX ist die Anbindung noch nicht getestet, nur gegen einen Mock-Server nach der
+offiziellen OpenAPI-Beschreibung der XAPI (3CX 20.0.10.1479) und dem offiziellen Tutorial-Repository
+von 3CX. Vor dem ersten Kunden mit einer 3CX V20 (Enterprise-Testlizenz) prüfen, jeweils mit der
+Annahme, nach der die Console heute arbeitet:
+
+1. Ob `/connect/token` auch `application/x-www-form-urlencoded` annimmt. Die Console schickt
+   `multipart/form-data` wie das Tutorial.
+2. Wie lange ein Token gilt (`expires_in`). Die Console nutzt es bis 60 Sekunden vor Ablauf.
+3. Mit welchem HTTP-Status 3CX eine abgelehnte Anmeldung (400 oder 401) und ein abgelaufenes Token
+   (401) meldet. Die Console wertet jeden 4xx beim Token als Ablehnung und holt bei 401 einmal ein
+   neues Token.
+4. Ob die Anlage Seiten begrenzt oder `@odata.nextLink` schickt. Die Console blättert mit `$count`.
+5. Wo die Codes `WARNINGS.*` in Fehlern stehen (`code`, `message` oder `details`) und welcher
+   HTTP-Status zu welchem Fehler gehört. Die Console sucht überall.
+6. Die Namen der Rollen (`system_owners`, `system_admins`, ...) und welche Rolle für welche Anfrage
+   mindestens nötig ist. Die Console verlangt System Admin für alles.
+7. Ob das verschachtelte `$expand=Groups($select=GroupId;$expand=Rights($select=RoleName))` geht.
+   Ohne liest die Console keine Rollen (alle Benutzer geschützt).
+8. Ob `PATCH /RingGroups(<id>)` mit `Members` die Liste ersetzt und `{ "Number": ... }` pro Mitglied
+   reicht
+9. Ob `ENL` die Zahl der Ziffern von Benutzer-Nebenstellen ist, und was `ENLRange` bedeutet (die
+   Console ignoriert es)
+10. Ob `POST /Users` ohne `Number` die nächste freie Nummer vergibt
+11. Ob `GET /Users(Number='<n>')` für eine freie Nummer mit 404 antwortet
+12. Ob `POST /Users` die Willkommens-E-Mail schon selbst verschickt. Dann bekämen neue Benutzer
+    zwei.
+13. Was die Willkommens-E-Mail enthält (Passwort oder Link zum Setzen)
+14. Ob `null` in einem PATCH ein Feld leert (3CX kennt `WARNINGS.XAPI.CAN_NOT_BE_EMPTY_STRING`)
+15. Das Format der Sprache eines Benutzers. Die Console schickt `de`, `en`, `fr` oder `it`.
+16. Die Zuordnung der Edition: weder `IsEnterprise` noch `IsProfessional` gilt als Standard.
+17. Ob `MaxUserExtensions` nur mit `IsExtensionLimitEnforcementEnabled` eine Grenze ist
+18. Der Code, mit dem 3CX einen weiteren Benutzer über der Grenze ablehnt (angenommen
+    `WARNINGS.LIMIT_REACHED`)
+19. Was mit Voicemails, Aufnahmen und Ansagen eines gelöschten Benutzers passiert
+20. Die Adresse des Webclients, `https://<Adresse>/webclient/` (Link "3CX öffnen")
+21. Ob die XAPI Anfragen bremst und mit 429 antwortet
+22. Ob die Sperre nach Fehlversuchen auch `/connect/token` betrifft
+23. Was eine Anlage ohne Enterprise-Lizenz auf `/connect/token` und `/xapi/v1` antwortet
+24. Ob neue Benutzer ohne `Groups` in der Standardgruppe mit der Rolle `users` landen
+25. Ob `/Users` Service Principals (den API-Client der Console) enthält
+
+### Demo
+
+Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert drei Telefonanlagen im Speicher, mit
+denselben Prüfungen wie die echte Anbindung (Nummernlänge, vergebene Nummern, Benutzergrenze,
+Fax-Server). Die Adressen `pbx-zuerich.demo.weblion.one` usw. gibt es nicht, "3CX öffnen" führt ins
+Leere. Mit `pnpm db:seed`:
+
+- Muster AG hat das Modul und zwei Anlagen: **Zürich** (Enterprise, 16 Gespräche, dreistellige
+  Nummern, Benutzer 100 bis 105 mit Anna als System Owner und einem Fax-Benutzer, Ringgruppen 800
+  Zentrale und 801 Support, zwei Leitungen) und **Bern** (Professional, 8 Gespräche, die Leitung
+  "Peoplefone Bern" ist offline mit "Registration failed: 403 Forbidden", also Status Warnung).
+- **Lab** (`pbx-lab.demo.weblion.one`) ist keinem Kunden zugewiesen, zum Ausprobieren im
+  Admin-Bereich: Standard, vierstellige Nummern, die Lizenz läuft in 10 Tagen ab, und sie erlaubt 10
+  Benutzer, von denen 9 bestehen.
+
+## Uptime Kuma (Monitoring)
+
+- Lesen: der Prometheus-Endpunkt `GET <Base URL>/metrics` von Uptime Kuma mit einem API-Schlüssel
+  (HTTP Basic, der Schlüssel ist das Passwort) und die öffentlichen Statusseiten
+  (`/api/status-page/<slug>` und `/api/status-page/heartbeat/<slug>`) ohne Anmeldung. Das ist die
+  dokumentierte Oberfläche von Uptime Kuma, sie ändert sich mit Updates kaum.
+- Verwalten: Eine REST-API für Monitore hat Uptime Kuma nicht. Anlegen, ändern, pausieren,
+  fortsetzen, löschen, die langen Verläufe und die Konfiguration laufen deshalb über die
+  Socket.IO-Events der Weboberfläche von Uptime Kuma, und nur, wenn weblion.one die Instanz für die
+  Verwaltung angemeldet hat. Diese Events sind nicht als API dokumentiert und können sich mit jedem
+  Update ändern (siehe unten).
+- Version: **Uptime Kuma 2.x**, ab 2.1 mit Uptime und durchschnittlicher Antwortzeit in `/metrics`.
+  Die Console folgt dem Quellcode von 2.5.6 (für Unterschiede 2.0.0 und 1.23).
+- Konfiguration: `UPTIMEKUMA_URL` und `UPTIMEKUMA_API_KEY` (optional `UPTIMEKUMA_SESSION_TOKEN`) in
+  der `.env` oder im Admin-Bereich unter Provider > Provider hinzufügen > Uptime Kuma
+- Uptime Kuma liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der Provider
+  deshalb nicht auf.
+
+### Was das Modul macht
+
+weblion.one betreibt Uptime Kuma und überwacht damit Websites und Dienste von Kunden. Das Modul
+**Monitoring** (`monitoring`) bringt das in die Console:
+
+- **Monitore pro Kunde:** Der Sync holt alle Monitore einer Instanz. weblion.one weist sie Kunden
+  zu, ein Reseller gibt sie an seine Kunden weiter.
+- **Status und Zahlen:** Kunden sehen Status (erreichbar, ausgefallen, ausstehend, Wartung,
+  pausiert), Uptime über 24 Stunden und 30 Tage, aktuelle und durchschnittliche Antwortzeit und wie
+  lange das Zertifikat noch gilt.
+- **Verlauf:** Die Detailseite zeigt ein Diagramm der Antwortzeit über 24 Stunden, 7 und 30 Tage
+  (mit Verwaltung) oder die letzten 100 Prüfungen (für Monitore auf der Statusseite des Kunden),
+  dazu mit Verwaltung die letzten Statuswechsel mit der Meldung von Uptime Kuma und die
+  Konfiguration.
+- **Eigene Monitore:** Mit einem Kontingent auf einer angemeldeten Instanz legen Kunden selbst
+  Monitore an (HTTP(S), Keyword, Ping, Port), ändern, pausieren, setzen sie fort und löschen sie.
+- **Statusseite:** Ist eine Statusseite von Uptime Kuma mit der Organisation verknüpft, verlinkt die
+  Console sie.
+- **Auf Server- und Domain-Seiten:** Monitore derselben Organisation, die eine Adresse oder den
+  rDNS-Namen eines Servers bzw. die Domain oder eine Subdomain prüfen, erscheinen dort mit ihrem
+  Status (nur exakte Namen, keine DNS-Abfrage, ausgefallene zuerst, höchstens 20).
+
+In der Console unter dem Menüpunkt "Monitoring", sobald das Modul aktiv ist. Gespeichert werden die
+Monitore mit Typ, Ziel, Intervall und den letzten Zahlen (Tabelle `monitors`), die Kontingente
+(`monitor_allowances`) und die Verknüpfungen der Statusseiten (`monitor_status_pages`). Verläufe,
+Statuswechsel und die Konfiguration liest die Console live. Geheimnisse der Monitore (Passwörter für
+Basic Auth, Header, Bodys, Tokens) liest sie zwar mit der Konfiguration, behält sie aber nie und
+zeigt sie nirgends.
+
+Wer darf was:
+
+| Wer                           | Darf                                                                                                                                                                               |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner, Admin                  | eigene Monitore anlegen, ändern, pausieren, fortsetzen (`monitor:write`) und löschen (`monitor:delete`)                                                                            |
+| Member                        | ansehen, eigene Monitore anlegen, ändern, pausieren und fortsetzen, nicht löschen                                                                                                  |
+| Nur lesen                     | Monitore, Status, Uptime und Verlauf ansehen (`monitor:read`)                                                                                                                      |
+| Eingeschränkt, Buchhaltung    | nichts, per Policy erweiterbar (Ressource `monitor/<id>`, Anlegen braucht `org` oder `*`)                                                                                          |
+| API-Token "Lesen & Schreiben" | was die Person darf, der das Token gehört. In diesem Modul gibt es keine Geheimnisse, also keine Ausnahme                                                                          |
+| Mitarbeitende eines Resellers | im Panel seiner Kunden, was ihre Reseller-Rolle erlaubt, dazu Monitore aus dem eigenen Bestand weitergeben und Kunden einen Teil des Kontingents geben (`reseller:customer:write`) |
+| weblion.one Superadmin        | alles, dazu Monitore zuweisen (`platform:server:assign`), Kontingente und Statusseiten (`platform:org:write`), die Anmeldung für die Verwaltung (`platform:provider:write`)        |
+| weblion.one Support           | alles ansehen, nichts ändern                                                                                                                                                       |
+
+Ändern lassen sich nur Monitore, die in der Console angelegt wurden (Herkunft "Console"). Monitore,
+die weblion.one in Uptime Kuma angelegt hat (Herkunft "Uptime Kuma"), sind für alle nur lesbar (409
+`read_only_monitor`). Löschen lassen sie sich in der Console erst, wenn Uptime Kuma sie nicht mehr
+meldet, und dann nur aus der Console.
+
+### Voraussetzungen
+
+1. **Eigene Instanz von Uptime Kuma 2.x**, am besten auf einer eigenen kleinen VM, nicht auf dem
+   Server der Console: Die Monitore der Kunden laufen von dort aus. Für Uptime und
+   Durchschnittswerte in `/metrics` 2.1 oder neuer. Uptime Kuma 1.23 lehnt die Console ab
+   (`/metrics` hat dort keine Monitor-IDs). Mit Uptime Kuma 3.x (Beta) funktioniert das Lesen, die
+   Verwaltung nicht (die Anmeldung über den Socket gibt es dort nicht mehr).
+2. **Erreichbarkeit:** Die Console braucht `/metrics` und die Statusseiten über HTTP(S), für die
+   Verwaltung zusätzlich einen Websocket auf `/socket.io/`. Ein Reverse Proxy vor Uptime Kuma darf
+   `/metrics` nicht sperren und muss Websockets durchlassen (das braucht die Weboberfläche von
+   Uptime Kuma ohnehin). Uptime Kuma läuft ohne Pfad, die Base URL ist also nur die Adresse, z.B.
+   `https://status.weblion.one`. Weiterleitungen folgt die Console nicht. `http://` geht, dann aber
+   nur in einem privaten Netz: Schlüssel und Token gingen sonst unverschlüsselt über das Netz.
+3. **API-Schlüssel:** In Uptime Kuma unter Einstellungen > API-Schlüssel einen Schlüssel **ohne
+   Ablaufdatum** nur für weblion.one anlegen und kopieren (Uptime Kuma zeigt ihn einmal, er sieht
+   aus wie `uk3_…`). Achtung: Mit dem **ersten** API-Schlüssel nimmt `/metrics` keine Anmeldung mit
+   Benutzername und Passwort mehr an. Ein bestehender Prometheus, der so abfragt, bekommt danach 401
+   und braucht einen eigenen Schlüssel.
+4. **Grenze von 60 Anfragen pro Minute:** Uptime Kuma erlaubt mit API-Schlüsseln 60 Anfragen pro
+   Minute für die **ganze Instanz**, alle Clients zusammen, Fehlversuche mitgezählt. Ist die Grenze
+   erreicht, antwortet `/metrics` mit 401 wie bei einem falschen Schlüssel. Die Console hält
+   `/metrics` 30 Sekunden im Speicher und braucht höchstens 2 Anfragen pro Minute und API-Prozess.
+   Ein eigener Prometheus sollte höchstens alle 30 Sekunden abfragen.
+5. **Ausgehenden Verkehr der Kuma-VM filtern:** Monitore der Kunden laufen von der Instanz aus und
+   könnten deren Netz abtasten. Die Console lehnt private und reservierte Ziele ab (siehe unten),
+   aber DNS kann sich nach der Prüfung ändern. Der eigentliche Schutz ist eine Firewall auf der
+   Kuma-VM, die den Weg in interne Netze (Proxmox, Verwaltung, die Console) sperrt.
+6. **Benachrichtigungen** richtet weblion.one in Uptime Kuma ein. Monitore aus der Console bekommen
+   alle Benachrichtigungen, die in Uptime Kuma als "Standardmässig aktiviert" markiert sind (für das
+   eigene Team). Die Console selbst schickt Kunden keine E-Mail bei einem Ausfall.
+7. **Keine neuen Tag-Namen ohne Neustart:** Uptime Kuma 2.1 und neuer meldet Tags als Labels in
+   `/metrics` und legt die Label-Namen beim Start fest. Nach einem neuen Tag-Namen Uptime Kuma neu
+   starten, sonst fehlen Monitore mit diesem Tag womöglich in `/metrics` (nicht geprüft). Die
+   Console selbst nutzt keine Tags.
+
+### Konfiguration
+
+Über die `.env` (Werte mit Sonderzeichen in einfache Anführungszeichen setzen):
+
+```env
+UPTIMEKUMA_URL=https://status.weblion.one
+UPTIMEKUMA_API_KEY='uk3_...'
+# Optional, für eigene Monitore der Kunden: das Sitzungstoken der Verwaltung (siehe unten)
+UPTIMEKUMA_SESSION_TOKEN=''
+UPTIMEKUMA_NAME=Uptime Kuma
+UPTIMEKUMA_COUNTRY=CH
+UPTIMEKUMA_CITY=Zürich
+```
+
+Sind URL und Schlüssel gesetzt, legt die Console den Provider beim Start an, speichert die
+Zugangsdaten verschlüsselt und übernimmt Änderungen beim nächsten Neustart. URL, Schlüssel und Token
+eines solchen Providers ändern sich nur über die `.env`. Name, Land und Stadt gelten beim ersten
+Start, danach werden sie im Admin-Bereich geändert.
+
+Oder im Admin-Bereich unter Provider > Provider hinzufügen, Typ Uptime Kuma: Adresse der Instanz
+(ohne Pfad) und API-Schlüssel. Beim Bearbeiten behält ein leeres Feld den gespeicherten Schlüssel.
+Vom Schlüssel zeigt die Console nur die Nummer vor dem Unterstrich (`uk3_••••••`), damit man ihn in
+der Liste von Uptime Kuma wiederfindet, vom Sitzungstoken nur, ob es gesetzt ist.
+
+"Verbindung testen" liest `/metrics` und meldet Version, Zahl der Monitore, ob Uptime-Werte
+vorhanden sind und den Zustand der Verwaltung. Die Seite des Providers zeigt Version, Monitore,
+erreichbare und ausgefallene, ob Uptime-Werte verfügbar sind ("needs Uptime Kuma 2.1" sonst), die
+Verwaltung und die Adresse.
+
+### Anmeldung für die Verwaltung
+
+Uptime Kuma 1.x und 2.x kennt genau ein Benutzerkonto, ein eigenes Konto für die Console gibt es
+also nicht. Stattdessen meldet sich weblion.one einmal an, und die Console behält nur das
+Sitzungstoken, das Uptime Kuma dafür ausgibt (ein JWT):
+
+- **Im Admin-Bereich:** Admin > Monitoring, Karte "Instanzen", "Für die Verwaltung anmelden" mit
+  Benutzername, Passwort und, wenn eingeschaltet, dem Zwei-Faktor-Code (nur mit Login, Recht
+  `platform:provider:write`). Passwort und Code speichert, protokolliert und auditiert die Console
+  nie, nur das Token, verschlüsselt mit den anderen Zugangsdaten. Im Audit-Log steht
+  `provider.update` mit `monitoringSession` und dem Benutzernamen.
+- **Für eine Verbindung aus der `.env`** geht das nicht (409). Dort das Token in
+  `UPTIMEKUMA_SESSION_TOKEN` setzen und die Console neu starten. Das Token erzeugt ein kleines
+  Programm in einem Checkout des Repositorys (`pnpm install`), nicht im Container:
+
+  ```bash
+  pnpm --filter @weblion/api kuma:token -- --url https://status.weblion.one --user admin
+  ```
+
+  Es fragt das Passwort und bei Bedarf den Zwei-Faktor-Code ohne Echo ab und gibt nur das Token aus
+  (auf stdout, alles andere auf stderr). Das Passwort schreibt es nirgends hin.
+
+- **Gültigkeit:** Das Token gilt, bis das Passwort in Uptime Kuma geändert wird. Den Zugriff der
+  Console entzieht man also, indem man das Passwort ändert. "Abmelden" in der Console löscht nur das
+  gespeicherte Token, in Uptime Kuma bleibt es gültig. Ändert jemand die Adresse einer Verbindung,
+  verwirft die Console das Token, es gehört zur alten Instanz.
+- **Ohne Anmeldung** zeigt die Console alles, was `/metrics` liefert: Status, Antwortzeit,
+  Zertifikat, ab 2.1 Uptime und Durchschnitt, und für Monitore auf der Statusseite die letzten 100
+  Prüfungen. Pausierte Monitore sind dann nicht von gelöschten zu unterscheiden.
+- **Mit Anmeldung** kommen dazu: eigene Monitore der Kunden, Diagramme über 24 Stunden, 7 und 30
+  Tage, Statuswechsel mit Meldung, die Konfiguration auf der Detailseite und pausierte Monitore als
+  pausiert. Unter Uptime Kuma 2.0.x kommen auch Uptime und Durchschnitt über den Socket.
+
+Das Token ist ein Generalschlüssel der Instanz: Wer den Prozess der Console übernimmt, könnte damit
+alles in Uptime Kuma ändern. Die Console schickt deshalb nur eine feste Liste von Events
+(`getMonitorList`, `getMonitor`, `add`, `editMonitor`, `pauseMonitor`, `resumeMonitor`,
+`deleteMonitor`, `getMonitorChartData`, `monitorImportantHeartbeatListPaged`), nie Einstellungen,
+Benachrichtigungen, API-Schlüssel, Backups, Passwort oder 2FA. Wer die gemeinsame Instanz nur lesen
+lassen will, meldet sie nicht an und nutzt die Verwaltung nur auf dedizierten Instanzen.
+
+**Was ein Update von Uptime Kuma brechen kann:**
+
+| Änderung in Uptime Kuma                                                                                       | Folge in der Console                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| neue Felder für Monitore (fast jede Version)                                                                  | keine: Anlegen schickt den festen Feldsatz von 2.0.0, Ändern schickt das ganze Objekt zurück, das Uptime Kuma geliefert hat |
+| Felder entfernt oder umbenannt, die die Console nutzt (`url`, `hostname`, `port`, `keyword`, `interval`, ...) | Anlegen oder Ändern scheitert mit der Meldung von Uptime Kuma                                                               |
+| Anmeldung über den Socket ersetzt (3.x)                                                                       | Verwaltung und lange Diagramme aus, mit Meldung, Lesen geht weiter                                                          |
+| Event umbenannt oder Antwort geändert                                                                         | diese Aktion scheitert, Lesen geht weiter                                                                                   |
+| Namen oder Labels in `/metrics` geändert                                                                      | der Sync dieser Instanz scheitert (Provider-Status Fehler), gespeicherte Monitore bleiben                                   |
+| strengere Prüfung (z.B. Intervalle)                                                                           | Uptime Kuma lehnt ab, die Console zeigt die Meldung (400)                                                                   |
+
+Scheitert die Verwaltung, zeigt die Console weiter alles aus `/metrics` und meldet "Verwaltung
+gestört" mit dem Grund im Admin-Bereich. Änderungen an Monitoren scheitern dann mit dieser Meldung,
+sonst bricht nichts. Detailseiten versuchen den Socket erst nach einer Minute wieder und bieten bis
+dahin die Diagramme über 24 Stunden, 7 und 30 Tage nicht an.
+
+### Mehrere Instanzen
+
+- Jede Instanz ist ein eigener Provider: die aus der `.env` und beliebig viele aus dem
+  Admin-Bereich, jede mit eigenem Schlüssel, eigenem Token, eigenem Zwischenspeicher und eigener
+  Socket-Verbindung. Monitore sind pro Instanz eindeutig (die IDs von Uptime Kuma gelten nur pro
+  Instanz).
+- **Gemeinsame Instanz:** Monitore vieler Kunden auf einer Instanz, weblion.one weist jeden einzeln
+  zu. Monitore aus der Console heissen in Uptime Kuma `[<Kürzel der Organisation>] <Name>`, damit
+  man sieht, wem sie gehören.
+- **Dedizierte Instanz:** eine Instanz, deren Monitore alle einem Kunden gehören. "Alle nicht
+  zugewiesenen zuweisen" unter Admin > Monitoring gibt alle freien Monitore einer Instanz auf einmal
+  einem Kunden. Die Console behandelt sie sonst nicht anders.
+- Ein Kunde sieht Monitore aus beliebig vielen Instanzen, die Liste zeigt dann eine Spalte
+  "Instanz". Eigene Monitore legt er nur auf der Instanz seines Kontingents an (eins pro
+  Organisation), und pro Instanz kann er eine verknüpfte Statusseite haben.
+- Ein Provider lässt sich nicht löschen, solange Monitore von ihm zugewiesen sind, ein Kontingent
+  oder eine Statusseite auf ihn zeigt. Nicht zugewiesene Monitore verschwinden mit ihm aus der
+  Console (in Uptime Kuma bleiben sie).
+
+### Monitore zuweisen
+
+Admin > Monitoring:
+
+- **Instanzen:** Version, Zahl der Monitore und der zugewiesenen, ob Uptime-Werte verfügbar sind,
+  Zustand der Verwaltung mit An- und Abmelden, "Alle nicht zugewiesenen zuweisen" und
+  Synchronisieren pro Instanz.
+- **Monitore:** alle Monitore aller Instanzen mit Status, Ziel, Herkunft und Kunde, Filter nach
+  Instanz, Kunde, Zuweisung, Herkunft und Status, Suche nach Name und Ziel. "Zuweisen"
+  (`platform:server:assign`) gibt einen Monitor einem Kunden und schaltet bei ihm das Modul ein (bei
+  einem Kunden eines Resellers nur, wenn der Reseller es hat, sonst 409). Ein Kontingent prüft die
+  Console dabei nicht, auch nicht für Monitore aus der Console.
+
+Im Audit-Log stehen `monitor.assign`, `monitor.unassign` und `monitor.assign_bulk`. Per API nur mit
+Login: `POST /api/v1/admin/monitors/<id>/assign` mit `{"orgId": "<org-id>"}`,
+`POST /api/v1/admin/monitors/assign-bulk` mit
+`{"providerId": "<provider-id>", "orgId": "<org-id>"}`.
+
+Reseller geben Monitore aus ihrem Bestand unter Reseller > Meine Kunden > Kunde > Ressourcen weiter
+und nehmen sie zurück (der Reseller braucht das Modul, der Kunde bekommt es). Monitore aus Uptime
+Kuma wandern frei. Ein Monitor aus der Console braucht beim Ziel ein Kontingent auf seiner Instanz
+mit einem freien Platz und einem Mindestintervall, das er einhält (sonst 409), auch beim Zurückholen
+zum Reseller. Per API: `POST /api/v1/orgs/<reseller-id>/customers/<customer-id>/resources` mit
+`{"type": "monitor", "id": "<id>"}`, zurück mit `.../resources/release`.
+
+### Kontingente einrichten
+
+Admin > Kunden > Kunde, Karte "Monitoring" > Kontingent einrichten (Berechtigung
+`platform:org:write`):
+
+- **Instanz:** nur Instanzen, die für die Verwaltung angemeldet sind (sonst 422)
+- **Höchstens Monitore** (1 bis 10000, Vorschlag 10, für Reseller 50) und das **kürzeste
+  Prüfintervall** (20 Sekunden bis 24 Stunden, Vorschlag 60 Sekunden)
+- **Modul "Monitoring" aktivieren** (Standard an). Bei einem Kunden eines Resellers nur, wenn der
+  Reseller das Modul hat (sonst 409).
+
+Gezählt werden die Monitore aus der Console, die der Organisation auf der Instanz gehören, bei einem
+Reseller dazu die Höchstwerte aller Kundenkontingente auf derselben Instanz. Senken geht nicht
+darunter (409 `monitor_limit`). Die Instanz wechselt nur, solange dort keine Monitore aus der
+Console und keine Kundenkontingente bestehen. Ein Reseller kann sein kürzestes Intervall nicht über
+das seiner Kunden heben. Entfernen geht nur ohne Monitore aus der Console und ohne Kundenkontingente
+und schaltet das Modul nicht ab. Im Audit-Log stehen `monitor.allowance_set` (mit den bisherigen
+Werten) und `monitor.allowance_delete`. Per API nur mit Login:
+`PUT /api/v1/admin/orgs/<org-id>/monitor-allowance` mit z.B.
+`{"providerId": "<provider-id>", "maxMonitors": 10, "minIntervalSeconds": 60, "enableModule": true}`,
+`DELETE` auf denselben Pfad entfernt es.
+
+**Reseller:** Ein Reseller bekommt ein Kontingent wie jeder Kunde und gibt Kunden einen Teil davon:
+Reseller > Meine Kunden > Kunde > Ressourcen, Karte "Monitoring". Die Instanz ist die des Resellers,
+das kürzeste Intervall mindestens seins, und es muss Platz sein (409 `monitor_limit` "Only N
+monitors of your allowance are left for this customer"). Speichern schaltet beim Kunden das Modul
+ein. "Kontingent entfernen" gibt es zurück, solange der Kunde keine Monitore aus der Console hat.
+Per API: `PUT` und `DELETE /api/v1/reseller/customers/<id>/monitor-allowance`, PUT mit
+`{"maxMonitors": 5, "minIntervalSeconds": 60}`.
+
+### Eigene Monitore
+
+Monitoring > "Monitor erstellen" (`monitor:write`, im Kontingent, nur auf einer angemeldeten
+Instanz):
+
+- **Art:** HTTP(S) (ruft eine Adresse auf und erwartet einen erfolgreichen Statuscode), Keyword
+  (sucht einen Text in der Antwort, optional "darf nicht vorkommen"), Ping (Host) oder Port (Host
+  und TCP-Port). DNS, Push, Docker, Datenbanken und Gruppen legen Kunden nicht an.
+- **Name** (höchstens 80 Zeichen, ohne Steuerzeichen). In Uptime Kuma heisst der Monitor
+  `[<Kürzel der Organisation>] <Name>`.
+- **Adresse** mit `http://` oder `https://`, ohne Benutzername und Passwort, oder **Host** ohne
+  Schema und Port
+- **Prüfintervall:** 20 Sekunden bis 1 Stunde zur Auswahl, mindestens das kürzeste Intervall des
+  Kontingents (sonst 400)
+- **Erweitert** (HTTP(S) und Keyword): Methode GET oder HEAD, akzeptierte Statuscodes (Standard
+  `200-299`, höchstens 10 Codes oder Bereiche), TLS-Fehler ignorieren
+
+**Nur öffentliche Ziele:** Die Console löst den Namen vorher auf (über den Resolver ihres Servers,
+höchstens 3 Sekunden) und lehnt mit 400 ab: Namen ohne Punkt, `localhost` und Namen auf `.local`,
+`.localdomain`, `.internal`, `.lan` und `.home.arpa`, die Instanz selbst, Namen, die nicht auflösen,
+und IP-Adressen oder aufgelöste Adressen in privaten und reservierten Bereichen (`0.0.0.0/8`,
+`10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`,
+`192.0.2.0/24`, `192.168.0.0/16`, `198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, Multicast
+und `240.0.0.0/4`, bei IPv6 `::`, `::1`, Unique Local `fc00::/7`, Link-Local `fe80::/10`,
+`fec0::/10`, Multicast `ff00::/8`, `2001:db8::/32` und IPv4 in IPv6 nach den Regeln von IPv4). Wer
+interne Ziele überwachen muss, lässt weblion.one den Monitor in Uptime Kuma anlegen und zuweisen,
+dann ist er für den Kunden nur lesbar. Weiterleitungen folgen Monitore aus der Console nicht (auch
+ältere nicht mehr, sobald sie geändert werden), sonst käme eine Weiterleitung auf ein internes Ziel
+an der Prüfung vorbei: Wer weiterleitet, trägt die Zieladresse ein oder akzeptiert 3xx-Statuscodes.
+Den Ausschnitt der Antwort, den Uptime Kuma an die Meldung einer gescheiterten Keyword-Prüfung
+hängt, zeigt die Console nicht.
+
+Die Console legt den Monitor mit einer Wiederholung vor "ausgefallen" an (im gleichen Abstand wie
+das Intervall), Zeitlimit 80 % des Intervalls bis höchstens 48 Sekunden (Ping 10 Sekunden), und mit
+den Benachrichtigungen, die in Uptime Kuma standardmässig aktiviert sind. Der Monitor zählt sofort
+zum Kontingent und steht auf "ausstehend", bis die erste Prüfung durch ist. Das Anlegen läuft unter
+einer Sperre pro Kunde, parallele Anfragen können das Kontingent also nicht überziehen. Scheitert
+das Speichern, nachdem Uptime Kuma den Monitor schon angelegt hat, löscht die Console ihn dort
+wieder. Im Audit-Log steht `monitor.create`. Per API:
+
+```bash
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"kind":"http","name":"Website","url":"https://www.muster.ch","intervalSeconds":60}' \
+  https://cp.weblion.cloud/api/v1/orgs/<org-id>/monitors
+```
+
+- **Ändern:** Name, Ziel, Intervall, Keyword, Methode, Statuscodes und TLS. Uptime Kumas
+  `editMonitor` setzt jedes Feld aus dem Objekt und leert, was fehlt. Die Console liest den Monitor
+  deshalb direkt vorher bei Uptime Kuma und schickt das ganze Objekt mit den geänderten Feldern
+  zurück. Ändert jemand denselben Monitor gleichzeitig in Uptime Kuma, gewinnt die letzte Änderung.
+  Ein neues Ziel prüft die Console wieder auf öffentliche Adressen. Geheim wirkende Werte in der
+  Adresse zeigt die Console als `***`; bleibt `***` beim Ändern stehen, behält der Monitor den
+  bisherigen Wert. Im Audit-Log steht
+  `monitor.update` mit altem und neuem Wert (geheim wirkende Werte in Adressen als `***`). Per API:
+  `PATCH /api/v1/monitors/<id>` mit z.B. `{"intervalSeconds": 120}`.
+- **Pausieren und fortsetzen:** Ein pausierter Monitor prüft nicht und meldet keine Ausfälle. Ein
+  fortgesetzter steht bis zur nächsten Prüfung auf "ausstehend". Im Audit-Log stehen `monitor.pause`
+  und `monitor.resume`. Per API: `POST /api/v1/monitors/<id>/pause`, `.../resume`.
+- **Löschen** (`monitor:delete`) verlangt den Namen als Bestätigung und löscht den Monitor in Uptime
+  Kuma mit seinem ganzen Verlauf. Meldet Uptime Kuma ihn nicht mehr, entfernt Löschen nur die Zeile.
+  Im Audit-Log steht `monitor.delete`. Per API: `DELETE /api/v1/monitors/<id>` mit
+  `{"confirm": "<Name>"}`.
+
+Ohne Kontingent sieht der Kunde nur die zugewiesenen Monitore und den Hinweis, sich an weblion.one
+(oder seinen Reseller) zu wenden. Ist die Instanz nicht (mehr) angemeldet, sagt die Seite, dass
+eigene Monitore gerade nicht angelegt oder geändert werden können.
+
+### Statusseiten
+
+Statusseiten legt weblion.one in Uptime Kuma an und verknüpft sie in der Console: Admin > Kunden >
+Kunde, Karte "Monitoring" > "Statusseite verknüpfen" (`platform:org:write`) mit der Instanz, dem
+Slug (z.B. `muster-ag` aus `…/status/muster-ag`) und optional der öffentlichen Adresse, wenn die
+Seite in Uptime Kuma eine eigene Domain hat (die Console kann sie nicht lesen). Den Slug prüft die
+Console bei Uptime Kuma (unbekannt: 422). Pro Instanz hat eine Organisation eine Statusseite, eine
+neue ersetzt die alte. Im Audit-Log stehen `monitor.status_page_set` und
+`monitor.status_page_delete`.
+
+Kunden sehen "Statusseite öffnen". Für ihre Monitore auf dieser Seite zeigt die Detailseite auch
+ohne Verwaltung die letzten 100 Prüfungen (aus der öffentlichen JSON der Seite, die Uptime Kuma eine
+Minute zwischenspeichert). Einen Zugang zu Uptime Kuma selbst bekommen Kunden nicht.
+
+### Sync
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) liest die Console `/metrics` (höchstens 30 Sekunden
+  alt). Ist die Instanz angemeldet, kommt die Liste aller Monitore über den Socket dazu, mit den
+  pausierten: aus einer offenen Sitzung, sonst höchstens alle 10 Minuten aus einer neuen. Die
+  Sitzung schliesst die Console nach 3 Minuten ohne Anfrage, weil Uptime Kuma einer offenen Sitzung
+  jede Prüfung jedes Monitors schickt.
+- Neue Monitore sind nicht zugewiesen, mit Herkunft "Uptime Kuma". Name, Ziel, Status und Zahlen
+  folgen Uptime Kuma, der Name nur, solange niemand ihn in der Console geändert hat. Was die Console
+  während des Laufs ändert, überschreibt der Sync nicht.
+- **Fehlende Monitore:** Mit der Liste aus dem Socket ist klar, was gelöscht ist: Ein Monitor, den
+  Uptime Kuma nicht mehr kennt, gilt als "nicht mehr gemeldet" und behält seinen Kunden. Nur mit
+  `/metrics` geht das nicht: Ein pausierter Monitor verschwindet dort, und nach einem Neustart von
+  Uptime Kuma fehlt jeder Monitor bis zu seiner ersten Prüfung. Ein zuletzt pausierter Monitor
+  bleibt dann "pausiert", die anderen gelten als "nicht mehr gemeldet", gelöscht wird nichts.
+- Ein Fehler der Verwaltung lässt den Sync nicht scheitern. Er steht im Log und im Admin-Bereich.
+  Scheitert `/metrics`, bekommt der Provider den Fehler, die gespeicherten Monitore bleiben.
+- Die Detailseite eines Monitors liest ihn live nach und speichert das Ergebnis.
+- Von Hand: Admin > Monitoring > Synchronisieren, oder Admin > Provider > Uptime Kuma > "Jetzt
+  synchronisieren".
+
+### Was die Console nutzt
+
+| Funktion in der Console                  | Endpunkt oder Event                                                 | Berechtigung                             |
+| ---------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------- |
+| Verbindungstest, Sync, Status und Zahlen | `GET /metrics` (HTTP Basic, Passwort = API-Schlüssel)               | Admin-Bereich, Sync-Job, `monitor:read`  |
+| Statusseite prüfen                       | `GET /api/status-page/<slug>` (ohne Anmeldung)                      | `platform:org:write`                     |
+| Letzte 100 Prüfungen                     | `GET /api/status-page/heartbeat/<slug>` (ohne Anmeldung)            | `monitor:read`                           |
+| Anmeldung für die Verwaltung             | Socket-Event `login` (nur bei der Anmeldung), danach `loginByToken` | `platform:provider:write`, nur mit Login |
+| Liste mit pausierten Monitoren           | `getMonitorList`                                                    | Sync-Job, `monitor:read`                 |
+| Detail, Konfiguration, Statuswechsel     | `getMonitor`, `monitorImportantHeartbeatListPaged` (die letzten 20) | `monitor:read`                           |
+| Diagramm 24 h, 7 und 30 Tage             | `getMonitorChartData` mit 24, 168 oder 720 Stunden                  | `monitor:read`                           |
+| Monitor anlegen                          | `add`                                                               | `monitor:write`                          |
+| Ändern                                   | `getMonitor`, dann `editMonitor` mit dem ganzen Objekt              | `monitor:write`                          |
+| Pausieren, fortsetzen                    | `pauseMonitor`, `resumeMonitor`                                     | `monitor:write`                          |
+| Löschen                                  | `deleteMonitor`                                                     | `monitor:delete`                         |
+| API Explorer                             | die HTTP-Pfade oben, Badges, `/api/entry-page` und die Events oben  | `platform:explorer`, nur mit Login       |
+
+Der Socket verbindet sich als Websocket auf `<Base URL>/socket.io/`. Zwischenspeicher: `/metrics` 30
+Sekunden, Liste über den Socket 60 Sekunden, Diagramme 60 Sekunden, letzte Prüfungen der Statusseite
+60 Sekunden, Statusseite 5 Minuten, Zustand der Verwaltung 60 Sekunden. Änderungen über die Console
+leeren den Speicher des Monitors. Prozentwerte rundet die Console ab (99,995 % sind keine 100 %).
+
+### Fehler der API
+
+Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
+Monitoring:
+
+| HTTP | `code`                          | Wann                                                                                                                                                                                                  |
+| ---- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `bad_request`                   | Ungültige Eingabe (`details` nennt das Feld), Intervall unter dem Minimum des Kontingents, privates oder nicht auflösbares Ziel, falsche Bestätigung beim Löschen, Prüfungen, die Uptime Kuma ablehnt |
+| 400  | `totp_required`, `totp_invalid` | Anmeldung für die Verwaltung: Zwei-Faktor-Code fehlt oder falsch                                                                                                                                      |
+| 403  | `forbidden`                     | Recht fehlt, Kunde gesperrt (nur lesen), Modul nicht aktiv (Liste), Anmeldung mit API-Token                                                                                                           |
+| 404  | `not_found`                     | Monitor gibt es nicht oder die Person sieht ihn nicht, kein Verlauf für diesen Zeitraum                                                                                                               |
+| 404  | `provider_error`                | Uptime Kuma kennt den Monitor nicht (mehr)                                                                                                                                                            |
+| 409  | `no_allowance`                  | Kein Kontingent (beim Anlegen, Ändern des Intervalls, Weitergeben eines Monitors aus der Console)                                                                                                     |
+| 409  | `monitor_limit`                 | Kontingent voll, Höchstwert unter dem Vergebenen, Anteil des Resellers aufgebraucht, `details` mit `maxMonitors` und `committed`                                                                      |
+| 409  | `read_only_monitor`             | Änderung an einem Monitor aus Uptime Kuma                                                                                                                                                             |
+| 409  | `conflict`                      | Instanz wechseln oder Kontingent entfernen mit Monitoren, Reseller ohne Modul, Anmeldung einer Verbindung aus der `.env`, Provider löschen mit Zuweisungen                                            |
+| 422  | `unsupported`                   | Instanz nicht für die Verwaltung angemeldet, Provider ohne Monitore, unbekannte Statusseite                                                                                                           |
+| 502  | `provider_error`                | Uptime Kuma hat abgelehnt oder war nicht erreichbar, `message` mit dem Grund, auch für 401 (Schlüssel falsch oder Grenze von 60 pro Minute erreicht) und "zu viele Anfragen"                          |
+
+Jede Änderung steht im Audit-Log, gescheiterte mit `status: failure` und der Meldung.
+
+### API Explorer
+
+Admin > API Explorer, Provider Uptime Kuma:
+
+- **HTTP**, nur GET: `/metrics` (mit dem Schlüssel), `/api/status-page/<slug>`,
+  `/api/status-page/heartbeat/<slug>`,
+  `/api/badge/<id>/<status|uptime|ping|avg-response|cert-exp|response>[/<Dauer>]` und
+  `/api/entry-page`. Andere Pfade, `..`, `//`, `\`, `#` und kodierte Punkte oder Schrägstriche sind
+  gesperrt.
+- **Socket**, nur mit Anmeldung: `socket/<Event>`. Lesen mit GET und `?args=[12,24]` (höchstens drei
+  Zahlen): `getMonitorList`, `getMonitor`, `getMonitorChartData`,
+  `monitorImportantHeartbeatListPaged`. Schreiben mit POST und `{"args": [...]}`: `add` und
+  `editMonitor` mit einem Monitor-Objekt, `pauseMonitor`, `resumeMonitor` und `deleteMonitor` mit
+  einer ID. Alle anderen Events (Einstellungen, API-Schlüssel, Benachrichtigungen, Backups, Login)
+  lehnt die Console ab.
+- In Antworten sind Geheimnisse der Monitore (Basic Auth, Bearer-Token, OAuth, Header, Body,
+  Verbindungs-Strings, SSH-, MQTT-, RADIUS-, RabbitMQ- und Kafka-Zugangsdaten, TLS-Schlüssel,
+  Push-Token) ausgeblendet, Schlüssel und Token der Console stehen nie darin.
+- Schreibende Events stehen im Audit-Log (`provider.explorer`), die Monitor-Objekte darin ohne
+  Geheimnisse.
+- Was über den Explorer geändert wird, prüft die Console nicht gegen Kontingente.
+
+### Grenzen
+
+- **Keine Benachrichtigung an Kunden:** Bei einem Ausfall schickt die Console niemandem etwas.
+  Benachrichtigungen laufen in Uptime Kuma. Wer einem Kunden Mails schicken will, legt in Uptime
+  Kuma eine Benachrichtigung an und hängt sie von Hand an seine Monitore.
+- **Statusseiten** legt weblion.one in Uptime Kuma an, die Console verknüpft sie nur.
+- **Abrechnung:** Kontingent und Dienst sind getrennt, ein Monitor lässt sich nicht mit einem Dienst
+  verknüpfen. Ein Produkt "Monitoring" geht als Dienst ohne Ressource. Siehe
+  [Roadmap](roadmap.md#monitoring-uptime-kuma).
+- **Sperren:** Ein gesperrter Kunde sieht seine Monitore nur noch lesend, Uptime Kuma prüft weiter.
+  Ebenso lassen ein abgeschaltetes Modul und eine gelöste Zuweisung Uptime Kuma unberührt.
+- **Eine Instanz pro Kontingent:** Eigene Monitore entstehen nur auf der Instanz des Kontingents.
+- **Monitore aus Uptime Kuma** bleiben für Kunden nur lesbar, auch wenn sie ihnen zugewiesen sind.
+- **Kein Verlauf ohne Verwaltung und ohne Statusseite:** Die Console speichert keine Prüfungen.
+- **Uptime Kuma 1.23** wird nicht unterstützt, **3.x** nur lesend.
+- Nicht in der Console, das geht in Uptime Kuma: Benachrichtigungen, Wartungsfenster, Gruppen, Tags,
+  andere Arten von Monitoren, Statusseiten bearbeiten, Einstellungen.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen ein echtes Uptime Kuma ist die Anbindung noch nicht getestet, nur gegen einen Mock-Server, der
+`/metrics`, die Statusseiten und die Socket-Events nach dem Quellcode von Uptime Kuma 2.5.6
+nachbildet. Die Fixtures sind aus dem Quellcode geschrieben, nicht mitgeschnitten. Vor dem ersten
+echten Einsatz mit einer Test-Instanz prüfen und echte Antworten als Fixtures ablegen:
+
+1. Wie `/metrics` leere Labels druckt (`monitor_hostname`, `monitor_port`): `"null"`, `"undefined"`
+   oder leer. Die Console nimmt alle drei als leer.
+2. Ob Uptime Kuma Monitore mit einem Tag-Namen, der nach dem Start dazukam, in `/metrics` weglässt
+3. Ob `app_version` in `/metrics` die Version von Uptime Kuma ist
+4. Ob `socket.io-client` in Node beim Websocket keinen `Origin`-Header schickt (Uptime Kuma erlaubt
+   das, mit `Origin` muss er zum Host passen)
+5. Body und Content-Type der Antwort 401 auf `/metrics` und von `/metrics` selbst
+6. Was `/api/status-page/heartbeat/<slug>` für einen unbekannten Slug antwortet
+7. Ob `active` in der Monitorliste auf allen 2.x ein Boolean oder 0/1 ist (die Console nimmt beides)
+8. Wie lange Uptime Kuma Prüfungen und Stundenwerte aufbewahrt (für das Diagramm über 30 Tage)
+9. Wie sich Uptime Kuma 3.0 von einem Programm anmelden lässt (Pfad, Cookie, Lebensdauer), und ob
+   API-Schlüssel dort für den Socket gelten
+10. Wie sich ein Ping-Monitor auf 2.5.x ohne `ping_count` verhält. Die Console schickt die Felder
+    nur, wenn die Monitore der Instanz sie schon haben.
+11. Wie lang der Name eines Monitors in Uptime Kuma sein darf (angenommen 150 Zeichen). Die Console
+    begrenzt auf 80 plus das Kürzel.
+12. Ob die Basic-Anmeldung von `/metrics` jeden Benutzernamen annimmt (die Console schickt
+    `weblion`)
+13. Echte Antworten von `/metrics`, `getMonitor` und `getMonitorChartData`
+
+### Demo
+
+Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert eine Instanz von Uptime Kuma 2.5.6 im
+Speicher, mit denselben Prüfungen wie die echte Anbindung. Die Verwaltung ist dort immer angemeldet.
+Die Adresse `https://status.demo.weblion.one` gibt es nicht, "Statusseite öffnen" führt ins Leere.
+Mit `pnpm db:seed`:
+
+- Muster AG hat das Modul, ein Kontingent für 10 Monitore mit 60 Sekunden Mindestintervall, die
+  Statusseite `muster-ag` (mit Website, Shop und Mailserver) und vier Monitore:
+  `muster-ag.ch Website` (HTTPS, mit Zertifikat), `Shop` (Keyword, aus der Console, in Uptime Kuma
+  `[muster-ag] Shop`), `Mailserver SMTP` (Port 25, ausgefallen) und `Webserver Ping` (auf die erste
+  IPv4 des Demo-Servers `demo-42-1`, erscheint deshalb auf dessen Seite).
+- Bäckerei Huber hat `baeckerei-huber.ch` zugewiesen, aber das Modul noch nicht. Alpen Hosting
+  (Reseller) hat ein Kontingent für 50 Monitore, aber das Modul noch nicht: zum Ausprobieren das
+  Modul zuerst bei Alpen Hosting, dann bei Bäckerei Huber aktivieren.
+- Nicht zugewiesen sind `alpenblick-hotel.ch` (pausiert), `Status API` und die Gruppe
+  `Kunden-Websites`.
+
+## Jellyfin (Streaming)
+
+- API: die REST-API des Jellyfin-Servers. Die Console folgt dem Quellcode von Jellyfin 10.11.11 (für
+  Unterschiede 10.10.7).
+- Base URL: die Adresse der Instanz, wie sie die Kunden in den Apps eingeben, mit dem Basis-Pfad von
+  Jellyfin, falls einer gesetzt ist, z.B. `https://media.weblion.one` oder
+  `https://weblion.one/jellyfin`. Jeder Aufruf schickt den Header
+  `Authorization: MediaBrowser Token="<API-Schlüssel>"`, nie `X-Emby-Token` oder `api_key` in der
+  Adresse (die sind in Jellyfin veraltet und landen in Logs). Antworten in PascalCase-JSON.
+- Version: **Jellyfin 10.10 oder neuer**, 10.11 empfohlen. Ältere lehnt "Verbindung testen" ab.
+- Konfiguration: `JELLYFIN_URL` und `JELLYFIN_API_KEY` in der `.env` oder im Admin-Bereich unter
+  Provider > Provider hinzufügen > Jellyfin
+- Jellyfin liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der Provider
+  deshalb nicht auf.
+
+### Was das Modul macht
+
+weblion.one betreibt Jellyfin-Mediaserver und verkauft darauf Zugänge für Filme, Serien und Musik.
+Das Modul **Streaming** (`media`) bringt das in die Console:
+
+- **Kontingent pro Kunde:** weblion.one (oder ein Reseller für seine Kunden) gibt einer Organisation
+  ein Kontingent auf einer Instanz: wie viele Zugänge, welche Bibliotheken, wie viele Geräte
+  gleichzeitig, ob Downloads erlaubt sind und eine Grenze für die Bitrate unterwegs.
+- **Selbstverwaltung:** Darin legt der Kunde Zugänge selbst an (für Personen oder Geräte, mit
+  erzeugtem oder eigenem Passwort), deaktiviert und aktiviert sie, setzt Passwörter neu und löscht
+  sie. In der Console unter dem Menüpunkt "Streaming", sobald das Modul aktiv ist.
+- **Verwaltete Richtlinie:** Jeder Zugang bekommt in Jellyfin genau die Rechte des Kontingents
+  (siehe unten). Die Console schreibt sie beim Anlegen, bei jeder Änderung des Kontingents, und der
+  Sync stellt sie wieder her, wenn jemand sie in Jellyfin ändert.
+- **Anmeldehilfe:** Eine Karte zeigt die Server-Adresse, den Namen des Servers in den Apps, die
+  Schritte zur Anmeldung, die Apps und wie Quick Connect auf dem Fernseher funktioniert.
+
+Gespeichert werden die Kontingente (Tabelle `media_allowances`) und die Zugänge, die die Console
+verwaltet (`media_accounts`), nie Passwörter, Richtlinien, Sitzungen oder der Verlauf.
+
+**Datenschutz:** Was jemand anschaut, wann und auf welchem Gerät, zeigt die Console niemandem. Pro
+Zugang sehen Kunden und weblion.one Login-Name, Status, den **Tag** der letzten Aktivität (Zeitzone
+Zürich, nie die Uhrzeit) und das Erstelldatum. weblion.one sieht pro Instanz zusätzlich nur zwei
+Zahlen: Sitzungen der letzten 10 Minuten und wie viele davon etwas abspielen.
+
+Für die Lizenzen der Inhalte, die auf einer Instanz angeboten werden, ist der Betreiber der Instanz
+verantwortlich. Die Console verteilt nur Zugänge.
+
+Wer darf was:
+
+| Wer                           | Darf                                                                                                                                      |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner, Admin                  | Zugänge anlegen, deaktivieren, aktivieren, löschen (`media:write`) und Passwörter neu setzen (`media:password`)                           |
+| Member, Nur lesen             | Zugänge, Kontingent und Anmeldehilfe ansehen (`media:read`)                                                                               |
+| Eingeschränkt, Buchhaltung    | nichts, per Policy erweiterbar (Ressource `org` oder `*`)                                                                                 |
+| API-Token "Lesen & Schreiben" | was die Person darf, der das Token gehört, aber ohne Passwörter: Zugänge nur mit mitgeschicktem Passwort, kein "Passwort neu setzen"      |
+| Mitarbeitende eines Resellers | im Panel seiner Kunden, was ihre Reseller-Rolle erlaubt, dazu Kunden einen Teil des eigenen Kontingents geben (`reseller:customer:write`) |
+| weblion.one Superadmin        | alles, dazu Kontingente, Übernehmen, Zuweisen und Richtlinie anwenden (`platform:media:write`)                                            |
+| weblion.one Support           | alles ansehen, nichts ändern                                                                                                              |
+
+Zugänge haben keinen eigenen Ressourcenpfad, eine Policy gilt immer für alle Zugänge der
+Organisation, wie bei Cloud-Konten.
+
+### Voraussetzungen
+
+1. **Eigene Jellyfin-Instanz**, 10.10 oder neuer, mit abgeschlossener Ersteinrichtung (sonst lehnt
+   "Verbindung testen" ab). Am besten auf einer eigenen VM mit genug Platz für die Bibliotheken und
+   genug CPU oder einer GPU für das Transkodieren, nicht auf dem Server der Console.
+2. **https über einen Reverse Proxy**, mit der Adresse des Proxys in den Netzwerk-Einstellungen von
+   Jellyfin als bekanntem Proxy (`KnownProxies`). Sonst sieht Jellyfin bei allen Clients die Adresse
+   des Proxys, hält alle für lokal, und die Bitrate-Grenze unterwegs greift nie. `http://` lässt die
+   Console zu, dann aber nur in einem privaten Netz: Schlüssel und Passwörter gingen sonst
+   unverschlüsselt über das Netz. Liegt Jellyfin unter einem Basis-Pfad, gehört er in die Base URL.
+   Weiterleitungen folgt die Console nicht, damit der Schlüssel nie an einen anderen Host geht.
+3. **Fernzugriff:** "Remote-Verbindungen erlauben" bleibt an, die Kunden streamen von zu Hause. Ist
+   es aus, nimmt Jellyfin auch die Anfragen der Console nur aus seinem lokalen Netz an.
+4. **Quick Connect** eingeschaltet lassen (Standard): Damit melden sich Fernseher an, ohne dass
+   jemand ein Passwort mit der Fernbedienung tippt.
+5. **Ein eigener API-Schlüssel nur für weblion.one:** Dashboard > API-Schlüssel > Hinzufügen,
+   App-Name z.B. `weblion.one`. Der Schlüssel hat 32 Zeichen aus 0-9 und a-f. Jeder API-Schlüssel
+   ist in Jellyfin ein voller Administrator, eingrenzen lässt er sich nicht. Zum Tauschen einen
+   neuen anlegen, in der Console speichern, dann den alten in Jellyfin löschen.
+6. **Bibliotheken:** Was ein Kontingent freigeben soll, muss eine eigene Bibliothek sein (z.B.
+   Filme, Serien, Kinder). Eine neue Bibliothek lässt sich erst nach ihrem ersten Scan freigeben.
+7. **Sperre nach Fehlversuchen:** Ob Jellyfin Benutzer nach fehlgeschlagenen Anmeldungen sperrt
+   (`LoginAttemptsBeforeLockout`), entscheidet der Betreiber, die Console ändert das nicht. Auf
+   einem gemeinsamen Server kann damit jeder, der einen Login-Namen kennt, diesen Zugang sperren.
+   "Aktivieren" in der Console hebt die Sperre auf.
+
+### Konfiguration
+
+Über die `.env` (Werte mit Sonderzeichen in einfache Anführungszeichen setzen):
+
+```env
+JELLYFIN_URL=https://media.weblion.one
+JELLYFIN_API_KEY='...'
+JELLYFIN_NAME=Jellyfin
+JELLYFIN_COUNTRY=CH
+JELLYFIN_CITY=Zürich
+```
+
+Sind URL und Schlüssel gesetzt, legt die Console den Provider beim Start an, speichert die
+Zugangsdaten verschlüsselt und übernimmt Änderungen beim nächsten Neustart. URL und Schlüssel eines
+solchen Providers ändern sich nur über die `.env`. Name, Land und Stadt gelten beim ersten Start,
+danach werden sie im Admin-Bereich geändert.
+
+Oder im Admin-Bereich unter Provider > Provider hinzufügen, Typ Jellyfin: Adresse der Instanz und
+API-Schlüssel. Beim Bearbeiten behält ein leeres Feld den gespeicherten Schlüssel. Vom Schlüssel
+zeigt die Console kein Zeichen.
+
+"Verbindung testen" liest die Server-Info (Version, Ersteinrichtung), alle Benutzer und die
+Bibliotheken und meldet Version, Servername, Zahl der Benutzer, der Administratoren und der
+Bibliotheken. Die Seite des Providers zeigt Version, Servername, Benutzer, Bibliotheken, aktive
+Sitzungen und wie viele davon abspielen, Quick Connect und die Adresse zum Anmelden, dazu einen Link
+auf die Streaming-Zugänge der Instanz.
+
+### Login-Namen und Kontingent-Code
+
+- **Login-Name** ist `<Name>-<Kontingent-Code>`, z.B. `anna-kemaro` oder `wohnzimmer-kemaro`. Der
+  Kunde wählt nur den Namen: Kleinbuchstaben, Ziffern und einzelne Bindestriche, am Anfang und Ende
+  ein Buchstabe oder eine Ziffer, höchstens 20 Zeichen. Grossbuchstaben nimmt die API nicht an (der
+  Dialog wandelt sie um). Jellyfin vergleicht Namen ohne Gross- und Kleinschreibung, ein Fernseher,
+  der "Anna-kemaro" schreibt, meldet sich also trotzdem an.
+- **Kontingent-Code:** gehört zum Kontingent und ist auf der Plattform eindeutig. Die Console
+  erzeugt ihn beim ersten Kontingent: sechs Buchstaben, abwechselnd Konsonant und Vokal (z.B.
+  `kemaro`, `bivane`), gut vorzulesen und zu tippen. weblion.one kann einen eigenen setzen (3 bis 12
+  Kleinbuchstaben), z.B. `muster` auf einer dedizierten Instanz, aber nur, solange die Organisation
+  keine Zugänge hat. Reseller wählen keinen Code, ihre Kunden bekommen einen erzeugten.
+- **Warum nicht das Kürzel der Organisation** wie bei Nextcloud: Jeder Zugang kann über die API von
+  Jellyfin alle Benutzer des Servers auflisten (`GET /Users` braucht nur eine Anmeldung). Mit dem
+  Kürzel sähe jeder Kunde, wer sonst noch auf dem Server ist. Der Code verrät das nicht. Der Dialog
+  rät trotzdem zu Vornamen oder Räumen statt vollständigen Namen.
+- Login-Namen anderer Kunden kollidieren nie, weil die Codes eindeutig sind. Benutzer, die in
+  Jellyfin angelegt und übernommen wurden, behalten ihren Namen. Benennt jemand einen Benutzer in
+  Jellyfin um, übernimmt der Sync den neuen Namen (die Console kennt Benutzer an ihrer ID).
+
+### Zugänge anlegen, sperren, Passwörter, löschen
+
+Streaming > "Zugang erstellen" (`media:write`, im Kontingent): Name und Passwort.
+
+- **Passwort erzeugen** (empfohlen): 16 Kleinbuchstaben und Ziffern ohne verwechselbare Zeichen, gut
+  auf einer Fernbedienung einzugeben. Die Console zeigt es einmal an (in Vierergruppen zum Vorlesen)
+  und speichert es nirgends, weder in der Datenbank noch im Audit-Log. Antworten mit Passwort tragen
+  `Cache-Control: no-store`.
+- **Eigenes Passwort:** 10 bis 128 Zeichen, ohne Steuerzeichen und ohne Leerzeichen am Anfang oder
+  Ende.
+
+Vorher prüft die Console: Es gibt ein Kontingent (sonst 409 `no_allowance`), es ist noch ein Zugang
+frei (409 `account_limit`), und der Name ist frei (409, auch wenn es den Benutzer in Jellyfin schon
+gibt, ohne dass die Console ihn verwaltet). Das Anlegen läuft unter einer Sperre pro Kunde,
+parallele Anfragen können das Kontingent also nicht überziehen. In Jellyfin legt die Console den
+Benutzer immer mit Passwort an und schreibt gleich danach die Richtlinie. Bis dahin hätte er die
+Standardrechte von Jellyfin (alle Bibliotheken, Live TV, öffentliches Teilen): Scheitert das
+Schreiben, löscht die Console den Benutzer wieder. Bekommt das Anlegen keine klare Antwort (keine
+Antwort in der Zeit, Verbindung abgebrochen, 5xx eines Proxys), sucht die Console den Namen und
+löscht einen so angelegten Benutzer ebenfalls. Lässt er sich nicht löschen, deaktiviert sie ihn mit
+der Richtlinie des Kontingents, und die Meldung (auch im Audit-Log) nennt seine Jellyfin-ID, damit
+weblion.one ihn löscht. Im Audit-Log steht `media.account_create` mit `password: generated` oder
+`chosen`.
+
+Per API nur mit eigenem Passwort, ein Token bekommt nie ein erzeugtes (sonst 400):
+
+```bash
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"name":"anna","password":"lang-und-geheim-2026"}' \
+  https://cp.weblion.cloud/api/v1/orgs/<org-id>/media/accounts
+```
+
+Die Antwort ist `{ "account": { ... }, "password": null }`.
+
+- **Deaktivieren:** Jellyfin meldet alle Geräte des Zugangs sofort ab, er kann sich nicht mehr
+  anmelden. Verlauf und Favoriten bleiben. **Aktivieren** hebt auch eine Sperre nach
+  fehlgeschlagenen Anmeldungen auf (die Console setzt den Zähler zurück, sonst sperrte der nächste
+  Fehlversuch wieder). Im Audit-Log steht `media.account_update`. Per API:
+  `PATCH /api/v1/media/accounts/<id>` mit `{"enabled": false}`.
+- **Passwort neu setzen** (`media:password`, nur mit Login, nie per API-Token): erzeugt oder eigen.
+  Jellyfin braucht dafür das alte Passwort nicht und meldet alle Geräte des Zugangs ab. Im Audit-Log
+  steht `media.password_reset`, das Passwort nicht. Per API nur mit Session:
+  `POST /api/v1/media/accounts/<id>/password` mit `{}` (erzeugt) oder `{"password": "..."}`.
+- **Löschen** verlangt den Login-Namen als Bestätigung. Jellyfin löscht den Benutzer mit
+  Wiedergabeverlauf, Favoriten und Playlists und meldet alle Geräte ab. Das lässt sich nicht
+  rückgängig machen. Gibt es den Benutzer in Jellyfin nicht mehr ("In Jellyfin nicht gefunden"),
+  entfernt Löschen nur den Eintrag in der Console. Im Audit-Log steht `media.account_delete`. Per
+  API: `DELETE /api/v1/media/accounts/<id>` mit `{"confirm": "<Login-Name>"}`.
+
+Eine E-Mail oder Einladung kennt Jellyfin nicht: Der Kunde gibt das Passwort selbst weiter. Wer es
+vergessen hat, bekommt ein neues. Administratoren von Jellyfin verwaltet die Console nie: Sie lassen
+sich weder deaktivieren noch löschen, noch bekommen sie ein neues Passwort (409), und kein Zugang
+wird je Administrator.
+
+### Die verwaltete Richtlinie
+
+Die Console besitzt 17 Felder der Benutzer-Richtlinie von Jellyfin und setzt sie aus dem Kontingent:
+
+| Feld in Jellyfin                                                                  | Wert                                                                        |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `IsAdministrator`                                                                 | nein                                                                        |
+| `IsHidden`                                                                        | ja, der Zugang erscheint nicht auf dem Anmeldebildschirm                    |
+| `EnableRemoteAccess`                                                              | ja                                                                          |
+| `EnableAllFolders`, `EnabledFolders`                                              | nein, nur die Bibliotheken des Kontingents                                  |
+| `MaxActiveSessions`                                                               | die gleichzeitigen Streams (Geräte) des Kontingents                         |
+| `EnableContentDownloading`                                                        | Downloads des Kontingents                                                   |
+| `EnableSyncTranscoding`, `EnableMediaConversion`                                  | wie Downloads (Offline-Kopien sind Downloads)                               |
+| `RemoteClientBitrateLimit`                                                        | Qualität unterwegs in Bit pro Sekunde, 0 heisst die Einstellung des Servers |
+| `EnableContentDeletion`, `EnableContentDeletionFromFolders`                       | nein                                                                        |
+| `EnableRemoteControlOfOtherUsers`, `EnableSharedDeviceControl`                    | nein                                                                        |
+| `EnableLiveTvAccess`, `EnableLiveTvManagement`                                    | nein                                                                        |
+| `EnableCollectionManagement`, `EnableSubtitleManagement`, `EnableLyricManagement` | nein (auf gemeinsamen Bibliotheken sähe jeder Kunde die Änderungen)         |
+| `EnablePublicSharing`                                                             | nein                                                                        |
+| `EnableAllChannels`, `EnabledChannels`                                            | nein (Plugin-Kanäle bringen Inhalte von ausserhalb der Bibliotheken)        |
+| `SyncPlayAccess`                                                                  | `None` (SyncPlay zeigt die Gruppen anderer Benutzer mit ihren Namen)        |
+
+Alles andere lässt die Console, wie es in Jellyfin steht: Kindersicherung, Zeitpläne, Transkodieren,
+Geräte, `IsDisabled` (nur Deaktivieren und Aktivieren ändern das), die Sperre nach Fehlversuchen und
+jedes Feld, das neuere Versionen von Jellyfin dazubringen. Jellyfin ersetzt die Richtlinie bei jedem
+Schreiben als Ganzes, deshalb liest die Console sie vorher und schreibt sie mit den geänderten
+Feldern zurück, pro Benutzer eins nach dem anderen.
+
+**Wann sie geschrieben wird:** beim Anlegen, beim Übernehmen und Zuweisen eines Benutzers, nach
+jeder Änderung des Zugriffs eines Kontingents (Bibliotheken, Streams, Downloads, Bitrate) für alle
+Zugänge der Organisation auf der Instanz, vier gleichzeitig, beim Sync für Zugänge, deren Richtlinie
+abweicht, und mit "Richtlinie anwenden" im Admin-Bereich. Ändert nur die Zahl der Zugänge oder der
+Code, schreibt die Console nichts. Schlägt das Schreiben für einen Zugang fehl, steht er mit dem
+Hinweis "Richtlinie weicht ab" in der Liste, und der nächste Sync versucht es wieder.
+
+**Im Dashboard von Jellyfin nicht ändern:** Wer eins dieser Felder bei einem verwalteten Zugang im
+Dashboard ändert, sieht es nach ein oder zwei Sync-Läufen zurückgesetzt (im Audit-Log
+`media.policy_repair` von "Sync"). Ein verwalteter Zugang, den jemand zum Administrator macht, wird
+zurückgestuft, ausser er ist der letzte Administrator. Dauerhaft ändert man den Zugriff am
+Kontingent.
+
+### Bibliotheken, Streams, Bitrate und Downloads
+
+- **Bibliotheken:** Ein Kontingent gibt Bibliotheken frei, die IDs liest der Dialog live von der
+  Instanz. Die Console merkt sich Namen und Typ und aktualisiert sie beim Sync. Löscht jemand eine
+  Bibliothek in Jellyfin, steht sie mit "Entfernt" im Kontingent und verschwindet beim nächsten
+  Speichern. Live TV ist keine Bibliothek und bleibt aus. Benutzer mit alten gesperrten Bibliotheken
+  (`BlockedMediaFolders`, aus früheren Versionen) ignorieren `EnabledFolders`, und die API kann das
+  nicht ändern: Sie bekommen den Hinweis "Gesperrte Bibliotheken" und lassen sich nicht übernehmen.
+- **Streams (Geräte):** `MaxActiveSessions` zählt angemeldete, aktive Geräte eines Zugangs und prüft
+  die Zahl nur, wenn sich ein Gerät anmeldet. Es ist kein Zähler laufender Streams: Geräte, die
+  schon angemeldet sind, bleiben es, wenn die Zahl sinkt, und wie lange eine geschlossene App noch
+  zählt, ist nicht geprüft. Meldet ein Kunde "maximum number of sessions": ein neues Passwort
+  setzen, das meldet alle Geräte ab.
+- **Qualität unterwegs:** Höchste Bitrate für Geräte ausserhalb des Netzes des Servers, 1 bis 1000
+  Mbit/s (Vorschläge 4, 8, 15, 25, 40), oder leer für die Einstellung des Servers. Der Wert des
+  Zugangs ersetzt den des Servers, er ist nicht das Minimum aus beiden. Ohne `KnownProxies` greift
+  er nicht (siehe Voraussetzungen).
+- **Downloads** erlauben Offline-Kopien in den Apps. Das ist kein Kopierschutz: Gestreamte Inhalte
+  lassen sich trotzdem speichern.
+
+### Kontingente einrichten
+
+Admin > Kunden > Kunde, Karte "Streaming" > Einrichten (Berechtigung `platform:media:write`):
+
+- **Instanz:** alle Jellyfin-Provider (und der Demo-Provider). Alle Zugänge der Organisation liegen
+  dort.
+- **Kontingent-Code:** leer lassen für einen erzeugten
+- **Zugänge höchstens** (1 bis 10000)
+- **Bibliotheken** (mindestens eine), **gleichzeitige Streams** pro Zugang (1 bis 20), **Downloads**
+  und **Qualität unterwegs**
+- **Modul "Streaming" aktivieren** (Standard an). Bei einem Kunden eines Resellers nur, wenn der
+  Reseller das Modul hat (sonst 409).
+
+Die Instanz lässt sich nur wechseln, solange die Organisation keine Zugänge und keine
+Kundenkontingente darauf hat. Senken geht nicht unter die bestehenden Zugänge (409 `account_limit`).
+Engt weblion.one das Kontingent eines Resellers so ein, dass Kundenkontingente nicht mehr
+hineinpassen, lehnt die Console mit 409 `allowance_conflict` ab und nennt die Kunden und was nicht
+passt (Bibliotheken, Streams, Downloads, Bitrate, Zugänge). Einem Kunden eines Resellers kann
+weblion.one auch mehr geben, als der Reseller hat (wie beim Cloud-Speicher, der Dialog warnt).
+Entfernen geht nur ohne Zugänge und ohne Kundenkontingente und schaltet das Modul nicht ab. Die
+Antwort nennt, auf wie viele Zugänge die Richtlinie angewendet wurde und wo es scheiterte. Im
+Audit-Log stehen `media.allowance_set` (mit den bisherigen Werten und dem Ergebnis der Richtlinie)
+und `media.allowance_delete`. Per API nur mit Login:
+`PUT /api/v1/admin/orgs/<org-id>/media-allowance` mit z.B.
+`{"providerId": "<provider-id>", "maxAccounts": 5, "libraryIds": ["<id>"], "maxStreams": 2, "downloads": false, "remoteBitrateMbit": 8, "enableModule": true}`,
+`DELETE` auf denselben Pfad entfernt es.
+
+Ohne Kontingent sieht der Kunde unter "Streaming" den Hinweis, Streaming bei weblion.one (oder
+seinem Reseller) zu buchen.
+
+### Reseller
+
+- Ein Reseller bekommt von weblion.one ein Kontingent wie jeder Kunde, dazu das Modul "Streaming".
+  Daraus legt er eigene Zugänge an und gibt seinen Kunden einen Teil: Reseller > Meine Kunden >
+  Kunde > Ressourcen, Karte "Streaming". Die Instanz ist immer die des Resellers, Speichern
+  aktiviert beim Kunden das Modul und wendet die Richtlinie auf seine Zugänge an.
+- Ein Kundenkontingent darf nicht mehr geben als das des Resellers: nur seine Bibliotheken,
+  höchstens seine Streams, Downloads nur, wenn er sie hat, und eine Bitrate-Grenze, wenn er eine
+  hat, höchstens seine (409 `allowance_conflict`). Eigene Zugänge plus die Höchstwerte aller
+  Kundenkontingente müssen in sein Kontingent passen (409 `account_limit` "Only N accounts of your
+  allowance are left for this customer").
+- "Kontingent entfernen" gibt es an den Reseller zurück, solange der Kunde keine Zugänge hat. Per
+  API: `PUT` und `DELETE /api/v1/reseller/customers/<id>/media-allowance`, PUT mit
+  `{"maxAccounts": 3, "libraryIds": ["<id>"], "maxStreams": 2, "downloads": false, "remoteBitrateMbit": 15}`.
+- Zugänge selbst wandern nicht zwischen Reseller und Kunde. Ein Kunde mit Zugängen oder Kontingent
+  lässt sich nicht löschen.
+
+### Mehrere Instanzen
+
+- Jede Instanz ist ein eigener Provider: die aus der `.env` und beliebig viele aus dem
+  Admin-Bereich. Zugänge, Zwischenspeicher und Sperren gehören zur Verbindung, Benutzer-IDs gelten
+  nur pro Instanz.
+- Ein Kontingent nennt genau eine Instanz, eine Organisation hat höchstens ein Kontingent.
+- **Gemeinsame Instanz:** Viele Organisationen haben ein Kontingent auf derselben Instanz. Die Codes
+  trennen die Namen, die Richtlinie die Bibliotheken.
+- **Dedizierte Instanz:** eine Instanz, auf der genau eine Organisation ein Kontingent hat, z.B. die
+  eigene Jellyfin eines Kunden als neue Verbindung. Einen Schalter dafür gibt es nicht. Admin >
+  Streaming zeigt pro Instanz "Dediziert", "Gemeinsam" oder "Ungenutzt". Kunden, die Wert auf
+  Vertraulichkeit legen, gehören auf eine dedizierte Instanz (siehe Datenschutz).
+- **Umzug auf eine andere Instanz:** Den Verlauf zwischen Servern umzuziehen geht nicht. Neue
+  Verbindung anlegen, die Zugänge auf der alten löschen (oder lösen), die Instanz des Kontingents
+  ändern, dann legt der Kunde die Zugänge neu an (oder weblion.one übernimmt Benutzer, die auf der
+  neuen Instanz schon bestehen). Der Code bleibt, die Namen also auch.
+- Ein Provider lässt sich nicht löschen, solange ein Kontingent auf ihn zeigt oder einer seiner
+  Zugänge zugewiesen ist. Nicht zugewiesene Zugänge verschwinden mit ihm aus der Console (in
+  Jellyfin bleiben sie).
+
+### Admin-Bereich: Instanzen, übernehmen, zuweisen
+
+Admin > Streaming:
+
+- **Instanzen:** Nutzung (dediziert, gemeinsam, ungenutzt), Version, Benutzer und Bibliotheken,
+  aktive Sitzungen und wie viele abspielen, Quick Connect, Zugänge und solche mit Hinweisen, live
+  gelesen mit höchstens 10 Sekunden pro Instanz, dazu Synchronisieren.
+- **Zugänge:** alle verwalteten Zugänge aller Instanzen, mit Filter nach Kunde, Instanz und "Nur mit
+  Hinweisen", Suche nach Login-Name. Hier gehen auch Deaktivieren, Passwort und Löschen, auch für
+  Zugänge ohne Kunde. **Zuweisen** gibt einen Zugang einer Organisation mit Kontingent auf derselben
+  Instanz (sonst 409) und schreibt ihre Richtlinie. Ohne Organisation (lösen) läuft der Zugang mit
+  seiner Richtlinie weiter, zum Abstellen deaktivieren oder löschen. **Richtlinie anwenden**
+  schreibt sie sofort. Die Höchstzahl des Kontingents prüft die Console beim Zuweisen und Übernehmen
+  bewusst nicht (der Dialog warnt).
+- **Nicht verwaltete Benutzer:** "Benutzer abrufen" liest live alle Benutzer einer Instanz, die die
+  Console nicht verwaltet, z.B. direkt in Jellyfin angelegte. "Übernehmen" verwaltet sie danach, auf
+  Wunsch gleich bei einem Kunden (dann mit seiner Richtlinie). Name, Verlauf und Favoriten bleiben.
+  Administratoren und Benutzer mit gesperrten Bibliotheken lassen sich nicht übernehmen. Ein
+  Benutzer ohne Passwort nur zusammen mit einem neuen Passwort (sonst 409 `no_password`), das die
+  Console einmal anzeigt (nur mit Login).
+
+Im Audit-Log stehen `media.account_import`, `media.account_assign` und `media.policy_repair`. Per
+API nur mit Login: `GET /api/v1/admin/providers/<id>/media/unmanaged`,
+`POST /api/v1/admin/media/accounts/import` mit
+`{"providerId": "<provider-id>", "userId": "<Jellyfin-ID>", "orgId": "<org-id>", "setPassword": false}`,
+`POST /api/v1/admin/media/accounts/<id>/assign` mit `{"orgId": "<org-id>"}` oder `null`,
+`POST /api/v1/admin/media/accounts/<id>/repair`.
+
+### Sync
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) und Instanz genau ein `GET /Users`: alle Benutzer mit
+  Richtlinie. Für die Zugänge, die die Console verwaltet, übernimmt sie Name, aktiv oder
+  deaktiviert, ob ein Passwort gesetzt ist, den Tag der letzten Aktivität und die Hinweise
+  (Richtlinie weicht ab, Administrator, gesperrte Bibliotheken, ohne Passwort, nach Fehlversuchen
+  gesperrt, kein Kontingent auf dieser Instanz).
+- **Reparatur:** Weicht die Richtlinie eines Zugangs vom Kontingent seiner Organisation ab, schreibt
+  der Sync sie neu, höchstens 25 pro Lauf und Instanz, jede im Audit-Log als `media.policy_repair`
+  von "Sync" mit den Feldern, die abwichen. Eine abgelehnte Reparatur bleibt als Hinweis stehen und
+  steht mit `status: failure` im Audit-Log.
+- Fehlt ein Zugang in Jellyfin, zeigt die Console "In Jellyfin nicht gefunden". Zugänge, die während
+  des Laufs angelegt oder geändert wurden, fasst der Sync nicht an. Benutzer, die die Console nicht
+  kennt, legt er nicht an, er weist nichts zu und löscht nichts.
+- Danach aktualisiert er Namen und Typ der Bibliotheken in den Kontingenten der Instanz.
+- Ein einzelner Zugang (`GET /api/v1/media/accounts/<id>`) wird live nachgelesen. Von Hand: Admin >
+  Streaming > Synchronisieren, oder Admin > Provider > Jellyfin > "Jetzt synchronisieren".
+
+Jellyfin hat keine Ratenbegrenzung. Die Console schickt trotzdem höchstens vier Anfragen
+gleichzeitig pro Instanz, jede mit 30 Sekunden Timeout, und wiederholt keine Änderung. Bibliotheken
+hält sie 5 Minuten im Speicher, die Server-Info 10 Minuten, die Zahlen der Sitzungen 30 Sekunden.
+
+### Was die Console nutzt
+
+| Funktion in der Console                    | Endpunkt                                                                    | Berechtigung                                    |
+| ------------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------- |
+| Verbindungstest, Server-Info               | `GET /System/Info`, `GET /QuickConnect/Enabled`                             | Admin-Bereich, `media:read` (Anmeldehilfe)      |
+| Sync, nicht verwaltete Benutzer, Instanzen | `GET /Users`                                                                | Sync-Job, `platform:provider:read`              |
+| Zugang lesen                               | `GET /Users/{id}`                                                           | `media:read`                                    |
+| Zugang anlegen                             | `POST /Users/New` mit `Name` und `Password`, dann `POST /Users/{id}/Policy` | `media:write`                                   |
+| Richtlinie, deaktivieren, aktivieren       | `GET /Users/{id}`, dann `POST /Users/{id}/Policy` mit der ganzen Richtlinie | `media:write`, `platform:media:write`, Sync-Job |
+| Passwort neu setzen                        | `POST /Users/Password?userId={id}` mit `NewPw` und `ResetPassword: false`   | `media:password`, nur mit Login                 |
+| Löschen                                    | `DELETE /Users/{id}`                                                        | `media:write`                                   |
+| Bibliotheken                               | `GET /Library/VirtualFolders`                                               | `platform:provider:read`, Sync-Job              |
+| Sitzungen zählen                           | `GET /Sessions?activeWithinSeconds=600` (nur zwei Zahlen)                   | `platform:provider:read`                        |
+| API Explorer                               | jeder Pfad ausser den gesperrten                                            | `platform:explorer`, nur mit Login              |
+
+`ResetPassword: true` schickt die Console nie, und sie legt nie einen Benutzer ohne Passwort an:
+Beides hiesse in Jellyfin, dass man sich mit dem Namen allein anmeldet. Fehler von Jellyfin sagen
+oft nichts ("Error processing request."). Nach einem 400 beim Anlegen sucht die Console deshalb den
+Namen, um "vergeben" von "ungültig" zu unterscheiden, und prüft Namen vorher selbst.
+
+### Fehler der API
+
+Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
+Streaming:
+
+| HTTP | `code`               | Wann                                                                                                                                                                                               |
+| ---- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `bad_request`        | Ungültige Eingabe (`details` nennt das Feld), API-Token ohne Passwort, falsche Bestätigung beim Löschen, unbekannte Bibliothek, ungültige Jellyfin-ID                                              |
+| 403  | `forbidden`          | Recht fehlt, Modul nicht aktiv, Kunde gesperrt (nur lesen), "Passwort neu setzen" oder Übernehmen mit Passwort per API-Token                                                                       |
+| 404  | `not_found`          | Zugang, Kunde oder Kontingent gibt es nicht, oder die Person sieht sie nicht                                                                                                                       |
+| 404  | `provider_error`     | Jellyfin kennt den Benutzer nicht (mehr)                                                                                                                                                           |
+| 409  | `no_allowance`       | Kein Kontingent (beim Anlegen, beim Übernehmen, Zuweisen oder Reparieren auf dieser Instanz, beim Weitergeben durch einen Reseller)                                                                |
+| 409  | `account_limit`      | Kontingent voll, Höchstzahl unter den bestehenden Zugängen, Anteil des Resellers aufgebraucht                                                                                                      |
+| 409  | `allowance_conflict` | Kundenkontingent gibt mehr als das des Resellers, oder das Kontingent eines Resellers wird enger als das seiner Kunden, `details.customers` mit den Konflikten                                     |
+| 409  | `no_password`        | Übernehmen eines Benutzers ohne Passwort, ohne ein neues zu setzen                                                                                                                                 |
+| 409  | `conflict`           | Name vergeben, Zugang schon verwaltet, Administrator, gesperrte Bibliotheken, Code vergeben oder nicht mehr änderbar, Instanz wechseln oder Kontingent entfernen mit Zugängen, Reseller ohne Modul |
+| 422  | `unsupported`        | Der Provider kann kein Streaming                                                                                                                                                                   |
+| 502  | `provider_error`     | Jellyfin hat abgelehnt oder war nicht erreichbar, `message` mit dem Grund, HTTP-Status und einem Hinweis (Schlüssel abgelehnt, Fernzugriff aus, Weiterleitung)                                     |
+
+Schlägt eine Änderung bei Jellyfin fehl, steht das mit `status: failure` und der Meldung im
+Audit-Log.
+
+### API Explorer
+
+Für alles ohne eigenen Button: Admin > API Explorer, Provider Jellyfin wählen.
+
+- Pfade relativ zur Base URL, z.B. `/Users` oder `/Library/VirtualFolders`. Vorlagen: Server-Info,
+  öffentliche Info, Benutzer, Bibliotheken, Quick Connect, aktive Sitzungen.
+- GET und DELETE senden das JSON-Feld als Query, POST als JSON. Andere Methoden lehnt die Console
+  ab.
+- Gesperrt sind Pfade, die Zugangsdaten herausgeben oder erzeugen: `/Auth/Keys` (listet alle
+  API-Schlüssel im Klartext), `/Startup`, die Anmeldungen (`/Users/AuthenticateByName`,
+  `/Users/AuthenticateWithQuickConnect`, `/Users/{id}/Authenticate`), `/QuickConnect/Authorize` und
+  `/Users/ForgotPassword`, auch mit `/emby` oder `/mediabrowser` davor (Jellyfin lässt das weg),
+  dazu `..`, `//`, `\`, `#` und kodierte Punkte oder Schrägstriche.
+- In Antworten sind Tokens, Schlüssel, Passwörter und PINs ausgeblendet, der Schlüssel der Console
+  steht nie darin.
+- Ändernde Requests stehen mit Pfad und Body im Audit-Log (`provider.explorer`), `NewPw`,
+  `CurrentPw`, `Pw`, `Pin` und Passwörter ausgeblendet.
+- Was über den Explorer geändert wird, prüft die Console nicht gegen Kontingente. Weicht danach eine
+  Richtlinie ab, setzt der Sync sie zurück.
+
+### Grenzen
+
+- **Datenschutz auf einer gemeinsamen Instanz:** Jeder Zugang kann über die API von Jellyfin alle
+  Benutzer des Servers mit Namen und letzter Aktivität auflisten. Die Apps zeigen das nicht, die API
+  schon. Die Codes verraten keine Kunden, Namen wie "anna" aber, dass es eine Anna gibt. Wer das
+  nicht will, bekommt eine dedizierte Instanz.
+- **Sperren:** Ein gesperrter Kunde sieht seine Zugänge in der Console nur noch lesend. In Jellyfin
+  bleiben sie aktiv. Wer den Zugang sperren will, deaktiviert die Zugänge. Ebenso lassen ein
+  abgeschaltetes Modul und eine gelöste Zuweisung Jellyfin unberührt.
+- **Abrechnung:** Kontingent und Dienst sind getrennt, eine Abrechnung pro Zugang gibt es nicht.
+  Siehe [Roadmap](roadmap.md#streaming-jellyfin).
+- **Ein Kontingent pro Organisation**, alle Zugänge auf seiner Instanz. Umziehen siehe oben.
+- **Für alle Zugänge gleich:** Das Kontingent gilt für jeden Zugang der Organisation, einzelne
+  Zugänge mit mehr Streams oder Downloads gibt es nicht.
+- **Grosse Änderungen:** Eine Änderung am Kontingent schreibt die Richtlinie aller Zugänge in der
+  Anfrage (vier gleichzeitig). Für Hunderte von Zugängen einer Organisation geht das, für Tausende
+  wäre ein Hintergrund-Job nötig.
+- **Aus:** Live TV, Plugin-Kanäle und SyncPlay ("gemeinsam schauen") sind für alle Zugänge aus.
+- **Nicht in der Console**, das geht in Jellyfin: Bibliotheken und Inhalte, Servereinstellungen,
+  Plugins, Live TV, Kindersicherung, "alle Geräte abmelden" (ein neues Passwort tut das).
+- Den Inhalt der Bibliotheken liefert der Betreiber, die Console sieht ihn nicht.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen ein echtes Jellyfin ist die Anbindung noch nicht getestet, nur gegen einen Mock-Server nach
+dem Quellcode von Jellyfin 10.11.11 (mit den Unterschieden von 10.10). Vor dem ersten echten Einsatz
+einmal gegen 10.11 und einmal gegen 10.10 in einem Container prüfen: Verbindung testen, anlegen, die
+Richtlinie im Dashboard ansehen (Bibliotheken, kein Administrator, versteckt), Quick Connect mit 1
+Stream und einem zweiten Gerät ("maximum number of sessions"), Passwort ändern und Deaktivieren
+melden ein angemeldetes Gerät ab, Löschen, die Bitrate von ausserhalb durch den Reverse Proxy. Dazu
+die ungeprüften Annahmen:
+
+1. Dass 10.11.11 die aktuelle stabile Version ist
+2. Der Body von Fehlern 404 (ProblemDetails) und ob Texte wie "User not found" als JSON-String oder
+   als Text kommen. Die Console liest beides.
+3. Ob Jellyfin die Felder in Request-Bodys ohne Gross- und Kleinschreibung liest. Die Console
+   schickt die Namen so, wie sie sie gelesen hat.
+4. Ob jedes Datum ein `Z` trägt. Die Console liest Daten ohne Zone als UTC.
+5. Wie lange eine geschlossene App gegen `MaxActiveSessions` zählt
+6. Was `EnableContentDownloading` genau schützt, und was `EnableSyncTranscoding` und
+   `EnableMediaConversion` bewirken (hier an Downloads gekoppelt)
+7. Ob ein laufender Stream sofort abbricht, wenn ein Zugang gelöscht oder deaktiviert wird (die
+   Tokens widerruft Jellyfin sofort)
+8. Wie Jellyfin Anfragen ausserhalb des Basis-Pfads weiterleitet
+9. Welche Zeichen die Bildschirmtastaturen von Fernsehern auf der ersten Seite zeigen (nur eine
+   Frage der Bequemlichkeit für `-`)
+10. Die Liste der Apps und die Adresse `https://jellyfin.org/downloads` auf der Anmeldehilfe
+11. Ob Quick Connect in jedem Fernseh-Client geht
+12. Der Name des Container-Images `jellyfin/jellyfin:10.11.11` für den Test
+13. Ob das Dashboard `RemoteClientBitrateLimit` als Mbit/s mal 1 000 000 schreibt (die Console
+    schreibt Bit pro Sekunde, das liest der Server, geprüft)
+
+### Demo
+
+Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert eine Jellyfin 10.11.11 ("Demo Jellyfin")
+mit den Bibliotheken Filme, Serien, Kinder, Musik und Dokumentationen im Speicher, mit denselben
+Prüfungen wie die echte Anbindung. Die Adresse `https://media.demo.weblion.one` gibt es nicht,
+"Jellyfin öffnen" führt ins Leere. Mit `pnpm db:seed`:
+
+- Muster AG hat das Modul und ein Kontingent mit dem Code `kemaro` für 5 Zugänge (Filme, Serien,
+  Kinder, 2 Streams, keine Downloads, 8 Mbit/s unterwegs) mit `anna-kemaro` und `wohnzimmer-kemaro`
+  (nach Fehlversuchen gesperrt).
+- Alpen Hosting (Reseller, Code `alpen`, 20 Zugänge, auch Musik, 3 Streams, Downloads, 20 Mbit/s)
+  und Bäckerei Huber (Code `bivane`, 3 Zugänge, Filme und Kinder, mit `huber-bivane`) haben ein
+  Kontingent, aber noch nicht das Modul. Die Richtlinie von `huber-bivane` weicht ab, der erste Sync
+  repariert sie.
+- Nicht verwaltet und im Admin-Bereich zu übernehmen: `ben-kemaro`, `gast` (ohne Passwort, nur mit
+  neuem Passwort) und `altkunde` (gesperrte Bibliotheken, nicht übernehmbar), dazu der Administrator
+  `weblion-admin`.
+
 ## Weitere Provider anbinden
 
 Ein Provider ist eine Klasse, die `ProviderAdapter` aus
@@ -2129,3 +4175,52 @@ mit 422 (`unsupported`). Für den Admin-Bereich kommen `createMailDomain`, `upda
 der Limits, Passwörter und die DNS-Einträge erledigt das Modul `mail`, der Adapter spricht nur mit
 der Instanz. Grössen nimmt er in ganzen MiB und meldet sie in Bytes. Im Web hält
 `isMailProvider()` in `pages/admin/mail.tsx` fest, welche Typen Mail-Domains haben.
+
+Ein Provider für Websites wie CloudPanel liefert ebenfalls keine Server. Er implementiert
+`listWebsites`, `websiteServerOptions` und `createWebsite`, erst damit gilt er als Website-Provider
+(`supportsWebsites()` in `apps/api/src/modules/hosting/website-service.ts`), sonst antwortet die API
+mit 422 (`unsupported`). Für die einzelnen Funktionen kommen `deleteWebsite`, `setWebsitePassword`,
+`createWebsiteDatabase`, `setWebsiteDatabasePassword`, `deleteWebsiteDatabase` und
+`issueWebsiteCertificate` dazu, für den Admin-Bereich `listUnmanagedWebsites`, `adoptWebsite` und
+`forgetWebsite`. Fehlt eine davon, lehnt die Route mit 422 ab. Optional sind `getWebsite` (Live-Daten
+der Detailseite), `websiteAccessHost` (Host für SFTP/SSH) und `websiteServerInfo` (was der Server
+hat, für den Admin-Bereich). Websites adressiert der Adapter über die ASCII-Domain, Passwörter
+bekommt er nur zum Weitergeben. Kontingente, Prüfungen, Passwörter und die DNS-Prüfung erledigt das Hosting-Modul
+(`website-service.ts`, `website-allowance.ts`, `website-dns.ts`, `websites.ts`). Im Web hält
+`isWebsiteProvider()` in `pages/admin/websites.tsx` fest, welche Typen Websites haben.
+
+Ein Provider für Telefonie wie 3CX liefert ebenfalls keine Server. Er implementiert
+`listPhoneSystems` und `getPhoneSystem`, erst damit gilt er als Telefonie-Provider
+(`supportsPhone()` in `apps/api/src/modules/phone/service.ts`). Was er darüber hinaus kann, ergibt
+sich aus seinen Methoden (`phoneCapabilities()`): `listPhoneUsers`, `getPhoneUser`,
+`createPhoneUser`, `updatePhoneUser` und `deletePhoneUser` zusammen ergeben `users`,
+`nextPhoneNumber` ergibt `nextNumber`, `sendPhoneWelcome` `welcomeMail`, `listPhoneRingGroups`
+`ringGroups`, `addPhoneRingGroupMember` und `removePhoneRingGroupMember` `ringGroupMembers`,
+`listPhoneTrunks` `trunks`. Fehlt eine Fähigkeit, blendet die Console Tab oder Button aus, und die
+Route antwortet mit 422. Eine Verbindung darf mehrere Anlagen melden (der Demo-Provider meldet
+drei), jede Methode bekommt die ID der Anlage. Zuweisung, Prüfungen und Audit erledigt das Modul
+`phone`, der Adapter spricht nur mit der Anlage und gibt nie Passwörter oder PINs heraus. Im Web
+hält `isPhoneProvider()` in `lib/api/phone.ts` fest, welche Typen Telefonanlagen haben.
+
+Ein Provider für Streaming wie Jellyfin liefert ebenfalls keine Server. Er implementiert
+`listMediaUsers`, `getMediaUser`, `createMediaUser`, `setMediaUserPolicy`, `setMediaUserEnabled`,
+`setMediaUserPassword`, `deleteMediaUser`, `listMediaLibraries` und `mediaLoginUrl`. Erst mit allen
+gilt er als Streaming-Provider (`supportsMedia()` in `apps/api/src/modules/media/service.ts`), sonst
+antwortet die API mit 422 (`unsupported`). Optional sind `mediaServerInfo` (Version, Servername,
+Quick Connect) und `mediaActivity` (die zwei Zahlen der Sitzungen). Die Richtlinie kommt als
+`MediaPolicyState` (17 Felder, `packages/shared/src/media.ts`), der Adapter übersetzt sie in die
+Felder des Servers und lässt alle anderen, wie sie sind. Kontingente, Login-Namen, Codes, erzeugte
+Passwörter und der Vergleich der Richtlinie liegen im Modul `media`. Im Web hält `isMediaProvider()`
+in `pages/admin/media.tsx` fest, welche Typen Streaming haben.
+
+Ein Provider für Monitoring wie Uptime Kuma liefert ebenfalls keine Server. Zum Lesen implementiert
+er `listMonitors` und `getMonitor` (`supportsMonitoring()` in
+`apps/api/src/modules/monitoring/service.ts`), zum Verwalten `createMonitor`, `updateMonitor`,
+`pauseMonitor`, `resumeMonitor` und `deleteMonitor`, und `monitorManagement()` muss `true` melden
+(`canManageMonitors()`). Optional sind `getMonitorHistory` mit `monitorHistoryRanges`,
+`monitoringStatus`, `getStatusPage` mit `statusPageUrl`, `signInForManagement`,
+`redactExplorerAudit` (Geheimnisse in Explorer-Requests vor dem Audit ausblenden) und `close`
+(offene Sitzungen schliessen, wenn die Registry den Adapter ersetzt). `listMonitors` meldet mit
+`complete`, ob die Liste auch pausierte Monitore enthält. Kontingente, die Prüfung öffentlicher
+Ziele und die Namen mit Kürzel erledigt das Modul `monitoring`. Im Web hält `isMonitoringProvider()`
+in `lib/api/monitoring.ts` fest, welche Typen Monitore haben.

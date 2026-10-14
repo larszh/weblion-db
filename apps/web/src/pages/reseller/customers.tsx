@@ -69,6 +69,8 @@ import {
   useTabParam,
 } from './bits';
 import { ResellerCloudAllowanceCard } from './cloud-allowance';
+import { ResellerMediaAllowanceCard } from './media-allowance';
+import { ResellerMonitorAllowanceCard } from './monitor-allowance';
 import { ResellerWebsiteAllowanceCard } from './website-allowance';
 
 /** Resource types a reseller hands out, with the module each one belongs to. */
@@ -81,6 +83,8 @@ const RESOURCE_TYPES: {
   { type: 'domain', module: 'dns', key: 'domains' },
   { type: 'webspace', module: 'webhosting', key: 'webspaces' },
   { type: 'maildomain', module: 'mail', key: 'mailDomains' },
+  { type: 'phone_system', module: 'phone', key: 'phoneSystems' },
+  { type: 'monitor', module: 'monitoring', key: 'monitors' },
 ];
 
 /** Only reseller organizations have customers. Everyone else gets a plain explanation. */
@@ -427,6 +431,30 @@ function OverviewTab({ customer }: { customer: ResellerCustomerDto }) {
                   label: t('admin.resources.webspaces'),
                   value: <span className="tabular">{customer.counts.webspaces}</span>,
                 },
+                ...(customer.modules.includes('phone') || customer.counts.phoneSystems > 0
+                  ? [
+                      {
+                        label: t('admin.resources.phoneSystems'),
+                        value: <span className="tabular">{customer.counts.phoneSystems}</span>,
+                      },
+                    ]
+                  : []),
+                ...(customer.modules.includes('media') || customer.counts.mediaAccounts > 0
+                  ? [
+                      {
+                        label: t('admin.resources.mediaAccounts'),
+                        value: <span className="tabular">{customer.counts.mediaAccounts}</span>,
+                      },
+                    ]
+                  : []),
+                ...(customer.modules.includes('monitoring') || customer.counts.monitors > 0
+                  ? [
+                      {
+                        label: t('admin.resources.monitors'),
+                        value: <span className="tabular">{customer.counts.monitors}</span>,
+                      },
+                    ]
+                  : []),
                 {
                   label: t('nav.members'),
                   value: <span className="tabular">{customer.counts.members}</span>,
@@ -607,13 +635,17 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
   const cloud = org.modules.includes('storage');
   // Websites move like web spaces, and the customer needs a website allowance to take them.
   const websites = org.modules.includes('webhosting');
+  // Monitors move like the other resources; console monitors need a share of the allowance.
+  const monitoring = org.modules.includes('monitoring');
+  // Streaming accounts do not move either: the customer gets a share of the streaming allowance.
+  const media = org.modules.includes('media');
 
   if (resources.isPending) return <LoadingBlock rows={6} />;
   if (resources.isError) {
     return <ErrorState error={resources.error} onRetry={() => void resources.refetch()} />;
   }
   const data = resources.data;
-  if (types.length === 0 && !cloud) {
+  if (types.length === 0 && !cloud && !media) {
     return <EmptyState title={t('admin.reseller.noModules')} />;
   }
 
@@ -673,7 +705,9 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
         );
       })}
       {cloud && <ResellerCloudAllowanceCard customer={customer} />}
+      {media && <ResellerMediaAllowanceCard customer={customer} />}
       {websites && <ResellerWebsiteAllowanceCard customer={customer} />}
+      {monitoring && <ResellerMonitorAllowanceCard customer={customer} />}
       <AssignDialog
         type={assigning}
         customer={customer}
@@ -686,7 +720,10 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
         title={t('admin.resources.releaseTitle')}
         description={
           releasing
-            ? t('admin.resources.releaseText', { name: releasing.name, customer: customer.name })
+            ? [
+                t('admin.resources.releaseText', { name: releasing.name, customer: customer.name }),
+                ...(releasing.type === 'webspace' && websites ? [t('websites.reseller.releaseText')] : []),
+              ].join(' ')
             : undefined
         }
         confirmLabel={t('admin.resources.release')}

@@ -7,6 +7,9 @@ import { storageEn } from './sections/storage.en';
 import { cloudflareEn } from './sections/cloudflare.en';
 import { mailEn } from './sections/mail.en';
 import { websitesEn } from './sections/websites.en';
+import { phoneEn } from './sections/phone.en';
+import { mediaEn } from './sections/media.en';
+import { uptimeEn } from './sections/uptime.en';
 
 export const en: Record<TranslationKey, string> = {
   ...billingEn,
@@ -17,6 +20,9 @@ export const en: Record<TranslationKey, string> = {
   ...cloudflareEn,
   ...mailEn,
   ...websitesEn,
+  ...phoneEn,
+  ...mediaEn,
+  ...uptimeEn,
   'common.actions': 'Actions',
   'common.add': 'Add',
   'common.cancel': 'Cancel',
