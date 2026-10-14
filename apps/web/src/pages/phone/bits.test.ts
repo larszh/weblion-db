@@ -95,7 +95,9 @@ const form = (over: Partial<PhoneUserForm> = {}): PhoneUserForm => ({
 describe('figures', () => {
   it('shows "n / max", n without maximum, a dash when unknown', () => {
     expect(ofMax(3, 16, 'de')).toBe('3 / 16');
-    expect(ofMax(1200, null, 'de')).toBe('1’200');
+    // The Swiss group separator depends on the ICU build (’ or ').
+    const group = new Intl.NumberFormat('de-CH').format(1000).charAt(1);
+    expect(ofMax(1200, null, 'de')).toBe(`1${group}200`);
     expect(ofMax(null, 16, 'en')).toBe('–');
     expect(ofMax(undefined, undefined, 'en')).toBe('–');
   });
