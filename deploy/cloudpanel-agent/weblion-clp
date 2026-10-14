@@ -15,8 +15,8 @@ This script is the security boundary between the console and the server:
 - commands run as argument lists without a shell and with a fixed environment;
 - only sites on the managed list are changed, protected sites and users never;
 - real passwords only travel on stdin of chpasswd and the mysql client; clpctl only ever sees
-  random throw-away passwords that are replaced right afterwards; every text that leaves the
-  script is cleaned of secrets;
+  random throw-away passwords that are replaced right afterwards, and only where /proc hides
+  them from other users (hidepid); every text that leaves the script is cleaned of secrets;
 - CloudPanel's SQLite database is only read (read-only, short, outside clp-agent's write slot);
 - every change is verified by reading CloudPanel's database afterwards, never by exit codes.
 
@@ -105,6 +105,9 @@ DEFAULT_CONFIG = {
     "clpctl": "/usr/bin/clpctl",
     "mysql": "/usr/bin/mysql",
     "minCloudPanel": "2.5.0",
+    # clpctl only takes passwords on its command line: without hidepid every user of the server
+    # could read them in ps. false accepts that risk (see hidden_processes).
+    "requireHidepid": True,
 }
 
 # Columns read from CloudPanel's database. Only the required ones must exist; every other one is
@@ -177,12 +180,15 @@ class Paths:
         self.php_bin_dir = "/usr/bin"
         self.php_etc_dir = "/etc/php"
         self.proc_net_tcp = ("/proc/net/tcp", "/proc/net/tcp6")
+        self.proc_mounts = "/proc/mounts"
         self.crontabs = "/var/spool/cron/crontabs"
         self.sudoers = "/etc/sudoers.d/weblion-agent"
         self.sshd_dropin = "/etc/ssh/sshd_config.d/50-weblion-agent.conf"
         # clpctl is a bash script whose shebang was broken before 2.5.0: always run it with bash.
         self.shell = "/bin/bash"
         self.chpasswd = "/usr/sbin/chpasswd"
+        self.usermod = "/usr/sbin/usermod"
+        self.userdel = "/usr/sbin/userdel"
         self.pkill = "/usr/bin/pkill"
         self.crontab = "/usr/bin/crontab"
         self.dpkg_query = "/usr/bin/dpkg-query"
@@ -552,6 +558,7 @@ def load_config(path):
         ("agentUser", isinstance(config["agentUser"], str) and LINUX_USER_RE.fullmatch(config["agentUser"])),
         ("allowRemoteAdopt", isinstance(config["allowRemoteAdopt"], bool)),
         ("nodejs", isinstance(config["nodejs"], bool)),
+        ("requireHidepid", isinstance(config["requireHidepid"], bool)),
         ("nodejsPorts", pair(config["nodejsPorts"], 1024, 65535)),
         ("dbQuietSeconds", pair(config["dbQuietSeconds"], 0, 59)),
         (
@@ -660,6 +667,7 @@ class Agent:
         self.request_id = None
         self._config = None
         self._master = None
+        self._own_names = None
 
     @property
     def config(self):
@@ -894,6 +902,33 @@ class Agent:
             )
         return version
 
+    def hidden_processes(self):
+        """Whether /proc hides the processes of other users (hidepid=invisible or 2, ptraceable
+        or 4), so no site user can read clpctl's command line. The last mount on /proc counts."""
+        hidden = False
+        try:
+            with open(self.paths.proc_mounts, encoding="utf-8", errors="replace") as handle:
+                lines = handle.read().splitlines()
+        except OSError:
+            return False
+        for line in lines:
+            fields = line.split()
+            if len(fields) >= 4 and fields[1] == "/proc" and fields[2] == "proc":
+                options = [option.split("=", 1) for option in fields[3].split(",")]
+                hidden = any(o[0] == "hidepid" and o[-1] in ("2", "invisible", "4", "ptraceable") for o in options)
+        return hidden
+
+    def require_hidden_processes(self):
+        """clpctl only takes passwords on its command line (the throw-away ones of this script):
+        new site users and database users are only created where nobody else can read them."""
+        if self.config["requireHidepid"] and not self.hidden_processes():
+            raise AgentError(
+                "version",
+                "This server shows every user's processes: mount /proc with hidepid=invisible (hidepid=2) "
+                'before websites or databases are created, or accept the risk with "requireHidepid": false '
+                "in /etc/weblion-clp/config.json",
+            )
+
     def templates(self):
         code, output = self.clpctl("vhost-templates:list", timeout=30)
         templates = parse_templates(output)
@@ -1016,8 +1051,23 @@ class Agent:
             conn.close()
         return Snapshot(rows, "certificate_id" in have["site"])
 
+    def own_names(self):
+        """The server's own name and its www counterpart (customers reach SFTP/SSH there), when
+        the server has a fully qualified name."""
+        if self._own_names is None:
+            try:
+                name = str(self.hostname() or "").strip().lower().rstrip(".")
+            except OSError:
+                name = ""
+            self._own_names = {name, www_counterpart(name)} if DOMAIN_RE.fullmatch(name) else set()
+        return self._own_names
+
     def domain_protected(self, domain, protected):
-        return domain in protected.domains or www_counterpart(domain) in protected.domains
+        """On the protected list (the name or its www counterpart), or the server's own name: a
+        customer's website there would serve the host every customer logs in to."""
+        if domain in protected.domains or www_counterpart(domain) in protected.domains:
+            return True
+        return domain in self.own_names()
 
     def user_protected(self, name, protected):
         if name in protected.users or name in ("root", "clp", self.config["agentUser"]):
@@ -1232,42 +1282,80 @@ class Agent:
         if code != 0:
             raise AgentError("clpctl_failed", "The password of %s could not be set" % user, output=output)
 
-    def empty_authorized_keys(self, home):
-        """Empties ~/.ssh/authorized_keys of a new site user without following links: the user
-        may already have replaced parts of the path."""
+    def empty_ssh_dir(self, home):
+        """Empties ~/.ssh of a new site user: authorized_keys is truncated (CloudPanel may keep
+        the file), everything else goes (authorized_keys2, which sshd reads as well, rc, which
+        runs at every login, environment, ...). Links are never followed: the user may already
+        have replaced parts of the path."""
         directory = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         fds = []
         try:
             fds.append(os.open(home, directory))
-            fds.append(os.open(".ssh", directory, dir_fd=fds[-1]))
-            fds.append(os.open("authorized_keys", os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fds[-1]))
-            info = os.fstat(fds[-1])
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                raise AgentError("clpctl_failed", "%s/.ssh/authorized_keys is not a plain file" % home)
-            os.ftruncate(fds[-1], 0)
-        except FileNotFoundError:
-            pass
+            try:
+                fds.append(os.open(".ssh", directory, dir_fd=fds[-1]))
+            except FileNotFoundError:
+                return
+            for name in os.listdir(fds[-1]):
+                info = os.stat(name, dir_fd=fds[-1], follow_symlinks=False)
+                if name == "authorized_keys" and stat.S_ISREG(info.st_mode):
+                    fd = os.open(name, os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fds[-1])
+                    try:
+                        # A second name of another file (a hard link) is removed, never emptied.
+                        opened = os.fstat(fd)
+                        if stat.S_ISREG(opened.st_mode) and opened.st_nlink == 1:
+                            os.ftruncate(fd, 0)
+                            continue
+                    finally:
+                        os.close(fd)
+                self.remove_entry(fds[-1], name, info)
         except OSError as err:
-            raise AgentError("clpctl_failed", "%s/.ssh/authorized_keys cannot be emptied: %s" % (home, err.strerror))
+            raise AgentError("clpctl_failed", "%s/.ssh cannot be emptied: %s" % (home, err.strerror))
         finally:
             for fd in fds:
                 os.close(fd)
 
-    def kill_processes(self, user):
-        code, output = self.run([self.paths.pkill, "-KILL", "-u", user], what="pkill")
+    def remove_entry(self, dir_fd, name, info):
+        """Removes a file, link or directory tree below dir_fd without following links."""
+        if stat.S_ISDIR(info.st_mode):
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+            try:
+                for child in os.listdir(fd):
+                    self.remove_entry(fd, child, os.stat(child, dir_fd=fd, follow_symlinks=False))
+            finally:
+                os.close(fd)
+            os.rmdir(name, dir_fd=dir_fd)
+        else:
+            os.unlink(name, dir_fd=dir_fd)
+
+    def kill_processes(self, user, budget=True):
+        code, output = self.run([self.paths.pkill, "-KILL", "-u", user], budget=budget, what="pkill")
         if code not in (0, 1):  # 1: no process
             raise AgentError("clpctl_failed", "The processes of %s could not be stopped" % user, output=output)
 
+    def set_expired(self, user, expired, budget=True):
+        """Expires the account (no login with a password or a key, over SSH, su or cron) or
+        lifts that again."""
+        code, output = self.run(
+            [self.paths.usermod, "--expiredate", "1" if expired else "", user], budget=budget, what="usermod"
+        )
+        if code != 0:
+            raise AgentError("clpctl_failed", "The account of %s could not be changed" % user, output=output)
+
     def close_creation_window(self, user):
-        """The throw-away password was visible in ps for a few seconds: end everything somebody
-        might have started with it (the site is new and empty, nothing of the customer is lost).
-        Processes are killed before and after, so none can put a key or a cron job back."""
+        """The throw-away password was on clpctl's command line until chpasswd replaced it, where
+        users of the server can read it unless /proc has hidepid (require_hidden_processes):
+        nothing somebody started or left with it may survive (the site is new, nothing of the
+        customer is lost). The account is expired first, so nobody can log in while it is
+        cleaned; then its processes are killed, ~/.ssh emptied, its crontab removed, its
+        processes killed once more, and the account opened again."""
+        self.set_expired(user, True)
         self.kill_processes(user)
-        self.empty_authorized_keys(self.home_of(user))
+        self.empty_ssh_dir(self.home_of(user))
         code, output = self.run([self.paths.crontab, "-r", "-u", user], what="crontab")
         if code != 0 and "no crontab" not in output.lower():
             raise AgentError("clpctl_failed", "The crontab of %s could not be removed" % user, output=output)
         self.kill_processes(user)
+        self.set_expired(user, False)
 
     def rollback_site(self, domain, user, record):
         """Removes a half-created site. True when nothing of it is left. A site that is left is
@@ -1283,7 +1371,18 @@ class Agent:
             # Best effort: replace the throw-away password somebody may have seen.
             with contextlib.suppress(AgentError):
                 self.set_linux_password(user, self.throwaway(), budget=False)
-                self.run([self.paths.pkill, "-KILL", "-u", user], budget=False, what="pkill")
+                self.kill_processes(user, budget=False)
+            if site is None:
+                # CloudPanel created the Linux user but no site (it failed or was stopped in
+                # between). The user did not exist before this request (create_command checked
+                # that under the lock): it goes with its home, or it would block the name and
+                # stay invisible to the console.
+                with contextlib.suppress(AgentError):
+                    code, output = self.run([self.paths.userdel, "--remove", user], budget=False, what="userdel")
+                    if code != 0 and self.user(user) is not None:
+                        entry = {"event": "leftover_user", "user": user, "output": self.redact(output)}
+                        self.log(dict(entry, requestId=self.request_id))
+                self.remove_crontab_file(user)
         if site is None:
             return self.user(user) is None
         try:
@@ -1291,6 +1390,39 @@ class Agent:
         except Exception:
             self.log_traceback()
         return False
+
+    @contextlib.contextmanager
+    def after_change(self, what):
+        """The steps after a change was made on the server: reading the result and building the
+        answer. A failure there must not look like a refusal (busy, version, not_found tell the
+        console that nothing happened): it becomes clpctl_failed without a rollback, so the
+        console marks the website and its sync settles it by what the server has."""
+        try:
+            yield
+        except AgentError as err:
+            if err.code not in ("clpctl_failed", "timeout"):
+                raise AgentError(
+                    "clpctl_failed",
+                    "%s, but the result could not be read: %s" % (what, err.message),
+                    output=err.output,
+                    rolled_back=False,
+                )
+            if err.rolled_back is None:
+                err.rolled_back = False
+            raise
+
+    def remove_crontab_file(self, user):
+        """The crontab of a removed user, if any (userdel leaves it). A warning text or None."""
+        if self.user(user) is not None or not LINUX_USER_RE.fullmatch(user):
+            return None
+        crontab = os.path.join(self.paths.crontabs, user)
+        if not os.path.lexists(crontab):
+            return None
+        try:
+            os.unlink(crontab)
+        except OSError as err:
+            return "The crontab of the removed user %s could not be deleted: %s" % (user, err.strerror)
+        return "The crontab of the removed user %s has been deleted" % user
 
     def add_database(self, domain, name, user_name, password):
         throw = self.throwaway()
@@ -1357,16 +1489,10 @@ class Agent:
             warnings.append("Leftover databases could not be checked: " + err.message)
         if self.user(user) is not None:
             warnings.append("The Linux user %s still exists on the server" % user)
-        elif LINUX_USER_RE.fullmatch(user):
-            crontab = os.path.join(self.paths.crontabs, user)
-            if os.path.lexists(crontab):
-                try:
-                    os.unlink(crontab)
-                    warnings.append("The crontab of the removed user %s has been deleted" % user)
-                except OSError as err:
-                    warnings.append(
-                        "The crontab of the removed user %s could not be deleted: %s" % (user, err.strerror)
-                    )
+        else:
+            crontab = self.remove_crontab_file(user)
+            if crontab:
+                warnings.append(crontab)
         return [self.redact(w) for w in warnings]
 
     # --- operations ----------------------------------------------------------------------
@@ -1493,6 +1619,7 @@ class Agent:
         database = a.get("database")
         if database:
             self.check_database_free(snap, database["name"], database["userName"], "database", "database")
+        self.require_hidden_processes()
         return command
 
     def create_site(self, a, command):
@@ -1510,10 +1637,14 @@ class Agent:
         }
         try:
             _code, output = self.clpctl(*command, timeout=240)
-            site = self.panel().site(domain)
-            if site is None or site["type"] != kind or site["user"] != user or self.user(user) is None:
+            if self.user(user) is None:
                 raise AgentError("clpctl_failed", "CloudPanel did not create the site", output=output)
+            # The throw-away password goes first, before anything that takes time (reading the
+            # panel waits for clp-agent's quiet window).
             self.set_linux_password(user, a["password"])
+            site = self.panel().site(domain)
+            if site is None or site["type"] != kind or site["user"] != user:
+                raise AgentError("clpctl_failed", "CloudPanel did not create the site", output=output)
             self.close_creation_window(user)
             self.record_site(domain, record)
         except Exception as err:
@@ -1532,8 +1663,10 @@ class Agent:
                 self.add_database(domain, database["name"], database["userName"], a["databasePassword"])
             except AgentError as err:
                 warnings.append(self.redact("The database could not be created: " + err.message))
-        snap = self.panel()
-        return {"site": self.wire_site(snap, snap.site(domain), record, self.load_usage()), "warnings": warnings}
+        with self.after_change("%s has been created" % domain):
+            snap = self.panel()
+            site = self.wire_site(snap, snap.site(domain), record, self.load_usage())
+        return {"site": site, "warnings": warnings}
 
     def op_delete(self, a):
         domain = a["domain"]
@@ -1545,17 +1678,22 @@ class Agent:
             (d["name"], [u for u in d["users"] if u not in others]) for d in guarded.snap.site_databases(guarded.site)
         ]
         _code, output = self.clpctl("site:delete", "--domainName=" + domain, "--force", timeout=170)
-        if self.panel().site(domain) is not None:
-            raise AgentError("clpctl_failed", "CloudPanel did not delete %s" % domain, output=output)
-        self.drop_site(domain)
-        return {"warnings": self.delete_leftovers(user, databases)}
+        with self.after_change("CloudPanel was asked to delete %s" % domain):
+            if self.panel().site(domain) is not None:
+                raise AgentError("clpctl_failed", "CloudPanel did not delete %s" % domain, output=output)
+            self.drop_site(domain)
+            return {"warnings": self.delete_leftovers(user, databases)}
 
     def op_password(self, a):
         guarded = self.guard(a["domain"])
         # Running processes and sessions stay: killing them would stop the customer's Node.js app.
         self.set_linux_password(guarded.site["user"], a["password"])
         if guarded.record.get("incomplete"):
-            self.record_site(a["domain"], dict(guarded.record, incomplete=False))
+            # A creation that failed half-way never closed its window (and may have left the
+            # account expired): nothing of the customer runs there yet.
+            with self.after_change("The password of %s has been set" % a["domain"]):
+                self.close_creation_window(guarded.site["user"])
+                self.record_site(a["domain"], dict(guarded.record, incomplete=False))
         return {}
 
     def op_db_add(self, a):
@@ -1564,14 +1702,16 @@ class Agent:
         prefix = db_prefix(guarded.site["user"])
         v_db_name(name, "name", prefix)
         v_db_name(user_name, "userName", prefix)
+        self.require_hidden_processes()
         self.check_database_free(guarded.snap, name, user_name, "name", "userName")
         try:
             self.add_database(domain, name, user_name, a["password"])
         except AgentError as err:
             err.message = "The database %s could not be created: %s" % (name, err.message)
             raise
-        snap = self.panel()
-        return {"site": self.wire_site(snap, snap.site(domain), guarded.record, self.load_usage())}
+        with self.after_change("The database %s has been created" % name):
+            snap = self.panel()
+            return {"site": self.wire_site(snap, snap.site(domain), guarded.record, self.load_usage())}
 
     def site_database(self, guarded, name):
         database = guarded.snap.database(name)
@@ -1586,10 +1726,11 @@ class Agent:
         guarded = self.guard(domain)
         self.site_database(guarded, name)
         _code, output = self.clpctl("db:delete", "--databaseName=" + name, "--force", timeout=60)
-        snap = self.panel()
-        if snap.database(name) is not None:
-            raise AgentError("clpctl_failed", "CloudPanel did not delete the database %s" % name, output=output)
-        return {"site": self.wire_site(snap, snap.site(domain), guarded.record, self.load_usage())}
+        with self.after_change("CloudPanel was asked to delete the database %s" % name):
+            snap = self.panel()
+            if snap.database(name) is not None:
+                raise AgentError("clpctl_failed", "CloudPanel did not delete the database %s" % name, output=output)
+            return {"site": self.wire_site(snap, snap.site(domain), guarded.record, self.load_usage())}
 
     def op_db_password(self, a):
         guarded = self.guard(a["domain"])
@@ -1606,22 +1747,23 @@ class Agent:
         guarded = self.guard(domain)
         before = guarded.site["cert"] or {}
         _code, output = self.clpctl("lets-encrypt:install:certificate", "--domainName=" + domain, timeout=170)
-        snap = self.panel()
-        site = snap.site(domain)
-        cert = site["cert"] if site else None
-        expires = panel_time(cert["expires"]) if cert else None
-        changed = cert is not None and (cert["id"] != before.get("id") or cert["expires"] != before.get("expires"))
-        # Let's Encrypt is shortening its lifetimes: no fixed 90 days, just clearly in the future.
-        if not changed or expires is None or expires.timestamp() < self.clock() + 7 * 86400:
-            reason = last_line(output)
-            raise AgentError(
-                "clpctl_failed",
-                "Let's Encrypt did not issue a certificate for %s%s" % (domain, ": " + reason if reason else ""),
-                output=output,
-            )
-        record = dict(guarded.record, letsEncrypt=True)
-        self.record_site(domain, record)
-        return {"site": self.wire_site(snap, site, record, self.load_usage())}
+        with self.after_change("CloudPanel was asked for a certificate for %s" % domain):
+            snap = self.panel()
+            site = snap.site(domain)
+            cert = site["cert"] if site else None
+            expires = panel_time(cert["expires"]) if cert else None
+            changed = cert is not None and (cert["id"] != before.get("id") or cert["expires"] != before.get("expires"))
+            # Let's Encrypt is shortening its lifetimes: no fixed 90 days, just clearly in the future.
+            if not changed or expires is None or expires.timestamp() < self.clock() + 7 * 86400:
+                reason = last_line(output)
+                raise AgentError(
+                    "clpctl_failed",
+                    "Let's Encrypt did not issue a certificate for %s%s" % (domain, ": " + reason if reason else ""),
+                    output=output,
+                )
+            record = dict(guarded.record, letsEncrypt=True)
+            self.record_site(domain, record)
+            return {"site": self.wire_site(snap, site, record, self.load_usage())}
 
     def op_adopt(self, a, local=False):
         domain = a["domain"]
@@ -1688,8 +1830,17 @@ class Agent:
             self.log_traceback()
             message = "weblion-clp failed unexpectedly; details are in %s on the server" % self.paths.log
             answer = {"v": PROTOCOL, "ok": False, "error": {"code": "internal", "message": message}}
-        # Last net: no secret of this run leaves, whatever path it took into the answer.
-        line = self.scrub(json.dumps(answer, ensure_ascii=True, separators=(",", ":")), "\\u2022\\u2022\\u2022")
+        # Last net: no secret of this run leaves in a text, whatever path it took there. The data
+        # itself are facts of CloudPanel's database and stay as they are: a password that equals
+        # the domain or a database name must not mask them.
+        if answer["ok"]:
+            if isinstance(answer["data"], dict) and isinstance(answer["data"].get("warnings"), list):
+                answer["data"]["warnings"] = [self.scrub(w) for w in answer["data"]["warnings"]]
+        else:
+            for key in ("message", "output"):
+                if isinstance(answer["error"].get(key), str):
+                    answer["error"][key] = self.scrub(answer["error"][key])
+        line = json.dumps(answer, ensure_ascii=True, separators=(",", ":"))
         self.log(
             {
                 "requestId": self.request_id,
@@ -1826,7 +1977,8 @@ class Agent:
             sizes = {row[0]: to_int(row[1]) or 0 for row in rows if len(row) == 2}
         except AgentError as error:
             print("weblion-clp: database sizes are not available: " + self.redact(error.message), file=out)
-        usage = {}
+        previous = self.load_usage()
+        usage, failed = {}, []
         for domain in sorted(managed):
             site = snap.site(domain)
             if site is None:
@@ -1834,16 +1986,21 @@ class Agent:
             databases = {
                 d["name"]: (sizes.get(d["name"], 0) if sizes is not None else None) for d in snap.site_databases(site)
             }
-            usage[domain] = {
-                "diskBytes": self.disk_usage(self.home_of(site["user"])),
-                "databases": databases,
-                "measuredAt": self.now_iso(),
-            }
+            try:
+                disk = self.disk_usage(self.home_of(site["user"]))
+            except AgentError as error:
+                # One site (millions of files, a slow disk) must not stop the others: it keeps
+                # its last measurement and the run goes on.
+                failed.append(domain)
+                print("weblion-clp: disk usage of %s: %s" % (domain, self.redact(error.message)), file=out)
+                last = previous.get(domain) if isinstance(previous.get(domain), dict) else {}
+                disk = to_int(last.get("diskBytes"))
+            usage[domain] = {"diskBytes": disk, "databases": databases, "measuredAt": self.now_iso()}
         with self.locked(True):
             still = self.load_managed()["sites"]
             self.write_json(self.paths.usage, {d: u for d, u in usage.items() if d in still})
-        print("Measured %d websites" % len(usage), file=out)
-        return 0
+        print("Measured %d websites%s" % (len(usage), ", %d of them failed" % len(failed) if failed else ""), file=out)
+        return 1 if failed else 0
 
     def cli_selftest(self, out):
         failures = []
@@ -1876,6 +2033,18 @@ class Agent:
             lambda: need(os.path.isfile(self.paths.sshd_dropin), "%s is missing" % self.paths.sshd_dropin),
         )
         check("protected list", lambda: "%d domains, %d users" % tuple(len(x) for x in self.load_protected()))
+
+        def hidepid():
+            self.require_hidden_processes()
+            return "/proc hides other users' processes" if self.hidden_processes() else "off (requireHidepid is false)"
+
+        check("hidepid", hidepid)
+        if "hidepid" not in failures and not self.hidden_processes():
+            print(
+                "WARN  every user of this server can read the temporary passwords of new sites in ps; "
+                "mount /proc with hidepid=invisible",
+                file=out,
+            )
         with contextlib.suppress(AgentError):
             protected, snap, managed = self.load_protected(), self.panel(), self.load_managed()["sites"]
             others = [
@@ -1884,7 +2053,8 @@ class Agent:
             if others and not protected.domains and not protected.users:
                 print(
                     "WARN  the protected list is empty but the server hosts %d sites the console does not manage; "
-                    "protect the operator's own sites (weblion-clp protect domain <name>)" % len(others),
+                    "protect the operator's own sites and the host customers use for SFTP/SSH "
+                    "(weblion-clp protect domain <name>)" % len(others),
                     file=out,
                 )
             for domain in sorted(set(managed) - set(snap.sites)):

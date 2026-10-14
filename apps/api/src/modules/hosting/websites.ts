@@ -75,6 +75,7 @@ import {
   applyRemoteWebsite,
   assertDomainFree,
   assertNoActiveService,
+  assertNotPlatformName,
   changeRefused,
   enableWebsiteModule,
   generateWebsitePassword,
@@ -353,6 +354,13 @@ export async function websiteRoutes(app: FastifyInstance, ctx: AppContext) {
       }
       nodejsVersion = body.nodejsVersion;
     }
+    // The console's own host and the server's names are never a customer's website (staff too).
+    const info = adapter.websiteServerInfo ? await adapter.websiteServerInfo().catch(() => null) : null;
+    assertNotPlatformName(ascii, [
+      new URL(ctx.env.APP_URL).hostname,
+      adapter.websiteAccessHost?.(),
+      info?.hostname,
+    ]);
     const siteUser = body.siteUser ?? suggestSiteUser(ascii);
     if (!SITE_USER_PATTERN.test(siteUser) || isReservedSiteUser(siteUser)) {
       throw invalid('siteUser', `${siteUser} cannot be used as site user. Choose another one.`);
@@ -807,9 +815,10 @@ export async function websiteRoutes(app: FastifyInstance, ctx: AppContext) {
       remote = await adapter.deleteWebsiteDatabase!(row.externalId, database.name);
     } catch (err) {
       if (!(err instanceof AppError && err.statusCode === 404)) {
+        // A refusal left the database in place; after anything else the sync settles it.
         await db
           .update(webspaceDatabases)
-          .set({ status: 'active' })
+          .set({ status: changeRefused(err) ? 'active' : 'error' })
           .where(eq(webspaceDatabases.id, database.id));
         await failed(req, entry, err);
         throw err;
@@ -894,18 +903,18 @@ export async function websiteRoutes(app: FastifyInstance, ctx: AppContext) {
       ({ warnings } = await adapter.deleteWebsite!(row.externalId));
     } catch (err) {
       if (!siteGone(err)) {
-        // A timeout may still delete the site: the sync settles an "error" row by what the
-        // server has. Every other failure left the site in place.
-        const timedOut = err instanceof AppError && err.statusCode === 504;
+        // A refusal left the site in place. Anything else (a timeout, a dropped connection, a
+        // failure without rollback) may still delete it: the sync settles an "error" row by
+        // what the server has.
         await db
           .update(webspaces)
           .set(
-            timedOut
-              ? {
+            changeRefused(err)
+              ? { status: row.status }
+              : {
                   status: 'error',
                   meta: sql`${webspaces.meta} || ${JSON.stringify({ lastError: errorMessage(err).slice(0, 1000) })}::jsonb`,
-                }
-              : { status: row.status },
+                },
           )
           .where(eq(webspaces.id, row.id));
         await failed(req, entry, err);

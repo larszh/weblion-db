@@ -3,9 +3,10 @@
 Kunden- und Admin-Panel von weblion.one. Ein Panel für Cloud-Server im Rechenzentrum in
 Deutschland (24fire), in der Hetzner Cloud (DE, FI, USA, SG) und auf eigener
 Proxmox-Infrastruktur in der Schweiz, dazu Domains mit DNS (24fire und Joker.com), DNS-Zonen und
-CDN bei Cloudflare, Webhosting, Cloud-Speicher auf der eigenen Nextcloud, E-Mail auf eigenen
-Mailcow-Servern, Abrechnung mit QR-Rechnung, Stripe/TWINT und Zoho Books, ein Reseller-Modell
-sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Console.
+CDN bei Cloudflare, Websites auf eigenen CloudPanel-Servern und Webspaces bei 24fire,
+Cloud-Speicher auf der eigenen Nextcloud, E-Mail auf eigenen Mailcow-Servern, Abrechnung mit
+QR-Rechnung, Stripe/TWINT und Zoho Books, ein Reseller-Modell sowie Rollen, Access Policies und
+Audit-Log. Inspiriert von der Hetzner Cloud Console.
 
 ![Server-Übersicht](docs/screenshots/server-overview.png)
 
@@ -31,6 +32,11 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
   Einstellungen für Mailprogramme und Webmail, DNS-Einträge (MX, SPF, DKIM, DMARC, Autodiscover)
   prüfen, DKIM-Schlüssel erzeugen und fehlende Einträge mit einem Klick eintragen, wenn die Domain
   in der Console liegt
+- Websites (CloudPanel): im gebuchten Kontingent selbst anlegen, als PHP-Anwendung (Generic,
+  WordPress, WooCommerce), statische Website oder, wo freigegeben, Node.js. Zugang per SFTP/SSH,
+  MySQL-Datenbanken, Passwörter erzeugt und einmal angezeigt oder selbst gewählt, neu setzen,
+  Let's-Encrypt-Zertifikat mit vorheriger DNS-Prüfung, Belegung von Dateien und Datenbanken,
+  Löschen mit Bestätigung
 - Webhosting (24fire/Plesk): Ressourcen, Plesk-Zugang, Hinweise für Mail-Programme
 - Cloud-Speicher (Nextcloud): Konten für das Team im gebuchten Kontingent selbst anlegen, jedes
   mit eigenem Kontingent. Name, E-Mail und Kontingent ändern, deaktivieren, Passwort neu setzen
@@ -51,7 +57,8 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
   Berechtigungsgrenze pro Kunde
 - Abrechnung: Rechnungen erstellen und abschliessen, Guthaben buchen, Dienste freischalten,
   Produkte und Preise, wiederkehrende Abrechnung, Übersicht über offene und überfällige Beträge
-- Domains (24fire, Joker.com), DNS-Zonen (Cloudflare) und Webspaces (24fire) Kunden zuweisen.
+- Domains (24fire, Joker.com), DNS-Zonen (Cloudflare), Webspaces (24fire) und Websites
+  (CloudPanel) Kunden zuweisen.
   Eine neue Cloudflare-Zone geht beim ersten Sync an den Kunden der gleichnamigen Registrierung,
   wenn dieser eindeutig ist
 - DNS einer Domain zu Cloudflare umziehen: Zone anlegen, Einträge vom Registrar kopieren, danach
@@ -62,6 +69,11 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 - Cloud-Speicher: Kontingent pro Kunde auf einer Nextcloud-Instanz (Speicher und Zahl der
   Konten), alle Cloud-Konten mit Belegung, bestehende Nextcloud-Benutzer übernehmen und Kunden
   zuweisen
+- Websites: beliebig viele CloudPanel-Server anbinden (SSH-Schlüssel erzeugen, Host-Schlüssel
+  gepinnt), Website-Kontingent pro Kunde (Server, Websites, Datenbanken, erlaubte Arten),
+  Websites für Kunden anlegen, bestehende Sites eines Servers übernehmen und aus der Console
+  entfernen. Auf dem Server arbeitet ein kleiner Root-Wrapper (`deploy/cloudpanel-agent`), der nur
+  Sites ändert, die die Console verwaltet
 - Domains verlängern und die automatische Verlängerung schalten (Joker.com, nur mit Login)
 - Einstellungen: SMTP, Rechnungssteller (Adresse, IBAN, MWST, Nummernkreis), Status von
   Stripe und Zoho Books, Mail-Log
@@ -71,12 +83,14 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 - Server bei Proxmox aus Templates erstellen, bei Hetzner Cloud mit Server-Typ, Standort und
   Image (Einkaufspreise nur für weblion.one sichtbar)
 - API Explorer: Rohzugriff auf die 24fire-, Proxmox-, Hetzner-Cloud-, Joker.com- (DMAPI) und
-  Cloudflare-API, die OCS-API von Nextcloud und die API von Mailcow für alles ohne eigenen Button
+  Cloudflare-API, die OCS-API von Nextcloud und die API von Mailcow für alles ohne eigenen Button,
+  bei CloudPanel nur lesend (Server, verwaltete und nicht verwaltete Sites)
 
 **Für Reseller**
 - Eigene Kunden anlegen und sperren, Module freischalten (bis zum eigenen Umfang)
-- Im Panel der Kunden arbeiten, Server, Domains, DNS-Zonen, Webspaces und Mail-Domains zuteilen
-- Kunden einen Teil des eigenen Cloud-Speicher-Kontingents geben
+- Im Panel der Kunden arbeiten, Server, Domains, DNS-Zonen, Webspaces, Websites und Mail-Domains
+  zuteilen
+- Kunden einen Teil des eigenen Cloud-Speicher- und Website-Kontingents geben
 - Eigene Produkte und Preise, Rechnungen mit eigenem Briefkopf und Nummernkreis, Guthaben
 
 | Graphen | Access Policies | Kunde im Admin-Bereich |
@@ -89,16 +103,18 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
 
 ## Stand
 
-- Gegen echte 24fire-, Proxmox-, Hetzner-, Joker.com-, Cloudflare-, Nextcloud-, Mailcow-, Stripe-
-  und Zoho-Systeme ist die Console noch **nicht live getestet**: Die Build-Umgebung hatte keinen
-  Netzzugriff darauf. Alle Anbindungen sind gegen Mock-Server getestet, die die dokumentierten
-  Antworten nachbilden. Die 24fire-Endpunkte folgen der offiziellen v2-Doku, die Proxmox-Aufrufe
-  der API-Referenz, die Hetzner-Aufrufe der API-Doku und dem offiziellen Go-Client hcloud-go, die
-  Joker-Requests der DMAPI-Spezifikation, die Cloudflare-Aufrufe der OpenAPI-Spezifikation von
-  Cloudflare, die Nextcloud-Aufrufe der Doku der Provisioning API und dem Quellcode von Nextcloud,
-  die Mailcow-Aufrufe dem Quellcode von Mailcow (`json_api.php`). Was bei Joker.com, Cloudflare,
-  Nextcloud und Mailcow noch zu prüfen ist, steht in [docs/providers.md](docs/providers.md) jeweils
-  unter "Offene Punkte".
+- Gegen echte 24fire-, Proxmox-, Hetzner-, Joker.com-, Cloudflare-, Nextcloud-, Mailcow-,
+  CloudPanel-, Stripe- und Zoho-Systeme ist die Console noch **nicht live getestet**: Die
+  Build-Umgebung hatte keinen Netzzugriff darauf. Alle Anbindungen sind gegen Mock-Server getestet,
+  die die dokumentierten Antworten nachbilden. Die 24fire-Endpunkte folgen der offiziellen v2-Doku,
+  die Proxmox-Aufrufe der API-Referenz, die Hetzner-Aufrufe der API-Doku und dem offiziellen
+  Go-Client hcloud-go, die Joker-Requests der DMAPI-Spezifikation, die Cloudflare-Aufrufe der
+  OpenAPI-Spezifikation von Cloudflare, die Nextcloud-Aufrufe der Doku der Provisioning API und dem
+  Quellcode von Nextcloud, die Mailcow-Aufrufe dem Quellcode von Mailcow (`json_api.php`). Der
+  CloudPanel-Agent folgt der Doku von CloudPanel, seinem Issue-Tracker und Community-Code, der
+  `clpctl` aufruft, und ist mit Python-Tests gegen nachgebaute Werkzeuge geprüft. Was bei
+  Joker.com, Cloudflare, Nextcloud, Mailcow und CloudPanel noch zu prüfen ist, steht in
+  [docs/providers.md](docs/providers.md) jeweils unter "Offene Punkte".
 - Hetzner Cloud: Firewalls, Volumes, Load Balancer, Floating/Primary IPs, Storage Boxes,
   DNS-Zonen und dedizierte Server (Robot) sind noch nicht angebunden, siehe
   [docs/providers.md](docs/providers.md#hetzner-cloud).
@@ -117,6 +133,13 @@ sowie Rollen, Access Policies und Audit-Log. Inspiriert von der Hetzner Cloud Co
   Postfächer und Weiterleitungen. Mail-Domains legt nur weblion.one an. Sperren eines Kunden stellt
   seine E-Mail nicht ab, und ein Dienst lässt sich noch nicht mit einer Mail-Domain verknüpfen,
   siehe [docs/providers.md](docs/providers.md#mailcow-e-mail).
+- Websites: Die CloudPanel-Server betreibt weblion.one, am besten getrennt vom Server der Console,
+  mit dem Agent aus `deploy/cloudpanel-agent` auf jedem Server. Es gibt kein Speicherlimit (nur die
+  Anzeige der Belegung), keine E-Mail auf den Websites und keine Wiederherstellung aus der Console.
+  Sperren eines Kunden legt seine Websites nicht still. WordPress mit einem Klick, das Eintragen
+  fehlender DNS-Einträge und die Kopplung an die Abrechnung folgen in einer zweiten Stufe, siehe
+  [docs/providers.md](docs/providers.md#cloudpanel-websites) und die
+  [Roadmap](docs/roadmap.md#websites-cloudpanel).
 
 ## Schnellstart (Entwicklung)
 
@@ -136,6 +159,8 @@ Beispielkunden, ohne echte Server):
 ENABLE_DEMO_PROVIDER=true pnpm db:seed
 # dazu ein simuliertes Cloudflare-Konto (Zonen, Proxy, CDN, DNS-Umzug):
 ENABLE_DEMO_PROVIDER=true ENABLE_DEMO_CLOUDFLARE=true pnpm db:seed
+# dazu ein simulierter CloudPanel-Server mit Websites und Kontingenten:
+ENABLE_DEMO_PROVIDER=true ENABLE_DEMO_CLOUDPANEL=true pnpm db:seed
 ```
 
 Login danach mit `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` aus der `.env`.
@@ -143,14 +168,14 @@ Demo-Benutzer, Passwort `demo-password-123`:
 
 | | |
 |---|---|
-| `anna@muster.example` | Owner Muster AG (Server, Domains, Webhosting, Cloud-Speicher, E-Mail, Rechnungen) |
+| `anna@muster.example` | Owner Muster AG (Server, Domains, Webhosting, Cloud-Speicher, E-Mail, Rechnungen, mit `ENABLE_DEMO_CLOUDPANEL` drei Websites) |
 | `ben@muster.example` | eingeschränkt, nur Webshop-Projekt |
 | `carla@muster.example` | nur lesen |
 | `dev@beispiel.example` | Owner Beispiel GmbH (mit `ENABLE_DEMO_CLOUDFLARE` eine wartende Cloudflare-Zone) |
 | `reseller@alpen.example` | Owner des Resellers Alpen Hosting |
 | `huber@baeckerei.example` | Owner von Bäckerei Huber (Kunde von Alpen Hosting) |
 
-## Zugangsdaten (24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud, Mailcow)
+## Zugangsdaten (24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud, Mailcow, CloudPanel)
 
 Zugangsdaten gehören **nicht** ins Git-Repo, auch nicht in ein privates. Sie kommen aus
 Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start verschlüsselt
@@ -174,12 +199,18 @@ Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start v
 | `MAILCOW_URL` | Adresse der eigenen Mailcow-Instanz, z.B. `https://mail.weblion.one` |
 | `MAILCOW_API_KEY` | API-Key mit Lese- und Schreibzugriff (in Anführungszeichen), die IPs der Console in seiner Allow-List |
 | `MAILCOW_MAIL_HOST` | optional, öffentlicher Name des Mailservers (MX, IMAP, SMTP, Webmail), Standard: Host aus `MAILCOW_URL` |
+| `CLOUDPANEL_HOST` | SSH-Host des eigenen CloudPanel-Servers, z.B. `web1.weblion.cloud` (Port `CLOUDPANEL_PORT`, Benutzer `CLOUDPANEL_USER`, Standard `22` und `weblion-agent`) |
+| `CLOUDPANEL_PRIVATE_KEY_FILE` | Datei mit dem privaten ed25519-Schlüssel der Console (alternativ `CLOUDPANEL_PRIVATE_KEY` inline) |
+| `CLOUDPANEL_HOST_KEY` | Fingerabdruck des Host-Schlüssels, `SHA256:...` (gibt `install.sh` aus) |
+| `CLOUDPANEL_ACCESS_HOST` | optional, Host für SFTP/SSH der Kunden, Standard: `CLOUDPANEL_HOST` |
 | `ENCRYPTION_KEY` | `openssl rand -base64 32`, gut aufbewahren |
 
 Weitere Provider (z.B. weitere Hetzner-Projekte, Cloudflare-Konten, Nextcloud- oder
-Mailcow-Instanzen) lassen sich im Admin-Bereich hinzufügen. Details, Hinweise zum Proxmox- und
-Hetzner-Token, zum Joker-Reseller-Konto, zum Cloudflare-Token, zum Nextcloud-Admin-Konto und zum
-Mailcow-API-Key (Allow-List, Netfilter) in [docs/providers.md](docs/providers.md).
+Mailcow-Instanzen, CloudPanel-Server) lassen sich im Admin-Bereich hinzufügen. Details, Hinweise
+zum Proxmox- und Hetzner-Token, zum Joker-Reseller-Konto, zum Cloudflare-Token, zum
+Nextcloud-Admin-Konto, zum Mailcow-API-Key (Allow-List, Netfilter) und zum Agent auf
+CloudPanel-Servern in [docs/providers.md](docs/providers.md) und
+[deploy/cloudpanel-agent/README.md](deploy/cloudpanel-agent/README.md).
 
 Für E-Mail (SMTP), Stripe/TWINT und Zoho Books kommen weitere Variablen dazu, alle in
 `.env.example` beschrieben. SMTP lässt sich statt in der `.env` auch im Admin-Bereich
@@ -204,6 +235,7 @@ Siehe [docs/deployment.md](docs/deployment.md).
 apps/api         Fastify API, Postgres (Drizzle), Provider-Adapter, Sync-Job
 apps/web         React Console (Vite, Tailwind, TanStack Query)
 packages/shared  Berechtigungen, Rollen, Policy-Engine und API-Typen (von beiden genutzt)
+deploy/          Agent für CloudPanel-Server (cloudpanel-agent), Deploy auf CloudPanel (cloudpanel)
 docs/            Architektur, Provider, Deployment, Roadmap
 ```
 
@@ -214,6 +246,7 @@ docs/            Architektur, Provider, Deployment, Roadmap
 | `pnpm typecheck` | TypeScript in allen Paketen |
 | `pnpm build` | Produktions-Build |
 | `pnpm db:generate` | Migration aus Schema-Änderungen erzeugen |
+| `python3 -I -m unittest discover -s deploy/cloudpanel-agent/tests -v` | Tests des CloudPanel-Agents (Python 3.9+, ohne root und Netz) |
 
 ## REST-API
 
@@ -226,6 +259,7 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
   -d '{"action":"reboot"}' https://cp.weblion.cloud/api/v1/servers/<server-id>/power
 curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/cloud
 curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/mail/domains
+curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/webspaces
 curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
   -d '{"everything":true}' https://cp.weblion.cloud/api/v1/domains/<domain-id>/cdn/purge
 ```
@@ -236,6 +270,8 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
 - [docs/billing.md](docs/billing.md): Abrechnung, Reseller, Module, Cloud-Speicher und E-Mail
   verkaufen, Stripe/TWINT, Zoho Books, E-Mail der Console
 - [docs/providers.md](docs/providers.md): 24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare,
-  Nextcloud und Mailcow einrichten, Kosten, offene Punkte
+  Nextcloud, Mailcow und CloudPanel einrichten, Kosten, offene Punkte
+- [deploy/cloudpanel-agent/README.md](deploy/cloudpanel-agent/README.md): der Agent auf den
+  CloudPanel-Servern (installieren, Schutzliste, übernehmen, testen)
 - [docs/deployment.md](docs/deployment.md): Betrieb, Backups, Updates
 - [docs/roadmap.md](docs/roadmap.md): Ideen für die nächsten Ausbaustufen

@@ -101,9 +101,9 @@ export function WebsiteView({ website }: { website: WebspaceDetailDto }) {
   const me = useMe();
   const [dialog, setDialog] = useState<ViewDialog | null>(null);
   const can = (permission: Permission) => website.permissions.includes(permission);
-  const staffCanForget =
-    (me.data?.platformPermissions ?? []).includes('platform:website:write') &&
-    (!website.org || !!website.missingSince);
+  // Platform staff as the API decides it (also when they are members of the organization).
+  const platformStaff = (me.data?.platformPermissions ?? []).includes('platform:website:write');
+  const staffCanForget = platformStaff && (!website.org || !!website.missingSince);
   const active = website.status === 'active' && !website.missingSince;
   const inactiveReason = active
     ? null
@@ -115,9 +115,7 @@ export function WebsiteView({ website }: { website: WebspaceDetailDto }) {
   // Like the API: active websites, and for platform staff also those whose last change failed.
   // A website the server no longer lists is removed from the console instead (forget).
   const deleteBlocked =
-    active || (website.status === 'error' && !website.missingSince && org.access === 'staff')
-      ? null
-      : inactiveReason;
+    active || (website.status === 'error' && !website.missingSince && platformStaff) ? null : inactiveReason;
   const site = website.site;
   const ascii = asciiDomain(website.name);
   const ip = website.resources?.ipAddress ?? null;
@@ -256,7 +254,7 @@ export function WebsiteView({ website }: { website: WebspaceDetailDto }) {
       <DatabasesCard
         website={website}
         orgId={org.id}
-        limited={org.access !== 'staff'}
+        limited={!platformStaff}
         inactiveReason={inactiveReason}
         onCreate={() => setDialog({ kind: 'createDatabase' })}
         onPassword={(database) => setDialog({ kind: 'databasePassword', database })}
@@ -788,7 +786,8 @@ function DatabasesCard({
                           <MenuItem
                             icon={<Trash2 />}
                             danger
-                            disabled={!!inactiveReason || d.status === 'creating' || d.status === 'deleting'}
+                            // Like the API: not while its last change is unknown (the sync settles it).
+                            disabled={!!inactiveReason || d.status !== 'active'}
                             onSelect={() => onDelete(d)}
                           >
                             {t('websites.db.delete')}

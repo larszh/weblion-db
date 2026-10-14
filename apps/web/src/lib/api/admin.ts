@@ -196,8 +196,17 @@ export function useMoveResource(
       ),
     {
       success,
-      // Counts, modules (assigning can switch one on) and the hosting/server lists change.
-      invalidate: [['reseller', resellerId], ['org'], ['hosting'], ['mail'], ['servers'], ['projects']],
+      // Counts, modules (assigning can switch one on), the hosting/server lists and website
+      // allowances (a released website takes its slot along) change.
+      invalidate: [
+        ['reseller', resellerId],
+        ['org'],
+        ['hosting'],
+        ['mail'],
+        ['servers'],
+        ['projects'],
+        ['websites'],
+      ],
     },
   );
 }

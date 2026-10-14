@@ -5,14 +5,14 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
 
 ## Als Nächstes
 
-- **Live-Test gegen 24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud und
-  Mailcow** mit den echten Zugangsdaten (die Build-Umgebung hatte keinen Zugriff), bei Joker.com
-  zuerst im Testsystem (OT&E), bei Cloudflare mit einem Test-Konto und einer Test-Zone, bei
-  Nextcloud und Mailcow mit eigenen Test-Instanzen. Offene Detailfragen stehen in docs/providers.md
-  unter "Offene Punkte"
-- **Cloud-Speicher und E-Mail an Sperre und Abrechnung koppeln**: Heute laufen die
-  Nextcloud-Konten und Mail-Domains eines gesperrten Kunden oder nach gekündigtem Dienst weiter
-  (siehe unten)
+- **Live-Test gegen 24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud, Mailcow
+  und CloudPanel** mit den echten Zugangsdaten (die Build-Umgebung hatte keinen Zugriff), bei
+  Joker.com zuerst im Testsystem (OT&E), bei Cloudflare mit einem Test-Konto und einer Test-Zone,
+  bei Nextcloud und Mailcow mit eigenen Test-Instanzen, bei CloudPanel mit einem Test-Server und
+  dem Agent `weblion-clp`. Offene Detailfragen stehen in docs/providers.md unter "Offene Punkte"
+- **Cloud-Speicher, E-Mail und Websites an Sperre und Abrechnung koppeln**: Heute laufen die
+  Nextcloud-Konten, Mail-Domains und Websites eines gesperrten Kunden oder nach gekündigtem Dienst
+  weiter (siehe unten)
 - **Hetzner Cloud ausbauen**: Backups pro Server ein- und ausschalten (mit Preis-Hinweis),
   Rescue-System, SSH-Keys und Cloud-Init beim Erstellen, Volumes (Speicher dazubuchen),
   Floating und Primary IPs. Firewalls nur als eigene Firewall pro Kunde oder Server, weil
@@ -122,10 +122,42 @@ Einträge hinzufügen", den Sync und die Weitergabe durch Reseller ab. Als Näch
 - **Warnungen**: E-Mail an den Owner, wenn ein Postfach oder der Speicher der Domain fast voll ist,
   und an weblion.one, wenn der Mail-Speicher einer Instanz knapp wird
 
+## Websites (CloudPanel)
+
+Die Anbindung deckt heute Websites auf beliebig vielen eigenen CloudPanel-Servern ab: Kontingente
+pro Kunde und Reseller, PHP-Websites mit Vhost-Vorlage, statische und Node.js-Websites,
+Zugangsdaten für SFTP/SSH und Datenbanken (einmal angezeigt), Datenbanken, Let's Encrypt mit
+DNS-Prüfung, Löschen, die Belegung, den Sync und das Übernehmen bestehender Sites. Damit ist auch
+das Bereitstellen von Webhosting aus der Console erledigt, das mit der 24fire-API nicht ging. Als
+Nächstes (Stufe 2):
+
+- **WordPress mit einem Klick**: Ein Haken "WordPress installieren" beim Anlegen (Titel,
+  Admin-Benutzer, E-Mail, Sprache). Der Agent bekommt eine Operation `wp-install`, die als Site-User
+  mit WP-CLI die Dateien lädt, `wp-config.php` schreibt und WordPress installiert, die Passwörter
+  nur über stdin. Die Zugangsdaten zeigen dann auch das WordPress-Login. Zu prüfen: wo CloudPanel
+  WP-CLI ablegt und ob `--prompt` die Passwörter von stdin liest. Bis dahin startet eine
+  WordPress-Website leer, und niemand Fremdes kann die Installationsseite zuerst aufrufen
+- **Fehlende DNS-Einträge hinzufügen**: A und AAAA für die Domain und ihr www-Gegenstück mit einem
+  Klick eintragen, wenn die Zone im Modul "Domains & DNS" liegt, mit dem Ablauf, den die E-Mail
+  schon hat (`src/modules/mail/dns.ts`): nur fehlende Einträge, jeder auditiert als `domain.dns_add`
+- **Abrechnung koppeln**: Ein Produkt mit Website-Kontingent ("Hosting S: 3 Websites, 5
+  Datenbanken") als Dienst, das Kontingent folgt dem Dienst, Kündigen legt die Websites still oder
+  löscht sie nach einer Frist. Alternativ legt eine neue Website in einer Organisation mit
+  Website-Produkt selbst einen Dienst an (Ressource `webspace`)
+- **SSH-Schlüssel für Site-User**: Karte "SSH-Schlüssel" auf der Website, der Agent schreibt
+  `~/.ssh/authorized_keys` aus einer geprüften Liste
+- **Warnungen bei der Belegung**: eine weiche Grenze pro Kontingent und eine E-Mail an die Owner,
+  wenn eine Website sie überschreitet. Die Belegung misst der Server schon alle sechs Stunden
+- **Sperre koppeln**: Websites gesperrter Kunden stilllegen und beim Entsperren wieder anschalten
+  (CloudPanel hat dafür keinen Befehl, der Agent müsste es selbst tun)
+- **Übernehmen aus der Console** standardmässig einschalten, wenn das gewünscht ist (heute auf
+  jedem Server einzeln mit `--allow-remote-adopt`)
+- **Kleinere Lücken**: PHP-Version wechseln, weitere Domains pro Website (Aliase), Umzug zwischen
+  Servern, ein Adminer hinter dem Login der Console statt eines SSH-Tunnels, Auswahl für Kunden
+  (PHP, Anwendungen, Node.js) auch für die Verbindung aus der `.env`
+
 ## Neue Dienste
 
-- **Webhosting-Bereitstellung**: Die 24fire-API kann Webspaces nur lesen. Neue Webspaces
-  aus der Console anlegen ginge mit einem eigenen Plesk/KeyHelp-Server und dessen API
 - **Grafana pro Kunde**: automatisch angelegte Grafana-Organisationen mit Dashboards für die
   eigenen Server, eingebettet im Panel
 - **Uptime- und Statusseiten**: externe Checks (z.B. Uptime Kuma) und eine Statusseite pro Kunde

@@ -28,7 +28,7 @@ import { conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import { sendInvitationMail } from '../../mail/invitation';
 import { billingCurrency } from '../billing/ledger';
-import { assertWebsiteMoveAllowed } from '../hosting/website-service';
+import { assertWebsiteMoveAllowed, releaseWebsiteSlot } from '../hosting/website-service';
 import { loadOrg, orgCounts } from '../orgs/routes';
 import {
   RESOURCE_MODULES,
@@ -495,18 +495,27 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
     const current = await resourceOwner(body.type, body.id);
     if (!current || current.orgId !== customer.id) throw notFoundFor(body.type);
 
-    const projectId = await db.transaction(async (tx) => {
+    const { projectId, websiteAllowance } = await db.transaction(async (tx) => {
       if (body.type !== 'maildomain') await assertNoLinkedService(tx, body.type, body.id, reseller.id);
+      // A website must fit the reseller's website allowance, or takes its slot of the customer's along.
+      const websiteAllowance =
+        body.type === 'webspace' ? await releaseWebsiteSlot(tx, body.id, customer, reseller) : null;
       const target = body.type === 'server' ? (await defaultProject(tx, reseller.id)).id : null;
       await moveResource(tx, body.type, body.id, current, { orgId: reseller.id, projectId: target });
-      return target;
+      return { projectId: target, websiteAllowance };
     });
     await audit.record(req, {
       action: 'reseller.resource_release',
       orgId: reseller.id,
       resourceType: body.type,
       resourceId: body.id,
-      details: { name: current.name, customerId: customer.id, customer: customer.name, projectId },
+      details: {
+        name: current.name,
+        customerId: customer.id,
+        customer: customer.name,
+        projectId,
+        ...(websiteAllowance ? { customerWebsiteAllowance: websiteAllowance } : {}),
+      },
     });
     return { ok: true };
   });

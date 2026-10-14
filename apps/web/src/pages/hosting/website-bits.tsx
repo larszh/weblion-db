@@ -54,8 +54,9 @@ export interface CertificateState {
 
 /**
  * Publicly trusted certificates are valid for at most 398 days (CA/Browser Forum), CloudPanel's
- * self-signed one for ten years. The server only says "not Let's Encrypt", so a certificate of
- * another issuer that runs longer than this (or has no known expiry) counts as self-signed.
+ * self-signed one for ten years. A certificate that runs longer than this counts as self-signed
+ * whoever the server names as issuer (it says null when it cannot read the certificate), and so
+ * does one of another issuer without a known expiry.
  */
 export const TRUSTED_MAX_DAYS = 398;
 
@@ -64,7 +65,8 @@ export function certificateState(cert: WebsiteCertificate | null, now = Date.now
   const expires = cert.expiresAt ? Date.parse(cert.expiresAt) : Number.NaN;
   const known = Number.isFinite(expires);
   const left = expires - now;
-  if (cert.letsEncrypt === false && (!known || left > TRUSTED_MAX_DAYS * DAY)) {
+  const tooLong = known && left > TRUSTED_MAX_DAYS * DAY;
+  if (cert.letsEncrypt !== true && (tooLong || (cert.letsEncrypt === false && !known))) {
     return { kind: 'invalid', level: 'danger', expiresAt: cert.expiresAt, days: null };
   }
   const kind: CertificateKind = cert.letsEncrypt ? 'letsEncrypt' : 'other';
@@ -429,6 +431,20 @@ export function allowanceRoom(
   };
 }
 
+/**
+ * What an organization has committed without an allowance (the API then reports no counts):
+ * its websites and their databases, which a new allowance cannot go below.
+ */
+export function ownWebsiteUsage(websites: readonly Pick<WebspaceDto, 'site'>[]): {
+  sites: number;
+  databases: number;
+} {
+  return {
+    sites: websites.length,
+    databases: websites.reduce((sum, w) => sum + (w.site?.databases ?? 0), 0),
+  };
+}
+
 /** A whole number from a form field (0 allowed), or null. */
 export function parseCount(value: string, max: number): number | null {
   if (!/^\d+$/.test(value.trim())) return null;
@@ -576,11 +592,15 @@ export function errorField(err: unknown): string | null {
 
 /**
  * The server may have finished the change: the API's 502 website_error ("may have been
- * created", the sync settles it) or a 504 timeout. Other failures left everything as it was.
+ * created", the sync settles it), a 504 timeout, a 502 or 504 of a proxy in between (no answer
+ * of the API, code "error"), or no answer at all (the connection broke, the answer was no
+ * JSON). Other failures left everything as it was.
  */
 export function outcomeUnknown(err: unknown): boolean {
-  if (!(err instanceof ApiError)) return false;
-  return err.status === 504 || (err.status === 502 && err.code === 'website_error');
+  if (!err) return false;
+  if (!(err instanceof ApiError)) return true;
+  if (err.status === 504 || (err.status === 502 && err.code === 'website_error')) return true;
+  return err.status === 502 && err.code === 'error';
 }
 
 const ERROR_CODES = [
@@ -597,19 +617,24 @@ const ERROR_CODES = [
 
 const EXISTS_FIELDS = ['domain', 'siteUser', 'database'] as const;
 
+/** Codes whose API text names the figures or the reason (how many are left, which type, which customer). */
+const DETAILED_CODES = ['no_allowance', 'allowance_exceeded', 'type_not_allowed', 'exists'];
+
 /**
  * Error text for toasts and forms: the website codes of the API in the user's language,
- * everything else (validation, provider texts) as the API says it.
+ * everything else (validation, provider texts) as the API says it. Allowance and "exists"
+ * refusals keep the API's text after the summary: it names the figures and the reason.
  */
 export function websiteErrorText(t: TFunction, err: unknown): string {
   if (err instanceof ApiError) {
     // 502 website_error: the server may have done it; 409 website_error: an earlier change.
     if (err.code === 'website_error' && err.status === 502) return t('websites.errors.unknownOutcomeText');
+    const detail = DETAILED_CODES.includes(err.code) && err.message ? ` ${err.message}` : '';
     const code = ERROR_CODES.find((c) => c === err.code);
-    if (code) return t(`websites.errors.${code}`);
+    if (code) return `${t(`websites.errors.${code}`)}${detail}`;
     if (err.code === 'exists') {
       const field = EXISTS_FIELDS.find((f) => f === errorField(err));
-      if (field) return t(`websites.errors.exists.${field}`);
+      if (field) return `${t(`websites.errors.exists.${field}`)}${detail}`;
     }
   }
   return errorMessage(err);

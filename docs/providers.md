@@ -2081,6 +2081,667 @@ mit denselben Prüfungen und Antworten wie die echte Anbindung. Der Mailserver
 - `müller.ch` (Umlaut-Domain) und die Relay-Domain `alpenblick-hotel.ch` sind keinem Kunden
   zugewiesen.
 
+## CloudPanel (Websites)
+
+- Zugang: CloudPanel hat keine API. Die Console meldet sich per SSH als Benutzer `weblion-agent`
+  mit einem ed25519-Schlüssel an und darf dort nur einen Befehl ausführen: den Root-Wrapper
+  `weblion-clp`. Wrapper, Installer und Tests liegen in
+  [`deploy/cloudpanel-agent/`](../deploy/cloudpanel-agent/), die Anleitung für den Server in
+  [deploy/cloudpanel-agent/README.md](../deploy/cloudpanel-agent/README.md).
+- Voraussetzung: CloudPanel CE 2.5.0 oder neuer auf Debian oder Ubuntu
+- Konfiguration: `CLOUDPANEL_*` in der `.env` (ein Server) oder im Admin-Bereich unter Provider >
+  Provider hinzufügen > CloudPanel (beliebig viele Server)
+- CloudPanel liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der
+  Provider deshalb nicht auf.
+
+### Was das Modul macht
+
+weblion.one betreibt eigene CloudPanel-Server und verkauft darauf Websites. Das Modul
+**Webhosting** (`webhosting`), in dem bisher nur die Webspaces von 24fire lagen, bringt das in die
+Console. Eine Website ist eine Domain mit ihrem www-Gegenstück (CloudPanel liefert beide aus),
+ein Linux-Benutzer für SFTP und SSH (in CloudPanel "Site-User") und beliebig viele
+MySQL-Datenbanken.
+
+- **Kontingent pro Kunde:** weblion.one (oder ein Reseller für seine Kunden) legt fest, auf
+  welchem Server die Websites eines Kunden entstehen, wie viele Websites und Datenbanken er
+  höchstens hat und welche Arten erlaubt sind (PHP, statisch, Node.js).
+- **Selbstverwaltung:** Im Kontingent legt der Kunde Websites selbst an: PHP mit einer Anwendung
+  (Vhost-Vorlage, Standard Generic, WordPress, WooCommerce), statische Websites und, wo freigegeben,
+  Node.js. Er setzt Passwörter neu, legt Datenbanken an und löscht sie, stellt Zertifikate von
+  Let's Encrypt aus und löscht Websites. In der Console unter "Webhosting", sobald das Modul aktiv
+  ist.
+- **Zugangsdaten einmal:** Passwörter für SFTP/SSH und Datenbanken erzeugt die Console (oder nimmt
+  ein gewähltes), zeigt sie einmal an und speichert sie nirgends.
+- **DNS-Prüfung:** Vor einem Zertifikat prüft die Console, ob Domain und www-Gegenstück auf den
+  Server zeigen.
+- **Verbrauch:** Der Server misst alle sechs Stunden den Platz der Dateien und Datenbanken jeder
+  Website. Ein Limit gibt es nicht.
+
+Websites sind Zeilen der Tabelle `webspaces` mit `kind = 'website'`, ihre Datenbanken stehen in
+`webspace_databases`, die Kontingente in `website_allowances`. Die Webspaces von 24fire bleiben,
+wie sie sind (`kind = 'webspace'`), und erscheinen auf derselben Seite.
+
+Wer darf was:
+
+| Wer                           | Darf                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Owner, Admin                  | Websites im Kontingent anlegen, Datenbanken anlegen und löschen, Zertifikate ausstellen (`webspace:write`), Websites löschen (`webspace:delete`), Passwörter neu setzen (`webspace:credentials`) |
+| Member, Nur lesen             | Websites, Zugang ohne Passwort, Datenbanken, DNS-Prüfung und Verbrauch ansehen (`webspace:read`)                                                                                                 |
+| Eingeschränkt, Buchhaltung    | nichts, per Policy erweiterbar (Ressource `webspace/<id>` für eine Website, Anlegen braucht `org` oder `*`)                                                                                      |
+| API-Token "Lesen & Schreiben" | Websites und Datenbanken anlegen, aber nur mit Passwörtern, die es selbst mitschickt, Zertifikate ausstellen, löschen. Nie `webspace:credentials`                                                |
+| Mitarbeitende eines Resellers | im Panel seiner Kunden, was ihre Reseller-Rolle erlaubt, dazu Kontingente der Kunden und Websites aus dem eigenen Bestand weitergeben (`reseller:customer:write`)                                |
+| weblion.one Superadmin        | alles, dazu Websites für jeden Kunden auf jedem Server anlegen, übernehmen und aus der Console entfernen (`platform:website:write`), Kontingente (`platform:org:write`)                          |
+| weblion.one Support           | alles ansehen, nichts ändern                                                                                                                                                                     |
+
+Gesperrte Kunden sehen ihre Websites nur noch lesend, die Websites laufen weiter.
+
+### Warum SSH und ein Wrapper
+
+CloudPanel ist ein Panel für einen Admin, ohne API und ohne Mandanten. Was die Console braucht,
+geht nur über das Kommandozeilenwerkzeug `clpctl` als root, und auch das nur zum Teil. Root-Zugang
+per SSH für die Console wäre zu viel: Wer die Console übernimmt, hätte dann alle Server. Deshalb
+läuft auf jedem Server ein kleines Python-Skript als Grenze:
+
+- **Geschlossene Liste:** Der Wrapper kennt genau 13 Operationen (lesen, anlegen, löschen,
+  Passwort, Datenbanken, Zertifikat, übernehmen, vergessen) und prüft jedes Argument gegen ein
+  festes Muster. Befehle laufen ohne Shell und mit fester Umgebung.
+- **Nur verwaltete Sites:** Der Wrapper ändert nur Sites auf seiner Liste verwalteter Sites
+  (angelegt von der Console oder von root übernommen). Sites auf der Schutzliste, etwa die Console
+  selbst, fasst er nie an, auch wenn die Console es verlangt.
+- **Passwörter nie an CloudPanel:** `clpctl` will Passwörter auf der Kommandozeile, CloudPanel
+  setzt sie selbst in Shell-Befehle, `ps` und Fehlermeldungen, und `$` oder `)` im Passwort
+  verderben es (CloudPanel-Issues #284, #351, #798). Der Wrapper gibt `clpctl` deshalb ein
+  zufälliges Wegwerf-Passwort aus Buchstaben und Ziffern und setzt gleich danach das echte über
+  stdin (`chpasswd`, `ALTER USER` über den MySQL-Client). Beim Anlegen beendet er danach alle
+  Prozesse des neuen Benutzers, leert `~/.ssh/authorized_keys` und löscht seine Crontab (bei einer
+  neuen Datenbank die MySQL-Sitzungen ihres Benutzers), falls jemand das Wegwerf-Passwort in den
+  paar Sekunden gelesen hat.
+- **Nachprüfen statt Exit-Codes:** Ob `clpctl` etwas getan hat, sieht der Wrapper in der
+  SQLite-Datenbank von CloudPanel, die er nur liest. Die Exit-Codes von `clpctl` sind nicht
+  dokumentiert.
+- **Was `clpctl` nicht kann,** übernimmt der Wrapper mit Linux-Werkzeugen: Sites auflisten (aus der
+  Datenbank von CloudPanel), Passwörter ändern, Belegung messen (`du`).
+
+Eine übernommene Console (Schlüssel und Datenbank) kann so höchstens verwaltete Kundenwebsites auf
+den Servern beschädigen, auf denen ihr Schlüssel liegt (mit `--allow-remote-adopt` auch Sites, die
+sie vorher übernimmt). Geschützte Sites wie die Console selbst, das Panel und alles ausserhalb der
+13 Operationen bleiben ausser Reichweite.
+
+### Eigener Server für Kundenwebsites
+
+Empfehlung: Kundenwebsites auf einem oder mehreren eigenen CloudPanel-Servern, **nicht** auf dem
+Server, auf dem die Console läuft. Site-User haben eine echte Shell, CloudPanel hatte in den
+letzten Jahren mehrere lokale Rechteausweitungen (Changelog 2023 bis 2.5.0), und eine übernommene
+Kundenwebsite auf derselben Maschine könnte die `.env` der Console lesen, mit dem
+`ENCRYPTION_KEY` und damit allen Zugangsdaten.
+
+Die Console erzwingt das nicht, es ist eine Voreinstellung. Wer Websites trotzdem auf dem Server
+der Console verkauft, setzt die Site der Console beim Installieren auf die Schutzliste
+(`--protect-domain cp.weblion.cloud --protect-user <Site-User der Console>`, siehe
+[deployment.md](deployment.md#auf-cloudpanel)) und richtet `hidepid` ein (siehe README des
+Agents).
+
+### Voraussetzungen
+
+1. **CloudPanel-Server.** Eine VM mit CloudPanel CE 2.5.0 oder neuer (Debian oder Ubuntu), in der
+   Hetzner Cloud, bei 24fire oder auf dem eigenen Proxmox. Ältere Versionen lehnt der Agent für
+   Änderungen ab: Vor 2.5.0 war die erste Zeile von `clpctl` kaputt, und 2.5.0 schliesst eine
+   Rechteausweitung über `clpctlWrapper`. CloudPanel mit seinem eigenen Updater aktuell halten.
+2. **Firewall** (in der Admin Area von CloudPanel): 80 und 443 offen, 22 für Kunden (SFTP/SSH)
+   und die Console, 8443 (das Panel) nur für die IPs von weblion.one.
+3. **Ein Name für Kunden**, z.B. `web1.weblion.cloud` mit A- und AAAA-Eintrag. Diesen Namen zeigt
+   die Console für SFTP und SSH.
+4. **Feste ausgehende IP der Console.** Der Schlüssel der Console gilt auf dem Server nur von ihren
+   Adressen aus (`from=` in `authorized_keys`). Läuft die Console in Docker ohne eigene
+   IPv6-Konfiguration, geht sie über IPv4 hinaus.
+5. **Zeitlimit im Reverse Proxy** vor der Console: Website anlegen wartet bis 330 Sekunden,
+   Zertifikate und Löschen bis 200 Sekunden. nginx braucht `proxy_read_timeout` von mindestens 360
+   Sekunden, siehe [deployment.md](deployment.md#reverse-proxy-tls).
+6. **Backups:** CloudPanel sichert jede Nacht die Datenbanken jeder Site nach `~/backups` (7 Tage).
+   Für Dateien und diese Sicherungen das Remote-Backup von CloudPanel einrichten (im Panel unter
+   Admin Area > Backups, z.B. auf eine Hetzner Storage Box). Die Console stellt nichts wieder her.
+7. **`hidepid`** für `/proc`, damit Site-User fremde Prozesse nicht sehen. Ohne `hidepid` legt der
+   Agent keine Websites und Datenbanken an (abschaltbar mit `"requireHidepid": false` in
+   `/etc/weblion-clp/config.json`, wenn kein Kunde SSH hat). Erst auf einem Test-Server
+   ausprobieren, Details im README des Agents.
+
+### Server anbinden
+
+1. **Schlüsselpaar.** Admin > Provider > Provider hinzufügen, Typ CloudPanel, "Schlüsselpaar
+   erzeugen". Der Dialog setzt den privaten Schlüssel ins Formular und zeigt den öffentlichen mit
+   der fertigen Zeile für den Installer. Das Paar gilt erst beim Speichern, und Speichern braucht
+   den Fingerabdruck aus Schritt 2: Den Dialog also offen lassen, bis der Installer gelaufen ist.
+   Alternativ das Paar selbst erzeugen
+   (`ssh-keygen -t ed25519 -N "" -C weblion-console -f cloudpanel_web1`) und den privaten
+   Schlüssel später einfügen. Empfohlen ist ein eigener Schlüssel pro Server.
+2. **Agent installieren**, als root auf dem Server. Den Ordner `deploy/cloudpanel-agent` aus dem
+   Repository kopieren (z.B. `scp -r deploy/cloudpanel-agent root@web1.weblion.cloud:`) und dort:
+
+   ```bash
+   cd cloudpanel-agent
+   sudo ./install.sh --public-key "ssh-ed25519 AAAA... weblion-console" \
+     --from "203.0.113.5,2001:db8::5" \
+     --protect-domain kunde-des-betreibers.ch --protect-user betreiber-site
+   ```
+
+   `--from` sind die ausgehenden IPv4- und IPv6-Adressen der Console (oder Netze), getrennt durch
+   Komma. `--protect-domain` und `--protect-user` nennen jede Site und jeden Site-User, den die
+   Console nie anfassen darf, beide wiederholbar. Die Zeile aus dem Dialog hat dafür Platzhalter:
+   ersetzen oder, ohne Sites des Betreibers auf dem Server, weglassen. `--nodejs` gibt
+   Node.js-Websites auf dem Server frei, `--allow-remote-adopt` das Übernehmen aus der Console
+   (sonst nur als root, siehe unten).
+   Am Ende läuft `weblion-clp selftest`, und das Skript zeigt Host, Port, Benutzer, den
+   Fingerabdruck des Host-Schlüssels und die Adressen des Servers. Was es auf dem Server ändert,
+   steht im [README des Agents](../deploy/cloudpanel-agent/README.md).
+
+3. **Verbindung in der Console** fertig ausfüllen und speichern:
+
+   | Feld                               | Inhalt                                                                                                                                                        |
+   | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | SSH-Host, SSH-Port                 | Name oder IP, unter der die Console den Server erreicht, Port meist 22                                                                                        |
+   | SSH-Benutzer                       | `weblion-agent` (Standard)                                                                                                                                    |
+   | Privater Schlüssel (ed25519)       | unverschlüsselter OpenSSH-Schlüssel. Beim Bearbeiten behält ein leeres Feld den gespeicherten                                                                 |
+   | Fingerabdruck des Host-Schlüssels  | `SHA256:...` aus der Ausgabe von `install.sh` oder von `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` auf dem Server                                      |
+   | Host für Kunden (optional)         | der Name für SFTP/SSH, z.B. `web1.weblion.cloud`. Standard: der SSH-Host                                                                                      |
+   | IPv4- und IPv6-Adressen (optional) | Adressen für die DNS-Prüfung, je höchstens 8. Standard: was der Server als öffentliche Adressen meldet. Bei NAT (nur private Adressen auf dem Server) Pflicht |
+   | PHP-Versionen (optional)           | was Kunden wählen dürfen, Standard `8.3, 8.4`. Angeboten wird nur, was auf dem Server installiert ist                                                         |
+   | Anwendungen (optional)             | Vhost-Vorlagen für Kunden, ein `*` am Ende passt auf alle Namen mit diesem Anfang (`Laravel*`). Standard `Generic, WordPress, WooCommerce`                    |
+   | Node.js-Websites für Kunden        | nur zusammen mit `--nodejs` auf dem Server. Kunden brauchen Node.js zusätzlich in ihrem Kontingent                                                            |
+
+4. **"Verbindung testen"** fragt den Agent frisch und meldet Version von CloudPanel und Agent,
+   Zahl der Sites (verwaltet, nicht verwaltet), die installierten PHP-Versionen und ob Übernehmen
+   aus der Console erlaubt ist. Er scheitert, wenn CloudPanel älter als 2.5.0 ist oder Console und
+   Agent verschiedene Protokolle sprechen. Danach "Jetzt synchronisieren".
+5. **Kontingente** für Kunden einrichten (siehe unten).
+
+Die Seite des Providers zeigt die Einstellungen (vom privaten Schlüssel nichts) und die Karte
+"SSH-Schlüssel der Console" mit dem öffentlichen Schlüssel und der Zeile für den Installer, z.B.
+für einen neuen Server mit demselben Schlüssel. Der Host-Schlüssel ist gepinnt: Meldet der Server
+einen anderen (neu installiert, oder jemand dazwischen), bricht die Console vor der Anmeldung ab
+und nennt den neuen Fingerabdruck. Ihn erst prüfen, dann in der Verbindung
+ändern. Ein "Neuen Schlüssel übernehmen" gibt es bewusst nicht.
+
+**Über die `.env`** für den ersten Server (Werte mit Sonderzeichen in einfache Anführungszeichen
+setzen):
+
+```env
+CLOUDPANEL_HOST=web1.weblion.cloud
+CLOUDPANEL_PORT=22
+CLOUDPANEL_USER=weblion-agent
+# Datei nur für den Benutzer der Console lesbar (0600), oder der Schlüssel inline mit \n
+CLOUDPANEL_PRIVATE_KEY_FILE=/home/weblion-cp/.ssh/cloudpanel_web1
+CLOUDPANEL_PRIVATE_KEY=
+CLOUDPANEL_HOST_KEY=SHA256:...
+CLOUDPANEL_ACCESS_HOST=web1.weblion.cloud
+CLOUDPANEL_NAME=CloudPanel
+CLOUDPANEL_COUNTRY=CH
+CLOUDPANEL_CITY=Zürich
+```
+
+Sind Host, Fingerabdruck und ein Schlüssel gesetzt, legt die Console den Provider beim Start an,
+speichert alles verschlüsselt und übernimmt Änderungen bei jedem Start (Schlüssel tauschen heisst:
+`.env` ändern und neu starten). `CLOUDPANEL_PRIVATE_KEY` gewinnt über die Datei. Lässt sich die
+Datei nicht lesen, fehlt der Provider, und im Log steht ein Fehler. In Docker muss die Datei im
+Container liegen (als Volume einbinden) oder der Schlüssel inline stehen. Name, Land und Stadt
+gelten beim ersten Start, danach ändert man sie im Admin-Bereich.
+
+Die Einstellungen einer Verbindung aus der `.env` lassen sich im Admin-Bereich nicht ändern, und
+für PHP-Versionen, Anwendungen, Node.js und Adressen gibt es keine Variablen. Diese Verbindung
+bietet also immer PHP 8.3 und 8.4, Generic, WordPress und WooCommerce, kein Node.js für Kunden und
+die Adressen, die der Server meldet. Wer anderes braucht, legt den Server im Admin-Bereich an.
+
+### Mehrere Server
+
+Jeder CloudPanel-Server ist ein eigener Provider: der aus der `.env` und beliebig viele aus dem
+Admin-Bereich, jeder mit eigenem Schlüssel (oder demselben öffentlichen Schlüssel auf mehreren
+Servern, empfohlen ist einer pro Server), Host-Schlüssel, Standort und eigener Auswahl für Kunden.
+
+- Jede Website gehört zu genau einem Server, jede Route adressiert sie über ihre ID und spricht mit
+  dem Server ihrer Verbindung. MySQL-Namen sind pro Server eindeutig.
+- Das Kontingent eines Kunden nennt den Server, auf dem seine neuen Websites entstehen. Kunden
+  wählen keinen Server. weblion.one wählt beim Anlegen im Admin-Bereich frei.
+- Dieselbe Domain (oder ihr www-Gegenstück) auf zwei Servern lehnt die Console beim Anlegen ab
+  (409), auch über verschiedene Kunden hinweg.
+- Ein Server nur für einen Kunden ist ein Server, auf den nur das Kontingent dieses Kunden zeigt.
+  Die Console behandelt ihn nicht anders.
+- Ein Provider lässt sich nicht löschen, solange eine seiner Websites einem Kunden zugewiesen ist
+  oder ein Kontingent auf ihn zeigt. Nicht zugewiesene Websites verschwinden mit ihm aus der
+  Console, auf dem Server bleiben sie (auch auf seiner Liste verwalteter Sites).
+- Website zwischen Servern umziehen ist Handarbeit: Dateien und Dumps kopieren, auf dem neuen Server
+  anlegen oder dort als root übernehmen, auf dem alten löschen.
+- Reseller sehen nur Name und Standort des Servers ihres Kontingents, nie die Verbindung.
+
+### Websites anlegen
+
+Webhosting > "Website anlegen" (`webspace:write`, im Kontingent):
+
+- **Domain**, mit oder ohne www, Umlaut-Domains gehen (gespeichert in der `xn--`-Form, angezeigt in
+  Unicode). CloudPanel liefert beide Namen aus und leitet einen auf den anderen um.
+- **Art**, soweit Kontingent und Server sie erlauben: PHP-Anwendung, statische Website, Node.js.
+  Python-Sites und Reverse Proxies legt die Console nie an (ein Reverse Proxy könnte auf das Panel
+  oder interne Dienste zeigen).
+- **PHP:** Anwendung (Vhost-Vorlage des Servers, Standard Generic) und PHP-Version (Standard die
+  neueste erlaubte). Die Website startet leer, auch mit WordPress: Die Dateien lädt der Kunde per
+  SFTP hoch.
+- **Node.js:** Version 20, 22 oder 24. Den App-Port vergibt der Server (der erste freie zwischen
+  3001 und 3999), die App startet der Kunde per SSH, z.B. mit PM2. Das Anlegen dauert länger, weil
+  CloudPanel Node.js für den Benutzer installiert.
+- **Benutzername** (der Site-User): vorgeschlagen aus der Domain (`www.mueller-shop.ch` wird
+  `mueller-shop-ch`), änderbar. 3 bis 32 Zeichen, Kleinbuchstaben, Ziffern und `-`, am Anfang ein
+  Buchstabe. Reserviert sind `root`, `clp`, `mysql`, `nginx`, `www-data`, `proftpd`, `varnish`,
+  `redis`, `admin`, `ubuntu`, `debian` und alles, was mit `weblion` beginnt. Der Server lehnt
+  zusätzlich jeden Linux-Benutzer ab, den es schon gibt.
+- **Datenbank anlegen** (bei WordPress und WooCommerce vorausgewählt), siehe Datenbanken.
+- **Passwort:** erzeugt (Standard) oder selbst gewählt.
+
+Vorher prüft die Console: Kontingent vorhanden (409 `no_allowance`), Art im Kontingent und auf dem
+Server (409 `type_not_allowed`), noch Platz für eine Website und gegebenenfalls eine Datenbank (409
+`allowance_exceeded`), Version und Anwendung angeboten (400), und die Domain ist frei: keine andere
+Website mit der Domain oder ihrem www-Gegenstück auf irgendeinem Server, und im Modul "Domains &
+DNS" gehört keiner der beiden Namen einem anderen Kunden (409 `exists`, `details.field` =
+`domain`, der eigene Reseller darf ihn halten). Wartet die Domain auf demselben Server noch als
+fehlende Website, entfernt weblion.one diese zuerst. Die Console reserviert die Website unter einer
+Sperre pro Kunde und pro Domain und ruft erst danach den Server. Parallele Anfragen können das
+Kontingent also nicht überziehen.
+
+Der Server prüft alles noch einmal, legt die Site an, setzt das echte Passwort und nimmt sie auf
+seine Liste verwalteter Sites. Scheitert ein Schritt, löscht er die halbe Site wieder. Eine
+Datenbank, die nicht klappt, lässt die Website stehen: Die Antwort kommt mit einem Hinweis, die
+Datenbank legt der Kunde später an. Dauert es zu lange, reisst die Verbindung ab oder lässt sich
+die halbe Site nicht wieder löschen, steht die Website auf "Unklar" (Status `error`, Antwort 502
+`website_error`), und der nächste Sync klärt sie: Hat der Server sie, wird sie aktiv, aber niemand
+hat das Passwort gesehen, der Kunde setzt ein neues. Hat er sie nicht, verschwindet sie nach 10
+Minuten.
+
+Die Antwort zeigt die Zugangsdaten einmal: Host, Port 22, Benutzername, Passwort, eine
+`sftp://`-Adresse und die Zeile für `ssh`, dazu gegebenenfalls Datenbank, Benutzer und Passwort.
+Im Audit-Log steht `website.create` mit Art, Versionen, Anwendung, Benutzer, Datenbank, Server und
+ob die Passwörter erzeugt oder gewählt waren, die Passwörter nie.
+
+Per API mit Token nur mit mitgeschickten Passwörtern (sonst 400):
+
+```bash
+curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
+  -d '{"domain":"shop.kunde.ch","type":"php","template":"WordPress","phpVersion":"8.4",
+       "password":"…","database":{"suffix":"wp","password":"…"}}' \
+  https://cp.weblion.cloud/api/v1/orgs/<org-id>/websites
+```
+
+Die Antwort (201, `Cache-Control: no-store`) ist
+`{ "website": {...}, "access": {..., "password": null}, "database": {..., "password": null}, "warnings": [] }`.
+Was sich anlegen lässt, liefert `GET /api/v1/orgs/<org-id>/websites/options`.
+
+### Zugang und Passwörter
+
+Die Detailseite (Webhosting > Website) zeigt Host, Port, Benutzername, Home- und Web-Verzeichnis.
+SFTP und SSH nutzen denselben Benutzer, der eine normale Shell hat: Dateien hochladen, `crontab -e`
+für geplante Aufgaben, Logs in `~/logs`, Composer, WP-CLI, PM2.
+
+- **Erzeugte Passwörter** haben 24 Zeichen ohne verwechselbare Zeichen (I, l, O, 0, 1) und ohne
+  Sonderzeichen, damit sie sich leicht in SFTP-Programme und Konfigurationsdateien abtippen lassen
+  (rund 140 Bit).
+- **Selbst gewählte Passwörter:** 12 bis 128 Zeichen aus Buchstaben, Ziffern und
+  `!#%*+,-./;<=>?@^_{|}~`. Leerzeichen, Anführungszeichen, `$`, `:`, `\`, `` ` ``, `(`, `)` und `&`
+  lehnt die Console ab.
+- **Neues Passwort** (`webspace:credentials`, Owner und Admin) geht nur mit Login, nie per
+  API-Token. Laufende Prozesse und offene SSH-Sitzungen bleiben, damit eine Node.js-App nicht
+  stehen bleibt. Im Audit-Log steht `website.password_reset` (wer, wann, erzeugt oder gewählt).
+  Per API nur mit Session: `POST /api/v1/webspaces/<id>/password`, ohne Body erzeugt, mit
+  `{"password": "…"}` gewählt.
+- Die Passwörter laufen nur über stdin von `chpasswd` und dem MySQL-Client auf dem Server. Sie
+  stehen in keiner Kommandozeile, keinem Log, keiner Datenbank und keinem Audit-Eintrag.
+- **Schlüssel der Console:** verschlüsselt gespeichert (AES-256-GCM). Der Admin-Bereich zeigt nur
+  den öffentlichen Schlüssel, vom privaten nichts.
+- Ein Login für das Panel von CloudPanel (Port 8443) bekommen Kunden nicht. SSH-Schlüssel für
+  Site-User verwaltet die Console noch nicht, Kunden tragen sie per SSH selbst in
+  `~/.ssh/authorized_keys` ein.
+
+### Datenbanken
+
+- **Anlegen** (`webspace:write`, im Kontingent): Name und Benutzer sind gleich und beginnen mit
+  dem festen Präfix der Website, dem Site-User mit `_` statt `-`, höchstens 16 Zeichen. Der Kunde
+  wählt nur den Rest: Kleinbuchstaben, Ziffern und `_`, höchstens 15 Zeichen, zusammen höchstens
+  32 (`shop-mueller` und `wp` ergeben `shop_mueller_wp`). Das Passwort erscheint einmal.
+- **Neues Passwort** (`webspace:credentials`, nur mit Login) und **Löschen** (`webspace:write`,
+  mit dem Namen als Bestätigung, `clpctl db:delete`, alle Daten sind weg). Fehlt die Datenbank auf
+  dem Server schon, entfernt Löschen nur den Eintrag.
+- Anwendungen auf dem Server verbinden sich mit Host `127.0.0.1`, Port 3306. phpMyAdmin bietet die
+  Console nicht an. Von aussen geht es über einen SSH-Tunnel
+  (`ssh -L 3306:127.0.0.1:3306 <Benutzer>@<Host>`).
+- Datenbanken, die jemand im Panel von CloudPanel angelegt hat, zeigt die Console mit dem Sync,
+  auch mit anderen Namen, und zählt sie zum Kontingent. Neue legt sie nur mit dem Präfix an.
+
+Im Audit-Log stehen `website.db_create`, `website.db_password_reset` und `website.db_delete`. Per
+API: `POST /api/v1/webspaces/<id>/databases` mit `{"suffix": "wp", "password": "…"}` (Token nur mit
+Passwort), `POST .../databases/<db-id>/password` (nur Session), `DELETE .../databases/<db-id>` mit
+`{"confirm": "<Name>"}`.
+
+### SSL-Zertifikate und DNS-Prüfung
+
+Eine neue Website hat das selbst signierte Zertifikat von CloudPanel, dem Browser nicht trauen.
+"Let's-Encrypt-Zertifikat ausstellen" (`webspace:write`) gilt für die Domain und ihr
+www-Gegenstück:
+
+1. **DNS-Prüfung:** Die Console fragt öffentliche Resolver (`DNS_CHECK_RESOLVERS`, Standard
+   `1.1.1.1,9.9.9.9`, nie den Resolver des Systems) nach A und AAAA beider Namen. Erwartet werden
+   die Adressen der Verbindung oder, ohne Angabe, die öffentlichen Adressen, die der Server meldet.
+   Status pro Name: "Zeigt auf den Server" (mindestens eine Adresse, alle vom Server), "Zeigt
+   anderswohin" (eine fremde Adresse, z.B. CDN oder alter Server), "Kein Eintrag" oder "Abfrage
+   fehlgeschlagen". Das Ergebnis gilt 60 Sekunden.
+2. Zeigen nicht beide Namen auf den Server, antwortet die Console mit 409 `dns_not_ready` und den
+   Namen. "Trotzdem versuchen" (`force`) überspringt die Prüfung, z.B. hinter Cloudflare. Let's
+   Encrypt sperrt nach wiederholten Fehlern eine Weile, deshalb die Prüfung.
+3. Der Server ruft `clpctl lets-encrypt:install:certificate` auf und prüft danach, dass ein neues
+   Zertifikat da ist, das noch mindestens 7 Tage gilt. Sonst kommt die Meldung von Let's Encrypt
+   zurück (z.B. "DNS problem: NXDOMAIN ..."). Das dauert bis zu drei Minuten.
+
+Die Karte "DNS" zeigt die nötigen A- und AAAA-Einträge zum Kopieren und verlinkt die Domain im
+Modul "Domains & DNS", wenn sie dort liegt und die Person sie lesen darf. Eintragen muss der Kunde
+sie selbst (siehe Grenzen). Die Console färbt das Zertifikat unter 30 Tagen gelb, unter 14 Tagen,
+abgelaufen, fehlend oder selbst signiert rot. Verlängern soll CloudPanel selbst (siehe Offene
+Punkte). Im Audit-Log steht `website.certificate` mit `force`, DNS-Ergebnis und Ablaufdatum. Per
+API: `GET /api/v1/webspaces/<id>/dns-check`, `POST /api/v1/webspaces/<id>/certificate` mit
+`{"force": false}`.
+
+### Löschen
+
+- Website löschen (`webspace:delete`) verlangt die Domain als Bestätigung. Der Server löscht die
+  Site mit `clpctl site:delete --force`: alle Dateien in `/home/<Benutzer>`, alle Datenbanken, die
+  nächtlichen Sicherungen in `~/backups`, Cron-Jobs und den Benutzer. Rückgängig machen geht nicht.
+- Was CloudPanel liegen lässt, räumt der Server auf und meldet es als Hinweis: Datenbanken und
+  Datenbank-Benutzer der Site (nur die Namen, die er vorher gelesen hat) und eine verwaiste
+  Crontab. Bleibt der Linux-Benutzer bestehen, meldet er das nur.
+- Hängt ein laufender Dienst der Abrechnung an der Website, lehnt die Console mit 409 ab: zuerst
+  den Dienst kündigen.
+- Meldet der Server die Site beim Löschen nicht mehr (gelöscht oder nicht mehr verwaltet),
+  entfernt Löschen nur noch den Eintrag in der Console. Hat der Sync sie schon als fehlend
+  markiert, geht Löschen nicht mehr (409 `website_missing`): weblion.one entfernt sie dann mit "Aus
+  der Console entfernen". Eine Website mit Status "Unklar" kann nur weblion.one löschen.
+- Ein Kunde mit Websites lässt sich (wie mit Webspaces) nicht löschen. Sein Website-Kontingent
+  verschwindet mit ihm.
+
+Im Audit-Log steht `website.delete` mit Benutzer, Server und Hinweisen. Per API:
+`DELETE /api/v1/webspaces/<id>` mit `{"confirm": "shop.kunde.ch"}`.
+
+### Kontingente einrichten
+
+Admin > Kunden > Kunde, Karte "Website-Kontingent" > Einrichten (Berechtigung
+`platform:org:write`):
+
+- **Server:** alle CloudPanel-Provider (und der Demo-Server). Neue Websites des Kunden entstehen
+  dort. Ein anderer Server gilt nur für neue Websites, bestehende bleiben, wo sie sind.
+- **Websites höchstens** (0 bis 1000) und **Datenbanken höchstens** (0 bis 5000). 0 ist erlaubt:
+  Das Kontingent besteht, angelegt werden kann nichts.
+- **Erlaubte Arten:** PHP, statisch, Node.js, mindestens eine. Standard PHP und statisch. Node.js
+  bekommen Kunden nur, wenn auch die Verbindung es anbietet.
+- **Modul "Webhosting" aktivieren** (Standard an). Bei einem Kunden eines Resellers nur, wenn der
+  Reseller das Modul hat (sonst 409).
+
+Gezählt werden alle Websites der Organisation auf allen Servern und in jedem Zustand (auch "Wird
+angelegt", "Unklar" und fehlende) und ihre Datenbanken. Senken geht nicht unter das, was schon
+besteht (409 `allowance_exceeded`). Entfernen geht nur ohne Websites (beim Reseller auch ohne
+Kontingente seiner Kunden) und schaltet das Modul nicht ab. Im Audit-Log stehen
+`website.allowance_set` (mit den bisherigen Werten) und `website.allowance_delete`. Per API nur mit
+Login:
+`PUT /api/v1/admin/orgs/<org-id>/website-allowance` mit z.B.
+`{"providerId": "<provider-id>", "maxSites": 5, "maxDatabases": 10, "siteTypes": ["php", "static"], "enableModule": true}`,
+`DELETE` auf denselben Pfad entfernt es.
+
+Ohne Kontingent sieht der Kunde unter "Webhosting" den Hinweis, sich an weblion.one (oder seinen
+Reseller) zu wenden. Bei Websites, die weblion.one ihm zuweist, gehen Passwörter, Zertifikate und
+Löschen trotzdem, neue Datenbanken nur mit Kontingent.
+
+### Reseller
+
+- Ein Reseller bekommt von weblion.one ein Kontingent wie jeder Kunde, dazu das Modul. Es deckt
+  seine eigenen Websites und alles, was er seinen Kunden gibt: Seine Websites plus die Höchstwerte
+  aller Kundenkontingente auf seinem Server müssen hineinpassen.
+- Kontingente der Kunden: Reseller > Meine Kunden > Kunde > Ressourcen, Karte
+  "Website-Kontingent". Der Server ist immer der des Resellers, die Arten höchstens seine.
+  Speichern aktiviert beim Kunden das Modul. "Kontingent entfernen" gibt es an den Reseller zurück,
+  solange der Kunde keine Websites hat. Per API: `PUT` und
+  `DELETE /api/v1/reseller/customers/<id>/website-allowance`, PUT mit
+  `{"maxSites": 3, "maxDatabases": 5, "siteTypes": ["php"]}`.
+- Auch weblion.one gibt einem Kunden eines Resellers ein Kontingent nur aus dem des Resellers:
+  derselbe Server, höchstens seine Arten, und es muss Platz sein (anders als beim
+  Cloud-Speicher).
+- Den Server seines Kontingents kann weblion.one nur wechseln, solange keine Kunden des Resellers
+  dort ein Kontingent haben. Eine Art, die Kunden haben, lässt sich dem Reseller erst nehmen, wenn
+  sie sie nicht mehr haben.
+- Websites aus seinem Bestand gibt der Reseller wie Webspaces weiter (Ressourcen > "Webspace
+  zuweisen"). Dabei muss die Website ins Kontingent des Kunden passen, auf demselben Server, mit
+  Platz für die Website und alle ihre Datenbanken (409 sonst). Zurückholen in den eigenen Bestand
+  prüft kein Kontingent.
+- Im Audit-Log des Resellers stehen `reseller.website_allowance_set` und
+  `reseller.website_allowance_delete`.
+
+### Admin-Bereich: anlegen, übernehmen, entfernen
+
+Admin > Domains & Webspaces > Webspaces zeigt Webspaces und Websites gemeinsam (Filter nach
+Provider, zugewiesen oder nicht). Websites tragen das Abzeichen "Website", ihren Zustand und das
+Zertifikat statt eines Ablaufdatums. Zuweisen und Zuweisung aufheben wie bei Webspaces
+(`platform:server:assign`, ohne Prüfung des Kontingents). Darüber die Karte "Websites auf
+CloudPanel-Servern", ihre Aktionen brauchen `platform:website:write` und einen Login:
+
+- **Website anlegen** für einen Kunden oder vorerst ohne Zuweisung, auf einem beliebigen Server.
+  Ohne Prüfung des Kontingents (die Website zählt danach trotzdem beim Kunden), mit allen
+  Anwendungen des Servers und Node.js, wenn der Server es erlaubt (`--nodejs`), die PHP-Versionen
+  wie für Kunden. Der Kunde bekommt das Modul. Die Zugangsdaten erscheinen einmal.
+- **Nicht verwaltete Sites** eines Servers: alle Sites, die die Console nicht verwaltet, geschützte
+  mit Abzeichen. Pro Site entweder "Übernehmen" (nur wenn der Server mit `--allow-remote-adopt`
+  installiert ist) oder der Befehl zum Kopieren, mit dem root sie auf dem Server übernimmt:
+  `sudo weblion-clp adopt <Domain>`. Die Website erscheint dann beim nächsten Sync als nicht
+  zugewiesen. Geschützte Sites lassen sich nie übernehmen. Übernehmen ändert auf dem Server nichts
+  ausser der Liste verwalteter Sites, auch kein Passwort.
+- **Aus der Console entfernen** für Websites ohne Kunden oder solche, die auf dem Server fehlen:
+  Der Server nimmt die Site von seiner Liste, sie bleibt mit allen Dateien bestehen. Die Zeile und
+  ihre Datenbanken verschwinden aus der Console.
+
+Wer eine übernommene Website zugewiesen bekommt, kann ihr Passwort setzen, Datenbanken anlegen und
+löschen und sie löschen. Übernehmen also nur, was wirklich dem Kunden gehört. Im Audit-Log stehen
+`website.adopt` und `website.forget`. Per API nur mit Login: `POST /api/v1/admin/websites` (wie
+beim Kunden, dazu `providerId` und `orgId`, `null` für keine Zuweisung),
+`GET /api/v1/admin/providers/<id>/websites/unmanaged`,
+`POST /api/v1/admin/providers/<id>/websites/adopt` mit `{"domain": "..."}`,
+`POST /api/v1/admin/webspaces/<id>/forget`.
+
+### Sync
+
+- Pro Sync-Lauf (alle `SYNC_INTERVAL_SECONDS`) eine Anfrage pro Server (`list`): alle verwalteten
+  Sites mit Art, Versionen, Anwendung, Zertifikat, Datenbanken und Belegung.
+- Neue Sites (von root übernommen, oder angelegt und die Zeile ging verloren) kommen als nicht
+  zugewiesen dazu. Sites, die fehlen (im Panel gelöscht, mit `weblion-clp forget` entfernt),
+  werden als fehlend markiert und behalten ihren Kunden. Ändern geht dann nicht mehr (409
+  `website_missing`).
+- Eine Website mit Status "Unklar", die der Server hat, wird aktiv. Steht eine länger als 10
+  Minuten auf "Wird angelegt", gilt die Anfrage als verloren: Hat der Server die Site, wird sie
+  aktiv (der Kunde setzt ein neues Passwort). Unklare und verlorene Websites, die der Server nicht
+  hat, verschwinden nach 10 Minuten. Löschvorgänge lässt der Sync in Ruhe.
+- Datenbanken gleicht er pro Website ab: neue kommen dazu, fehlende werden markiert.
+- Was jemand im Panel von CloudPanel ändert (PHP-Version, Datenbanken), übernimmt der Sync. Eine
+  Zeile, die die Console während des Laufs geändert hat, überschreibt er nicht.
+- Die Detailseite liest eine Website live nach, wenn ihr Stand älter als eine Minute ist.
+- Von Hand: Admin > Provider > CloudPanel > "Jetzt synchronisieren", oder der Sync-Button im Tab
+  "Webspaces".
+
+### Was die Console nutzt
+
+Jede Operation ist ein SSH-Aufruf, die Anfrage eine Zeile JSON auf stdin, die Antwort eine Zeile
+JSON auf stdout (Protokoll v1, Aufbau in [architecture.md](architecture.md#websites-cloudpanel)).
+
+| Funktion in der Console             | Operation des Agents | Auf dem Server                                                                                                                 | Wartet (Agent / Console) |
+| ----------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| Verbindungstest, Auswahl für Kunden | `info`               | `dpkg-query`, `clpctl --version`, `clpctl vhost-templates:list`, `ip -j addr`, PHP-Versionen, Datenbank von CloudPanel lesen   | 20 s / 30 s              |
+| Sync                                | `list`               | Datenbank von CloudPanel lesen                                                                                                 | 45 s / 60 s              |
+| Detailseite                         | `get`                | Datenbank von CloudPanel lesen                                                                                                 | 20 s / 30 s              |
+| Nicht verwaltete Sites              | `unmanaged`          | Datenbank von CloudPanel lesen                                                                                                 | 20 s / 30 s              |
+| Website anlegen                     | `create`             | `clpctl site:add:php`, `site:add:static` oder `site:add:nodejs`, `chpasswd`, `pkill`, `crontab -r`, mit Datenbank wie `db-add` | 300 s / 330 s            |
+| Website löschen                     | `delete`             | `clpctl site:delete --force`, Reste mit dem MySQL-Client                                                                       | 180 s / 200 s            |
+| Neues Passwort                      | `password`           | `chpasswd`                                                                                                                     | 20 s / 30 s              |
+| Datenbank anlegen                   | `db-add`             | `clpctl db:add`, `ALTER USER`, Sitzungen des Benutzers beenden                                                                 | 75 s / 90 s              |
+| Datenbank löschen                   | `db-delete`          | `clpctl db:delete --force`                                                                                                     | 75 s / 90 s              |
+| Neues Datenbank-Passwort            | `db-password`        | `ALTER USER` für jeden Host des Benutzers                                                                                      | 20 s / 30 s              |
+| Let's-Encrypt-Zertifikat            | `cert`               | `clpctl lets-encrypt:install:certificate`                                                                                      | 180 s / 200 s            |
+| Übernehmen (Admin)                  | `adopt`              | Liste verwalteter Sites                                                                                                        | 20 s / 30 s              |
+| Aus der Console entfernen (Admin)   | `forget`             | Liste verwalteter Sites                                                                                                        | 20 s / 30 s              |
+
+Für den MySQL-Client liest der Agent die Master-Zugangsdaten mit
+`clpctl db:show:master-credentials` und legt sie nur für den Aufruf in eine Datei (0600) unter
+`/run/weblion-clp`. Die Console hält pro Server eine SSH-Verbindung (nach 60 Sekunden ohne Anfrage
+geschlossen), schickt eine Operation nach der anderen und lässt höchstens 20 warten (dann 503
+`busy`). `info` behält sie 10 Minuten, `list` 15 Sekunden, jede Änderung leert den Speicher der
+Liste.
+
+### Fehler der API
+
+Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
+Websites:
+
+| HTTP | `code`               | Wann                                                                                                                                                                     |
+| ---- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 400  | `bad_request`        | Ungültige Eingabe (`details` nennt das Feld), API-Token ohne Passwort, falsche Bestätigung beim Löschen, Version oder Anwendung nicht angeboten, Benutzername reserviert |
+| 403  | `forbidden`          | Recht fehlt, Modul nicht aktiv, Kunde gesperrt (nur lesen), Passwort mit API-Token                                                                                       |
+| 404  | `not_found`          | Website, Datenbank, Kunde oder Kontingent gibt es nicht, oder die Person sieht sie nicht                                                                                 |
+| 404  | `provider_error`     | Die Site oder Datenbank gibt es in CloudPanel nicht (mehr)                                                                                                               |
+| 409  | `no_allowance`       | Kein Kontingent (beim Anlegen, beim Weitergeben durch einen Reseller)                                                                                                    |
+| 409  | `allowance_exceeded` | Kontingent voll oder zu klein, `details` mit Höchstwert und Belegung                                                                                                     |
+| 409  | `type_not_allowed`   | Art nicht im Kontingent oder auf dem Server nicht angeboten                                                                                                              |
+| 409  | `exists`             | Domain, Benutzername oder Datenbank vergeben, `details.field` nennt das Feld (`domain`, `siteUser`, `database`, ...)                                                     |
+| 409  | `dns_not_ready`      | Zertifikat ohne `force`, aber das DNS zeigt nicht auf den Server, `details` mit der Prüfung                                                                              |
+| 409  | `website_busy`       | Die Website oder Datenbank wird gerade angelegt oder gelöscht                                                                                                            |
+| 409  | `website_error`      | Die letzte Änderung ist unklar, der nächste Sync klärt sie                                                                                                               |
+| 409  | `website_missing`    | Der Server meldet die Website nicht mehr                                                                                                                                 |
+| 409  | `not_managed`        | Die Site ist auf dem Server nicht (mehr) verwaltet, oder ihr Site-User hat sich in CloudPanel geändert                                                                   |
+| 409  | `protected`          | Site oder Benutzer stehen auf der Schutzliste des Servers                                                                                                                |
+| 409  | `adopt_disabled`     | Übernehmen aus der Console ist auf dem Server aus                                                                                                                        |
+| 409  | `conflict`           | Laufender Dienst an der Website, Kontingent mit Websites entfernen, Server des Kontingents wechseln, Reseller ohne Modul                                                 |
+| 422  | `unsupported`        | Der Provider kann keine Websites, CloudPanel ist älter als 2.5.0 bzw. seine Datenbank unbekannt, oder `/proc` hat kein `hidepid`                                         |
+| 502  | `provider_error`     | Der Server hat abgelehnt oder war nicht erreichbar, `message` mit dem Grund, `details.rolledBack` und `details.output` (die Ausgabe von `clpctl`, ohne Passwörter)       |
+| 502  | `website_error`      | Ergebnis unklar (Zeit abgelaufen, Verbindung abgerissen): Die Website oder Datenbank entsteht vielleicht trotzdem, der Sync zeigt es                                     |
+| 503  | `busy`               | Der Server ist mit einer anderen Änderung beschäftigt (Sperre, höchstens 120 Sekunden Warten) oder seine CloudPanel-Datenbank gesperrt, oder zu viele Anfragen warten    |
+| 504  | `timeout`            | Keine Antwort in der Wartezeit (alles ausser Anlegen). Der Server arbeitet vielleicht weiter, ein Löschen steht danach auf "Unklar"                                      |
+
+Jede Änderung steht im Audit-Log, gescheiterte mit `status: failure` und der Meldung. Meldungen
+und Ausgaben des Servers laufen zweimal durch die Bereinigung (Agent und Console): Passwörter der
+Anfrage und Muster wie `passwd -6 '...'`, `IDENTIFIED BY '...'` oder `--...Password=...` werden
+`•••`.
+
+### API Explorer
+
+Admin > API Explorer, Provider CloudPanel: nur lesend, `GET /info` (Versionen, Vorlagen, Adressen,
+Schutzliste), `/list` (verwaltete Sites) und `/unmanaged` (nicht verwaltete Sites), so wie der
+Agent antwortet. Ändern geht nur über die Buttons der Console.
+
+### Grenzen
+
+- **Kein Speicherlimit:** CloudPanel kennt keine Kontingente auf der Platte. Das Kontingent zählt
+  Websites und Datenbanken, der belegte Platz (Home-Verzeichnis und Datenbanken, alle sechs
+  Stunden gemessen) ist nur zur Information. Wer mehr verkauft, als die Disk hat, überwacht den
+  Server selbst.
+- **Keine E-Mail:** CloudPanel-Server haben keinen Mailserver. Postfächer für die Domain gibt es im
+  Modul "E-Mail" (Mailcow), WordPress und andere Anwendungen versenden per SMTP über ein Postfach
+  (Plugin).
+- **Keine Wiederherstellung:** Die Console stellt nichts wieder her. Datenbanken sichert CloudPanel
+  jede Nacht nach `~/backups` (7 Tage), Dateien nur das Remote-Backup des Betreibers. Löschen der
+  Website löscht auch `~/backups`.
+- **Eine Domain pro Website** (mit www). Weitere Domains oder Aliase brauchen eine Änderung am
+  Vhost im Panel.
+- **Nicht in der Console**, das geht im Panel von CloudPanel durch weblion.one: PHP-Version
+  wechseln (der Sync zeigt danach die neue), PHP-Einstellungen, Vhost, Wurzelverzeichnis, weitere
+  SSH- oder FTP-Benutzer, Basic Auth, IP- und Bot-Sperren, Varnish, Cron-Jobs im Panel (Kunden
+  nutzen `crontab -e`).
+- **Sperren:** Ein gesperrter Kunde sieht seine Websites nur noch lesend, auf dem Server laufen sie
+  weiter, SFTP und SSH auch. Ebenso lassen ein abgeschaltetes Modul und eine aufgehobene Zuweisung
+  den Server unberührt. Websites stilllegen gibt es nicht.
+- **Abrechnung:** Kontingent und Dienst sind getrennt. Ein Dienst lässt sich wie ein Webspace mit
+  einer Website verknüpfen (dann lässt sie sich nicht löschen, solange er läuft), mehr nicht. Siehe
+  [Roadmap](roadmap.md).
+- **Fehlende DNS-Einträge** trägt die Console noch nicht selbst ein, auch wenn die Domain im Modul
+  "Domains & DNS" liegt.
+- **WordPress** installiert die Console nicht. Die Vorlage richtet nur den Webserver ein.
+- **Verbindung aus der `.env`:** feste Auswahl für Kunden (siehe oben).
+- **phpMyAdmin, Panel-Login für Kunden, SSH-Schlüssel verwalten, Umzug zwischen Servern** gibt es
+  nicht.
+
+Ideen dazu in der [Roadmap](roadmap.md).
+
+### Offene Punkte
+
+Gegen einen echten CloudPanel-Server ist die Anbindung noch nicht getestet. Die Console ist gegen
+einen Fake-Transport und einen SSH-Server im Test geprüft, der Agent mit Python-Tests gegen
+nachgebaute Werkzeuge (`clpctl`, `chpasswd`, `mysql`, `dpkg-query`, ...) und eine SQLite-Datenbank
+mit dem Schema, das die Community-Werkzeuge lesen. Grundlage sind die Doku von CloudPanel, sein
+Issue-Tracker und Community-Code, der `clpctl` aufruft. Vor dem ersten echten Einsatz auf einem
+Test-Server prüfen:
+
+- `install.sh` auf Debian 12 und Ubuntu 24.04 mit CloudPanel 2.5.x, danach `weblion-clp selftest`
+- Website anlegen (PHP, statisch, Node.js), Passwort setzen, Datenbank anlegen und löschen,
+  Zertifikat ausstellen, Website löschen, je mit einem Blick in `weblion-clp status` und das Log
+- Übernehmen einer im Panel angelegten Site als root, danach Sync
+
+Ungeprüfte Annahmen über CloudPanel (Grundlage: Doku, Issues, Community-Code). Der Agent ist so
+gebaut, dass er bei den meisten auch dann richtig handelt, wenn sie falsch sind:
+
+1. **Exit-Codes von `clpctl`** bei Validierungsfehlern und internen Fehlern. Der Agent prüft das
+   Ergebnis in der Datenbank von CloudPanel, nicht den Exit-Code.
+2. Ob die Kommandozeile dieselben Fehlertexte mit dem Passwort im Klartext ausgibt wie das Panel
+   ("Command ... passwd -6 '...' failed"). Die Bereinigung entfernt sie so oder so.
+3. Ob `clpctl db:delete --force` so funktioniert (nicht in der Doku, nur in zwei
+   Community-Werkzeugen) und ob `db:delete` ohne `--force` fragt. Der Agent schliesst stdin, eine
+   Rückfrage scheitert also sofort statt zu hängen.
+4. Ob `clpctl site:delete` auch die Datenbanken und ihre Benutzer löscht, wie es das Panel sagt.
+   Der Agent räumt Reste auf, die er kennt.
+5. **Das Schema der SQLite-Datenbank** (nicht dokumentiert): die Werte von `certificate.type`, die
+   Zeitzone von `created_at` und `expires_at` (gelesen als UTC) und ob `site.user_password` das
+   Passwort im Klartext hält (der Agent liest die Spalte nie, ebenso nie die Tabelle `user`).
+6. Das Schreibfenster von `clp-agent`: Er schreibt jede Minute in die Datenbank und stirbt, wenn
+   gerade jemand liest (Issue #815, Sekunden 5 bis 6 laut vier Log-Zeilen). Der Agent liest nie
+   zwischen Sekunde 2 und 9 (`dbQuietSeconds` in `config.json`), kurz und nur lesend.
+7. **Wie Zertifikate verlängert werden**, seit die Befehle zum Verlängern aus `clpctl`
+   verschwunden sind (Issue #720), vermutlich durch `clp-agent`. Die Console zeigt das
+   Ablaufdatum und färbt es unter 30 Tagen gelb. Der Text "CloudPanel verlängert das Zertifikat
+   automatisch" auf der Detailseite gilt erst nach dieser Prüfung.
+8. Die installierten PHP-Versionen erkennt der Agent an `/usr/bin/phpX.Y` (sonst
+   `/etc/php/X.Y/fpm`), den MySQL-Client erwartet er unter `/usr/bin/mysql` (in `config.json`
+   änderbar).
+9. Welche Zeichen CloudPanel selbst in Datenbank-Namen, Datenbank-Benutzern und Site-Usern annimmt.
+   Die Muster der Console sind strenger, `_` in Datenbank-Namen ist angenommen (die Doku zeigt nur
+   `-`).
+10. Die Tabellen von `clpctl vhost-templates:list` (Spalten Name, Root Directory, Type) und
+    `clpctl db:show:master-credentials` (Zeilen Host, User Name, Password, Port), gelesen wie die
+    Community-Parser.
+11. Ob CloudPanel (Panel und `clp-agent`) mit `hidepid` auf `/proc` weiter läuft.
+12. Wie lange das Anlegen dauert, vor allem bei Node.js (CloudPanel lädt Node.js mit nvm herunter).
+13. Ob CloudPanel beim Anlegen etwas nach `~/.ssh/authorized_keys` kopiert. Der Agent leert die
+    Datei ohnehin.
+14. Was ssh2 bei einem abgelehnten Host-Schlüssel genau meldet: geprüft nur gegen den SSH-Server im
+    Test.
+
+### Demo
+
+Der Demo-Provider simuliert mit `ENABLE_DEMO_PROVIDER=true` und `ENABLE_DEMO_CLOUDPANEL=true` einen
+CloudPanel-Server ("Demo CloudPanel", `web1.demo.weblion.example`, 203.0.113.10 und 2001:db8::10)
+im Speicher, mit denselben Prüfungen und Fehlern wie der Agent. Den Server gibt es nicht, SFTP und
+"Website öffnen" führen ins Leere. Mit `pnpm db:seed`:
+
+- Muster AG hat ein Kontingent für 5 Websites und 10 Datenbanken (PHP, statisch, Node.js) und die
+  Websites `www.muster-ag.example` (WordPress, PHP 8.3, mit Datenbank), `shop.muster-ag.example`
+  (WooCommerce, Zertifikat läuft in 10 Tagen ab) und `api.muster-ag.example` (Node.js 22, kein
+  Zertifikat).
+- Alpen Hosting (Reseller) hat ein Kontingent für 20 Websites und 40 Datenbanken (PHP, statisch),
+  daraus Bäckerei Huber 3 und 5, mit der statischen Website `baeckerei-huber.example` (selbst
+  signiertes Zertifikat).
+- Nicht verwaltet: `cp.weblion.demo` (geschützt, wie die Console selbst) und
+  `legacy.kunde.example` (PHP 7.4), das sich im Admin-Bereich übernehmen lässt, weil Übernehmen aus
+  der Console im Demo an ist.
+- Der simulierte Server erlaubt Node.js, die Demo-Verbindung bietet es Kunden aber nicht an (ihre
+  Einstellungen kommen aus der Umgebung, wie bei einer Verbindung aus der `.env`). Node.js-Websites
+  legt weblion.one im Admin-Bereich an. Installiert sind PHP 8.5 bis 7.4, angeboten werden wie beim
+  echten Server 8.3 und 8.4.
+- Simuliertes DNS: verwaltete Websites zeigen auf den Server, Namen mit `nodns` haben keinen
+  Eintrag, Namen mit `elsewhere` zeigen auf 198.51.100.7. Eine Datenbank mit `fail` im Namen
+  scheitert, um den Hinweis beim Anlegen zu sehen.
+
 ## Weitere Provider anbinden
 
 Ein Provider ist eine Klasse, die `ProviderAdapter` aus
@@ -2129,3 +2790,16 @@ mit 422 (`unsupported`). Für den Admin-Bereich kommen `createMailDomain`, `upda
 der Limits, Passwörter und die DNS-Einträge erledigt das Modul `mail`, der Adapter spricht nur mit
 der Instanz. Grössen nimmt er in ganzen MiB und meldet sie in Bytes. Im Web hält
 `isMailProvider()` in `pages/admin/mail.tsx` fest, welche Typen Mail-Domains haben.
+
+Ein Provider für Websites wie CloudPanel liefert ebenfalls keine Server. Er implementiert
+`listWebsites`, `websiteServerOptions` und `createWebsite`, erst damit gilt er als Website-Provider
+(`supportsWebsites()` in `apps/api/src/modules/hosting/website-service.ts`), sonst antwortet die API
+mit 422 (`unsupported`). Für die einzelnen Funktionen kommen `deleteWebsite`, `setWebsitePassword`,
+`createWebsiteDatabase`, `setWebsiteDatabasePassword`, `deleteWebsiteDatabase` und
+`issueWebsiteCertificate` dazu, für den Admin-Bereich `listUnmanagedWebsites`, `adoptWebsite` und
+`forgetWebsite`. Fehlt eine davon, lehnt die Route mit 422 ab. Optional sind `getWebsite` (Live-Daten
+der Detailseite), `websiteAccessHost` (Host für SFTP/SSH) und `websiteServerInfo` (was der Server
+hat, für den Admin-Bereich). Websites adressiert der Adapter über die ASCII-Domain, Passwörter
+bekommt er nur zum Weitergeben. Kontingente, Prüfungen, Passwörter und die DNS-Prüfung erledigt das Hosting-Modul
+(`website-service.ts`, `website-allowance.ts`, `website-dns.ts`, `websites.ts`). Im Web hält
+`isWebsiteProvider()` in `pages/admin/websites.tsx` fest, welche Typen Websites haben.

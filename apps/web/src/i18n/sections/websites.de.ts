@@ -485,6 +485,8 @@ export const websitesDe = {
     'Der Kunde kann danach keine Websites mehr anlegen; das Kontingent geht an Sie zurück.',
   'websites.reseller.removeBlocked':
     'Nur ohne Websites möglich. Der Kunde hat noch {n}; löschen Sie sie oder holen Sie sie in Ihren Bestand zurück.',
+  'websites.reseller.releaseText':
+    'Ist es eine Website und hat Ihr Website-Kontingent keinen Platz mehr für sie, nimmt sie ihren Platz im Kontingent des Kunden mit: Es sinkt um die Website und ihre Datenbanken.',
 
   // Errors (codes of the API)
   'websites.errors.no_allowance': 'Für diese Organisation ist kein Website-Kontingent eingerichtet.',

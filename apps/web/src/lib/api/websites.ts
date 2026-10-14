@@ -75,12 +75,17 @@ export interface WebsiteMutationOptions<TVars, TResult> {
 /**
  * Like useApiMutation (toast on success and error, then invalidation), with a formatter for
  * the error toast. `refreshOnError`: refresh the views after a failure too, because a failed
- * create or delete can leave a row in state "error" behind.
+ * create or delete can leave a row in state "error" behind; `errorViews` are refreshed only
+ * then (a view the success removes).
  */
 function useWebsiteMutation<TVars, TResult>(
   fn: (vars: TVars) => Promise<TResult>,
   invalidate: QueryKey[] | ((vars: TVars) => QueryKey[]),
-  options: WebsiteMutationOptions<TVars, TResult> & { gcTime?: number; refreshOnError?: boolean } = {},
+  options: WebsiteMutationOptions<TVars, TResult> & {
+    gcTime?: number;
+    refreshOnError?: boolean;
+    errorViews?: QueryKey[];
+  } = {},
 ) {
   const qc = useQueryClient();
   const refresh = (vars: TVars) => {
@@ -100,6 +105,7 @@ function useWebsiteMutation<TVars, TResult>(
     onError: (err, vars) => {
       if (options.error !== false) toast.error((options.error ?? errorMessage)(err));
       if (options.refreshOnError) refresh(vars);
+      for (const key of options.errorViews ?? []) void qc.invalidateQueries({ queryKey: key });
     },
   });
 }
@@ -213,6 +219,8 @@ export const useDeleteWebsite = (
     {
       ...options,
       refreshOnError: true,
+      // A failed delete can leave the website in state "error": the open detail shows it.
+      errorViews: [hostingKeys.webspace(id)],
       onSuccess: (result, vars) => {
         // The caller leaves the page first; the detail would only answer 404 now.
         options.onSuccess?.(result, vars);
@@ -225,12 +233,16 @@ export const useDeleteWebsite = (
 
 // --- Admin -------------------------------------------------------------------------
 
-/** Websites of all CloudPanel servers, or of one (GET /admin/webspaces?kind=website). */
-export const useAdminWebsites = (filters: { providerId?: string }, enabled = true) =>
+/** Websites of all CloudPanel servers, of one, or of one organization (GET /admin/webspaces?kind=website). */
+export const useAdminWebsites = (filters: { providerId?: string; orgId?: string }, enabled = true) =>
   useQuery({
     queryKey: websiteKeys.adminList(filters),
     queryFn: () =>
-      api.get<WebspaceDto[]>('/admin/webspaces', { kind: 'website', providerId: filters.providerId }),
+      api.get<WebspaceDto[]>('/admin/webspaces', {
+        kind: 'website',
+        providerId: filters.providerId,
+        orgId: filters.orgId,
+      }),
     enabled,
   });
 

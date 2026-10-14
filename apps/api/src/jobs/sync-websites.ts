@@ -14,8 +14,8 @@ import type { SyncCounts } from './sync';
 
 /**
  * Websites of a CloudPanel connection: the managed sites of the server, new ones unassigned,
- * vanished ones marked missing, unfinished creations settled. Only rows of kind "website";
- * organizations are never assigned and active rows never deleted here.
+ * vanished ones marked missing, unfinished creations and deletions settled. Only rows of kind
+ * "website"; organizations are never assigned and active rows never deleted here.
  *
  * Rows a route changed after the server was asked (updatedAt after `started`) keep their
  * fresher state: a website created or deleted while the list was on its way is neither
@@ -64,14 +64,16 @@ export async function syncWebsites(
     }
     // A creation still on its way (or a deletion) is finished by its route. An "error" row the
     // server has is active (a creation that lost its answer keeps credentialsDelivered: false
-    // from its route). A creation stuck in "creating" for longer than any answer takes lost its
-    // route: the site exists, nobody saw its password.
-    const lost = row.status === 'creating' && row.updatedAt < stale;
+    // from its route). A creation or deletion stuck for longer than any answer takes lost its
+    // route (a restart): the site exists, and after a creation nobody saw its password.
+    const lost = (row.status === 'creating' || row.status === 'deleting') && row.updatedAt < stale;
     if (row.status !== 'active' && row.status !== 'error' && !lost) continue;
     await applyRemoteWebsite(db, row, site, {
       since: started,
       ipAddress,
-      ...(row.status !== 'active' ? { status: 'active' as const, credentialsPending: lost } : {}),
+      ...(row.status !== 'active'
+        ? { status: 'active' as const, credentialsPending: lost && row.status === 'creating' }
+        : {}),
       where: and(lt(webspaces.updatedAt, started), eq(webspaces.status, row.status)),
     });
   }
@@ -96,7 +98,7 @@ export async function syncWebsites(
     missing = marked.length;
   }
   // Creations that never happened on the server (their databases cascade). Deletions are left
-  // to their route.
+  // to their route, unless it was lost (a restart): the site is gone.
   const unfinished = absent.filter((r) => r.status === 'creating' || r.status === 'error').map((r) => r.id);
   if (unfinished.length > 0) {
     await db
@@ -107,6 +109,18 @@ export async function syncWebsites(
           or(eq(webspaces.status, 'creating'), eq(webspaces.status, 'error')),
           lt(webspaces.createdAt, stale),
           lt(webspaces.updatedAt, started),
+        ),
+      );
+  }
+  const abandoned = absent.filter((r) => r.status === 'deleting').map((r) => r.id);
+  if (abandoned.length > 0) {
+    await db
+      .delete(webspaces)
+      .where(
+        and(
+          inArray(webspaces.id, abandoned),
+          eq(webspaces.status, 'deleting'),
+          lt(webspaces.updatedAt, stale),
         ),
       );
   }

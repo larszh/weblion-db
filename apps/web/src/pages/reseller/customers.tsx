@@ -686,7 +686,10 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
         title={t('admin.resources.releaseTitle')}
         description={
           releasing
-            ? t('admin.resources.releaseText', { name: releasing.name, customer: customer.name })
+            ? [
+                t('admin.resources.releaseText', { name: releasing.name, customer: customer.name }),
+                ...(releasing.type === 'webspace' && websites ? [t('websites.reseller.releaseText')] : []),
+              ].join(' ')
             : undefined
         }
         confirmLabel={t('admin.resources.release')}

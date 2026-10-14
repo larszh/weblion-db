@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import {
   DEFAULT_CUSTOMER_BOUNDARY,
+  DEFAULT_RESELLER_BOUNDARY,
   WEBSITE_PASSWORD_PATTERN,
   suggestSiteUser,
   websiteDomainAscii,
@@ -31,6 +32,7 @@ import {
   type ProviderConnection,
 } from '../src/db/schema';
 import { AppError, ProviderError } from '../src/lib/errors';
+import { assertNotPlatformName } from '../src/modules/hosting/website-service';
 import { hashPassword } from '../src/lib/crypto';
 import {
   DEMO_CLOUDPANEL_HOST,
@@ -299,7 +301,7 @@ describe('sync', () => {
     await t.db.delete(webspaces).where(eq(webspaces.id, row.id));
   });
 
-  it('settles creations that lost their route and leaves deletions to theirs', async () => {
+  it('settles creations and deletions that lost their route', async () => {
     const adapter = t.ctx.providers.forConnection(cp);
     await adapter.createWebsite!({
       domain: 'stuck.example',
@@ -310,6 +312,16 @@ describe('sync', () => {
       siteUser: 'stuck-example',
       password: PASSWORD,
       database: null,
+    });
+    await adapter.createWebsite!({
+      domain: 'kept.example',
+      type: 'static',
+      phpVersion: null,
+      template: null,
+      nodejsVersion: null,
+      siteUser: 'kept-example',
+      password: PASSWORD,
+      database: { name: 'kept_example_db', userName: 'kept_example_db', password: PASSWORD },
     });
     const old = new Date(Date.now() - 11 * 60_000);
     const placeholder = (domain: string, status: 'creating' | 'deleting', at: Date) => ({
@@ -322,13 +334,36 @@ describe('sync', () => {
       createdAt: at,
       updatedAt: at,
     });
-    await t.db
+    const rows = await t.db
       .insert(webspaces)
       .values([
         placeholder('stuck.example', 'creating', old),
         placeholder('recent.example', 'creating', new Date()),
-        placeholder('leaving.example', 'deleting', old),
-      ]);
+        placeholder('leaving.example', 'deleting', new Date()),
+        // Their route died (a restart): one is gone on the server, one was never deleted.
+        placeholder('left.example', 'deleting', old),
+        placeholder('kept.example', 'deleting', old),
+      ])
+      .returning();
+    const kept = rows.find((r) => r.externalId === 'kept.example')!;
+    await t.db.insert(webspaceDatabases).values([
+      {
+        webspaceId: kept.id,
+        providerConnectionId: cp.id,
+        name: 'kept_example_db',
+        status: 'deleting',
+        createdAt: old,
+        updatedAt: old,
+      },
+      {
+        webspaceId: kept.id,
+        providerConnectionId: cp.id,
+        name: 'kept_example_gone',
+        status: 'deleting',
+        createdAt: old,
+        updatedAt: old,
+      },
+    ]);
     await new Promise((resolve) => setTimeout(resolve, 5));
     await sync();
     expect(await websiteRow('stuck.example')).toMatchObject({
@@ -340,12 +375,25 @@ describe('sync', () => {
     // Still on its way: neither settled nor removed. A deletion is not taken as missing.
     expect(await websiteRow('recent.example')).toMatchObject({ status: 'creating', missingSince: null });
     expect(await websiteRow('leaving.example')).toMatchObject({ status: 'deleting', missingSince: null });
+    // A deletion whose route was lost: gone on the server, the row goes; still there, it is active.
+    expect(await websiteRow('left.example')).toBeUndefined();
+    expect(await websiteRow('kept.example')).toMatchObject({
+      status: 'active',
+      missingSince: null,
+      meta: {},
+      info: { site: { siteUser: 'kept-example' } },
+    });
+    expect((await databasesOf(kept.id)).map((d) => [d.name, d.status])).toEqual([
+      ['kept_example_db', 'active'],
+    ]);
 
-    for (const domain of ['stuck.example', 'recent.example', 'leaving.example']) {
+    for (const domain of ['stuck.example', 'recent.example', 'leaving.example', 'kept.example']) {
       await t.db.delete(webspaces).where(eq(webspaces.externalId, domain));
     }
-    demo().sites.delete('stuck.example');
-    demo().managed.delete('stuck.example');
+    for (const domain of ['stuck.example', 'kept.example']) {
+      demo().sites.delete(domain);
+      demo().managed.delete(domain);
+    }
   });
 });
 
@@ -724,6 +772,50 @@ describe('create', () => {
       message: 'muster-ag.ch belongs to another customer in the DNS module',
       details: { field: 'domain' },
     });
+    // Nor below it: a website there would serve names of Muster AG.
+    const below = await create(hanna, huberId, { domain: 'shop.muster-ag.ch', type: 'static' });
+    expect(below.statusCode).toBe(409);
+    expect(json(below).error).toMatchObject({
+      message: 'shop.muster-ag.ch is below muster-ag.ch, which belongs to another customer in the DNS module',
+      details: { field: 'domain' },
+    });
+    // The host customers use for SFTP/SSH (and every name below it) belongs to the platform.
+    for (const domain of [
+      DEMO_CLOUDPANEL_HOST,
+      `www.${DEMO_CLOUDPANEL_HOST}`,
+      `shop.${DEMO_CLOUDPANEL_HOST}`,
+    ]) {
+      const platform = await create(anna, musterId, { domain, type: 'static' });
+      expect(platform.statusCode, domain).toBe(409);
+      expect(json(platform).error).toMatchObject({
+        code: 'exists',
+        message: expect.stringContaining(`is a name of the platform (${DEMO_CLOUDPANEL_HOST})`),
+        details: { field: 'domain' },
+      });
+    }
+    expect(
+      (
+        await admin.post('/admin/websites', {
+          providerId: cp.id,
+          orgId: null,
+          domain: DEMO_CLOUDPANEL_HOST,
+          type: 'static',
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(await websiteRow(DEMO_CLOUDPANEL_HOST)).toBeUndefined();
+    // The console's own host too; IP addresses and names without a dot are no domains.
+    expect(() => assertNotPlatformName('x.cp.weblion.cloud', ['cp.weblion.cloud'])).toThrow(/platform/);
+    expect(() => assertNotPlatformName('weblion.cloud', ['www.weblion.cloud'])).toThrow(/platform/);
+    expect(() =>
+      assertNotPlatformName('shop.example.ch', [
+        'localhost',
+        '203.0.113.10',
+        null,
+        undefined,
+        'example.ch.x',
+      ]),
+    ).not.toThrow();
     // The server refuses a Linux user that exists: nothing is kept.
     const user = await create(anna, musterId, {
       domain: 'legacy.muster-ag.ch',
@@ -1101,6 +1193,72 @@ describe('delete', () => {
     expect((await websiteRow('busy.muster-ag.ch'))!.status).toBe('active');
     expect((await auditEntries('website.delete')).filter((e) => e.status === 'failure')).toHaveLength(2);
   });
+
+  it('leaves a delete whose answer was lost to the sync, and keeps refused ones', async () => {
+    const staffCreated = async (domain: string) => {
+      const res = await admin.post('/admin/websites', {
+        providerId: cp.id,
+        orgId: musterId,
+        domain,
+        type: 'static',
+      });
+      expect(res.statusCode, res.body).toBe(201);
+      return json<WebsiteCreatedDto>(res).website.id;
+    };
+    const old = new Date(Date.now() - 11 * 60_000);
+    // The connection dropped after the server deleted the site.
+    const dropped = await staffCreated('dropped.muster-ag.ch');
+    DemoCloudPanelAdapter.failNext(
+      cp.id,
+      'deleteWebsite',
+      new ProviderError('CloudPanel', 'The connection to web1 ended before the agent answered.'),
+      { afterEffect: true },
+    );
+    const res = await anna.del(`/webspaces/${dropped}`, { confirm: 'dropped.muster-ag.ch' });
+    expect(res.statusCode).toBe(502);
+    expect(await websiteRow('dropped.muster-ag.ch')).toMatchObject({
+      status: 'error',
+      meta: { lastError: expect.stringContaining('ended before the agent answered') },
+    });
+    expect(demo().sites.has('dropped.muster-ag.ch')).toBe(false);
+    await t.db.update(webspaces).set({ createdAt: old, updatedAt: old }).where(eq(webspaces.id, dropped));
+    await sync();
+    expect(await websiteRow('dropped.muster-ag.ch')).toBeUndefined();
+
+    // A refusal left the site as it was.
+    const kept = await staffCreated('kept.muster-ag.ch');
+    DemoCloudPanelAdapter.failNext(
+      cp.id,
+      'deleteWebsite',
+      new AppError(409, 'protected', 'kept.muster-ag.ch is on the protected list of this server'),
+    );
+    expect((await anna.del(`/webspaces/${kept}`, { confirm: 'kept.muster-ag.ch' })).statusCode).toBe(409);
+    expect((await websiteRow('kept.muster-ag.ch'))!.status).toBe('active');
+
+    // Databases alike.
+    const added = await admin.post(`/webspaces/${kept}/databases`, { suffix: 'x' });
+    expect(added.statusCode, added.body).toBe(201);
+    const database = json<WebsiteDatabaseSecretDto>(added).database;
+    DemoCloudPanelAdapter.failNext(cp.id, 'deleteWebsiteDatabase', new AppError(503, 'busy', 'busy'));
+    const busy = await anna.del(`/webspaces/${kept}/databases/${database.id}`, { confirm: database.name });
+    expect(busy.statusCode).toBe(503);
+    expect((await databasesOf(kept)).map((d) => d.status)).toEqual(['active']);
+    DemoCloudPanelAdapter.failNext(
+      cp.id,
+      'deleteWebsiteDatabase',
+      new ProviderError('CloudPanel', 'The connection to web1 ended before the agent answered.'),
+      { afterEffect: true },
+    );
+    const lost = await anna.del(`/webspaces/${kept}/databases/${database.id}`, { confirm: database.name });
+    expect(lost.statusCode).toBe(502);
+    expect((await databasesOf(kept)).map((d) => d.status)).toEqual(['error']);
+    await t.db
+      .update(webspaceDatabases)
+      .set({ createdAt: old, updatedAt: old })
+      .where(eq(webspaceDatabases.id, database.id));
+    await sync();
+    expect(await databasesOf(kept)).toEqual([]);
+  });
 });
 
 describe('admin', () => {
@@ -1325,6 +1483,84 @@ describe('reseller', () => {
     ]);
     const deletes = await auditEntries('reseller.website_allowance_delete');
     expect(deletes.map((e) => e.status)).toEqual(['failure', 'success']);
+  });
+});
+
+describe('reseller release', () => {
+  it('keeps a released website inside the reseller allowance', async () => {
+    const berg = await newOrg('Berg Hosting', 'berg-hosting', {
+      kind: 'reseller',
+      modules: ['servers', 'webhosting'],
+    });
+    await t.db
+      .update(organizations)
+      .set({ boundary: DEFAULT_RESELLER_BOUNDARY })
+      .where(eq(organizations.id, berg.id));
+    const bergUser = await newUser('reseller@berg.example', berg.id);
+    const kunde = await newOrg('Kunde Eins', 'kunde-eins', { parentOrgId: berg.id, modules: ['servers'] });
+    const kundeUser = await newUser('kunde@eins.example', kunde.id);
+    await setAllowance(berg.id, { maxSites: 3, maxDatabases: 2, siteTypes: ['php', 'static'] });
+    await setAllowance(kunde.id, { maxSites: 3, maxDatabases: 2, siteTypes: ['php', 'static'] });
+    const ids: string[] = [];
+    for (const domain of ['a.kunde-eins.example', 'b.kunde-eins.example', 'c.kunde-eins.example']) {
+      const res = await admin.post('/admin/websites', {
+        providerId: cp.id,
+        orgId: kunde.id,
+        domain,
+        type: 'php',
+        ...(domain.startsWith('a.') ? { database: { suffix: 'wp' } } : {}),
+      });
+      expect(res.statusCode, res.body).toBe(201);
+      ids.push(json<WebsiteCreatedDto>(res).website.id);
+    }
+    const release = (id: string) =>
+      bergUser.post(`/orgs/${berg.id}/customers/${kunde.id}/resources/release`, { type: 'webspace', id });
+    const allowanceOf = async (orgId: string) =>
+      json<WebsiteAllowanceDto>(await admin.get(`/admin/orgs/${orgId}/website-allowance`));
+
+    // Berg handed its whole allowance to the customer: each website takes its slot along.
+    for (const id of ids) {
+      const res = await release(id);
+      expect(res.statusCode, res.body).toBe(200);
+    }
+    expect(await allowanceOf(kunde.id)).toMatchObject({
+      maxSites: 0,
+      maxDatabases: 1,
+      sites: 0,
+      databases: 0,
+    });
+    expect(await allowanceOf(berg.id)).toMatchObject({
+      maxSites: 3,
+      sites: 3,
+      maxDatabases: 2,
+      databases: 2,
+    });
+    const entry = (await auditEntries('reseller.resource_release')).find((e) => e.resourceId === ids[0]);
+    expect(entry!.details).toMatchObject({ customerWebsiteAllowance: { maxSites: 2, maxDatabases: 1 } });
+    // The customer cannot fill the slots again.
+    const again = await create(kundeUser, kunde.id, { domain: 'd.kunde-eins.example', type: 'static' });
+    expect(json(again).error.code).toBe('allowance_exceeded');
+
+    // A website without a slot in the customer's allowance does not fit the full reseller.
+    const extra = await admin.post('/admin/websites', {
+      providerId: cp.id,
+      orgId: kunde.id,
+      domain: 'e.kunde-eins.example',
+      type: 'static',
+    });
+    const extraId = json<WebsiteCreatedDto>(extra).website.id;
+    const refused = await release(extraId);
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error).toMatchObject({
+      code: 'allowance_exceeded',
+      details: { maxSites: 3, sites: 3 },
+    });
+    expect((await websiteRow('e.kunde-eins.example'))!.orgId).toBe(kunde.id);
+    // With room left the customer keeps its allowance.
+    await setAllowance(berg.id, { maxSites: 4, maxDatabases: 2, siteTypes: ['php', 'static'] });
+    expect((await release(extraId)).statusCode).toBe(200);
+    expect(await allowanceOf(kunde.id)).toMatchObject({ maxSites: 0, maxDatabases: 1 });
+    expect(await allowanceOf(berg.id)).toMatchObject({ maxSites: 4, sites: 4 });
   });
 });
 

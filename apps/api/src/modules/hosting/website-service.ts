@@ -1,9 +1,23 @@
 import { randomInt } from 'node:crypto';
 import { domainToUnicode } from 'node:url';
-import { and, count, eq, inArray, isNotNull, isNull, lt, ne, notInArray, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import {
   normalizeModules,
+  websiteDomainAscii,
   wwwCounterpart,
   type Permission,
   type WebsiteAccess,
@@ -169,7 +183,8 @@ export async function websiteServerAddress(adapter: ProviderAdapter): Promise<st
 /**
  * Stores the databases the server reports for a website: listed ones become active (with
  * their first user and size), unlisted active ones are marked missing, placeholders whose
- * creation never showed up are removed after STALE_CHANGE_MS. Rows changed or created after
+ * creation never showed up are removed after STALE_CHANGE_MS, and so are deletions whose route
+ * was lost (a restart) when the server no longer lists them. Rows changed or created after
  * `since` (when the server was asked) keep their fresher state. Returns the listed count.
  */
 export async function syncWebsiteDatabases(
@@ -180,6 +195,9 @@ export async function syncWebsiteDatabases(
   since: Date,
 ): Promise<number> {
   const now = new Date();
+  const stale = new Date(since.getTime() - STALE_CHANGE_MS);
+  // A deletion is finished by its route, unless that was lost long ago.
+  const settled = or(ne(webspaceDatabases.status, 'deleting'), lt(webspaceDatabases.updatedAt, stale));
   for (const database of remote.databases) {
     await db
       .insert(webspaceDatabases)
@@ -203,7 +221,7 @@ export async function syncWebsiteDatabases(
           lastSyncedAt: now,
           missingSince: null,
         },
-        setWhere: and(lt(webspaceDatabases.updatedAt, since), ne(webspaceDatabases.status, 'deleting')),
+        setWhere: and(lt(webspaceDatabases.updatedAt, since), settled),
       });
   }
   const names = remote.databases.map((d) => d.name);
@@ -223,8 +241,13 @@ export async function syncWebsiteDatabases(
       and(
         unlisted,
         unchanged,
-        inArray(webspaceDatabases.status, ['creating', 'error']),
-        lt(webspaceDatabases.createdAt, new Date(since.getTime() - STALE_CHANGE_MS)),
+        or(
+          and(
+            inArray(webspaceDatabases.status, ['creating', 'error']),
+            lt(webspaceDatabases.createdAt, stale),
+          ),
+          and(eq(webspaceDatabases.status, 'deleting'), lt(webspaceDatabases.updatedAt, stale)),
+        ),
       ),
     );
   return names.length;
@@ -396,14 +419,102 @@ export async function assertWebsiteMoveAllowed(
   }
 }
 
+/**
+ * Called by the reseller release inside its transaction before a website goes from a customer
+ * back to its reseller (web spaces of kind "webspace" always pass). The reseller's allowance
+ * counts its own websites plus the customer's maxima, so the website and its databases must
+ * fit what the reseller has left. Where they do not, the website takes its slot of the
+ * customer's allowance along: the customer's maxima shrink by what is missing (a customer's
+ * allowance cannot be lowered below what it uses, so this is the only way back for a full
+ * one). Locks both organizations (lockWebsiteOrg) until the transaction ends. Returns the
+ * customer's new maxima, null when its allowance did not change.
+ */
+export async function releaseWebsiteSlot(
+  tx: Tx,
+  webspaceId: string,
+  customer: Pick<Organization, 'id' | 'parentOrgId'>,
+  reseller: Pick<Organization, 'id' | 'kind'>,
+): Promise<{ maxSites: number; maxDatabases: number } | null> {
+  const row = await tx.query.webspaces.findFirst({
+    where: eq(webspaces.id, webspaceId),
+    columns: { id: true, kind: true, name: true },
+  });
+  if (!row || row.kind !== 'website') return null;
+  await lockWebsiteOrg(tx, customer);
+  const own = await tx.query.websiteAllowances.findFirst({ where: eq(websiteAllowances.orgId, reseller.id) });
+  // Without an allowance of its own the reseller has handed out none and has nothing to exceed.
+  if (!own) return null;
+  const [counted] = await tx
+    .select({ n: count() })
+    .from(webspaceDatabases)
+    .where(eq(webspaceDatabases.webspaceId, row.id));
+  const databases = counted?.n ?? 0;
+  const usage = await websiteCommitments(tx, reseller, own.providerConnectionId);
+  const missingSites = Math.max(committedSites(usage) + 1 - own.maxSites, 0);
+  const missingDatabases = Math.max(committedDatabases(usage) + databases - own.maxDatabases, 0);
+  if (missingSites === 0 && missingDatabases === 0) return null;
+
+  const allowance = await tx.query.websiteAllowances.findFirst({
+    where: eq(websiteAllowances.orgId, customer.id),
+  });
+  // What the customer's allowance gives back: at most the website and its databases.
+  const sites = Math.min(missingSites, 1, allowance?.maxSites ?? 0);
+  const freed = Math.min(missingDatabases, databases, allowance?.maxDatabases ?? 0);
+  // Refused when the reseller would end up above its allowance, and higher than before.
+  if (sites < missingSites && sites < 1) {
+    throw allowanceExceeded(
+      `Your website allowance has no website left for ${row.name}. Lower the allowance of a customer or delete a website first.`,
+      { maxSites: own.maxSites, sites: committedSites(usage) },
+    );
+  }
+  if (freed < missingDatabases && freed < databases) {
+    throw allowanceExceeded(
+      `${row.name} has ${databases} databases; your website allowance has room for ${Math.max(own.maxDatabases - committedDatabases(usage), 0)} more`,
+      { maxDatabases: own.maxDatabases, databases: committedDatabases(usage) },
+    );
+  }
+  if (!allowance || (sites === 0 && freed === 0)) return null;
+  const shrunk = { maxSites: allowance.maxSites - sites, maxDatabases: allowance.maxDatabases - freed };
+  await tx
+    .update(websiteAllowances)
+    .set({ ...shrunk, updatedAt: new Date() })
+    .where(eq(websiteAllowances.orgId, customer.id));
+  return shrunk;
+}
+
 const domainTaken = (message: string) => new AppError(409, 'exists', message, { field: 'domain' });
+
+/**
+ * 409 (code "exists", field "domain") for a name of the platform or below it: the console's
+ * own host and the server's names (the SFTP/SSH host customers see, the server's own name). A
+ * website there would serve the operator's names to everybody, with a certificate. Hosts that
+ * are no domain names (IP addresses, localhost) are skipped.
+ */
+export function assertNotPlatformName(ascii: string, hosts: readonly (string | null | undefined)[]): void {
+  for (const host of hosts) {
+    const name = host ? websiteDomainAscii(host) : null;
+    if (!name) continue;
+    if (ascii === name || ascii.endsWith(`.${name}`) || wwwCounterpart(ascii) === name) {
+      throw domainTaken(
+        `${websiteDisplayName(ascii)} is a name of the platform (${websiteDisplayName(name)}) and cannot be a website`,
+      );
+    }
+  }
+}
+
+/** The name and every parent with at least two labels: "a.shop.ch", "shop.ch". */
+function withParents(name: string): string[] {
+  const labels = name.split('.');
+  return labels.slice(0, -1).map((_, i) => labels.slice(i).join('.'));
+}
 
 /**
  * 409 (code "exists", field "domain") unless a new website for `ascii` may be created on
  * `connectionId`: no other website serves the domain or its www counterpart on any instance
  * (CloudPanel answers both names for one site), no website row of it waits as missing on this
- * instance, and, with a target organization, the DNS module holds neither name for another
- * organization (the target's reseller may hold it).
+ * instance, and, with a target organization, the DNS module holds neither name nor a domain
+ * above them for another organization (the target's reseller may hold it): a website below
+ * another customer's domain would serve names of that customer.
  */
 export async function assertDomainFree(
   db: DbOrTx,
@@ -438,7 +549,11 @@ export async function assertDomainFree(
     );
   }
   if (!target) return;
-  const names = [...new Set([ascii, counterpart].flatMap((n) => [n, websiteDisplayName(n).toLowerCase()]))];
+  const names = [
+    ...new Set(
+      [ascii, counterpart].flatMap(withParents).flatMap((n) => [n, websiteDisplayName(n).toLowerCase()]),
+    ),
+  ];
   const owners = [target.id, ...(target.parentOrgId ? [target.parentOrgId] : [])];
   const [foreign] = await db
     .select({ id: domains.id, name: domains.name })
@@ -452,7 +567,14 @@ export async function assertDomainFree(
       ),
     )
     .limit(1);
-  if (foreign) throw domainTaken(`${foreign.name} belongs to another customer in the DNS module`);
+  if (!foreign) return;
+  const own = [ascii, counterpart].flatMap((n) => [n, websiteDisplayName(n).toLowerCase()]);
+  if (own.includes(foreign.name.toLowerCase())) {
+    throw domainTaken(`${foreign.name} belongs to another customer in the DNS module`);
+  }
+  throw domainTaken(
+    `${display} is below ${foreign.name}, which belongs to another customer in the DNS module`,
+  );
 }
 
 /** 409 while a billing service that is not cancelled points at the website. */
@@ -501,8 +623,9 @@ export async function enableWebsiteModule(tx: Tx, orgId: string): Promise<boolea
 /**
  * True when a failed change certainly left the server as it was: a refusal (status below 500:
  * validation, exists, protected, not managed, version), the server's or console's queue being
- * busy (nothing ran), or a failure the server rolled back. Timeouts, dropped connections and
- * failures without a rollback leave the outcome unknown.
+ * busy (nothing ran: the agent answers busy only before it changed anything, a failed read
+ * after a change is clpctl_failed without rollback), or a failure the server rolled back.
+ * Timeouts, dropped connections and failures without a rollback leave the outcome unknown.
  */
 export function changeRefused(err: unknown): boolean {
   if (!(err instanceof AppError)) return false;

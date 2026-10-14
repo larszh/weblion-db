@@ -16,6 +16,7 @@ import {
   foreignDnsAnswers,
   normalizeIp,
   outcomeUnknown,
+  ownWebsiteUsage,
   parseCount,
   passwordReady,
   sftpUrl,
@@ -68,6 +69,16 @@ describe('certificateState', () => {
     expect(certificateState(selfSigned, NOW)).toMatchObject({ kind: 'invalid', level: 'danger', days: null });
     // Another issuer without a known expiry cannot be told apart from it either.
     expect(certificateState({ type: null, letsEncrypt: false, expiresAt: null }, NOW).kind).toBe('invalid');
+    // Nor can it when the server could not read the issuer: no trusted certificate runs that long.
+    expect(certificateState({ type: '1', letsEncrypt: null, expiresAt: inDays(3650) }, NOW)).toMatchObject({
+      kind: 'invalid',
+      level: 'danger',
+    });
+    expect(
+      certificateState({ type: '1', letsEncrypt: null, expiresAt: inDays(TRUSTED_MAX_DAYS + 1) }, NOW).kind,
+    ).toBe('invalid');
+    // Let's Encrypt is trusted by name, whatever its expiry says.
+    expect(certificateState(le(TRUSTED_MAX_DAYS + 1), NOW).kind).toBe('letsEncrypt');
   });
 
   it('shows a certificate of another issuer with a trusted lifetime by its expiry', () => {
@@ -296,6 +307,12 @@ describe('lists and allowances', () => {
     });
   });
 
+  it('counts the websites and databases of an organization without allowance', () => {
+    const site = (databases: number) => ({ site: { databases } as WebspaceDto['site'] });
+    expect(ownWebsiteUsage([site(1), site(0), { site: null }, site(2)])).toEqual({ sites: 4, databases: 3 });
+    expect(ownWebsiteUsage([])).toEqual({ sites: 0, databases: 0 });
+  });
+
   it('parses whole numbers within the maximum', () => {
     expect(parseCount('0', 10)).toBe(0);
     expect(parseCount(' 7 ', 10)).toBe(7);
@@ -355,16 +372,45 @@ describe('errors', () => {
     expect(outcomeUnknown(new ApiError(502, 'provider_error', 'failed', { rolledBack: true }))).toBe(false);
     expect(outcomeUnknown(new ApiError(409, 'website_error', 'earlier change'))).toBe(false);
     expect(outcomeUnknown(new ApiError(409, 'exists', 'taken'))).toBe(false);
+    expect(outcomeUnknown(new ApiError(503, 'busy', 'busy'))).toBe(false);
     expect(outcomeUnknown(null)).toBe(false);
+    // No answer of the API: the connection broke, or a proxy gave up waiting (its own error page).
+    expect(outcomeUnknown(new TypeError('Failed to fetch'))).toBe(true);
+    expect(outcomeUnknown(new SyntaxError('Unexpected token <'))).toBe(true);
+    expect(outcomeUnknown(new ApiError(502, 'error', 'Bad Gateway'))).toBe(true);
+    expect(outcomeUnknown(new ApiError(504, 'error', 'Gateway Timeout'))).toBe(true);
   });
 
   it('translates the website codes and leaves other messages as the API sent them', () => {
+    // Allowance and "exists" refusals keep the API's text: it has the figures and the reason.
     expect(
-      websiteErrorText(t, new ApiError(409, 'allowance_exceeded', 'Your allowance has room for 0')),
-    ).toBe('websites.errors.allowance_exceeded');
-    expect(websiteErrorText(t, new ApiError(409, 'exists', 'x', { field: 'domain' }))).toBe(
-      'websites.errors.exists.domain',
+      websiteErrorText(
+        t,
+        new ApiError(409, 'allowance_exceeded', 'Your allowance has room for 0 more websites'),
+      ),
+    ).toBe('websites.errors.allowance_exceeded Your allowance has room for 0 more websites');
+    expect(
+      websiteErrorText(
+        t,
+        new ApiError(
+          409,
+          'type_not_allowed',
+          'Customers of this reseller may create static websites. Take the type away from them first.',
+        ),
+      ),
+    ).toBe(
+      'websites.errors.type_not_allowed Customers of this reseller may create static websites. Take the type away from them first.',
     );
+    expect(websiteErrorText(t, new ApiError(409, 'no_allowance', ''))).toBe('websites.errors.no_allowance');
+    expect(
+      websiteErrorText(
+        t,
+        new ApiError(409, 'exists', 'shop.ch is still listed as a missing website on web1.', {
+          field: 'domain',
+        }),
+      ),
+    ).toBe('websites.errors.exists.domain shop.ch is still listed as a missing website on web1.');
+    expect(websiteErrorText(t, new ApiError(503, 'busy', 'The server is busy'))).toBe('websites.errors.busy');
     expect(websiteErrorText(t, new ApiError(409, 'website_error', 'earlier change'))).toBe(
       'websites.errors.website_error',
     );

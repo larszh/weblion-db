@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Fake server programs for the weblion-clp tests: clpctl, mysql, chpasswd, pkill, crontab,
-dpkg-query, ip, du, nice and ionice in one file, plus "hang" (a command that never ends).
+Fake server programs for the weblion-clp tests: clpctl, mysql, chpasswd, usermod, userdel,
+pkill, crontab, dpkg-query, ip, du, nice and ionice in one file, plus "hang" (a command that
+never ends).
 
 The tests copy this file under each program's name into a temporary directory. It acts by the
 name it was started as, finds its state next to itself (state.json, which also names
@@ -89,6 +90,16 @@ def drop_mysql(state, names, users):
     mysql["users"] = [u for u in mysql["users"] if u[0] not in users]
 
 
+def add_linux_user(state, user, password):
+    state["passwd"][user] = state["nextUid"]
+    state["nextUid"] += 1
+    state["linuxPasswords"][user] = password
+    home = os.path.join(state["home"], user)
+    os.makedirs(os.path.join(home, ".ssh"), exist_ok=True)
+    with open(os.path.join(home, ".ssh", "authorized_keys"), "w", encoding="utf-8") as handle:
+        handle.write("ssh-ed25519 AAAAskeleton planted\n")
+
+
 def clpctl(state, args):
     command = args[0] if args else ""
     opts = options(args[1:])
@@ -133,6 +144,11 @@ def clpctl_change(state, db, command, opts, mode):
     if command.startswith("site:add:"):
         kind = command.split(":")[2]
         user = opts["siteUser"]
+        if mode == "user_only":
+            # useradd ran, then CloudPanel failed (or was stopped) before the site was written.
+            add_linux_user(state, user, opts["siteUserPassword"])
+            print("An error has occurred, error message: vhost could not be created")
+            return 1
         template = opts.get("vhostTemplate")
         root = dict(state["templates"]).get(template, "") if template else ""
         cursor = db.execute(
@@ -149,13 +165,7 @@ def clpctl_change(state, db, command, opts, mode):
                 "INSERT INTO nodejs_settings (site_id, nodejs_version, port) VALUES (?, ?, ?)",
                 (cursor.lastrowid, opts["nodejsVersion"], int(opts["appPort"])),
             )
-        state["passwd"][user] = state["nextUid"]
-        state["nextUid"] += 1
-        state["linuxPasswords"][user] = opts["siteUserPassword"]
-        home = os.path.join(state["home"], user)
-        os.makedirs(os.path.join(home, ".ssh"), exist_ok=True)
-        with open(os.path.join(home, ".ssh", "authorized_keys"), "w", encoding="utf-8") as handle:
-            handle.write("ssh-ed25519 AAAAskeleton planted\n")
+        add_linux_user(state, user, opts["siteUserPassword"])
         print("Site %s has been added." % domain)
         return 0
     if command == "site:delete":
@@ -307,6 +317,35 @@ def chpasswd(state, sql):
     return 0
 
 
+def usermod(state, args):
+    # usermod --expiredate <days|""> <user>
+    if state["modes"].get("usermod") == "fail" or len(args) != 3 or args[0] != "--expiredate":
+        print("usermod: unexpected call %s" % args)
+        return 1
+    if args[2] not in state["passwd"]:
+        print("usermod: user '%s' does not exist" % args[2])
+        return 6
+    if args[1]:
+        state.setdefault("expired", {})[args[2]] = args[1]
+    else:
+        state.setdefault("expired", {}).pop(args[2], None)
+    save(state)
+    return 0
+
+
+def userdel(state, args):
+    # userdel --remove <user>
+    if state["modes"].get("userdel") == "fail" or len(args) != 2 or args[0] != "--remove":
+        print("userdel: user %s is currently used by process 4711" % args[-1])
+        return 8
+    if state["passwd"].pop(args[1], None) is None:
+        print("userdel: user '%s' does not exist" % args[1])
+        return 6
+    shutil.rmtree(os.path.join(state["home"], args[1]), ignore_errors=True)
+    save(state)
+    return 0
+
+
 def main():
     program = os.path.basename(sys.argv[0])
     args = sys.argv[1:]
@@ -319,6 +358,10 @@ def main():
         return clpctl(state, args)
     if program == "chpasswd":
         return chpasswd(state, stdin or "")
+    if program == "usermod":
+        return usermod(state, args)
+    if program == "userdel":
+        return userdel(state, args)
     if program == "pkill":
         return 0 if state["modes"].get("pkill") == "killed" else 1
     if program == "crontab":

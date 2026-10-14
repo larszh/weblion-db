@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -80,6 +80,30 @@ Skript von Mailcow. Voraussetzungen, API-Key und Einstellungen in
   der Liste an. Vor einem zweiten Versuch deshalb die Liste neu laden (sonst kommt eine Meldung mit
   409), oder im Dialog den Neustart von Webmail ausschalten.
 
+### CloudPanel für Websites
+
+Die CloudPanel-Server, auf denen die Console Websites verkauft, sind eigene Server. Empfehlung:
+nicht der Server, auf dem die Console läuft, auch wenn dieser schon CloudPanel hat. Kundenwebsites
+haben eine echte Shell, und eine übernommene Website auf derselben Maschine könnte die `.env` der
+Console lesen. Die Console erzwingt das nicht (siehe [Auf CloudPanel](#auf-cloudpanel), wenn es
+doch derselbe Server ist). Einrichtung in [providers.md](providers.md#cloudpanel-websites) und im
+[README des Agents](../deploy/cloudpanel-agent/README.md). Für den Betrieb der Console wichtig:
+
+- **Feste ausgehende IP:** Der SSH-Schlüssel der Console gilt auf dem Server nur von den Adressen
+  aus `--from` (`install.sh`). Zieht die Console um, zuerst `install.sh` mit den neuen Adressen
+  aufrufen.
+- **Schlüssel aus der `.env` in Docker:** `CLOUDPANEL_PRIVATE_KEY_FILE` liest die Console im
+  Container. Die Datei also als Volume einbinden, oder den Schlüssel inline in
+  `CLOUDPANEL_PRIVATE_KEY` setzen, oder den Server im Admin-Bereich anlegen (dort lässt sich auch
+  das Schlüsselpaar erzeugen).
+- **Zeitlimit im Reverse Proxy:** Eine Website anlegen wartet bis 330 Sekunden, Zertifikate und
+  Löschen bis 200 Sekunden. nginx braucht für die Console ein `proxy_read_timeout` von mindestens
+  360 Sekunden (die Zeilen aus [Websockets im Vhost](#websockets-im-vhost) mit 3600 Sekunden
+  reichen). Caddy setzt von sich aus keine Grenze.
+- **Hinter Cloudflare** bricht Cloudflare nach rund 100 Sekunden ab (Fehler 524). Die Console und
+  der Server arbeiten weiter, die Website entsteht. Nur das Passwort einer neuen Website sieht dann
+  niemand: in der Console ein neues setzen.
+
 ## Mit Docker Compose
 
 ```bash
@@ -124,6 +148,14 @@ NEXTCLOUD_APP_PASSWORD='...'
 MAILCOW_URL=https://mail.weblion.one
 MAILCOW_API_KEY='...'
 
+# Websites: eigener CloudPanel-Server mit dem Agent aus deploy/cloudpanel-agent. Die
+# Schlüsseldatei muss im Container liegen (Volume), sonst CLOUDPANEL_PRIVATE_KEY inline
+# setzen oder den Server im Admin-Bereich anlegen.
+CLOUDPANEL_HOST=web1.weblion.cloud
+CLOUDPANEL_PRIVATE_KEY_FILE=/run/secrets/cloudpanel_web1
+CLOUDPANEL_HOST_KEY=SHA256:...
+CLOUDPANEL_ACCESS_HOST=web1.weblion.cloud
+
 # E-Mail. Alternativ im Admin-Bereich unter Einstellungen > E-Mail eintragen.
 SMTP_HOST=smtp.example.ch
 SMTP_PORT=587
@@ -167,8 +199,9 @@ cp.weblion.cloud {
 ```
 
 Websockets (Konsole) leitet Caddy automatisch weiter. Bei nginx `proxy_http_version 1.1`
-und die `Upgrade`/`Connection`-Header setzen. Mit Mailcow braucht nginx ausserdem ein längeres
-`proxy_read_timeout`, siehe [Mailcow für E-Mail](#mailcow-für-e-mail).
+und die `Upgrade`/`Connection`-Header setzen. Mit Mailcow und CloudPanel braucht nginx ausserdem
+ein längeres `proxy_read_timeout`, siehe [Mailcow für E-Mail](#mailcow-für-e-mail) und
+[CloudPanel für Websites](#cloudpanel-für-websites).
 
 ## Auf CloudPanel
 
@@ -183,6 +216,23 @@ stört CloudPanel nicht. Zwei Wege, beide mit TLS über CloudPanel:
 
 Die Menüs unten entsprechen CloudPanel v2. Bei abweichenden Bezeichnungen in eurer Version
 sinngemäss vorgehen.
+
+Auf diesem Server verkauft die Console besser keine Websites, dafür gibt es eigene
+CloudPanel-Server (siehe [CloudPanel für Websites](#cloudpanel-für-websites)). Wer den Agent
+`weblion-clp` trotzdem hier installiert, setzt die Site der Console auf seine Schutzliste, damit
+die Console sie nie übernimmt, ändert oder löscht:
+
+```bash
+sudo ./install.sh --public-key "ssh-ed25519 AAAA... weblion-console" --from "<IPs der Console>" \
+  --protect-domain cp.weblion.cloud --protect-user <Site-User der Console>
+```
+
+Den Site-User zeigt CloudPanel bei der Site (Variante A und B haben beide einen). Nachträglich geht
+es mit `sudo weblion-clp protect domain cp.weblion.cloud` und
+`sudo weblion-clp protect user <Site-User>`. Ebenso jede andere Site des Betreibers auf dem Server. Für `--from` gilt die
+Adresse, von der die Verbindung der Console beim Server ankommt (sshd nennt sie nach einem ersten
+Versuch in `journalctl -u ssh`). Dazu `hidepid` aus dem README des Agents, damit Kunden die
+Prozesse der Console nicht sehen.
 
 ### Variante A: Docker Compose
 
@@ -304,8 +354,9 @@ Cloudflare kommt wieder per HTTP: Der Browser meldet `ERR_TOO_MANY_REDIRECTS`.
 
 Websockets (Browser-Konsole) leitet Cloudflare standardmässig durch. Cloudflare trennt aber
 Verbindungen, über die länger als rund 100 Sekunden nichts läuft. Die Konsole verbindet sich
-dann neu. Dasselbe Limit trifft das Anlegen einer Mail-Domain mit Neustart von Webmail, siehe
-[Mailcow für E-Mail](#mailcow-für-e-mail).
+dann neu. Dasselbe Limit trifft das Anlegen einer Mail-Domain mit Neustart von Webmail und lange
+Änderungen an Websites, siehe [Mailcow für E-Mail](#mailcow-für-e-mail) und
+[CloudPanel für Websites](#cloudpanel-für-websites).
 
 Prüfen, wo eine Weiterleitungsschleife entsteht:
 
@@ -340,7 +391,10 @@ Die Dateien der Cloud-Konten liegen in Nextcloud, nicht in der Datenbank der Con
 braucht es ein eigenes Backup der Nextcloud-Instanz (bei AIO das eingebaute BorgBackup). Ebenso
 liegen Postfächer und E-Mails nur in Mailcow: Backup mit dem Skript von Mailcow
 (`helper-scripts/backup_and_restore.sh`). Die Datenbank der Console kennt nur die Mail-Domains und
-ihre Zuweisung.
+ihre Zuweisung. Dateien und Datenbanken der Websites liegen auf den CloudPanel-Servern: Dort
+sichert CloudPanel die Datenbanken jede Nacht nach `~/backups` der Site, für alles andere das
+Remote-Backup von CloudPanel einrichten. Die Console kennt nur die Websites, ihre Kontingente und
+Zuweisungen, den SSH-Schlüssel verschlüsselt mit dem `ENCRYPTION_KEY`.
 
 Rechnungen sind buchhaltungsrelevant (in der Schweiz 10 Jahre Aufbewahrung). Die Datenbank
 ist ihre Quelle, deshalb das Backup regelmässig und ausser Haus ablegen. Kunden mit

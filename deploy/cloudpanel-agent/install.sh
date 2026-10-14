@@ -40,6 +40,7 @@ Usage: sudo ./install.sh --public-key "ssh-ed25519 AAAA... weblion-console" --fr
   --protect-domain DOMAIN   a site the console may never touch (the console's own site, every
                             operator site); repeatable
   --protect-user USER       a Linux user whose sites the console may never touch; repeatable
+                            (the server's own name, hostname -f, is protected anyway)
   --nodejs                  allow Node.js sites on this server (config.json "nodejs")
   --allow-remote-adopt      let staff adopt existing sites from the console (off by default:
                             root adopts with "weblion-clp adopt <domain>")
@@ -282,6 +283,7 @@ except FileNotFoundError:
         "clpctl": "/usr/bin/clpctl",
         "mysql": "/usr/bin/mysql",
         "minCloudPanel": "2.5.0",
+        "requireHidepid": True,
     }
     changed = True
 for key, wanted in (("nodejs", nodejs), ("allowRemoteAdopt", adopt)):
@@ -306,6 +308,12 @@ done
 for user in ${PROTECT_USERS[@]+"${PROTECT_USERS[@]}"}; do
   "$SCRIPT_TARGET" protect user "$user"
 done
+# The server's own name is the host customers use for SFTP/SSH: never a customer's website.
+own_name=$(hostname -f 2>/dev/null || true)
+own_name=${own_name,,}
+if [[ $own_name =~ $DOMAIN_RE ]]; then
+  "$SCRIPT_TARGET" protect domain "$own_name"
+fi
 [ -e "$LOG_FILE" ] || install -o root -g root -m 0600 /dev/null "$LOG_FILE"
 cat >"$LOGROTATE" <<EOF
 $LOG_FILE {

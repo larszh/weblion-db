@@ -470,6 +470,8 @@ export const websitesEn: Record<keyof typeof websitesDe, string> = {
     'The customer can no longer create websites; the allowance goes back to you.',
   'websites.reseller.removeBlocked':
     'Only without websites. The customer still has {n}; delete them or take them back into your pool.',
+  'websites.reseller.releaseText':
+    "If it is a website and your website allowance has no room for it, it takes its place in the customer's allowance along: that allowance shrinks by the website and its databases.",
 
   // Errors (codes of the API)
   'websites.errors.no_allowance': 'This organization has no website allowance.',
