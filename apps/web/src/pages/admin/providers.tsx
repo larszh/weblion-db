@@ -88,6 +88,10 @@ interface ProviderForm {
   phpVersions: string;
   templates: string;
   nodejs: boolean;
+  /** 3CX: client ID of the API client; the PBX address is in baseUrl. */
+  clientId: string;
+  /** 3CX: API key of the API client, empty on edit = keep the stored one. */
+  clientSecret: string;
 }
 
 const HETZNER_BASE_URL = 'https://api.hetzner.cloud/v1';
@@ -102,6 +106,15 @@ const HOST_NAME = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,
 const SSH_HOST = /^[A-Za-z0-9.:-]{1,253}$/;
 const HOST_KEY_FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/;
 const CLOUDPANEL_USER = 'weblion-agent';
+/** 3CX: https address of the PBX without path (the API adds /xapi/v1), and the API client's id. */
+const THREECX_URL = /^https:\/\/[^/\s?#@]+\/?$/i;
+const THREECX_CLIENT_ID = /^[A-Za-z0-9._-]{1,64}$/;
+/** Uptime Kuma: http(s) address of the instance without path, and an API key "uk<id>_<key>". */
+const UPTIMEKUMA_URL = /^https?:\/\/[^/\s?#@]+\/?$/i;
+const UPTIMEKUMA_API_KEY = /^uk\d+_[A-Za-z0-9_-]{16,200}$/;
+/** Jellyfin: http(s) address, a path for Jellyfin's base URL is fine; API key of 32 hex characters. */
+const JELLYFIN_URL = /^https?:\/\/[^/\s?#@]+(\/[^\s?#]*)?$/i;
+const JELLYFIN_API_KEY = /^[0-9a-f]{32}$/i;
 
 const DEFAULT_NAME: Record<ProviderType, string> = {
   fire24: '24fire',
@@ -112,6 +125,9 @@ const DEFAULT_NAME: Record<ProviderType, string> = {
   cloudflare: 'Cloudflare',
   mailcow: 'Mailcow',
   cloudpanel: 'CloudPanel',
+  threecx: '3CX',
+  jellyfin: 'Jellyfin',
+  uptimekuma: 'Uptime Kuma',
   demo: 'Demo',
 };
 
@@ -128,6 +144,9 @@ const DEFAULT_COUNTRY: Partial<Record<ProviderType, string>> = {
   nextcloud: 'CH',
   mailcow: 'CH',
   cloudpanel: 'CH',
+  threecx: 'CH',
+  jellyfin: 'CH',
+  uptimekuma: 'CH',
   cloudflare: 'US',
 };
 
@@ -171,6 +190,8 @@ const emptyForm = (type: ProviderType): ProviderForm => ({
   phpVersions: '',
   templates: '',
   nodejs: false,
+  clientId: '',
+  clientSecret: '',
 });
 
 /** "a, b,,c" -> ["a", "b", "c"] */
@@ -277,6 +298,25 @@ function configFromForm(f: ProviderForm, editing: boolean) {
         ...optionalList('templates', f.templates, editing),
         nodejs: f.nodejs,
       };
+    case 'threecx':
+      // An empty API key keeps the stored one.
+      return {
+        baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
+        clientId: f.clientId.trim(),
+        ...(f.clientSecret.trim() || !editing ? { clientSecret: f.clientSecret.trim() } : {}),
+      };
+    case 'jellyfin':
+      // An empty API key keeps the stored one.
+      return {
+        baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
+        ...(f.apiKey.trim() || !editing ? { apiKey: f.apiKey.trim().toLowerCase() } : {}),
+      };
+    case 'uptimekuma':
+      // An empty API key keeps the stored one; the session token is set by the management sign-in.
+      return {
+        baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
+        ...(f.apiKey.trim() || !editing ? { apiKey: f.apiKey.trim() } : {}),
+      };
     default:
       return {};
   }
@@ -311,6 +351,34 @@ function cloudpanelIncomplete(f: ProviderForm, existing?: ProviderConnectionDto)
     !HOST_KEY_FINGERPRINT.test(f.hostKeySha256.trim()) ||
     (!f.privateKey.trim() && !existing)
   );
+}
+
+/** 3CX needs the PBX address, the client ID and, on create, the API key (kept on edit when left empty). */
+function threecxIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'threecx') return false;
+  const secret = f.clientSecret.trim();
+  if (secret && secret.length < 8) return true;
+  return (
+    !THREECX_URL.test(f.baseUrl.trim()) ||
+    !THREECX_CLIENT_ID.test(f.clientId.trim()) ||
+    (!secret && !existing)
+  );
+}
+
+/** Jellyfin needs the instance address and, on create, the API key (kept on edit when left empty). */
+function jellyfinIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'jellyfin') return false;
+  const key = f.apiKey.trim();
+  if (key && !JELLYFIN_API_KEY.test(key)) return true;
+  return !JELLYFIN_URL.test(f.baseUrl.trim()) || (!key && !existing);
+}
+
+/** Uptime Kuma needs the instance address and, on create, the API key (kept on edit when left empty). */
+function uptimeKumaIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'uptimekuma') return false;
+  const key = f.apiKey.trim();
+  if (key && !UPTIMEKUMA_API_KEY.test(key)) return true;
+  return !UPTIMEKUMA_URL.test(f.baseUrl.trim()) || (!key && !existing);
 }
 
 /** Nextcloud needs URL, admin user and app password (kept on edit when left empty). */
@@ -367,6 +435,7 @@ function ProviderDialog({
           phpVersions: existing.summary.phpVersions ?? '',
           templates: existing.summary.templates ?? '',
           nodejs: existing.summary.nodejs === 'true',
+          clientId: existing.summary.clientId ?? '',
         }
       : emptyForm('proxmox'),
   );
@@ -424,7 +493,10 @@ function ProviderDialog({
                   nextcloudIncomplete(form, existing) ||
                   cloudflareIncomplete(form, existing) ||
                   mailcowIncomplete(form, existing) ||
-                  cloudpanelIncomplete(form, existing)))
+                  cloudpanelIncomplete(form, existing) ||
+                  threecxIncomplete(form, existing) ||
+                  jellyfinIncomplete(form, existing) ||
+                  uptimeKumaIncomplete(form, existing)))
             }
           >
             {t('common.save')}
@@ -544,6 +616,12 @@ function ProviderDialog({
           <MailcowFields form={form} set={set} existing={existing} />
         ) : form.type === 'cloudpanel' ? (
           <CloudPanelFields form={form} setForm={setForm} existing={existing} />
+        ) : form.type === 'threecx' ? (
+          <ThreeCxFields form={form} set={set} existing={existing} />
+        ) : form.type === 'jellyfin' ? (
+          <JellyfinFields form={form} set={set} existing={existing} />
+        ) : form.type === 'uptimekuma' ? (
+          <UptimeKumaFields form={form} set={set} existing={existing} />
         ) : form.type === 'proxmox' ? (
           <>
             <Field label="URL" hint="https://pve.example.ch:8006" htmlFor="p-url" className="sm:col-span-2">
@@ -957,6 +1035,200 @@ function MailcowFields({
   );
 }
 
+function ThreeCxFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const url = form.baseUrl.trim();
+  const clientId = form.clientId.trim();
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.threecx.help')}
+      </Notice>
+      <Field
+        label={t('providers.threecx.url')}
+        hint={t('providers.threecx.urlHint')}
+        error={url && !THREECX_URL.test(url) ? t('providers.threecx.urlInvalid') : undefined}
+        htmlFor="p-3cx-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-3cx-url"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder="https://muster.3cx.ch"
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.threecx.clientId')}
+        hint={t('providers.threecx.clientIdHint')}
+        error={
+          clientId && !THREECX_CLIENT_ID.test(clientId) ? t('providers.threecx.clientIdInvalid') : undefined
+        }
+        htmlFor="p-3cx-client"
+      >
+        <Input
+          id="p-3cx-client"
+          value={form.clientId}
+          onChange={(e) => set('clientId', e.target.value)}
+          placeholder="weblion"
+          className="font-mono"
+          autoComplete="off"
+        />
+      </Field>
+      <Field
+        label={t('providers.threecx.clientSecret')}
+        hint={existing ? t('providers.keepSecret') : t('providers.threecx.clientSecretHint')}
+        htmlFor="p-3cx-secret"
+      >
+        <Input
+          id="p-3cx-secret"
+          type="password"
+          value={form.clientSecret}
+          onChange={(e) => set('clientSecret', e.target.value)}
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+    </>
+  );
+}
+
+function JellyfinFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const url = form.baseUrl.trim();
+  const key = form.apiKey.trim();
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.jellyfin.help')}
+      </Notice>
+      <Field
+        label={t('providers.jellyfin.url')}
+        hint={t('providers.jellyfin.urlHint')}
+        error={url && !JELLYFIN_URL.test(url) ? t('providers.jellyfin.urlInvalid') : undefined}
+        htmlFor="p-jellyfin-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-jellyfin-url"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder="https://media.weblion.one"
+          className="font-mono"
+        />
+      </Field>
+      {/^http:\/\//i.test(url) && (
+        <Notice tone="warning" className="sm:col-span-2">
+          {t('providers.jellyfin.httpWarning')}
+        </Notice>
+      )}
+      <Field
+        label={t('providers.jellyfin.apiKey')}
+        hint={existing ? t('providers.keepSecret') : t('providers.jellyfin.apiKeyHint')}
+        error={key && !JELLYFIN_API_KEY.test(key) ? t('providers.jellyfin.apiKeyInvalid') : undefined}
+        htmlFor="p-jellyfin-key"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-jellyfin-key"
+          type="password"
+          value={form.apiKey}
+          onChange={(e) => set('apiKey', e.target.value)}
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+    </>
+  );
+}
+
+function UptimeKumaFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const url = form.baseUrl.trim();
+  const key = form.apiKey.trim();
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        {t('providers.uptimekuma.help')}
+      </Notice>
+      <Field
+        label={t('providers.uptimekuma.url')}
+        hint={t('providers.uptimekuma.urlHint')}
+        error={url && !UPTIMEKUMA_URL.test(url) ? t('providers.uptimekuma.urlInvalid') : undefined}
+        htmlFor="p-kuma-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-kuma-url"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder="https://status.weblion.one"
+          className="font-mono"
+        />
+      </Field>
+      {/^http:\/\//i.test(url) && (
+        <Notice tone="warning" className="sm:col-span-2">
+          {t('providers.uptimekuma.httpWarning')}
+        </Notice>
+      )}
+      <Field
+        label={t('providers.uptimekuma.apiKey')}
+        hint={existing ? t('providers.keepSecret') : t('providers.uptimekuma.apiKeyHint')}
+        error={key && !UPTIMEKUMA_API_KEY.test(key) ? t('providers.uptimekuma.apiKeyInvalid') : undefined}
+        htmlFor="p-kuma-key"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-kuma-key"
+          type="password"
+          value={form.apiKey}
+          onChange={(e) => set('apiKey', e.target.value)}
+          placeholder="uk1_…"
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+      <p className="text-xs text-muted sm:col-span-2">
+        {existing && (
+          <>
+            {t('providers.uptimekuma.management')}:{' '}
+            {existing.summary.management === 'on'
+              ? t('providers.uptimekuma.managementOn')
+              : t('providers.uptimekuma.managementOff')}
+            .{' '}
+          </>
+        )}
+        {t('providers.uptimekuma.managementHint')}
+      </p>
+    </>
+  );
+}
+
 function CloudPanelFields({
   form,
   setForm,
@@ -1182,9 +1454,21 @@ function CloudPanelPublicKey({ publicKey, className }: { publicKey: string; clas
   );
 }
 
-/** Providers whose detail page links to their inventory in Admin > Domains & Webspaces. */
+/**
+ * Providers whose detail page links to their inventory: a tab of Admin > Domains & Webspaces,
+ * or a page of its own (`href`).
+ */
 const INVENTORY_LINKS: Partial<
-  Record<ProviderType, { title: TranslationKey; text: TranslationKey; link: TranslationKey; tab: string }>
+  Record<
+    ProviderType,
+    {
+      title: TranslationKey;
+      text: TranslationKey;
+      link: TranslationKey;
+      tab?: string;
+      href?: (providerId: string) => string;
+    }
+  >
 > = {
   nextcloud: {
     title: 'storage.admin.tab',
@@ -1210,6 +1494,24 @@ const INVENTORY_LINKS: Partial<
     link: 'providers.cloudpanel.toWebsites',
     tab: 'webspaces',
   },
+  threecx: {
+    title: 'nav.admin.phone',
+    text: 'providers.threecx.phoneText',
+    link: 'providers.threecx.toPhone',
+    href: (providerId) => `/admin/phone?provider=${providerId}`,
+  },
+  jellyfin: {
+    title: 'nav.admin.media',
+    text: 'providers.jellyfin.accountsText',
+    link: 'providers.jellyfin.toAccounts',
+    href: (providerId) => `/admin/media?provider=${providerId}`,
+  },
+  uptimekuma: {
+    title: 'nav.admin.uptime',
+    text: 'providers.uptimekuma.monitorsText',
+    link: 'providers.uptimekuma.toMonitors',
+    href: (providerId) => `/admin/monitoring?provider=${providerId}`,
+  },
 };
 
 function useProviderActions(id: string) {
@@ -1226,17 +1528,28 @@ function useProviderActions(id: string) {
   );
   const sync = useApiMutation(() => api.post<ProviderSyncResult>(`/admin/providers/${id}/sync`), {
     // Registrars (Joker.com) and Cloudflare only have domains, Nextcloud instances only cloud
-    // accounts, Mailcow only mail domains, CloudPanel only websites.
+    // accounts, Mailcow only mail domains, CloudPanel only websites, 3CX only a phone system,
+    // Jellyfin only streaming accounts, Uptime Kuma only monitors.
     success: (r) =>
-      r.seen === 0 && r.missing === 0 && r.websites
-        ? t('websites.admin.synced', { seen: r.websites.seen, missing: r.websites.missing })
-        : r.seen === 0 && r.missing === 0 && r.cloudAccounts
-          ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
-          : r.seen === 0 && r.missing === 0 && r.mailDomains
-            ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
-            : r.seen === 0 && r.missing === 0 && r.domains
-              ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
-              : t('providers.synced', { seen: r.seen, missing: r.missing }),
+      r.seen === 0 && r.missing === 0 && r.monitors
+        ? t('uptime.admin.synced', { seen: r.monitors.seen, missing: r.monitors.missing })
+        : r.seen === 0 && r.missing === 0 && r.mediaAccounts
+          ? t('media.admin.synced', {
+              seen: r.mediaAccounts.seen,
+              missing: r.mediaAccounts.missing,
+              repaired: r.mediaAccounts.repaired,
+            })
+          : r.seen === 0 && r.missing === 0 && r.phoneSystems
+            ? t('phone.admin.synced', { seen: r.phoneSystems.seen, missing: r.phoneSystems.missing })
+            : r.seen === 0 && r.missing === 0 && r.websites
+              ? t('websites.admin.synced', { seen: r.websites.seen, missing: r.websites.missing })
+              : r.seen === 0 && r.missing === 0 && r.cloudAccounts
+                ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
+                : r.seen === 0 && r.missing === 0 && r.mailDomains
+                  ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
+                  : r.seen === 0 && r.missing === 0 && r.domains
+                    ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
+                    : t('providers.synced', { seen: r.seen, missing: r.missing }),
     invalidate: [
       qk.admin('providers'),
       qk.admin('servers'),
@@ -1245,6 +1558,9 @@ function useProviderActions(id: string) {
       ['cloud'],
       ['mail'],
       ['websites'],
+      ['phone'],
+      ['media'],
+      ['monitoring'],
     ],
   });
   return { test, sync };
@@ -1290,6 +1606,16 @@ function ProviderCard({ p }: { p: ProviderConnectionDto }) {
           <div className="flex justify-between gap-3 py-1">
             <span className="text-muted">URL</span>
             <Mono className="truncate">{p.summary.baseUrl}</Mono>
+          </div>
+        )}
+        {p.type === 'uptimekuma' && (
+          <div className="flex justify-between gap-3 py-1">
+            <span className="text-muted">{t('providers.uptimekuma.management')}</span>
+            <span>
+              {p.summary.management === 'on'
+                ? t('providers.uptimekuma.managementOn')
+                : t('providers.uptimekuma.managementOff')}
+            </span>
           </div>
         )}
         {p.lastError && (
@@ -1570,7 +1896,11 @@ export function ProviderDetailPage() {
                     description={t(inventory.text)}
                     actions={
                       <Link
-                        to={`/admin/hosting?tab=${inventory.tab}&provider=${provider.id}`}
+                        to={
+                          inventory.href
+                            ? inventory.href(provider.id)
+                            : `/admin/hosting?tab=${inventory.tab}&provider=${provider.id}`
+                        }
                         className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-primary-text hover:bg-surface-3"
                       >
                         {t(inventory.link)}

@@ -6,6 +6,9 @@ import { storageDe } from './sections/storage.de';
 import { cloudflareDe } from './sections/cloudflare.de';
 import { mailDe } from './sections/mail.de';
 import { websitesDe } from './sections/websites.de';
+import { phoneDe } from './sections/phone.de';
+import { mediaDe } from './sections/media.de';
+import { uptimeDe } from './sections/uptime.de';
 
 /** German is the source language. English (en.ts) must provide every key. */
 export const de = {
@@ -17,6 +20,9 @@ export const de = {
   ...cloudflareDe,
   ...mailDe,
   ...websitesDe,
+  ...phoneDe,
+  ...mediaDe,
+  ...uptimeDe,
   // Common
   'common.actions': 'Aktionen',
   'common.add': 'Hinzufügen',

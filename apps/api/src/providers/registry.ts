@@ -11,16 +11,20 @@ import { DemoCloudflareAdapter } from './demo/cloudflare';
 import { DemoCloudPanelAdapter } from './demo/cloudpanel';
 import { Fire24Adapter } from './fire24/adapter';
 import { HetznerAdapter } from './hetzner/adapter';
+import { JellyfinAdapter } from './jellyfin/adapter';
 import { JokerAdapter } from './joker/adapter';
 import { MailcowAdapter } from './mailcow/adapter';
 import { NextcloudAdapter } from './nextcloud/adapter';
 import { ProxmoxAdapter } from './proxmox/adapter';
+import { ThreeCxAdapter } from './threecx/adapter';
+import { UptimeKumaAdapter } from './uptimekuma/adapter';
 import type {
   CloudflareConfig,
   CloudPanelConfig,
   DemoConfig,
   Fire24Config,
   HetznerConfig,
+  JellyfinConfig,
   JokerConfig,
   MailcowConfig,
   NextcloudConfig,
@@ -28,6 +32,8 @@ import type {
   ProviderConfig,
   ProxmoxConfig,
   ServerRef,
+  ThreeCxConfig,
+  UptimeKumaConfig,
 } from './types';
 
 export function createAdapter(
@@ -52,6 +58,12 @@ export function createAdapter(
       return new MailcowAdapter(config as MailcowConfig);
     case 'cloudpanel':
       return new CloudPanelAdapter(config as CloudPanelConfig);
+    case 'threecx':
+      return new ThreeCxAdapter(config as ThreeCxConfig);
+    case 'jellyfin':
+      return new JellyfinAdapter(config as JellyfinConfig);
+    case 'uptimekuma':
+      return new UptimeKumaAdapter(config as UptimeKumaConfig);
     case 'demo': {
       // Further demo connections simulate a Cloudflare account (ENABLE_DEMO_CLOUDFLARE) or a
       // CloudPanel server (ENABLE_DEMO_CLOUDPANEL).

@@ -86,7 +86,7 @@ async function databasesOf(webspaceId: string) {
 }
 
 async function auditEntries(action: string) {
-  return t.db.select().from(auditLogs).where(eq(auditLogs.action, action));
+  return t.db.select().from(auditLogs).where(eq(auditLogs.action, action)).orderBy(auditLogs.id);
 }
 
 /** Everything stored about websites, to search it for passwords. */

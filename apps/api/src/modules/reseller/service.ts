@@ -16,8 +16,13 @@ import {
   invitations,
   invoices,
   mailDomains,
+  mediaAccounts,
+  mediaAllowances,
+  monitorAllowances,
+  monitors,
   organizations,
   payments,
+  phoneSystems,
   projects,
   servers,
   services,
@@ -42,6 +47,8 @@ export const RESOURCE_MODULES = {
   domain: 'dns',
   webspace: 'webhosting',
   maildomain: 'mail',
+  phone_system: 'phone',
+  monitor: 'monitoring',
 } as const satisfies Record<string, ModuleKey>;
 
 /**
@@ -121,6 +128,13 @@ export interface DeleteBlockers {
   /** 0 or 1: a cloud storage allowance (Nextcloud accounts would lose their organization). */
   cloudAllowances: number;
   mailDomains: number;
+  phoneSystems: number;
+  mediaAccounts: number;
+  /** 0 or 1: a streaming allowance (its accounts and, for a reseller, its customers' share). */
+  mediaAllowances: number;
+  monitors: number;
+  /** 0 or 1: a monitoring allowance (it would take its share of a reseller's allowance along). */
+  monitorAllowances: number;
   invoices: number;
   payments: number;
   creditTransactions: number;
@@ -135,6 +149,11 @@ const BLOCKER_LABELS: Record<keyof DeleteBlockers, string> = {
   cloudAccounts: 'cloud accounts',
   cloudAllowances: 'cloud storage allowance',
   mailDomains: 'mail domains',
+  phoneSystems: 'phone systems',
+  mediaAccounts: 'streaming accounts',
+  mediaAllowances: 'streaming allowance',
+  monitors: 'monitors',
+  monitorAllowances: 'monitoring allowance',
   invoices: 'invoices',
   payments: 'payments',
   creditTransactions: 'credit transactions',
@@ -165,6 +184,17 @@ export async function deleteBlockers(db: DbOrTx, orgId: string): Promise<DeleteB
       await db.select({ n: count() }).from(cloudAllowances).where(eq(cloudAllowances.orgId, orgId)),
     ),
     mailDomains: n(await db.select({ n: count() }).from(mailDomains).where(eq(mailDomains.orgId, orgId))),
+    phoneSystems: n(await db.select({ n: count() }).from(phoneSystems).where(eq(phoneSystems.orgId, orgId))),
+    mediaAccounts: n(
+      await db.select({ n: count() }).from(mediaAccounts).where(eq(mediaAccounts.orgId, orgId)),
+    ),
+    mediaAllowances: n(
+      await db.select({ n: count() }).from(mediaAllowances).where(eq(mediaAllowances.orgId, orgId)),
+    ),
+    monitors: n(await db.select({ n: count() }).from(monitors).where(eq(monitors.orgId, orgId))),
+    monitorAllowances: n(
+      await db.select({ n: count() }).from(monitorAllowances).where(eq(monitorAllowances.orgId, orgId)),
+    ),
     // Invoices it received and, for resellers, invoices it issued.
     invoices: n(
       await db

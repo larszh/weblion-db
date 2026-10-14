@@ -20,6 +20,9 @@ export type PermissionGroup =
   | 'webhosting'
   | 'storage'
   | 'mail'
+  | 'phone'
+  | 'media'
+  | 'monitoring'
   | 'billing'
   | 'reseller'
   | 'platform';
@@ -169,6 +172,55 @@ export const PERMISSIONS = {
     dangerous: true,
   }),
 
+  // Telephony (module "phone", 3CX)
+  'phone:read': def(
+    'phone',
+    'Telefonanlagen, Benutzer, Ringgruppen und Leitungen ansehen',
+    'View phone systems, users, ring groups and trunks',
+  ),
+  'phone:write': def(
+    'phone',
+    'Telefonie-Benutzer anlegen, ändern und löschen, Ringgruppen bearbeiten',
+    'Create, change and delete phone users, edit ring groups',
+    { dangerous: true },
+  ),
+  'phone:credentials': def(
+    'phone',
+    'Zugang zu Telefonie-Benutzern: Willkommens-E-Mail senden, E-Mail-Adresse ändern',
+    'Access to phone users: send the welcome e-mail, change the e-mail address',
+    { dangerous: true },
+  ),
+
+  // Streaming (module "media", Jellyfin)
+  'media:read': def('media', 'Streaming-Zugänge ansehen', 'View streaming accounts'),
+  'media:write': def(
+    'media',
+    'Streaming-Zugänge anlegen, sperren, entsperren und löschen',
+    'Create, disable, enable and delete streaming accounts',
+    { dangerous: true },
+  ),
+  'media:password': def(
+    'media',
+    'Passwörter von Streaming-Zugängen neu setzen',
+    'Set new streaming account passwords',
+    { dangerous: true },
+  ),
+
+  // Monitoring (module "monitoring", Uptime Kuma)
+  'monitor:read': def(
+    'monitoring',
+    'Monitore, Status und Uptime ansehen',
+    'View monitors, status and uptime',
+  ),
+  'monitor:write': def(
+    'monitoring',
+    'Monitore anlegen, ändern, pausieren und fortsetzen',
+    'Create, change, pause and resume monitors',
+  ),
+  'monitor:delete': def('monitoring', 'Monitore löschen (mit Verlauf)', 'Delete monitors (with history)', {
+    dangerous: true,
+  }),
+
   // Billing
   'billing:read': def(
     'billing',
@@ -217,8 +269,8 @@ export const PERMISSIONS = {
   ),
   'platform:server:assign': def(
     'platform',
-    'Server, Domains, Webspaces, Websites und E-Mail-Domains Kunden zuweisen',
-    'Assign servers, domains, web spaces, websites and mail domains to customers',
+    'Server, Domains, Webspaces, Websites, E-Mail-Domains, Telefonanlagen und Monitore Kunden zuweisen',
+    'Assign servers, domains, web spaces, websites, mail domains, phone systems and monitors to customers',
     { platform: true },
   ),
   'platform:server:create': def('platform', 'Server bei Providern erstellen', 'Create servers at providers', {
@@ -282,6 +334,12 @@ export const PERMISSIONS = {
     'Create, adopt, release and delete websites on CloudPanel servers for customers',
     { platform: true, dangerous: true },
   ),
+  'platform:media:write': def(
+    'platform',
+    'Streaming-Kontingente einrichten, Jellyfin-Benutzer übernehmen, zuweisen und Richtlinien anwenden',
+    'Set up streaming allowances, import and assign Jellyfin users, apply policies',
+    { platform: true, dangerous: true },
+  ),
 } as const satisfies Record<string, PermissionDef>;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -309,6 +367,9 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   'webhosting',
   'storage',
   'mail',
+  'phone',
+  'media',
+  'monitoring',
   'billing',
   'reseller',
   'platform',

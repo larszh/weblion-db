@@ -21,8 +21,14 @@ import {
   cloudAllowances,
   domains,
   mailDomains,
+  mediaAccounts,
+  mediaAllowances,
   memberships,
+  monitorAllowances,
+  monitorStatusPages,
+  monitors,
   organizations,
+  phoneSystems,
   projects,
   providerConnections,
   serverActions,
@@ -51,11 +57,14 @@ import type {
   DemoConfig,
   Fire24Config,
   HetznerConfig,
+  JellyfinConfig,
   JokerConfig,
   MailcowConfig,
   NextcloudConfig,
   ProviderConfig,
   ProxmoxConfig,
+  ThreeCxConfig,
+  UptimeKumaConfig,
 } from '../../providers/types';
 import { sendInvitationMail } from '../../mail/invitation';
 import { orgCounts, orgRef } from '../orgs/routes';
@@ -182,6 +191,77 @@ const cloudpanelConfigSchema = z.object({
     .optional(),
   nodejs: z.boolean().optional(),
 });
+/** https only, no path, no credentials in the URL: the client secret goes to this host. */
+const threecxConfigSchema = z.object({
+  baseUrl: z
+    .url()
+    .refine((v) => {
+      // zod runs the refinement after a failed url check too.
+      if (!URL.canParse(v)) return false;
+      const u = new URL(v);
+      return (
+        u.protocol === 'https:' &&
+        (u.pathname === '/' || u.pathname === '') &&
+        !u.search &&
+        !u.hash &&
+        !u.username &&
+        !u.password
+      );
+    }, 'https://<PBX address>[:port] without path')
+    .transform((v) => v.replace(/\/+$/, '')),
+  clientId: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9._-]{1,64}$/, 'letters, digits, dot, dash, underscore'),
+  clientSecret: z.string().trim().min(8).max(500),
+});
+/** http(s), a path for Jellyfin's base URL is fine; no query or credentials: the key goes to this host. */
+const jellyfinConfigSchema = z.object({
+  baseUrl: z
+    .url()
+    .refine((v) => {
+      // zod runs the refinement after a failed url check too.
+      if (!URL.canParse(v)) return false;
+      const u = new URL(v);
+      return (
+        (u.protocol === 'https:' || u.protocol === 'http:') &&
+        !u.search &&
+        !u.hash &&
+        !u.username &&
+        !u.password
+      );
+    }, 'http(s)://<host>[:port][/base path] without query or credentials')
+    .transform((v) => v.replace(/\/+$/, '')),
+  apiKey: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[0-9a-f]{32}$/, 'the 32 character API key from the Jellyfin dashboard (API Keys)'),
+});
+/** https or http, no path, no credentials in the URL: the API key goes to this host. */
+const uptimeKumaConfigSchema = z.object({
+  baseUrl: z
+    .url()
+    .refine((v) => {
+      // zod runs the refinement after a failed url check too.
+      if (!URL.canParse(v)) return false;
+      const u = new URL(v);
+      return (
+        (u.protocol === 'https:' || u.protocol === 'http:') &&
+        (u.pathname === '/' || u.pathname === '') &&
+        !u.search &&
+        !u.hash &&
+        !u.username &&
+        !u.password
+      );
+    }, 'https://<Kuma address>[:port] without path')
+    .transform((v) => v.replace(/\/+$/, '')),
+  apiKey: z
+    .string()
+    .trim()
+    .regex(/^uk\d+_[A-Za-z0-9_-]{16,200}$/, 'an Uptime Kuma API key like uk1_...'),
+  sessionToken: z.string().trim().min(20).max(4000).optional(),
+});
 const demoConfigSchema = z.object({
   seed: z.number().int().optional(),
   servers: z.number().int().min(1).max(50).optional(),
@@ -209,6 +289,12 @@ function parseProviderConfig(type: ProviderType, raw: unknown): ProviderConfig {
       return parse(mailcowConfigSchema, raw) as MailcowConfig;
     case 'cloudpanel':
       return parse(cloudpanelConfigSchema, raw) as CloudPanelConfig;
+    case 'threecx':
+      return parse(threecxConfigSchema, raw) as ThreeCxConfig;
+    case 'jellyfin':
+      return parse(jellyfinConfigSchema, raw) as JellyfinConfig;
+    case 'uptimekuma':
+      return parse(uptimeKumaConfigSchema, raw) as UptimeKumaConfig;
     case 'demo':
       return parse(demoConfigSchema, raw ?? {}) as DemoConfig;
   }
@@ -296,6 +382,27 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
         ...websiteOptionsSummary(c),
       };
     }
+    case 'threecx': {
+      const c = config as ThreeCxConfig;
+      // The API key administers the phone system: not even a part of it leaves.
+      return { baseUrl: c.baseUrl, clientId: c.clientId, clientSecret: '••••••' };
+    }
+    case 'jellyfin': {
+      const c = config as JellyfinConfig;
+      // The key is a full Jellyfin administrator: not even a part of it leaves.
+      return { baseUrl: c.baseUrl, apiKey: '••••••' };
+    }
+    case 'uptimekuma': {
+      const c = config as UptimeKumaConfig;
+      // The key id before "_" names the key in Kuma's list and is not secret; the session token
+      // is a master key of the instance and only shows as on or off.
+      const keyId = /^uk(\d+)_/.exec(c.apiKey)?.[1];
+      return {
+        baseUrl: c.baseUrl,
+        apiKey: keyId ? `uk${keyId}_••••••` : '••••••',
+        management: c.sessionToken ? 'on' : 'off',
+      };
+    }
     case 'demo': {
       const c = config as DemoConfig;
       if (c.flavor === 'cloudpanel') return { flavor: c.flavor, ...websiteOptionsSummary(c) };
@@ -306,9 +413,12 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
 
 /**
  * Keys whose values never reach the audit log (Mailcow's DKIM import sends private_key_file,
- * its identity provider bindpass). Any "pass", like the Mailcow adapter's own redaction.
+ * its identity provider bindpass). Any "pass", like the Mailcow adapter's own redaction. 3CX
+ * bodies: SIP credentials (AuthID, AuthPassword), the voicemail PIN (VMPIN), the license key,
+ * one-time tickets and provisioning links. Jellyfin bodies: NewPw, CurrentPw, Pw and Pin.
  */
-const SECRET_KEY = /pass|secret|token|auth_?code|api_?key|priv(ate)?_?key/i;
+const SECRET_KEY =
+  /pass|secret|token|auth_?code|api_?key|priv(ate)?_?key|auth_?id|licen[cs]e_?key|pin$|ticket|prov(isioning)?_?link|pw$/i;
 
 /**
  * An explorer request as it is audited: values of password-like keys blanked, including the
@@ -549,7 +659,14 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         if (v === null) delete merged[k];
         else if (v !== '' && v !== undefined) merged[k] = v;
       }
-      configEnc = box.encryptJson(parseProviderConfig(connection.type, merged));
+      const next = parseProviderConfig(connection.type, merged);
+      // An Uptime Kuma session token is a master key of one instance: it never goes to another
+      // address. Staff sign in again for the new one.
+      if (connection.type === 'uptimekuma' && !body.config.sessionToken) {
+        const kuma = next as UptimeKumaConfig;
+        if (kuma.baseUrl !== current.baseUrl) delete kuma.sessionToken;
+      }
+      configEnc = box.encryptJson(next);
     }
     const [updated] = await db
       .update(providerConnections)
@@ -624,6 +741,47 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .where(eq(websiteAllowances.providerConnectionId, id));
     if ((websiteAllowanceRows?.n ?? 0) > 0) {
       throw conflict('Remove or move the website allowances of this provider first');
+    }
+    const [assignedPhoneSystems] = await db
+      .select({ n: count() })
+      .from(phoneSystems)
+      .where(and(eq(phoneSystems.providerConnectionId, id), isNotNull(phoneSystems.orgId)));
+    if ((assignedPhoneSystems?.n ?? 0) > 0) {
+      throw conflict('Unassign all phone systems of this provider first');
+    }
+    // Streaming allowances name the instance (restrict), and assigned accounts would vanish from
+    // their organizations; unassigned account rows go with the connection.
+    const [mediaAllowanceRows] = await db
+      .select({ n: count() })
+      .from(mediaAllowances)
+      .where(eq(mediaAllowances.providerConnectionId, id));
+    const [assignedMediaAccounts] = await db
+      .select({ n: count() })
+      .from(mediaAccounts)
+      .where(and(eq(mediaAccounts.providerConnectionId, id), isNotNull(mediaAccounts.orgId)));
+    if ((mediaAllowanceRows?.n ?? 0) + (assignedMediaAccounts?.n ?? 0) > 0) {
+      throw conflict(
+        'Remove the streaming allowances on this instance and unassign or delete its streaming accounts first',
+      );
+    }
+    // Monitoring allowances name the instance (restrict); assigned monitors and status page links
+    // would silently disappear from their organizations with it.
+    const [assignedMonitors] = await db
+      .select({ n: count() })
+      .from(monitors)
+      .where(and(eq(monitors.providerConnectionId, id), isNotNull(monitors.orgId)));
+    const [monitorAllowanceRows] = await db
+      .select({ n: count() })
+      .from(monitorAllowances)
+      .where(eq(monitorAllowances.providerConnectionId, id));
+    const [statusPageRows] = await db
+      .select({ n: count() })
+      .from(monitorStatusPages)
+      .where(eq(monitorStatusPages.providerConnectionId, id));
+    if ((assignedMonitors?.n ?? 0) + (monitorAllowanceRows?.n ?? 0) + (statusPageRows?.n ?? 0) > 0) {
+      throw conflict(
+        'Unassign all monitors of this instance and remove its monitoring allowances and status page links first',
+      );
     }
     await db.delete(providerConnections).where(eq(providerConnections.id, id));
     providers.invalidate(id);
@@ -1395,14 +1553,19 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     // Reads are not audited to keep the log useful, every write is (without passwords).
     if (body.method !== 'GET') {
       const secretEdit = explorerEditsSecret(body.path, body.body);
+      // Adapters that know their secret fields (Uptime Kuma: monitor objects in socket writes)
+      // blank them first; the generic redaction runs on the result as well.
+      const audited = adapter.redactExplorerAudit
+        ? adapter.redactExplorerAudit(body.path, body.body)
+        : { path: body.path, body: body.body };
       await audit.record(req, {
         action: 'provider.explorer',
         resourceType: 'provider',
         resourceId: connection.id,
         details: {
           method: body.method,
-          path: redactExplorerPath(body.path, secretEdit),
-          body: body.body ? redactExplorerBody(body.body, secretEdit) : null,
+          path: redactExplorerPath(audited.path, secretEdit),
+          body: audited.body ? redactExplorerBody(audited.body, secretEdit) : null,
           status: result.status,
         },
       });

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/primitives';
 import { MetricChart } from '@/components/metric-chart';
 import { Flag, ProviderBadge } from '@/components/server-bits';
+import { RelatedMonitorsCard } from '@/pages/monitoring/related';
 import { useServerContext } from '../context';
 
 function UsageTile({
@@ -145,6 +146,7 @@ export function OverviewTab() {
               )}
             </CardBody>
           </Card>
+          <RelatedMonitorsCard kind="server" id={server.id} />
         </div>
 
         <div className="space-y-6">

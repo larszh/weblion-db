@@ -1,8 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Secret, TOTP } from 'otpauth';
-import { eq } from 'drizzle-orm';
-import { auditLogs, providerConnections } from '../src/db/schema';
+import { desc, eq } from 'drizzle-orm';
+import {
+  auditLogs,
+  mediaAccounts,
+  mediaAllowances,
+  monitorAllowances,
+  monitorStatusPages,
+  monitors,
+  phoneSystems,
+  providerConnections,
+} from '../src/db/schema';
+import { redactExplorerBody, redactExplorerPath } from '../src/modules/admin/routes';
 import { DemoAdapter } from '../src/providers/demo/adapter';
+import type {
+  JellyfinConfig,
+  ProviderAdapter,
+  ThreeCxConfig,
+  UptimeKumaConfig,
+} from '../src/providers/types';
 import { ADMIN, Client, createTestApp, json, type TestApp } from './helpers';
 
 let t: TestApp;
@@ -381,6 +397,354 @@ describe('administration', () => {
     expect(edited.summary).toMatchObject({ publicKey: pair.publicKey, nodejs: 'true' });
     expect(edited.summary.ipv4).toBeUndefined();
     expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+  });
+
+  it('validates 3CX connections and shows no part of the client secret', async () => {
+    type Provider = { id: string; summary: Record<string, string> };
+    const create = (config: Record<string, unknown>) =>
+      admin.post('/admin/providers', {
+        type: 'threecx',
+        name: '3CX Test',
+        location: { country: 'CH', label: 'Test' },
+        config: {
+          baseUrl: 'https://pbx.example.test',
+          clientId: 'weblion',
+          clientSecret: 'xapi-secret-0123456789',
+          ...config,
+        },
+      });
+    for (const baseUrl of [
+      'not a url',
+      'http://pbx.example.test',
+      'https://pbx.example.test/xapi/v1',
+      'https://admin:pw@pbx.example.test',
+      'https://pbx.example.test/?next=1',
+    ]) {
+      expect((await create({ baseUrl })).statusCode, baseUrl).toBe(400);
+    }
+    expect((await create({ clientId: 'web lion' })).statusCode).toBe(400);
+    expect((await create({ clientSecret: 'short' })).statusCode).toBe(400);
+
+    const res = await create({ baseUrl: 'https://pbx.example.test:5001/' });
+    expect(res.statusCode, res.body).toBe(200);
+    const created = json<Provider>(res);
+    expect(created.summary).toMatchObject({
+      baseUrl: 'https://pbx.example.test:5001',
+      clientId: 'weblion',
+      clientSecret: '••••••',
+    });
+    expect(JSON.stringify(created)).not.toContain('xapi-secret');
+    const audits = await t.db.select().from(auditLogs).where(eq(auditLogs.resourceId, created.id));
+    expect(audits.length).toBeGreaterThan(0);
+    expect(JSON.stringify(audits)).not.toContain('xapi-secret');
+
+    // An empty secret keeps the stored one.
+    const edited = json<Provider>(
+      await admin.patch(`/admin/providers/${created.id}`, {
+        config: { clientId: 'weblion-2', clientSecret: '' },
+      }),
+    );
+    expect(edited.summary).toMatchObject({ clientId: 'weblion-2', clientSecret: '••••••' });
+    const connection = await t.db.query.providerConnections.findFirst({
+      where: eq(providerConnections.id, created.id),
+    });
+    expect(t.ctx.providers.decryptConfig<ThreeCxConfig>(connection!).clientSecret).toBe(
+      'xapi-secret-0123456789',
+    );
+
+    // A phone system assigned to a customer keeps the connection.
+    const [system] = await t.db
+      .insert(phoneSystems)
+      .values({
+        providerConnectionId: created.id,
+        externalId: 'pbx',
+        name: 'pbx.example.test',
+        orgId: musterOrgId,
+      })
+      .returning();
+    const refused = await admin.del(`/admin/providers/${created.id}`);
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error.message).toMatch(/phone systems/);
+    await t.db.update(phoneSystems).set({ orgId: null }).where(eq(phoneSystems.id, system!.id));
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+    expect(
+      await t.db.query.phoneSystems.findFirst({ where: eq(phoneSystems.id, system!.id) }),
+    ).toBeUndefined();
+  });
+
+  it('keeps 3CX credentials out of audited explorer bodies', () => {
+    expect(
+      redactExplorerBody({
+        FirstName: 'Anna',
+        VMPIN: '1234',
+        AuthID: '100abc',
+        AuthPassword: { Concealed: true, Value: 'sip-secret' },
+        AccessPassword: 'web-secret',
+        LicenseKey: 'ABCD-EFGH',
+        Phones: [{ ProvisioningLinkExt: 'https://pbx/provisioning/x', Model: 'Yealink' }],
+        Ticket: 't-1',
+      }),
+    ).toEqual({
+      FirstName: 'Anna',
+      VMPIN: '[redacted]',
+      AuthID: '[redacted]',
+      AuthPassword: '[redacted]',
+      AccessPassword: '[redacted]',
+      LicenseKey: '[redacted]',
+      Phones: [{ ProvisioningLinkExt: '[redacted]', Model: 'Yealink' }],
+      Ticket: '[redacted]',
+    });
+  });
+
+  it('validates Uptime Kuma connections and shows no secret', async () => {
+    type Provider = { id: string; summary: Record<string, string> };
+    const apiKey = 'uk3_kumaApiKey0123456789abcdefABCDEF0123456';
+    const sessionToken = 'eyJhbGciOiJIUzI1NiJ9.kuma-session-token.signature';
+    const create = (config: Record<string, unknown>) =>
+      admin.post('/admin/providers', {
+        type: 'uptimekuma',
+        name: 'Kuma Test',
+        location: { country: 'CH', label: 'Test' },
+        config: { baseUrl: 'https://status.example.test', apiKey, ...config },
+      });
+    for (const baseUrl of [
+      'not a url',
+      'ftp://status.example.test',
+      'https://status.example.test/dashboard',
+      'https://admin:pw@status.example.test',
+      'https://status.example.test/?next=1',
+    ]) {
+      expect((await create({ baseUrl })).statusCode, baseUrl).toBe(400);
+    }
+    expect((await create({ apiKey: 'kuma-key-0123456789abcdef' })).statusCode).toBe(400);
+    expect((await create({ apiKey: 'uk3_short' })).statusCode).toBe(400);
+    expect((await create({ sessionToken: 'short' })).statusCode).toBe(400);
+
+    const res = await create({ baseUrl: 'http://10.0.0.20:3001/', sessionToken });
+    expect(res.statusCode, res.body).toBe(200);
+    const created = json<Provider>(res);
+    expect(created.summary).toMatchObject({
+      baseUrl: 'http://10.0.0.20:3001',
+      apiKey: 'uk3_••••••',
+      management: 'on',
+    });
+    expect(JSON.stringify(created)).not.toContain('kumaApiKey');
+    expect(JSON.stringify(created)).not.toContain('kuma-session-token');
+    const audits = await t.db.select().from(auditLogs).where(eq(auditLogs.resourceId, created.id));
+    expect(audits.length).toBeGreaterThan(0);
+    expect(JSON.stringify(audits)).not.toContain('kumaApiKey');
+    expect(JSON.stringify(audits)).not.toContain('kuma-session-token');
+
+    const stored = async () => {
+      const connection = await t.db.query.providerConnections.findFirst({
+        where: eq(providerConnections.id, created.id),
+      });
+      return t.ctx.providers.decryptConfig<UptimeKumaConfig>(connection!);
+    };
+    // An empty key keeps the stored one, and so does the session on the same address.
+    const edited = json<Provider>(
+      await admin.patch(`/admin/providers/${created.id}`, {
+        config: { baseUrl: 'http://10.0.0.20:3001', apiKey: '' },
+      }),
+    );
+    expect(edited.summary).toMatchObject({ apiKey: 'uk3_••••••', management: 'on' });
+    expect(await stored()).toMatchObject({ apiKey, sessionToken });
+    // The session token never goes to another address.
+    const moved = json<Provider>(
+      await admin.patch(`/admin/providers/${created.id}`, {
+        config: { baseUrl: 'https://status.example.test', apiKey: '' },
+      }),
+    );
+    expect(moved.summary).toMatchObject({ baseUrl: 'https://status.example.test', management: 'off' });
+    expect((await stored()).sessionToken).toBeUndefined();
+    expect((await stored()).apiKey).toBe(apiKey);
+
+    // Assigned monitors, allowances and status page links keep the connection. Beispiel GmbH has
+    // no monitoring allowance of the demo seed (its primary key is the organization).
+    const orgs = json<{ id: string; slug: string }[]>(await admin.get('/admin/orgs'));
+    const beispielOrgId = orgs.find((o) => o.slug === 'beispiel-gmbh')!.id;
+    const [monitor] = await t.db
+      .insert(monitors)
+      .values({
+        providerConnectionId: created.id,
+        externalId: '12',
+        name: 'Website',
+        providerName: 'Website',
+        type: 'http',
+        orgId: musterOrgId,
+      })
+      .returning();
+    const refused = await admin.del(`/admin/providers/${created.id}`);
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error.message).toMatch(/monitors/);
+    await t.db.update(monitors).set({ orgId: null }).where(eq(monitors.id, monitor!.id));
+    await t.db.insert(monitorAllowances).values({
+      orgId: beispielOrgId,
+      providerConnectionId: created.id,
+      maxMonitors: 5,
+      minIntervalSeconds: 60,
+    });
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(409);
+    await t.db.delete(monitorAllowances).where(eq(monitorAllowances.providerConnectionId, created.id));
+    await t.db
+      .insert(monitorStatusPages)
+      .values({ orgId: beispielOrgId, providerConnectionId: created.id, slug: 'beispiel' });
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(409);
+    await t.db.delete(monitorStatusPages).where(eq(monitorStatusPages.providerConnectionId, created.id));
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+    expect(await t.db.query.monitors.findFirst({ where: eq(monitors.id, monitor!.id) })).toBeUndefined();
+  });
+
+  it('lets an adapter blank its own secrets in audited explorer writes', async () => {
+    const demo = await t.db.query.providerConnections.findFirst({
+      where: eq(providerConnections.envKey, 'demo'),
+    });
+    const adapter: ProviderAdapter = t.ctx.providers.forConnection(demo!);
+    adapter.redactExplorerAudit = (path, body) => ({
+      path: path.replace(/token=[^&]*/, 'token=***'),
+      body: { ...body, headers: '[redacted]' },
+    });
+    try {
+      const res = await admin.post('/admin/explorer', {
+        providerId: demo!.id,
+        method: 'POST',
+        path: 'socket/editMonitor?token=abc',
+        body: { headers: '{"X-Api": "header-secret"}', basic_auth_pass: 'pass-secret', name: 'Shop' },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      const [entry] = await t.db
+        .select()
+        .from(auditLogs)
+        .where(eq(auditLogs.action, 'provider.explorer'))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(1);
+      // The adapter's redaction first, the generic one on top.
+      expect(entry!.details).toMatchObject({
+        path: 'socket/editMonitor?token=[redacted]',
+        body: { headers: '[redacted]', basic_auth_pass: '[redacted]', name: 'Shop' },
+      });
+      expect(JSON.stringify(entry)).not.toContain('secret');
+    } finally {
+      delete adapter.redactExplorerAudit;
+    }
+  });
+
+  it('validates Jellyfin connections and shows no part of the API key', async () => {
+    type Provider = { id: string; summary: Record<string, string> };
+    const apiKey = 'a3f1c2d4e5b6a7980f1e2d3c4b5a6978';
+    const create = (config: Record<string, unknown>) =>
+      admin.post('/admin/providers', {
+        type: 'jellyfin',
+        name: 'Jellyfin Test',
+        location: { country: 'CH', label: 'Test' },
+        config: { baseUrl: 'https://media.example.test', apiKey, ...config },
+      });
+    for (const baseUrl of [
+      'not a url',
+      'ftp://media.example.test',
+      'https://admin:pw@media.example.test',
+      'https://media.example.test/?next=1',
+      'https://media.example.test/#web',
+    ]) {
+      expect((await create({ baseUrl })).statusCode, baseUrl).toBe(400);
+    }
+    expect((await create({ apiKey: 'jellyfin-api-key' })).statusCode).toBe(400);
+    expect((await create({ apiKey: apiKey.slice(1) })).statusCode).toBe(400);
+    expect((await create({ apiKey: `${apiKey.slice(1)}g` })).statusCode).toBe(400);
+    // http on a private network is the operator's choice; the form warns.
+    expect((await create({ baseUrl: 'http://10.0.0.30:8096' })).statusCode).toBe(200);
+
+    // A base path is kept (Jellyfin's base URL), the key is stored in lower case.
+    const res = await create({
+      baseUrl: 'https://media.example.test/jellyfin/',
+      apiKey: ` ${apiKey.toUpperCase()} `,
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const created = json<Provider>(res);
+    expect(created.summary).toMatchObject({
+      baseUrl: 'https://media.example.test/jellyfin',
+      apiKey: '••••••',
+    });
+    const stored = async () => {
+      const connection = await t.db.query.providerConnections.findFirst({
+        where: eq(providerConnections.id, created.id),
+      });
+      return t.ctx.providers.decryptConfig<JellyfinConfig>(connection!);
+    };
+    expect((await stored()).apiKey).toBe(apiKey);
+    const list = (await admin.get('/admin/providers')).body;
+    const audits = JSON.stringify(
+      await t.db.select().from(auditLogs).where(eq(auditLogs.resourceId, created.id)),
+    );
+    for (const text of [JSON.stringify(created), list, audits]) {
+      expect(text).not.toContain(apiKey.slice(0, 6));
+      expect(text).not.toContain(apiKey.slice(-6));
+    }
+
+    // An empty key keeps the stored one.
+    const edited = json<Provider>(
+      await admin.patch(`/admin/providers/${created.id}`, {
+        config: { baseUrl: 'https://media.example.test', apiKey: '' },
+      }),
+    );
+    expect(edited.summary).toMatchObject({ baseUrl: 'https://media.example.test', apiKey: '••••••' });
+    expect((await stored()).apiKey).toBe(apiKey);
+
+    // A streaming allowance or an assigned account keeps the connection. Beispiel GmbH has no
+    // streaming allowance of the demo seed (its primary key is the organization).
+    const orgs = json<{ id: string; slug: string }[]>(await admin.get('/admin/orgs'));
+    const beispielOrgId = orgs.find((o) => o.slug === 'beispiel-gmbh')!.id;
+    await t.db.insert(mediaAllowances).values({
+      orgId: beispielOrgId,
+      providerConnectionId: created.id,
+      accountCode: 'apitest',
+      maxAccounts: 3,
+      maxStreams: 2,
+    });
+    const refused = await admin.del(`/admin/providers/${created.id}`);
+    expect(refused.statusCode).toBe(409);
+    expect(json(refused).error.message).toMatch(/streaming allowances/);
+    await t.db.delete(mediaAllowances).where(eq(mediaAllowances.providerConnectionId, created.id));
+    const [account] = await t.db
+      .insert(mediaAccounts)
+      .values({
+        providerConnectionId: created.id,
+        externalId: 'c0ffee00c0ffee00c0ffee00c0ffee00',
+        username: 'anna-apitest',
+        orgId: musterOrgId,
+      })
+      .returning();
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(409);
+    await t.db.update(mediaAccounts).set({ orgId: null }).where(eq(mediaAccounts.id, account!.id));
+    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+    expect(
+      await t.db.query.mediaAccounts.findFirst({ where: eq(mediaAccounts.id, account!.id) }),
+    ).toBeUndefined();
+  });
+
+  it('keeps Jellyfin passwords out of audited explorer bodies and paths', () => {
+    expect(
+      redactExplorerBody({
+        Name: 'anna-kemaro',
+        Password: 'new-secret',
+        NewPw: 'new-secret',
+        CurrentPw: 'old-secret',
+        Pw: 'old-secret',
+        Pin: '1234',
+        EnableAllFolders: false,
+      }),
+    ).toEqual({
+      Name: 'anna-kemaro',
+      Password: '[redacted]',
+      NewPw: '[redacted]',
+      CurrentPw: '[redacted]',
+      Pw: '[redacted]',
+      Pin: '[redacted]',
+      EnableAllFolders: false,
+    });
+    expect(redactExplorerPath('/Users/3bc7/Authenticate?pw=old-secret&x=1')).toBe(
+      '/Users/3bc7/Authenticate?pw=[redacted]&x=1',
+    );
   });
 
   it('removes a stored credential when an edit sends null', async () => {

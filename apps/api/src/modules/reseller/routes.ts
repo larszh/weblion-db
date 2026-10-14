@@ -5,10 +5,12 @@ import {
   DEFAULT_CUSTOMER_BOUNDARY,
   DEFAULT_MODULES,
   MODULES,
+  SERVICE_RESOURCE_TYPES,
   normalizeModules,
   type ModuleKey,
   type Permission,
   type ResellerCustomerDto,
+  type ServiceResourceType,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { orgScope, requireSession } from '../../auth/access';
@@ -18,7 +20,9 @@ import {
   domains,
   invoices,
   mailDomains,
+  monitors,
   organizations,
+  phoneSystems,
   projects,
   servers,
   webspaces,
@@ -29,6 +33,7 @@ import { parse } from '../../lib/validation';
 import { sendInvitationMail } from '../../mail/invitation';
 import { billingCurrency } from '../billing/ledger';
 import { assertWebsiteMoveAllowed, releaseWebsiteSlot } from '../hosting/website-service';
+import { assertMonitorMoveAllowed } from '../monitoring/service';
 import { loadOrg, orgCounts } from '../orgs/routes';
 import {
   RESOURCE_MODULES,
@@ -43,8 +48,12 @@ import {
 const orgParams = z.object({ orgId: z.uuid() });
 const customerParams = orgParams.extend({ customerId: z.uuid() });
 const modulesSchema = z.array(z.enum(MODULES)).max(MODULES.length);
-const resourceType = z.enum(['server', 'domain', 'webspace', 'maildomain']);
+const resourceType = z.enum(['server', 'domain', 'webspace', 'maildomain', 'phone_system', 'monitor']);
 type ResourceType = z.infer<typeof resourceType>;
+
+/** Resource types billing services can be linked to (mail domains, phone systems and monitors cannot yet). */
+const linkable = (type: ResourceType): type is ServiceResourceType =>
+  (SERVICE_RESOURCE_TYPES as readonly string[]).includes(type);
 
 const createBody = z.object({
   name: z.string().trim().min(2).max(100),
@@ -70,11 +79,21 @@ interface Holdings {
   webspaces: { id: string; name: string }[];
   /** Unicode names. */
   mailDomains: { id: string; name: string }[];
+  phoneSystems: { id: string; name: string }[];
+  monitors: { id: string; name: string }[];
 }
 
 /** Table of a resource type that is assigned by organization (servers go by project). */
 const orgTable = (type: Exclude<ResourceType, 'server'>) =>
-  type === 'domain' ? domains : type === 'webspace' ? webspaces : mailDomains;
+  type === 'domain'
+    ? domains
+    : type === 'webspace'
+      ? webspaces
+      : type === 'maildomain'
+        ? mailDomains
+        : type === 'phone_system'
+          ? phoneSystems
+          : monitors;
 
 /** Reseller area: customers of a reseller organization and the resources it hands out to them. */
 export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -315,30 +334,48 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
   // --- Resources ------------------------------------------------------------------
 
   async function holdings(orgId: string): Promise<Holdings> {
-    const [serverRows, domainRows, webspaceRows, mailDomainRows] = await Promise.all([
-      db
-        .select({ id: servers.id, name: servers.name, projectId: projects.id })
-        .from(servers)
-        .innerJoin(projects, eq(projects.id, servers.projectId))
-        .where(eq(projects.orgId, orgId))
-        .orderBy(asc(servers.name)),
-      db
-        .select({ id: domains.id, name: domains.name })
-        .from(domains)
-        .where(eq(domains.orgId, orgId))
-        .orderBy(asc(domains.name)),
-      db
-        .select({ id: webspaces.id, name: webspaces.name })
-        .from(webspaces)
-        .where(eq(webspaces.orgId, orgId))
-        .orderBy(asc(webspaces.name)),
-      db
-        .select({ id: mailDomains.id, name: mailDomains.name })
-        .from(mailDomains)
-        .where(eq(mailDomains.orgId, orgId))
-        .orderBy(asc(mailDomains.name)),
-    ]);
-    return { servers: serverRows, domains: domainRows, webspaces: webspaceRows, mailDomains: mailDomainRows };
+    const [serverRows, domainRows, webspaceRows, mailDomainRows, phoneSystemRows, monitorRows] =
+      await Promise.all([
+        db
+          .select({ id: servers.id, name: servers.name, projectId: projects.id })
+          .from(servers)
+          .innerJoin(projects, eq(projects.id, servers.projectId))
+          .where(eq(projects.orgId, orgId))
+          .orderBy(asc(servers.name)),
+        db
+          .select({ id: domains.id, name: domains.name })
+          .from(domains)
+          .where(eq(domains.orgId, orgId))
+          .orderBy(asc(domains.name)),
+        db
+          .select({ id: webspaces.id, name: webspaces.name })
+          .from(webspaces)
+          .where(eq(webspaces.orgId, orgId))
+          .orderBy(asc(webspaces.name)),
+        db
+          .select({ id: mailDomains.id, name: mailDomains.name })
+          .from(mailDomains)
+          .where(eq(mailDomains.orgId, orgId))
+          .orderBy(asc(mailDomains.name)),
+        db
+          .select({ id: phoneSystems.id, name: phoneSystems.name })
+          .from(phoneSystems)
+          .where(eq(phoneSystems.orgId, orgId))
+          .orderBy(asc(phoneSystems.name)),
+        db
+          .select({ id: monitors.id, name: monitors.name })
+          .from(monitors)
+          .where(eq(monitors.orgId, orgId))
+          .orderBy(asc(monitors.name)),
+      ]);
+    return {
+      servers: serverRows,
+      domains: domainRows,
+      webspaces: webspaceRows,
+      mailDomains: mailDomainRows,
+      phoneSystems: phoneSystemRows,
+      monitors: monitorRows,
+    };
   }
 
   app.get('/orgs/:orgId/customers/:customerId/resources', async (req) => {
@@ -381,7 +418,11 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
           ? 'Domain'
           : type === 'webspace'
             ? 'Web space'
-            : 'Mail domain',
+            : type === 'maildomain'
+              ? 'Mail domain'
+              : type === 'phone_system'
+                ? 'Phone system'
+                : 'Monitor',
     );
 
   /**
@@ -457,13 +498,17 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
           .set({ modules: normalizeModules([...target!.modules, module]) })
           .where(eq(organizations.id, customer.id));
       }
-      // Mail domains cannot be linked to billing services yet.
-      if (current.orgId !== customer.id && body.type !== 'maildomain') {
+      // Mail domains, phone systems and monitors cannot be linked to billing services yet.
+      if (current.orgId !== customer.id && linkable(body.type)) {
         await assertNoLinkedService(tx, body.type, body.id, customer.id);
       }
       // A website must fit the customer's website allowance (web spaces of 24fire always pass).
       if (current.orgId !== customer.id && body.type === 'webspace') {
         await assertWebsiteMoveAllowed(tx, body.id, customer);
+      }
+      // A console monitor must fit the customer's monitoring allowance (found ones move freely).
+      if (current.orgId !== customer.id && body.type === 'monitor') {
+        await assertMonitorMoveAllowed(tx, body.id, customer);
       }
       if (body.type === 'server') projectId ??= (await defaultProject(tx, customer.id)).id;
       await moveResource(tx, body.type, body.id, current, { orgId: customer.id, projectId });
@@ -496,10 +541,12 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!current || current.orgId !== customer.id) throw notFoundFor(body.type);
 
     const { projectId, websiteAllowance } = await db.transaction(async (tx) => {
-      if (body.type !== 'maildomain') await assertNoLinkedService(tx, body.type, body.id, reseller.id);
+      if (linkable(body.type)) await assertNoLinkedService(tx, body.type, body.id, reseller.id);
       // A website must fit the reseller's website allowance, or takes its slot of the customer's along.
       const websiteAllowance =
         body.type === 'webspace' ? await releaseWebsiteSlot(tx, body.id, customer, reseller) : null;
+      // A console monitor must fit the reseller's own monitoring allowance.
+      if (body.type === 'monitor') await assertMonitorMoveAllowed(tx, body.id, reseller);
       const target = body.type === 'server' ? (await defaultProject(tx, reseller.id)).id : null;
       await moveResource(tx, body.type, body.id, current, { orgId: reseller.id, projectId: target });
       return { projectId: target, websiteAllowance };

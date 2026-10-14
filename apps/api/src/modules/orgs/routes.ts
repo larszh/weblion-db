@@ -19,9 +19,12 @@ import {
   domains,
   invitations,
   mailDomains,
+  mediaAccounts,
   membershipPolicies,
   memberships,
+  monitors,
   organizations,
+  phoneSystems,
   policies,
   projects,
   servers,
@@ -48,7 +51,7 @@ export async function loadOrg(ctx: AppContext, req: FastifyRequest, orgId: strin
 }
 
 export async function orgCounts(ctx: AppContext, orgId: string): Promise<OrgCounts> {
-  const [p, s, m, d, w, c, md] = await Promise.all([
+  const [p, s, m, d, w, c, md, ps, ma, mo] = await Promise.all([
     ctx.db.select({ n: count() }).from(projects).where(eq(projects.orgId, orgId)),
     ctx.db
       .select({ n: count() })
@@ -60,6 +63,9 @@ export async function orgCounts(ctx: AppContext, orgId: string): Promise<OrgCoun
     ctx.db.select({ n: count() }).from(webspaces).where(eq(webspaces.orgId, orgId)),
     ctx.db.select({ n: count() }).from(organizations).where(eq(organizations.parentOrgId, orgId)),
     ctx.db.select({ n: count() }).from(mailDomains).where(eq(mailDomains.orgId, orgId)),
+    ctx.db.select({ n: count() }).from(phoneSystems).where(eq(phoneSystems.orgId, orgId)),
+    ctx.db.select({ n: count() }).from(mediaAccounts).where(eq(mediaAccounts.orgId, orgId)),
+    ctx.db.select({ n: count() }).from(monitors).where(eq(monitors.orgId, orgId)),
   ]);
   return {
     projects: p[0]?.n ?? 0,
@@ -68,6 +74,9 @@ export async function orgCounts(ctx: AppContext, orgId: string): Promise<OrgCoun
     domains: d[0]?.n ?? 0,
     webspaces: w[0]?.n ?? 0,
     mailDomains: md[0]?.n ?? 0,
+    phoneSystems: ps[0]?.n ?? 0,
+    mediaAccounts: ma[0]?.n ?? 0,
+    monitors: mo[0]?.n ?? 0,
     customers: c[0]?.n ?? 0,
   };
 }

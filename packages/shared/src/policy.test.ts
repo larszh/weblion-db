@@ -154,6 +154,20 @@ describe('validation', () => {
     }
   });
 
+  it('accepts phone systems as resources', () => {
+    expect(isValidResourcePattern('phone/0b6f3c2e-6a1d-4c8e-9f6b-2d7a1e5c4b3a')).toBe(true);
+    expect(isValidResourcePattern('phone/*')).toBe(true);
+    expect(isValidResourcePattern('phone')).toBe(false);
+    expect(resourcePath.phoneSystem('p1')).toBe('phone/p1');
+  });
+
+  it('accepts monitors as resources', () => {
+    expect(isValidResourcePattern('monitor/0b6f3c2e-6a1d-4c8e-9f6b-2d7a1e5c4b3a')).toBe(true);
+    expect(isValidResourcePattern('monitor/*')).toBe(true);
+    expect(isValidResourcePattern('monitor')).toBe(false);
+    expect(resourcePath.monitor('m1')).toBe('monitor/m1');
+  });
+
   it('reports unknown actions', () => {
     const issues = validateStatements([{ effect: 'allow', actions: ['server:explode'] }]);
     expect(issues).toHaveLength(1);

@@ -60,7 +60,8 @@ async function auditEntries(action: string, resourceId?: string) {
   return t.db
     .select()
     .from(auditLogs)
-    .where(and(eq(auditLogs.action, action), resourceId ? eq(auditLogs.resourceId, resourceId) : undefined));
+    .where(and(eq(auditLogs.action, action), resourceId ? eq(auditLogs.resourceId, resourceId) : undefined))
+    .orderBy(auditLogs.id);
 }
 
 async function storedAccount(externalId: string) {

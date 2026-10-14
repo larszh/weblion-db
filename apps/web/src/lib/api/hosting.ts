@@ -41,6 +41,12 @@ export interface ProviderSyncResult {
   mailDomains?: { seen: number; missing: number };
   /** CloudPanel: managed websites and their databases. */
   websites?: { seen: number; missing: number; databases: number };
+  /** 3CX: the phone system of the connection (the demo has three). */
+  phoneSystems?: { seen: number; missing: number };
+  /** Jellyfin: accounts the console manages; repaired: policies written. */
+  mediaAccounts?: { seen: number; missing: number; repaired: number; repairFailed: number };
+  /** Uptime Kuma: monitors of the instance; managementError when the management session failed. */
+  monitors?: { seen: number; missing: number; managementError: string | null };
 }
 
 export const useDomains = (orgId: string, enabled = true) =>
@@ -239,6 +245,9 @@ export const useProviderSync = (success: (result: ProviderSyncResult) => string)
         ['cloud'],
         ['mail'],
         ['websites'],
+        ['phone'],
+        ['media'],
+        ['monitoring'],
         qk.admin('providers'),
         qk.admin('servers'),
         qk.admin('stats'),

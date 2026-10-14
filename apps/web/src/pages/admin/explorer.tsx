@@ -88,6 +88,42 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/list', label: 'Managed sites' },
     { method: 'GET', path: '/unmanaged', label: 'Unmanaged sites' },
   ],
+  // Relative to /xapi/v1 (OData). Updates are PATCH; secrets in answers are blanked out.
+  threecx: [
+    {
+      method: 'GET',
+      path: '/SystemStatus?$select=FQDN,Version,UserExtensions,TrunksRegistered,TrunksTotal,CallsActive',
+      label: 'System status',
+    },
+    { method: 'GET', path: '/Defs/Pbx.GetSystemParameters()', label: 'System parameters' },
+    {
+      method: 'GET',
+      path: '/Users?$select=Id,Number,FirstName,LastName,EmailAddress&$orderby=Number&$top=50',
+      label: 'Users',
+    },
+    { method: 'GET', path: '/Users/Pbx.GetFirstAvailableExtensionNumber()', label: 'Next free extension' },
+    { method: 'GET', path: '/RingGroups?$expand=Members&$top=50', label: 'Ring groups' },
+    { method: 'GET', path: '/Trunks?$select=Id,Number,IsOnline,Gateway&$top=50', label: 'Trunks' },
+    { method: 'GET', path: '/ActiveCalls?$count=true&$top=20', label: 'Active calls' },
+  ],
+  // Relative to the instance address (with Jellyfin's base path). Keys, tokens and passwords in
+  // answers are blanked; /Auth/Keys and the sign-in endpoints are refused.
+  jellyfin: [
+    { method: 'GET', path: '/System/Info', label: 'System info' },
+    { method: 'GET', path: '/System/Info/Public', label: 'Public info' },
+    { method: 'GET', path: '/Users', label: 'Users' },
+    { method: 'GET', path: '/Library/VirtualFolders', label: 'Libraries' },
+    { method: 'GET', path: '/QuickConnect/Enabled', label: 'Quick Connect' },
+    { method: 'GET', path: '/Sessions?activeWithinSeconds=600', label: 'Active sessions' },
+  ],
+  // HTTP reads relative to the instance; socket/<event> needs the management sign-in, writes are POST.
+  uptimekuma: [
+    { method: 'GET', path: '/metrics', label: 'Metrics' },
+    { method: 'GET', path: '/api/status-page/heartbeat/<slug>', label: 'Status page heartbeats' },
+    { method: 'GET', path: 'socket/getMonitorList', label: 'Monitor list' },
+    { method: 'GET', path: 'socket/getMonitor?args=[1]', label: 'Monitor' },
+    { method: 'GET', path: 'socket/getMonitorChartData?args=[1,24]', label: 'Chart data (24 h)' },
+  ],
   demo: [{ method: 'GET', path: '/echo', label: 'Echo' }],
 };
 
@@ -116,6 +152,9 @@ const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
     body: '{ "items": ["anna@kunde.ch"], "attr": { "quota": "4096" } }',
   },
   cloudpanel: { path: '/list', body: '' },
+  threecx: { path: '/Users(<id>)', body: '{ "FirstName": "Anna" }' },
+  jellyfin: { path: '/Users/<userId>', body: '{ }' },
+  uptimekuma: { path: 'socket/getMonitor?args=[1]', body: '{ "args": [1] }' },
 };
 
 interface Result {
@@ -244,6 +283,15 @@ export function ExplorerPage() {
               {provider?.type === 'mailcow' && (
                 <p className="text-xs text-muted">{t('explorer.mailcowPath')}</p>
               )}
+              {provider?.type === 'threecx' && (
+                <p className="text-xs text-muted">{t('explorer.threecxPath')}</p>
+              )}
+              {provider?.type === 'jellyfin' && (
+                <p className="text-xs text-muted">{t('explorer.jellyfinPath')}</p>
+              )}
+              {provider?.type === 'uptimekuma' && (
+                <p className="text-xs text-muted">{t('explorer.uptimekumaPath')}</p>
+              )}
               {isCloudPanel && <p className="text-xs text-muted">{t('providers.cloudpanel.explorerHint')}</p>}
               {withBody && (
                 <Field
@@ -257,7 +305,13 @@ export function ExplorerPage() {
                           ? t('explorer.nextcloudBodyHint')
                           : provider?.type === 'mailcow'
                             ? t('explorer.mailcowBodyHint')
-                            : t('explorer.bodyHint')
+                            : provider?.type === 'threecx'
+                              ? t('explorer.threecxBodyHint')
+                              : provider?.type === 'jellyfin'
+                                ? t('explorer.jellyfinBodyHint')
+                                : provider?.type === 'uptimekuma'
+                                  ? t('explorer.uptimekumaBodyHint')
+                                  : t('explorer.bodyHint')
                   }
                   htmlFor="ex-body"
                 >

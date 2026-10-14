@@ -20,6 +20,12 @@ export const notFound = (what = 'Resource') => new AppError(404, 'not_found', `$
 export const conflict = (message: string) => new AppError(409, 'conflict', message);
 export const locked = (message: string) => new AppError(423, 'locked', message);
 export const unsupported = (message: string) => new AppError(422, 'unsupported', message);
+/** The license of a phone system allows no more users (3CX). */
+export const phoneUserLimit = (message: string, details?: unknown) =>
+  new AppError(409, 'phone_user_limit', message, details);
+/** A monitoring allowance has no free monitor left, or would fall below what is committed. */
+export const monitorLimit = (message: string, details?: unknown) =>
+  new AppError(409, 'monitor_limit', message, details);
 
 /** An upstream provider API failed. Surfaced as 502 so clients can tell it apart from our own bugs. */
 export class ProviderError extends AppError {

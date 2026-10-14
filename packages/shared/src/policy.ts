@@ -14,6 +14,8 @@ import { ALL_PERMISSIONS, type Permission } from './permissions';
  *   domain/<domainId>                     a domain (module "dns")
  *   webspace/<webspaceId>                 a web space (module "webhosting")
  *   maildomain/<mailDomainId>             a mail domain (module "mail")
+ *   phone/<phoneSystemId>                 a phone system (module "phone")
+ *   monitor/<monitorId>                   a monitor (module "monitoring")
  *
  * Both actions and resources accept `*` as a wildcard for any sequence of characters
  * (including `/` and `:`). Evaluation follows the usual rules: an explicit deny wins,
@@ -125,7 +127,10 @@ export function isValidResourcePattern(pattern: string): boolean {
   if (pattern === '*' || pattern === 'org') return true;
   const segments = pattern.split('/');
   const [kind, id, third, fourth] = segments;
-  if (!kind || !['member', 'token', 'project', 'domain', 'webspace', 'maildomain'].includes(kind))
+  if (
+    !kind ||
+    !['member', 'token', 'project', 'domain', 'webspace', 'maildomain', 'phone', 'monitor'].includes(kind)
+  )
     return false;
   if (segments.length < 2 || segments.length > 4 || !id || !ID_SEGMENT.test(id)) return false;
   if (segments.length === 3) return kind === 'project' && third === '*';
@@ -176,4 +181,6 @@ export const resourcePath = {
   domain: (domainId: string) => `domain/${domainId}`,
   webspace: (webspaceId: string) => `webspace/${webspaceId}`,
   mailDomain: (mailDomainId: string) => `maildomain/${mailDomainId}`,
+  phoneSystem: (phoneSystemId: string) => `phone/${phoneSystemId}`,
+  monitor: (monitorId: string) => `monitor/${monitorId}`,
 };

@@ -164,16 +164,20 @@ export interface CustomerResources {
   domains: { id: string; name: string }[];
   webspaces: { id: string; name: string }[];
   mailDomains: { id: string; name: string }[];
+  phoneSystems: { id: string; name: string }[];
+  monitors: { id: string; name: string }[];
   /** What the reseller organization itself holds and can hand out. */
   pool: {
     servers: { id: string; name: string; projectId: string }[];
     domains: { id: string; name: string }[];
     webspaces: { id: string; name: string }[];
     mailDomains: { id: string; name: string }[];
+    phoneSystems: { id: string; name: string }[];
+    monitors: { id: string; name: string }[];
   };
 }
 
-export type ResourceType = 'server' | 'domain' | 'webspace' | 'maildomain';
+export type ResourceType = 'server' | 'domain' | 'webspace' | 'maildomain' | 'phone_system' | 'monitor';
 
 export const useCustomerResources = (resellerId: string, customerId: string, enabled = true) =>
   useQuery({
@@ -206,6 +210,8 @@ export function useMoveResource(
         ['servers'],
         ['projects'],
         ['websites'],
+        ['phone'],
+        ['monitoring'],
       ],
     },
   );

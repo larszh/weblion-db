@@ -8,7 +8,16 @@ import type { PolicyStatement } from './policy';
  * its reseller. Platform staff still see everything. Core areas (members, policies, API
  * tokens, audit log, settings, billing) are always available and not modules.
  */
-export const MODULES = ['servers', 'dns', 'webhosting', 'storage', 'mail'] as const;
+export const MODULES = [
+  'servers',
+  'dns',
+  'webhosting',
+  'storage',
+  'mail',
+  'phone',
+  'media',
+  'monitoring',
+] as const;
 export type ModuleKey = (typeof MODULES)[number];
 
 export interface ModuleDef {
@@ -58,6 +67,30 @@ export const MODULE_DEFS: Record<ModuleKey, ModuleDef> = {
       en: 'E-mail domains with mailboxes and forwarding (Mailcow), with webmail, IMAP and SMTP.',
     },
     actions: ['mail:*'],
+  },
+  phone: {
+    label: { de: 'Telefonie', en: 'Telephony' },
+    description: {
+      de: '3CX-Telefonanlagen: Benutzer und Nebenstellen, Ringgruppen und Leitungen verwalten.',
+      en: '3CX phone systems: manage users and extensions, ring groups and trunks.',
+    },
+    actions: ['phone:*'],
+  },
+  media: {
+    label: { de: 'Streaming', en: 'Streaming' },
+    description: {
+      de: 'Zugänge zum Jellyfin-Mediaserver für Filme, Serien und Musik, mit Kontingent für Zugänge, Bibliotheken und gleichzeitige Streams.',
+      en: 'Accounts on the Jellyfin media server for movies, series and music, with an allowance of accounts, libraries and simultaneous streams.',
+    },
+    actions: ['media:*'],
+  },
+  monitoring: {
+    label: { de: 'Monitoring', en: 'Monitoring' },
+    description: {
+      de: 'Verfügbarkeit von Websites und Diensten (Uptime Kuma): Status, Uptime, Antwortzeit und Ablauf der Zertifikate, eigene Monitore im Kontingent.',
+      en: 'Availability of websites and services (Uptime Kuma): status, uptime, response time and certificate expiry, own monitors within an allowance.',
+    },
+    actions: ['monitor:*'],
   },
 };
 

@@ -31,6 +31,9 @@ const READ_ACTIONS = [
   'webspace:read',
   'cloud:read',
   'mail:read',
+  'phone:read',
+  'media:read',
+  'monitor:read',
   'reseller:customer:read',
 ];
 
@@ -58,6 +61,7 @@ export const ORG_ROLE_POLICIES: Record<OrgRole, PolicyStatement[]> = {
         'server:snapshot:create',
         'server:network:update',
         'domain:dns:write',
+        'monitor:write',
         'reseller:customer:access',
       ],
     },
@@ -179,6 +183,8 @@ export const TOKEN_SCOPE_POLICIES: Record<Exclude<TokenScope, 'custom'>, PolicyS
         'domain:authcode',
         'cloud:password',
         'mail:password',
+        'phone:credentials',
+        'media:password',
       ],
     },
   ],

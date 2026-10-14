@@ -3,14 +3,17 @@ import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   Briefcase,
+  Clapperboard,
   CirclePause,
   CirclePlay,
   FolderKanban,
   Globe,
   HardDrive,
+  HeartPulse,
   Layers,
   Mail,
   PackageX,
+  Phone,
   Plus,
   Server,
   Users,
@@ -24,6 +27,7 @@ import { formatRelative } from '@/lib/format';
 import { useBillingSummary, useResellerCustomers } from '@/lib/api/admin';
 import { useDomains, useWebspaces } from '@/lib/api/hosting';
 import { useOrgCloud } from '@/lib/api/cloud';
+import { useOrgMedia } from '@/lib/api/media';
 import {
   Card,
   CardBody,
@@ -41,6 +45,7 @@ import { DomainStatusBadge, ExpiryText, ZoneExpiry } from '@/pages/hosting/bits'
 import { ModuleBadges, StatusBadge } from '@/pages/reseller/bits';
 import { formatQuota } from '@/pages/cloud/bits';
 import { MailCard } from '@/pages/mail/dashboard-card';
+import { PhoneCard } from '@/pages/phone/dashboard-card';
 import { ProjectDialog } from './projects';
 import { ActivityList } from './audit';
 
@@ -318,11 +323,15 @@ export function OrgDashboard() {
   const showWebspaces = hasModule('webhosting') && can('webspace:read');
   const showCloud = hasModule('storage') && can('cloud:read');
   const showMail = hasModule('mail') && can('mail:read');
+  const showPhone = hasModule('phone') && can('phone:read');
+  const showMedia = hasModule('media') && can('media:read');
+  const showMonitoring = hasModule('monitoring') && can('monitor:read');
   const showCustomers = org.kind === 'reseller' && can('reseller:customer:read');
   const projects = useProjects(hasServers ? org.id : undefined);
   const servers = useServers(hasServers ? org.id : undefined);
   const cloud = useOrgCloud(org.id, showCloud);
   const allowance = cloud.data?.allowance ?? null;
+  const mediaAllowance = useOrgMedia(org.id, showMedia).data?.allowance ?? null;
   const audit = useAudit(`/orgs/${org.id}/audit`, { page: 1, perPage: 8 }, can('audit:read'));
   const [creating, setCreating] = useState(false);
 
@@ -352,7 +361,15 @@ export function OrgDashboard() {
 
   // Servers only: the classic tiles. With more modules one tile per service instead.
   const serversOnly =
-    hasServers && !showDomains && !showWebspaces && !showCloud && !showMail && !showCustomers;
+    hasServers &&
+    !showDomains &&
+    !showWebspaces &&
+    !showCloud &&
+    !showMail &&
+    !showPhone &&
+    !showMedia &&
+    !showMonitoring &&
+    !showCustomers;
   const tiles: ReactNode[] = serversOnly
     ? [
         <StatTile
@@ -439,6 +456,41 @@ export function OrgDashboard() {
             value={counts?.mailDomains ?? '–'}
             tone="bg-primary-soft text-primary-text"
             to={`${base}/mail`}
+          />
+        ),
+        showPhone && (
+          <StatTile
+            key="phone"
+            icon={<Phone />}
+            label={t('admin.resources.phoneSystems')}
+            value={counts?.phoneSystems ?? '–'}
+            tone="bg-primary-soft text-primary-text"
+            to={`${base}/phone`}
+          />
+        ),
+        showMedia && (
+          <StatTile
+            key="media"
+            icon={<Clapperboard />}
+            label={t('nav.media')}
+            value={counts?.mediaAccounts ?? '–'}
+            sub={
+              mediaAllowance
+                ? t('media.dashboardSub', { n: mediaAllowance.accounts, max: mediaAllowance.maxAccounts })
+                : undefined
+            }
+            tone="bg-primary-soft text-primary-text"
+            to={`${base}/media`}
+          />
+        ),
+        showMonitoring && (
+          <StatTile
+            key="monitoring"
+            icon={<HeartPulse />}
+            label={t('admin.resources.monitors')}
+            value={counts?.monitors ?? '–'}
+            tone="bg-primary-soft text-primary-text"
+            to={`${base}/monitoring`}
           />
         ),
         showCustomers && (
@@ -561,6 +613,8 @@ export function OrgDashboard() {
 
           {showMail && <MailCard />}
 
+          {showPhone && <PhoneCard />}
+
           {list.length > 0 && (
             <Card>
               <CardHeader title={t('dashboard.locations')} />
@@ -578,15 +632,22 @@ export function OrgDashboard() {
             </Card>
           )}
 
-          {!hasServers && !showDomains && !showWebspaces && !showMail && !showCustomers && (
-            <Card>
-              <EmptyState
-                icon={<PackageX className="size-6" />}
-                title={t('admin.dash.noModules')}
-                description={t('admin.dash.noModulesText')}
-              />
-            </Card>
-          )}
+          {!hasServers &&
+            !showDomains &&
+            !showWebspaces &&
+            !showMail &&
+            !showPhone &&
+            !showMedia &&
+            !showMonitoring &&
+            !showCustomers && (
+              <Card>
+                <EmptyState
+                  icon={<PackageX className="size-6" />}
+                  title={t('admin.dash.noModules')}
+                  description={t('admin.dash.noModulesText')}
+                />
+              </Card>
+            )}
         </div>
 
         <div className="space-y-6">

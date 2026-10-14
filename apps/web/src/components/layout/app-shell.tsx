@@ -7,11 +7,13 @@ import {
   Building2,
   Check,
   ChevronsUpDown,
+  Clapperboard,
   Cloud,
   FolderKanban,
   Gauge,
   Globe,
   HardDrive,
+  HeartPulse,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -23,6 +25,8 @@ import {
   Monitor,
   Moon,
   Network,
+  Phone,
+  PhoneCall,
   Receipt,
   ScrollText,
   Server,
@@ -297,6 +301,24 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
                   icon: <Mail />,
                   show: orgCtx.hasModule('mail') && orgCtx.can('mail:read'),
                 },
+                {
+                  to: `${base}/phone`,
+                  label: 'nav.phone',
+                  icon: <Phone />,
+                  show: orgCtx.hasModule('phone') && orgCtx.can('phone:read'),
+                },
+                {
+                  to: `${base}/media`,
+                  label: 'nav.media',
+                  icon: <Clapperboard />,
+                  show: orgCtx.hasModule('media') && orgCtx.can('media:read'),
+                },
+                {
+                  to: `${base}/monitoring`,
+                  label: 'nav.uptime',
+                  icon: <HeartPulse />,
+                  show: orgCtx.hasModule('monitoring') && orgCtx.can('monitor:read'),
+                },
               ]}
             />
             {orgCtx.org.kind === 'reseller' && (
@@ -386,6 +408,24 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
                 to: '/admin/hosting',
                 label: 'nav.admin.hosting',
                 icon: <Globe />,
+                show: p.includes('platform:provider:read'),
+              },
+              {
+                to: '/admin/phone',
+                label: 'nav.admin.phone',
+                icon: <PhoneCall />,
+                show: p.includes('platform:provider:read'),
+              },
+              {
+                to: '/admin/media',
+                label: 'nav.admin.media',
+                icon: <Clapperboard />,
+                show: p.includes('platform:provider:read'),
+              },
+              {
+                to: '/admin/monitoring',
+                label: 'nav.admin.uptime',
+                icon: <HeartPulse />,
                 show: p.includes('platform:provider:read'),
               },
               {

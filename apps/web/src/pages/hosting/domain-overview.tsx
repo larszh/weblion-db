@@ -25,6 +25,7 @@ import {
   Mono,
   Notice,
 } from '@/components/ui/primitives';
+import { RelatedMonitorsCard } from '@/pages/monitoring/related';
 import { AutoRenewBadge, DomainStatusBadge, ExpiryText, LockBadge } from './bits';
 import {
   ActionResultNotice,
@@ -47,7 +48,14 @@ export function DomainOverview({ domain }: { domain: DomainDetailDto }) {
   const canMove = useCanMoveDns();
   // Kept here, not in the card: the dialog shows the result even when the card goes away.
   const [moving, setMoving] = useState(false);
-  if (domain.kind === 'zone') return <ZoneOverview domain={domain} />;
+  if (domain.kind === 'zone') {
+    return (
+      <div className="space-y-6">
+        <ZoneOverview domain={domain} />
+        <RelatedMonitorsCard kind="domain" id={domain.id} />
+      </div>
+    );
+  }
 
   const caps = domain.capabilities;
   const registrant = domain.info?.registrant;
@@ -64,6 +72,9 @@ export function DomainOverview({ domain }: { domain: DomainDetailDto }) {
       {showRenewal && <RenewalCard domain={domain} />}
       {showMove && <DnsMoveCard onStart={() => setMoving(true)} />}
       {moving && <DnsMoveDialog domain={domain} onClose={() => setMoving(false)} />}
+      <div className="lg:col-span-3 empty:hidden">
+        <RelatedMonitorsCard kind="domain" id={domain.id} />
+      </div>
     </div>
   );
 }

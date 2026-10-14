@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { can, type AccessSubject } from './access';
-import { moduleDenyStatements, normalizeModules } from './modules';
+import { MODULES, moduleDenyStatements, normalizeModules } from './modules';
 import { resourcePath, validateStatements } from './policy';
 import { DEFAULT_CUSTOMER_BOUNDARY, DEFAULT_RESELLER_BOUNDARY, TOKEN_SCOPE_POLICIES } from './roles';
 
@@ -31,7 +31,7 @@ describe('modules', () => {
 
   it('produces valid statements and normalizes input', () => {
     expect(validateStatements(moduleDenyStatements([]))).toEqual([]);
-    expect(moduleDenyStatements(['servers', 'dns', 'webhosting', 'storage', 'mail'])).toEqual([]);
+    expect(moduleDenyStatements([...MODULES])).toEqual([]);
     expect(moduleDenyStatements(['servers'])[0]!.actions).toContain('mail:*');
     expect(normalizeModules(['dns', 'bogus', 'servers', 'dns'])).toEqual(['servers', 'dns']);
   });
@@ -163,5 +163,38 @@ describe('websites', () => {
   it('keeps the platform permission away from organizations', () => {
     const owner: AccessSubject = { orgRole: 'owner', boundary: customerBoundary(['webhosting']) };
     expect(can(owner, 'platform:website:write', org)).toBe(false);
+  });
+});
+
+describe('streaming', () => {
+  it('lets read-write tokens manage accounts, never set passwords', () => {
+    const token: AccessSubject = {
+      orgRole: 'owner',
+      boundary: customerBoundary(['media']),
+      tokenStatements: TOKEN_SCOPE_POLICIES.read_write,
+    };
+    expect(can(token, 'media:write', org)).toBe(true);
+    expect(can(token, 'media:password', org)).toBe(false);
+    const read: AccessSubject = { ...token, tokenStatements: TOKEN_SCOPE_POLICIES.read };
+    expect(can(read, 'media:read', org)).toBe(true);
+    expect(can(read, 'media:write', org)).toBe(false);
+  });
+
+  it('lets members read only and owners do everything', () => {
+    const member: AccessSubject = { orgRole: 'member', boundary: customerBoundary(['media']) };
+    expect(can(member, 'media:read', org)).toBe(true);
+    expect(can(member, 'media:write', org)).toBe(false);
+    expect(can(member, 'media:password', org)).toBe(false);
+    const owner: AccessSubject = { orgRole: 'owner', boundary: customerBoundary(['media']) };
+    expect(can(owner, 'media:write', org)).toBe(true);
+    expect(can(owner, 'media:password', org)).toBe(true);
+    expect(can(owner, 'platform:media:write', org)).toBe(false);
+  });
+
+  it('denies everything of media while the module is off', () => {
+    const owner: AccessSubject = { orgRole: 'owner', boundary: customerBoundary(['servers']) };
+    expect(can(owner, 'media:read', org)).toBe(false);
+    expect(can(owner, 'media:write', org)).toBe(false);
+    expect(can(owner, 'media:password', org)).toBe(false);
   });
 });
