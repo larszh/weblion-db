@@ -1,0 +1,84 @@
+# HELP process_cpu_user_seconds_total Total user CPU time spent in seconds.
+# TYPE process_cpu_user_seconds_total counter
+process_cpu_user_seconds_total 182.44
+
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 161447936
+
+# HELP nodejs_version_info Node.js version info.
+# TYPE nodejs_version_info gauge
+nodejs_version_info{version="v20.19.5",major="20",minor="19",patch="5"} 1
+
+# HELP monitor_cert_days_remaining The number of days remaining until the certificate expires
+# TYPE monitor_cert_days_remaining gauge
+monitor_cert_days_remaining{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null"} 54
+monitor_cert_days_remaining{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null"} 12
+
+# HELP monitor_cert_is_valid Is the certificate still valid? (1 = Yes, 0= No)
+# TYPE monitor_cert_is_valid gauge
+monitor_cert_is_valid{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null"} 1
+monitor_cert_is_valid{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null"} 1
+
+# HELP monitor_uptime_ratio Uptime ratio calculated over sliding window specified by the 'window' label. (0.0 - 1.0)
+# TYPE monitor_uptime_ratio gauge
+monitor_uptime_ratio{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null",window="1d"} 0.9993
+monitor_uptime_ratio{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null",window="30d"} 0.99987
+monitor_uptime_ratio{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null",window="365d"} 0.9995
+monitor_uptime_ratio{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null",window="1d"} 0.95
+monitor_uptime_ratio{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null",window="30d"} 0.998
+monitor_uptime_ratio{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null",window="365d"} 0.999
+monitor_uptime_ratio{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null",window="1d"} 1
+monitor_uptime_ratio{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null",window="30d"} 1
+monitor_uptime_ratio{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null",window="365d"} 1
+monitor_uptime_ratio{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587",window="1d"} 0.98
+monitor_uptime_ratio{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587",window="30d"} 0.999
+monitor_uptime_ratio{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587",window="365d"} 0.9995
+monitor_uptime_ratio{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null",window="1d"} 1
+monitor_uptime_ratio{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null",window="30d"} 0.9999
+monitor_uptime_ratio{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null",window="365d"} 0.9999
+
+# HELP monitor_response_time_seconds Average response time in seconds calculated over sliding window specified by the 'window' label
+# TYPE monitor_response_time_seconds gauge
+monitor_response_time_seconds{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null",window="1d"} 0.204
+monitor_response_time_seconds{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null",window="30d"} 0.1984
+monitor_response_time_seconds{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null",window="365d"} 0.2
+monitor_response_time_seconds{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null",window="1d"} 0.251
+monitor_response_time_seconds{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null",window="30d"} NaN
+monitor_response_time_seconds{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null",window="365d"} 0.25
+monitor_response_time_seconds{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null",window="1d"} 0.013
+monitor_response_time_seconds{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null",window="30d"} 0.0128
+monitor_response_time_seconds{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null",window="365d"} 0.013
+monitor_response_time_seconds{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587",window="1d"} 0.031
+monitor_response_time_seconds{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587",window="30d"} 0.03
+monitor_response_time_seconds{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587",window="365d"} 0.03
+monitor_response_time_seconds{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null",window="1d"} 0
+monitor_response_time_seconds{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null",window="30d"} 0
+monitor_response_time_seconds{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null",window="365d"} 0
+
+# HELP monitor_response_time Monitor Response Time (ms)
+# TYPE monitor_response_time gauge
+monitor_response_time{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null"} 182
+monitor_response_time{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null"} -1
+monitor_response_time{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null"} 12.4
+monitor_response_time{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587"} 35
+monitor_response_time{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null"} -1
+
+# HELP monitor_status Monitor Status (1 = UP, 0= DOWN, 2= PENDING, 3= MAINTENANCE)
+# TYPE monitor_status gauge
+monitor_status{env="production",monitor_id="1",monitor_name="Muster Website",monitor_type="http",monitor_url="https://www.muster-ag.ch/health?token=abc123",monitor_hostname="null",monitor_port="null"} 1
+monitor_status{monitor_id="2",monitor_name="Shop \"Warenkorb\" \\ Check",monitor_type="keyword",monitor_url="https://shop.muster-ag.ch",monitor_hostname="null",monitor_port="null"} 0
+monitor_status{monitor_id="3",monitor_name="Router Ping",monitor_type="ping",monitor_url="https://",monitor_hostname="198.51.100.7",monitor_port="null"} 1
+monitor_status{monitor_id="4",monitor_name="Mail SMTP",monitor_type="port",monitor_url="https://",monitor_hostname="mail.muster-ag.ch",monitor_port="587"} 2
+monitor_status{monitor_id="5",monitor_name="Kunden",monitor_type="group",monitor_url="https://",monitor_hostname="null",monitor_port="null"} 1
+
+# HELP app_version The service version by package.json
+# TYPE app_version gauge
+app_version{version="2.5.6",major="2",minor="5",patch="6"} 1
+
+# HELP http_request_duration_seconds Duration of HTTP requests in seconds
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{le="0.003",method="GET",route="/metrics",code="200"} 4
+http_request_duration_seconds_bucket{le="+Inf",method="GET",route="/metrics",code="200"} 12
+http_request_duration_seconds_sum{method="GET",route="/metrics",code="200"} 0.084
+http_request_duration_seconds_count{method="GET",route="/metrics",code="200"} 12

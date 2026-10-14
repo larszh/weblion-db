@@ -897,6 +897,12 @@ export interface ProviderAdapter {
     path: string,
     body: Record<string, unknown> | undefined,
   ): { path: string; body: unknown };
+
+  /**
+   * Releases what the adapter holds open (Uptime Kuma: the management socket). The registry calls
+   * it when it drops the adapter after a credential change, instead of waiting for an idle timer.
+   */
+  close?(): void;
 }
 
 export interface Fire24Config {

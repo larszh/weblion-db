@@ -96,6 +96,7 @@ export class ProviderRegistry {
     if (cached && cached.version === version) return cached.adapter;
     const config = this.box.decryptJson<ProviderConfig>(connection.configEnc);
     const adapter = createAdapter(connection.type, connection.id, config);
+    cached?.adapter.close?.();
     this.cache.set(connection.id, { version, adapter });
     return adapter;
   }
@@ -113,6 +114,8 @@ export class ProviderRegistry {
   }
 
   invalidate(connectionId: string) {
+    // The old adapter may hold a session with the previous credentials (Uptime Kuma).
+    this.cache.get(connectionId)?.adapter.close?.();
     this.cache.delete(connectionId);
   }
 }

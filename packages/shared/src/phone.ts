@@ -192,7 +192,10 @@ export interface PhoneUser {
 }
 
 export interface PhoneUserDto extends PhoneUser {
-  /** admin or system: only platform staff may delete it or change its e-mail address. */
+  /**
+   * admin or system, or the role is unknown (null): only platform staff may delete it or change
+   * its e-mail address.
+   */
   protected: boolean;
 }
 

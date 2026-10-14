@@ -421,7 +421,7 @@ export class SyncService {
       if (adapter.listPhoneSystems)
         result.phoneSystems = await syncPhoneSystems(this.db, connection, adapter);
       if (adapter.listMediaUsers)
-        result.mediaAccounts = await syncMediaAccounts(this.db, connection, adapter, this.audit);
+        result.mediaAccounts = await syncMediaAccounts(this.db, connection, adapter, this.audit, this.log);
       if (adapter.listMonitors) {
         result.monitors = await syncMonitors(this.db, connection, adapter);
         // The monitors came from /metrics anyway; the connection stays "ok".
