@@ -4,7 +4,8 @@ Kunden- und Admin-Panel von weblion.one. Ein Panel für Cloud-Server im Rechenze
 Deutschland (24fire), in der Hetzner Cloud (DE, FI, USA, SG) und auf eigener
 Proxmox-Infrastruktur in der Schweiz, dazu Domains mit DNS (24fire und Joker.com), DNS-Zonen und
 CDN bei Cloudflare, Websites auf eigenen CloudPanel-Servern und Webspaces bei 24fire,
-Cloud-Speicher auf der eigenen Nextcloud, E-Mail auf eigenen Mailcow-Servern, Abrechnung mit
+Cloud-Speicher auf der eigenen Nextcloud, E-Mail auf eigenen Mailcow-Servern, Telefonanlagen mit
+3CX, Streaming auf eigenen Jellyfin-Servern, Monitoring mit Uptime Kuma, Abrechnung mit
 QR-Rechnung, Stripe/TWINT und Zoho Books, ein Reseller-Modell sowie Rollen, Access Policies und
 Audit-Log. Inspiriert von der Hetzner Cloud Console.
 
@@ -41,6 +42,19 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 - Cloud-Speicher (Nextcloud): Konten für das Team im gebuchten Kontingent selbst anlegen, jedes
   mit eigenem Kontingent. Name, E-Mail und Kontingent ändern, deaktivieren, Passwort neu setzen
   (einmal angezeigt) oder Einladung per E-Mail, Belegung pro Konto, Löschen mit Bestätigung
+- Telefonie (3CX): die eigenen Telefonanlagen (auch mehrere, z.B. pro Standort) mit Lizenz,
+  Gesprächen, Leitungen und Zustand. Benutzer und Nebenstellen anlegen (nächste freie Nummer oder
+  eigene), ändern und löschen, Willkommens-E-Mail der Anlage senden, Mitglieder von Ringgruppen
+  ändern, Leitungen ansehen, Link zum 3CX-Webclient
+- Streaming (Jellyfin): Zugänge für Personen oder Geräte im gebuchten Kontingent selbst anlegen,
+  mit erzeugtem (einmal angezeigt, fernbedienungsfreundlich) oder eigenem Passwort, deaktivieren,
+  Passwort neu setzen, löschen. Jeder Zugang bekommt genau die Bibliotheken, Streams, Downloads und
+  Bitrate des Kontingents. Anmeldehilfe mit Server-Adresse, Apps und Quick Connect für den
+  Fernseher. Was jemand anschaut, zeigt die Console nicht
+- Monitoring (Uptime Kuma): Status, Uptime über 24 Stunden und 30 Tage, Antwortzeit und Ablauf der
+  Zertifikate der eigenen Monitore, Verlauf als Diagramm, Link zur Statusseite. Im Kontingent eigene
+  Monitore anlegen (HTTP(S), Keyword, Ping, Port, nur öffentliche Ziele), ändern, pausieren,
+  löschen. Monitore erscheinen auch auf den Seiten der Server und Domains, die sie prüfen
 - Abrechnung: Rechnungen als PDF mit QR-Rechnung, Guthaben, Dienste, online bezahlen mit
   Karte oder TWINT, Rechnungsadresse
 - Nur freigeschaltete Module sind sichtbar (z.B. DNS erst, wenn es aktiviert ist)
@@ -74,6 +88,16 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
   Websites für Kunden anlegen, bestehende Sites eines Servers übernehmen und aus der Console
   entfernen. Auf dem Server arbeitet ein kleiner Root-Wrapper (`deploy/cloudpanel-agent`), der nur
   Sites ändert, die die Console verwaltet
+- Telefonie: beliebig viele 3CX-Telefonanlagen anbinden (eine pro Verbindung, über die XAPI mit
+  einem eigenen API-Client) und Kunden zuweisen, alle Anlagen mit Zustand, Lizenz und Benutzern in
+  einer Liste
+- Streaming: beliebig viele Jellyfin-Instanzen (gemeinsam oder dediziert), Kontingent pro Kunde
+  (Zugänge, Bibliotheken, Streams, Downloads, Bitrate unterwegs) mit Kontingent-Code für die
+  Login-Namen, bestehende Jellyfin-Benutzer übernehmen und zuweisen, Richtlinie anwenden. Der Sync
+  stellt Rechte wieder her, die jemand in Jellyfin geändert hat
+- Monitoring: beliebig viele Instanzen von Uptime Kuma, Monitore Kunden zuweisen (auch alle einer
+  Instanz auf einmal), Instanzen für die Verwaltung anmelden (nur das Sitzungstoken wird
+  gespeichert), Kontingente für eigene Monitore und verknüpfte Statusseiten pro Kunde
 - Domains verlängern und die automatische Verlängerung schalten (Joker.com, nur mit Login)
 - Einstellungen: SMTP, Rechnungssteller (Adresse, IBAN, MWST, Nummernkreis), Status von
   Stripe und Zoho Books, Mail-Log
@@ -83,14 +107,17 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 - Server bei Proxmox aus Templates erstellen, bei Hetzner Cloud mit Server-Typ, Standort und
   Image (Einkaufspreise nur für weblion.one sichtbar)
 - API Explorer: Rohzugriff auf die 24fire-, Proxmox-, Hetzner-Cloud-, Joker.com- (DMAPI) und
-  Cloudflare-API, die OCS-API von Nextcloud und die API von Mailcow für alles ohne eigenen Button,
-  bei CloudPanel nur lesend (Server, verwaltete und nicht verwaltete Sites)
+  Cloudflare-API, die OCS-API von Nextcloud, die API von Mailcow, die XAPI von 3CX und die API
+  von Jellyfin für alles ohne eigenen Button (ohne Pfade, die Zugangsdaten herausgeben), bei Uptime
+  Kuma `/metrics`, die Statusseiten und eine feste Liste von Socket-Events, bei CloudPanel nur
+  lesend (Server, verwaltete und nicht verwaltete Sites)
 
 **Für Reseller**
 - Eigene Kunden anlegen und sperren, Module freischalten (bis zum eigenen Umfang)
-- Im Panel der Kunden arbeiten, Server, Domains, DNS-Zonen, Webspaces, Websites und Mail-Domains
-  zuteilen
-- Kunden einen Teil des eigenen Cloud-Speicher- und Website-Kontingents geben
+- Im Panel der Kunden arbeiten, Server, Domains, DNS-Zonen, Webspaces, Websites, Mail-Domains,
+  Telefonanlagen und Monitore zuteilen
+- Kunden einen Teil des eigenen Kontingents für Cloud-Speicher, Websites, Streaming und Monitoring
+  geben
 - Eigene Produkte und Preise, Rechnungen mit eigenem Briefkopf und Nummernkreis, Guthaben
 
 | Graphen | Access Policies | Kunde im Admin-Bereich |
@@ -104,16 +131,20 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 ## Stand
 
 - Gegen echte 24fire-, Proxmox-, Hetzner-, Joker.com-, Cloudflare-, Nextcloud-, Mailcow-,
-  CloudPanel-, Stripe- und Zoho-Systeme ist die Console noch **nicht live getestet**: Die
-  Build-Umgebung hatte keinen Netzzugriff darauf. Alle Anbindungen sind gegen Mock-Server getestet,
-  die die dokumentierten Antworten nachbilden. Die 24fire-Endpunkte folgen der offiziellen v2-Doku,
-  die Proxmox-Aufrufe der API-Referenz, die Hetzner-Aufrufe der API-Doku und dem offiziellen
-  Go-Client hcloud-go, die Joker-Requests der DMAPI-Spezifikation, die Cloudflare-Aufrufe der
-  OpenAPI-Spezifikation von Cloudflare, die Nextcloud-Aufrufe der Doku der Provisioning API und dem
-  Quellcode von Nextcloud, die Mailcow-Aufrufe dem Quellcode von Mailcow (`json_api.php`). Der
-  CloudPanel-Agent folgt der Doku von CloudPanel, seinem Issue-Tracker und Community-Code, der
-  `clpctl` aufruft, und ist mit Python-Tests gegen nachgebaute Werkzeuge geprüft. Was bei
-  Joker.com, Cloudflare, Nextcloud, Mailcow und CloudPanel noch zu prüfen ist, steht in
+  CloudPanel-, 3CX-, Jellyfin-, Uptime-Kuma-, Stripe- und Zoho-Systeme ist die Console noch **nicht
+  live getestet**: Die Build-Umgebung hatte keinen Netzzugriff darauf. Alle Anbindungen sind gegen
+  Mock-Server getestet, die die dokumentierten Antworten nachbilden. Die 24fire-Endpunkte folgen
+  der offiziellen v2-Doku, die Proxmox-Aufrufe der API-Referenz, die Hetzner-Aufrufe der API-Doku
+  und dem offiziellen Go-Client hcloud-go, die Joker-Requests der DMAPI-Spezifikation, die
+  Cloudflare-Aufrufe der OpenAPI-Spezifikation von Cloudflare, die Nextcloud-Aufrufe der Doku der
+  Provisioning API und dem Quellcode von Nextcloud, die Mailcow-Aufrufe dem Quellcode von Mailcow
+  (`json_api.php`), die 3CX-Aufrufe der offiziellen OpenAPI-Beschreibung der XAPI (3CX
+  20.0.10.1479) und dem Tutorial-Repository von 3CX, die Jellyfin-Aufrufe dem Quellcode von Jellyfin
+  10.11.11 (und 10.10.7), die Uptime-Kuma-Aufrufe dem Quellcode von Uptime Kuma 2.5.6 (die
+  Socket.IO-Events der Weboberfläche sind dort nicht als API dokumentiert). Der CloudPanel-Agent
+  folgt der Doku von CloudPanel, seinem Issue-Tracker und Community-Code, der `clpctl` aufruft, und
+  ist mit Python-Tests gegen nachgebaute Werkzeuge geprüft. Was bei Joker.com, Cloudflare,
+  Nextcloud, Mailcow, CloudPanel, 3CX, Uptime Kuma und Jellyfin noch zu prüfen ist, steht in
   [docs/providers.md](docs/providers.md) jeweils unter "Offene Punkte".
 - Hetzner Cloud: Firewalls, Volumes, Load Balancer, Floating/Primary IPs, Storage Boxes,
   DNS-Zonen und dedizierte Server (Robot) sind noch nicht angebunden, siehe
@@ -140,6 +171,22 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
   fehlender DNS-Einträge und die Kopplung an die Abrechnung folgen in einer zweiten Stufe, siehe
   [docs/providers.md](docs/providers.md#cloudpanel-websites) und die
   [Roadmap](docs/roadmap.md#websites-cloudpanel).
+- Telefonie: Die 3CX-Telefonanlagen betreibt weblion.one, die XAPI braucht eine
+  Enterprise-Lizenz und einen eigenen API-Client pro Anlage, Lizenzen laufen ausserhalb der Console.
+  Weil 3CX pro API-Client nur ein Token zulässt, läuft die Console mit einem API-Prozess.
+  Abteilungen, Warteschlangen, Weiterleitungen und Durchwahlen gehen weiterhin im 3CX-Webclient.
+  Sperren eines Kunden stellt seine Anlage nicht ab, und eine Anlage lässt sich noch nicht mit
+  einem Dienst verknüpfen, siehe [docs/providers.md](docs/providers.md#3cx-telefonie).
+- Streaming: Die Jellyfin-Server und ihre Inhalte betreibt weblion.one, die Console verwaltet nur
+  die Zugänge und ihre Rechte. Sperren eines Kunden deaktiviert seine Zugänge nicht, und eine
+  Abrechnung pro Zugang gibt es nicht, siehe
+  [docs/providers.md](docs/providers.md#jellyfin-streaming).
+- Monitoring: Lesen geht mit jeder Instanz von Uptime Kuma 2.x über `/metrics`. Eigene Monitore
+  der Kunden brauchen die Anmeldung für die Verwaltung, die über die nicht dokumentierten
+  Socket-Events der Weboberfläche läuft und mit einem Update von Uptime Kuma brechen kann (das
+  Lesen nicht). Bei einem Ausfall benachrichtigt die Console keine Kunden, Statusseiten legt
+  weblion.one in Uptime Kuma an, siehe
+  [docs/providers.md](docs/providers.md#uptime-kuma-monitoring).
 
 ## Schnellstart (Entwicklung)
 
@@ -152,8 +199,9 @@ pnpm db:migrate
 pnpm dev                      # API auf :3000, Web auf :5173
 ```
 
-Mit Demo-Daten (simulierter Provider mit simulierter Nextcloud und simuliertem Mailcow,
-Beispielkunden, ohne echte Server):
+Mit Demo-Daten (simulierter Provider mit simulierter Nextcloud, simuliertem Mailcow, drei
+simulierten 3CX-Anlagen, simuliertem Jellyfin und simuliertem Uptime Kuma, Beispielkunden, ohne
+echte Server):
 
 ```bash
 ENABLE_DEMO_PROVIDER=true pnpm db:seed
@@ -168,14 +216,14 @@ Demo-Benutzer, Passwort `demo-password-123`:
 
 | | |
 |---|---|
-| `anna@muster.example` | Owner Muster AG (Server, Domains, Webhosting, Cloud-Speicher, E-Mail, Rechnungen, mit `ENABLE_DEMO_CLOUDPANEL` drei Websites) |
+| `anna@muster.example` | Owner Muster AG (Server, Domains, Webhosting, Cloud-Speicher, E-Mail, Telefonie, Streaming, Monitoring, Rechnungen, mit `ENABLE_DEMO_CLOUDPANEL` drei Websites) |
 | `ben@muster.example` | eingeschränkt, nur Webshop-Projekt |
 | `carla@muster.example` | nur lesen |
 | `dev@beispiel.example` | Owner Beispiel GmbH (mit `ENABLE_DEMO_CLOUDFLARE` eine wartende Cloudflare-Zone) |
 | `reseller@alpen.example` | Owner des Resellers Alpen Hosting |
 | `huber@baeckerei.example` | Owner von Bäckerei Huber (Kunde von Alpen Hosting) |
 
-## Zugangsdaten (24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud, Mailcow, CloudPanel)
+## Zugangsdaten (24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud, Mailcow, CloudPanel, Jellyfin, Uptime Kuma, 3CX)
 
 Zugangsdaten gehören **nicht** ins Git-Repo, auch nicht in ein privates. Sie kommen aus
 Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start verschlüsselt
@@ -203,13 +251,20 @@ Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start v
 | `CLOUDPANEL_PRIVATE_KEY_FILE` | Datei mit dem privaten ed25519-Schlüssel der Console (alternativ `CLOUDPANEL_PRIVATE_KEY` inline) |
 | `CLOUDPANEL_HOST_KEY` | Fingerabdruck des Host-Schlüssels, `SHA256:...` (gibt `install.sh` aus) |
 | `CLOUDPANEL_ACCESS_HOST` | optional, Host für SFTP/SSH der Kunden, Standard: `CLOUDPANEL_HOST` |
+| `JELLYFIN_URL` | Adresse der eigenen Jellyfin-Instanz (10.10 oder neuer), wie die Kunden sie in den Apps eingeben, mit Basis-Pfad, falls gesetzt |
+| `JELLYFIN_API_KEY` | API-Schlüssel aus dem Jellyfin-Dashboard (32 Zeichen, volle Administratorrechte, nur für die Console) |
+| `UPTIMEKUMA_URL` | Adresse der eigenen Instanz von Uptime Kuma 2.x, ohne Pfad, z.B. `https://status.weblion.one` |
+| `UPTIMEKUMA_API_KEY` | API-Schlüssel aus Uptime Kuma (`uk…`, ohne Ablaufdatum). Der erste Schlüssel stellt `/metrics` auf Schlüssel um |
+| `UPTIMEKUMA_SESSION_TOKEN` | optional, Sitzungstoken für die Verwaltung (eigene Monitore der Kunden), erzeugt mit `pnpm --filter @weblion/api kuma:token` |
 | `ENCRYPTION_KEY` | `openssl rand -base64 32`, gut aufbewahren |
 
-Weitere Provider (z.B. weitere Hetzner-Projekte, Cloudflare-Konten, Nextcloud- oder
-Mailcow-Instanzen, CloudPanel-Server) lassen sich im Admin-Bereich hinzufügen. Details, Hinweise
-zum Proxmox- und Hetzner-Token, zum Joker-Reseller-Konto, zum Cloudflare-Token, zum
-Nextcloud-Admin-Konto, zum Mailcow-API-Key (Allow-List, Netfilter) und zum Agent auf
-CloudPanel-Servern in [docs/providers.md](docs/providers.md) und
+Weitere Provider (z.B. weitere Hetzner-Projekte, Cloudflare-Konten, Nextcloud-, Mailcow-, Jellyfin-
+oder Uptime-Kuma-Instanzen, CloudPanel-Server) lassen sich im Admin-Bereich hinzufügen. 3CX-Anlagen
+gibt es nur dort: Client-ID und API-Schlüssel eines eigenen API-Clients pro Anlage. Details,
+Hinweise zum Proxmox- und Hetzner-Token, zum Joker-Reseller-Konto, zum Cloudflare-Token, zum
+Nextcloud-Admin-Konto, zum Mailcow-API-Key (Allow-List, Netfilter), zum Agent auf
+CloudPanel-Servern, zum API-Client von 3CX, zum Schlüssel von Jellyfin und zur Anmeldung von Uptime
+Kuma für die Verwaltung in [docs/providers.md](docs/providers.md) und
 [deploy/cloudpanel-agent/README.md](deploy/cloudpanel-agent/README.md).
 
 Für E-Mail (SMTP), Stripe/TWINT und Zoho Books kommen weitere Variablen dazu, alle in
@@ -260,6 +315,8 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
 curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/cloud
 curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/mail/domains
 curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/webspaces
+curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/phone-systems
+curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/monitoring
 curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/json" \
   -d '{"everything":true}' https://cp.weblion.cloud/api/v1/domains/<domain-id>/cdn/purge
 ```
@@ -270,7 +327,7 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
 - [docs/billing.md](docs/billing.md): Abrechnung, Reseller, Module, Cloud-Speicher und E-Mail
   verkaufen, Stripe/TWINT, Zoho Books, E-Mail der Console
 - [docs/providers.md](docs/providers.md): 24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare,
-  Nextcloud, Mailcow und CloudPanel einrichten, Kosten, offene Punkte
+  Nextcloud, Mailcow, CloudPanel, 3CX, Uptime Kuma und Jellyfin einrichten, Kosten, offene Punkte
 - [deploy/cloudpanel-agent/README.md](deploy/cloudpanel-agent/README.md): der Agent auf den
   CloudPanel-Servern (installieren, Schutzliste, übernehmen, testen)
 - [docs/deployment.md](docs/deployment.md): Betrieb, Backups, Updates

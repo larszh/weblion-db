@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), 3CX-Telefonanlagen (HTTPS zu `/connect/token` und zur XAPI), Jellyfin-Instanzen (HTTP(S) zur API), Uptime-Kuma-Instanzen (HTTP(S) zu `/metrics` und den Statusseiten, für die Verwaltung ein Websocket auf `/socket.io/`), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -104,6 +104,61 @@ doch derselbe Server ist). Einrichtung in [providers.md](providers.md#cloudpanel
   der Server arbeiten weiter, die Website entsteht. Nur das Passwort einer neuen Website sieht dann
   niemand: in der Console ein neues setzen.
 
+### 3CX für Telefonie
+
+Die Telefonanlagen sind eigene Dienste: 3CX V20 mit Enterprise-Lizenz, auf einer eigenen VM oder
+gehostet. Die Console braucht nur HTTPS zur Anlage und einen eigenen API-Client, Einrichtung in
+[providers.md](providers.md#3cx-telefonie). Für den Betrieb der Console wichtig:
+
+- **Ein API-Prozess:** 3CX lässt pro API-Client nur ein gültiges Token zu, und die Console hält es
+  im Speicher ihres Prozesses. Laufen mehrere Prozesse oder Container mit derselben Datenbank (etwa
+  für Hochverfügbarkeit), nehmen sie sich das Token gegenseitig weg. Docker Compose und die
+  Node.js-Site auf CloudPanel laufen mit einem Prozess.
+- **Gültiges Zertifikat:** Die Console prüft TLS immer. Eine Anlage mit selbst signiertem oder
+  privatem Zertifikat lässt sich nicht anbinden.
+- **Sperren nach Fehlversuchen:** 3CX sperrt IPs nach fehlgeschlagenen Anmeldungen. Nach einer
+  abgelehnten Anmeldung wartet die Console 60 Sekunden, bevor sie es wieder versucht. Trotzdem nach
+  einem Umzug der Console nicht wiederholt mit einem falschen Schlüssel testen.
+
+### Jellyfin für Streaming
+
+Auch Jellyfin ist ein eigener Dienst: eine eigene VM mit genug Platz für die Bibliotheken und genug
+Rechenleistung zum Transkodieren, hinter einem Reverse Proxy mit https, den Jellyfin als bekannten
+Proxy kennt. Einrichtung in [providers.md](providers.md#jellyfin-streaming). Für den Betrieb der
+Console wichtig:
+
+- **Erreichbarkeit:** Die Console spricht die Instanz unter der Adresse an, die auch die Kunden in
+  den Apps eingeben. Ist "Remote-Verbindungen erlauben" in Jellyfin aus, nimmt Jellyfin die Console
+  nur aus seinem lokalen Netz an.
+- **Zeitlimit im Reverse Proxy:** Eine Änderung an einem Streaming-Kontingent schreibt die
+  Richtlinie aller Zugänge der Organisation in derselben Anfrage, vier gleichzeitig. Bei vielen
+  Zugängen kann das länger dauern als die 60 Sekunden, die nginx standardmässig wartet (die Zeilen
+  aus [Websockets im Vhost](#websockets-im-vhost) mit 3600 Sekunden reichen). Bricht der Proxy ab,
+  arbeitet die Console trotzdem zu Ende, und was nicht geschrieben wurde, repariert der Sync.
+
+### Uptime Kuma für Monitoring
+
+Uptime Kuma 2.x läuft am besten auf einer eigenen kleinen VM, nicht auf dem Server der Console: Die
+Monitore der Kunden prüfen von dort aus. Einrichtung in
+[providers.md](providers.md#uptime-kuma-monitoring). Für den Betrieb der Console wichtig:
+
+- **Ausgehenden Verkehr der Kuma-VM filtern:** Die Console nimmt für Monitore der Kunden nur
+  öffentliche Ziele an, aber DNS kann sich nach der Prüfung ändern. Eine Firewall auf der Kuma-VM
+  sperrt deshalb den Weg in interne Netze (Proxmox, Verwaltung, den Server der Console).
+- **Websocket:** Für die Verwaltung öffnet die Console einen Websocket auf `/socket.io/` der
+  Instanz. Ein Reverse Proxy vor Uptime Kuma muss Websockets durchlassen (das braucht auch die
+  Weboberfläche von Uptime Kuma) und darf `/metrics` nicht sperren.
+- **Grenze von 60 Anfragen pro Minute** mit API-Schlüsseln, für die ganze Instanz: Die Console
+  braucht höchstens 2 pro Minute und Prozess. Ein eigener Prometheus, der `/metrics` abfragt, zählt
+  mit.
+- **Sitzungstoken für die `.env`:** `pnpm --filter @weblion/api kuma:token` läuft nicht im
+  Docker-Image (es enthält weder die Quellen noch `tsx`), sondern in einem Checkout des Repositorys
+  nach `pnpm install`, auf einem Rechner, der Uptime Kuma erreicht. Das Token kommt in
+  `UPTIMEKUMA_SESSION_TOKEN`, danach die Console neu starten. Verbindungen aus dem Admin-Bereich
+  meldet man stattdessen unter Admin > Monitoring an.
+- **DNS:** Die Ziele eigener Monitore löst die Console über den Resolver ihres Servers auf (im
+  Container der von Docker), mit höchstens 3 Sekunden pro Name.
+
 ## Mit Docker Compose
 
 ```bash
@@ -156,6 +211,18 @@ CLOUDPANEL_PRIVATE_KEY_FILE=/run/secrets/cloudpanel_web1
 CLOUDPANEL_HOST_KEY=SHA256:...
 CLOUDPANEL_ACCESS_HOST=web1.weblion.cloud
 
+# Telefonie (3CX): keine Variablen, jede Telefonanlage im Admin-Bereich unter Provider anlegen.
+
+# Streaming: eigene Jellyfin-Instanz und ein API-Schlüssel aus dem Dashboard
+JELLYFIN_URL=https://media.weblion.one
+JELLYFIN_API_KEY='...'
+
+# Monitoring: eigene Instanz von Uptime Kuma 2.x und ein API-Schlüssel, optional das
+# Sitzungstoken für eigene Monitore der Kunden (pnpm --filter @weblion/api kuma:token)
+UPTIMEKUMA_URL=https://status.weblion.one
+UPTIMEKUMA_API_KEY='uk1_...'
+UPTIMEKUMA_SESSION_TOKEN=
+
 # E-Mail. Alternativ im Admin-Bereich unter Einstellungen > E-Mail eintragen.
 SMTP_HOST=smtp.example.ch
 SMTP_PORT=587
@@ -199,9 +266,10 @@ cp.weblion.cloud {
 ```
 
 Websockets (Konsole) leitet Caddy automatisch weiter. Bei nginx `proxy_http_version 1.1`
-und die `Upgrade`/`Connection`-Header setzen. Mit Mailcow und CloudPanel braucht nginx ausserdem
-ein längeres `proxy_read_timeout`, siehe [Mailcow für E-Mail](#mailcow-für-e-mail) und
-[CloudPanel für Websites](#cloudpanel-für-websites).
+und die `Upgrade`/`Connection`-Header setzen. Mit Mailcow, CloudPanel und Jellyfin (viele
+Zugänge) braucht nginx ausserdem ein längeres `proxy_read_timeout`, siehe
+[Mailcow für E-Mail](#mailcow-für-e-mail), [CloudPanel für Websites](#cloudpanel-für-websites)
+und [Jellyfin für Streaming](#jellyfin-für-streaming).
 
 ## Auf CloudPanel
 
@@ -354,9 +422,10 @@ Cloudflare kommt wieder per HTTP: Der Browser meldet `ERR_TOO_MANY_REDIRECTS`.
 
 Websockets (Browser-Konsole) leitet Cloudflare standardmässig durch. Cloudflare trennt aber
 Verbindungen, über die länger als rund 100 Sekunden nichts läuft. Die Konsole verbindet sich
-dann neu. Dasselbe Limit trifft das Anlegen einer Mail-Domain mit Neustart von Webmail und lange
-Änderungen an Websites, siehe [Mailcow für E-Mail](#mailcow-für-e-mail) und
-[CloudPanel für Websites](#cloudpanel-für-websites).
+dann neu. Dasselbe Limit trifft das Anlegen einer Mail-Domain mit Neustart von Webmail, lange
+Änderungen an Websites und Änderungen an Streaming-Kontingenten mit vielen Zugängen, siehe
+[Mailcow für E-Mail](#mailcow-für-e-mail), [CloudPanel für Websites](#cloudpanel-für-websites)
+und [Jellyfin für Streaming](#jellyfin-für-streaming).
 
 Prüfen, wo eine Weiterleitungsschleife entsteht:
 
