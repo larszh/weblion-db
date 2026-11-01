@@ -24,8 +24,9 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 - Browser-Konsole (noVNC) über eine Websocket-Bridge, ohne dass der Browser Provider-Zugangsdaten sieht
 - Domains & DNS (24fire, Joker.com, Cloudflare): DNS-Einträge bearbeiten (bei Joker.com mit TTL,
   Weiterleitungen und E-Mail-Weiterleitung, bei Cloudflare mit Proxy und automatischer TTL),
-  Nameserver ändern, Transfersperre, Auth-Code für Transfers. Registrierung und Cloudflare-Zone
-  derselben Domain sind verknüpft, wartende Zonen zeigen die Nameserver zum Eintragen
+  Nameserver ändern (Joker.com, 24fire), Transfersperre und Auth-Code für Transfers (Joker.com).
+  Registrierung und Cloudflare-Zone derselben Domain sind verknüpft, wartende Zonen zeigen die
+  Nameserver zum Eintragen
 - CDN (Cloudflare): SSL/TLS-Modus, Always Use HTTPS, Entwicklungsmodus und Cache leeren, auch per
   API-Token nach einem Deployment
 - E-Mail (Mailcow): Postfächer im gebuchten Rahmen anlegen (Passwort erzeugt und einmal angezeigt
@@ -38,7 +39,8 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
   MySQL-Datenbanken, Passwörter erzeugt und einmal angezeigt oder selbst gewählt, neu setzen,
   Let's-Encrypt-Zertifikat mit vorheriger DNS-Prüfung, Belegung von Dateien und Datenbanken,
   Löschen mit Bestätigung
-- Webhosting (24fire/Plesk): Ressourcen, Plesk-Zugang, Hinweise für Mail-Programme
+- Webhosting (24fire/Plesk): Ressourcen, Anmeldung bei Plesk über einen einmaligen Link (ohne
+  Passwort), Hinweise für Mail-Programme, wenn die Adresse des Panels bekannt ist
 - Cloud-Speicher (Nextcloud): Konten für das Team im gebuchten Kontingent selbst anlegen, jedes
   mit eigenem Kontingent. Name, E-Mail und Kontingent ändern, deaktivieren, Passwort neu setzen
   (einmal angezeigt) oder Einladung per E-Mail, Belegung pro Konto, Löschen mit Bestätigung
@@ -106,11 +108,11 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 - Provider verwalten, Verbindung testen, Infrastruktur (Nodes, Storages) ansehen
 - Server bei Proxmox aus Templates erstellen, bei Hetzner Cloud mit Server-Typ, Standort und
   Image (Einkaufspreise nur für weblion.one sichtbar)
-- API Explorer: Rohzugriff auf die 24fire-, Proxmox-, Hetzner-Cloud-, Joker.com- (DMAPI) und
-  Cloudflare-API, die OCS-API von Nextcloud, die API von Mailcow, die XAPI von 3CX und die API
-  von Jellyfin für alles ohne eigenen Button (ohne Pfade, die Zugangsdaten herausgeben), bei Uptime
-  Kuma `/metrics`, die Statusseiten und eine feste Liste von Socket-Events, bei CloudPanel nur
-  lesend (Server, verwaltete und nicht verwaltete Sites)
+- API Explorer: Rohzugriff auf die 24fire- (Customer REST API v1), Proxmox-, Hetzner-Cloud-,
+  Joker.com- (DMAPI) und Cloudflare-API, die OCS-API von Nextcloud, die API von Mailcow, die XAPI
+  von 3CX und die API von Jellyfin für alles ohne eigenen Button (ohne Pfade, die Zugangsdaten
+  herausgeben), bei Uptime Kuma `/metrics`, die Statusseiten und eine feste Liste von
+  Socket-Events, bei CloudPanel nur lesend (Server, verwaltete und nicht verwaltete Sites)
 
 **Für Reseller**
 - Eigene Kunden anlegen und sperren, Module freischalten (bis zum eigenen Umfang)
@@ -134,23 +136,31 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
   CloudPanel-, 3CX-, Jellyfin-, Uptime-Kuma-, Stripe- und Zoho-Systeme ist die Console noch **nicht
   live getestet**: Die Build-Umgebung hatte keinen Netzzugriff darauf. Alle Anbindungen sind gegen
   Mock-Server getestet, die die dokumentierten Antworten nachbilden. Die 24fire-Endpunkte folgen
-  der offiziellen v2-Doku, die Proxmox-Aufrufe der API-Referenz, die Hetzner-Aufrufe der API-Doku
-  und dem offiziellen Go-Client hcloud-go, die Joker-Requests der DMAPI-Spezifikation, die
-  Cloudflare-Aufrufe der OpenAPI-Spezifikation von Cloudflare, die Nextcloud-Aufrufe der Doku der
-  Provisioning API und dem Quellcode von Nextcloud, die Mailcow-Aufrufe dem Quellcode von Mailcow
-  (`json_api.php`), die 3CX-Aufrufe der offiziellen OpenAPI-Beschreibung der XAPI (3CX
-  20.0.10.1479) und dem Tutorial-Repository von 3CX, die Jellyfin-Aufrufe dem Quellcode von Jellyfin
-  10.11.11 (und 10.10.7), die Uptime-Kuma-Aufrufe dem Quellcode von Uptime Kuma 2.5.6 (die
-  Socket.IO-Events der Weboberfläche sind dort nicht als API dokumentiert). Der CloudPanel-Agent
-  folgt der Doku von CloudPanel, seinem Issue-Tracker und Community-Code, der `clpctl` aufruft, und
-  ist mit Python-Tests gegen nachgebaute Werkzeuge geprüft. Was bei Joker.com, Cloudflare,
-  Nextcloud, Mailcow, CloudPanel, 3CX, Uptime Kuma und Jellyfin noch zu prüfen ist, steht in
-  [docs/providers.md](docs/providers.md) jeweils unter "Offene Punkte".
+  der OpenAPI-Spezifikation der Customer REST API v1 (wo sie nur Beispiele statt Antworten zeigt,
+  liest die Console tolerant und meldet unbekannte Formen), die Proxmox-Aufrufe der API-Referenz,
+  die Hetzner-Aufrufe der API-Doku und dem offiziellen Go-Client hcloud-go, die Joker-Requests der
+  DMAPI-Spezifikation, die Cloudflare-Aufrufe der OpenAPI-Spezifikation von Cloudflare, die
+  Nextcloud-Aufrufe der Doku der Provisioning API und dem Quellcode von Nextcloud, die
+  Mailcow-Aufrufe dem Quellcode von Mailcow (`json_api.php`), die 3CX-Aufrufe der offiziellen
+  OpenAPI-Beschreibung der XAPI (3CX 20.0.10.1479) und dem Tutorial-Repository von 3CX, die
+  Jellyfin-Aufrufe dem Quellcode von Jellyfin 10.11.11 (und 10.10.7), die Uptime-Kuma-Aufrufe dem
+  Quellcode von Uptime Kuma 2.5.6 (die Socket.IO-Events der Weboberfläche sind dort nicht als API
+  dokumentiert). Der CloudPanel-Agent folgt der Doku von CloudPanel, seinem Issue-Tracker und
+  Community-Code, der `clpctl` aufruft, und ist mit Python-Tests gegen nachgebaute Werkzeuge
+  geprüft. Was bei 24fire, Joker.com, Cloudflare, Nextcloud, Mailcow, CloudPanel, 3CX, Uptime Kuma
+  und Jellyfin noch zu prüfen ist, steht in [docs/providers.md](docs/providers.md) jeweils unter
+  "Offene Punkte", für 24fire mit einer Checkliste für den
+  [Live-Test](docs/providers.md#live-test-der-api-v1).
 - Hetzner Cloud: Firewalls, Volumes, Load Balancer, Floating/Primary IPs, Storage Boxes,
   DNS-Zonen und dedizierte Server (Robot) sind noch nicht angebunden, siehe
   [docs/providers.md](docs/providers.md#hetzner-cloud).
-- Webspaces kann die 24fire-API nur lesen: Neue Webspaces werden im 24fire-Panel bestellt und
-  erscheinen nach dem nächsten Sync in der Console, wo sie einem Kunden zugewiesen werden.
+- Webspaces kann die 24fire-API nicht anlegen: Neue Webspaces werden im 24fire-Panel bestellt und
+  erscheinen nach dem nächsten Sync in der Console, wo sie einem Kunden zugewiesen werden. Den
+  Auth-Code für den Transfer einer 24fire-Domain gibt die API nicht heraus, den gibt es nur im
+  24fire-Panel.
+- 24fire nutzt die Customer REST API v1 mit einem Personal Access Token. Keys der alten API v2
+  funktionieren nicht mehr, der Umstieg steht in
+  [docs/providers.md](docs/providers.md#umstieg-von-api-v2).
 - Domains registrieren und zu Joker.com transferieren geht noch im Joker-Panel. Die Domains
   erscheinen danach ebenso beim nächsten Sync.
 - Cloud-Speicher: Die Nextcloud-Instanz selbst betreibt weblion.one (z.B. Nextcloud AIO auf einer
@@ -231,7 +241,8 @@ Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start v
 
 | Variable | Bedeutung |
 |---|---|
-| `FIRE24_API_KEY` | Account-API-Key aus dem 24fire Control Panel (in Anführungszeichen, Sonderzeichen) |
+| `FIRE24_API_KEY` | Personal Access Token der 24fire Customer REST API v1 (`123\|cra_…`) aus den 24fire Kontoeinstellungen, in einfachen Anführungszeichen. Scopes und Produktfreigabe: [docs/providers.md](docs/providers.md#scopes) |
+| `FIRE24_BASE_URL` | optional, Standard `https://api.24fire.de` (ohne `/v1`) |
 | `PROXMOX_URL` | z.B. `https://pve01-zrh.weblion.cloud:2096` |
 | `PROXMOX_TOKEN_ID` | `user@realm!tokenid` |
 | `PROXMOX_TOKEN_SECRET` | Token-Secret (UUID) |
@@ -261,8 +272,8 @@ Umgebungsvariablen (`.env` lokal, Secrets im Deployment) und werden beim Start v
 Weitere Provider (z.B. weitere Hetzner-Projekte, Cloudflare-Konten, Nextcloud-, Mailcow-, Jellyfin-
 oder Uptime-Kuma-Instanzen, CloudPanel-Server) lassen sich im Admin-Bereich hinzufügen. 3CX-Anlagen
 gibt es nur dort: Client-ID und API-Schlüssel eines eigenen API-Clients pro Anlage. Details,
-Hinweise zum Proxmox- und Hetzner-Token, zum Joker-Reseller-Konto, zum Cloudflare-Token, zum
-Nextcloud-Admin-Konto, zum Mailcow-API-Key (Allow-List, Netfilter), zum Agent auf
+Hinweise zum 24fire-Token (Scopes), zum Proxmox- und Hetzner-Token, zum Joker-Reseller-Konto, zum
+Cloudflare-Token, zum Nextcloud-Admin-Konto, zum Mailcow-API-Key (Allow-List, Netfilter), zum Agent auf
 CloudPanel-Servern, zum API-Client von 3CX, zum Schlüssel von Jellyfin und zur Anmeldung von Uptime
 Kuma für die Verwaltung in [docs/providers.md](docs/providers.md) und
 [deploy/cloudpanel-agent/README.md](deploy/cloudpanel-agent/README.md).

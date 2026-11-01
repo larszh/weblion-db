@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire, Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), 3CX-Telefonanlagen (HTTPS zu `/connect/token` und zur XAPI), Jellyfin-Instanzen (HTTP(S) zur API), Uptime-Kuma-Instanzen (HTTP(S) zu `/metrics` und den Statusseiten, für die Verwaltung ein Websocket auf `/socket.io/`), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire (HTTPS zu `api.24fire.de`, für die Konsole je nach Antwort ein Websocket zu 24fire), Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), 3CX-Telefonanlagen (HTTPS zu `/connect/token` und zur XAPI), Jellyfin-Instanzen (HTTP(S) zur API), Uptime-Kuma-Instanzen (HTTP(S) zu `/metrics` und den Statusseiten, für die Verwaltung ein Websocket auf `/socket.io/`), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -175,7 +175,8 @@ ENCRYPTION_KEY=<openssl rand -base64 32>
 POSTGRES_PASSWORD=<langes Zufallspasswort>
 BOOTSTRAP_ADMIN_EMAIL=admin@weblion.one
 BOOTSTRAP_ADMIN_PASSWORD=<nur für den ersten Start>
-FIRE24_API_KEY='...'
+# 24fire: Personal Access Token der Customer REST API v1 (Scopes siehe providers.md)
+FIRE24_API_KEY='123|cra_...'
 PROXMOX_URL=https://pve01-zrh.weblion.cloud:2096
 PROXMOX_TOKEN_ID=weblion@pve!console
 PROXMOX_TOKEN_SECRET=...
@@ -253,6 +254,12 @@ docker compose logs -f console
 
 Migrationen laufen beim Start automatisch. Nach dem ersten Login das
 `BOOTSTRAP_ADMIN_PASSWORD` aus der `.env` entfernen und 2FA aktivieren.
+
+Wer von einer Version mit der 24fire API v2 aktualisiert: Die neue Version braucht einen Personal
+Access Token statt des alten Account-API-Keys. Token und neue Version zusammen ausrollen, mit nur
+einem von beiden meldet die 24fire-Verbindung einen Fehler. `FIRE24_BASE_URL=https://manage.24fire.de`
+ersetzt die Console von selbst durch `https://api.24fire.de`. Schritte und Prüfung in
+[providers.md](providers.md#umstieg-von-api-v2).
 
 ## Reverse Proxy (TLS)
 

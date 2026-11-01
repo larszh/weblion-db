@@ -2,82 +2,558 @@
 
 ## 24fire (Rechenzentrum DE)
 
-- API: REST API v2, Doku unter <https://apidocs.24fire.de/v2>
-- Base URL: `https://manage.24fire.de`, Header `X-Fire-Apikey: <key>`, Bodys als
-  `application/x-www-form-urlencoded`, Antworten als `{ status, message, data }`
-- Konfiguration: `FIRE24_API_KEY` in der `.env` (in einfache Anführungszeichen setzen, der Key
-  enthält Sonderzeichen wie `}` oder `)`).
+- API: 24fire Customer REST API v1 (OpenAPI 3.1, Version 1.0.0). Eine Kopie der Spezifikation liegt in
+  [`apps/api/test/fixtures/fire24/openapi-v1.json`](../apps/api/test/fixtures/fire24/openapi-v1.json).
+- Base URL: `https://api.24fire.de`, alle Pfade unter `/v1`. Header
+  `Authorization: Bearer <Personal Access Token>`, Bodys als `application/x-www-form-urlencoded`
+  (Ja/Nein als `1`/`0`). Antworten kommen als `{ status: "success", data, meta }`, Fehler als
+  `{ status: "error", type, message, errors }`. Listen haben 25 Einträge pro Seite (`?page=2`), `meta`
+  nennt Seite, letzte Seite und Gesamtzahl.
+- Konfiguration: `FIRE24_API_KEY` in der `.env` (der Personal Access Token, in einfachen
+  Anführungszeichen, weil `|` in der Shell ein Sonderzeichen ist), optional `FIRE24_BASE_URL`
+  (Standard `https://api.24fire.de`, ohne `/v1`), `FIRE24_NAME`, `FIRE24_COUNTRY` und `FIRE24_CITY`.
+  Oder im Admin-Bereich unter Provider > Provider hinzufügen > 24fire.
+- Die alte REST API v2 (`manage.24fire.de`, Header `X-Fire-Apikey`) nutzt die Console nicht mehr. Was
+  sich geändert hat und wie man umstellt, steht unter [Umstieg von API v2](#umstieg-von-api-v2).
 
-### Endpunkte
+### Personal Access Token
 
-Alle 26 Endpunkte der v2-Doku stehen mit Methode und Pfad in
-[`apps/api/src/providers/fire24/endpoints.ts`](../apps/api/src/providers/fire24/endpoints.ts) und
-sind gegen die Doku geprüft (`verified: true`). Die Spalte 24fire+ zeigt, wofür der Account ein
-aktives **24fire+** Abo braucht.
+Die API meldet sich mit einem Personal Access Token an, den Sie in den 24fire Kontoeinstellungen
+erstellen (so beschreibt es die Spezifikation). Er hat die Form `{id}|cra_…`, z.B. `123|cra_…`: vorne
+die Nummer des Tokens, nach dem `|` das Geheimnis.
 
-| Funktion in der Console                                                   | Endpunkt                                                        | 24fire+ |
-| ------------------------------------------------------------------------- | --------------------------------------------------------------- | ------- |
-| Verbindungstest, Guthaben, 24fire+ Status                                 | `GET /api/account`                                              | nein    |
-| Server, Domains und Webspaces finden                                      | `GET /api/account/services`                                     | nein    |
-| (nur API Explorer) Spendenseite, Affiliate                                | `GET /api/account/donations`, `/affiliate`                      | nein    |
-| Konfiguration (CPU, RAM, Disk, IPs, OS, ISO, Abuse-Status, Maximalausbau) | `GET /api/kvm/{id}/config`                                      | nein    |
-| Status inkl. laufendem Task (Boot, Reinstall, Backup, Restore)            | `GET /api/kvm/{id}/status`                                      | nein    |
-| Energie (start, stop, restart)                                            | `POST /api/kvm/{id}/power` mit `mode=`                          | nein    |
-| Traffic des Monats (GB) und Limits                                        | `GET /api/kvm/{id}/traffic/current`                             | nein    |
-| Traffic-Verlauf (MB pro 10 Min., in der Console pro Stunde summiert)      | `GET /api/kvm/{id}/traffic/log`                                 | nein    |
-| (nicht genutzt) Traffic-Diagramm                                          | `POST /api/kvm/{id}/traffic/chart`                              | ja      |
-| Graphen (CPU, RAM, Ping alle 10 Min.)                                     | `GET /api/kvm/{id}/monitoring/timings`                          | ja      |
-| Verfügbarkeit und Ausfälle                                                | `GET /api/kvm/{id}/monitoring/incidences`                       | ja      |
-| Backups auflisten                                                         | `GET /api/kvm/{id}/backup/list`                                 | nein    |
-| Backup erstellen, Fortschritt                                             | `POST /api/kvm/{id}/backup/create`, `.../create/status`         | ja      |
-| Backup wiederherstellen, Fortschritt                                      | `POST /api/kvm/{id}/backup/restore`, `.../restore/status`       | ja      |
-| Backup löschen                                                            | `DELETE /api/kvm/{id}/backup/delete`                            | ja      |
-| DDoS-Schutz pro IPv4 ansehen                                              | `GET /api/kvm/{id}/ddos`                                        | nein    |
-| DDoS-Schutz ändern (Layer 4 dynamic/permanent, Layer 7 on/off)            | `POST /api/kvm/{id}/ddos/change`                                | ja      |
-| Domain-Infos (Status, Nameserver, Ablauf, Auth-Code)                      | `GET /api/domain/{id}`                                          | nein    |
-| DNS-Einträge ansehen                                                      | `GET /api/domain/{id}/dns`                                      | nein    |
-| DNS-Eintrag hinzufügen / bearbeiten / löschen                             | `PUT .../dns/add`, `POST .../dns/edit`, `DELETE .../dns/remove` | ja      |
-| Webspace (Ressourcen, Plesk-Zugang)                                       | `GET /api/webspace/{id}`                                        | nein    |
+1. Im 24fire Control Panel in den Kontoeinstellungen einen neuen Personal Access Token anlegen, mit
+   einem Namen wie "weblion.one Console".
+2. Die Scopes wählen: für den Betrieb die 20 Scopes der vollen Nutzung, für einen Test oder eine
+   Verbindung nur zum Ansehen die 9 Scopes "Nur lesen" (siehe [Scopes](#scopes)).
+3. Die Produktfreigabe leer lassen, also alle Produkte (siehe [Produktfreigabe](#produktfreigabe)).
+4. Den Token in die `.env` eintragen (`FIRE24_API_KEY='123|cra_…'`) oder im Formular der Verbindung
+   ins Feld "Personal Access Token".
+5. Im Admin-Bereich beim Provider "Verbindung testen".
 
-Ohne 24fire+ antwortet die Console mit einer klaren Meldung (Code `plus_required`), statt den
-Endpunkt aufzurufen. Den Abo-Status liest sie alle paar Minuten aus `GET /api/account`; Graphen,
-Monitoring, Restore und Löschen von Backups blendet sie dann aus, DNS ist nur lesbar.
-Das Format der Fehlerantworten von 24fire ist nicht dokumentiert. Zum Ausprobieren eignet sich
-der API Explorer im Admin-Bereich (Passwörter und Auth-Codes werden dort ausgeblendet).
+Die Console nimmt jeden Token der Form `<Zahl>|<mindestens 8 Zeichen>`. Fängt das Geheimnis nicht wie
+dokumentiert mit `cra_` an, schickt sie ihn trotzdem (bei einem Token aus der `.env` mit einem Hinweis
+im Log beim Start). Ein Key ohne `|` ist ein Key der alten API v2: Formular und API lehnen ihn ab
+("Expected a 24fire Personal Access Token like 123|cra_..."), und eine Verbindung, die noch einen hat,
+scheitert bei jedem Aufruf, bevor eine Anfrage an 24fire geht.
 
-Servernamen kommen aus `GET /api/account/services`, also so, wie sie im 24fire Control Panel
-heissen. Der Hostname aus der KVM-Konfiguration taugt nicht dafür, er ist bei Installationen
-aus 24fire-Images immer `24fire`. Wer einen Server in der Console umbenennt, behält diesen
-Namen, ein Umbenennen bei 24fire wird dann nicht mehr übernommen.
+Gespeichert wird der Token verschlüsselt wie alle Zugangsdaten. Der Admin-Bereich zeigt nur seine
+Nummer (`12|cra_••••••`), nie einen Teil des Geheimnisses, bei einem alten Key den Hinweis
+`legacy v2 key, replace it`. In Meldungen und Logs steht der Token nie, auch nicht, wenn 24fire ihn in
+einer Fehlermeldung zurückschickt.
+
+### Scopes
+
+Jeder Endpunkt verlangt einen Scope (`x-required-scope` in der Spezifikation). Die beiden Listen
+stehen in [`packages/shared/src/providers.ts`](../packages/shared/src/providers.ts)
+(`FIRE24_SCOPES_FULL` und `FIRE24_SCOPES_READ_ONLY`), das Formular im Admin-Bereich zeigt dieselben.
+
+| Scope                  | Was die Console damit kann                                                                                                                                         | Volle Nutzung | Nur lesen |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- | --------- |
+| `account:read`         | Verbindungstest, Übersicht mit Konto, Kundennummer, Guthaben und 24fire+ Status                                                                                    | ja            | ja        |
+| `status:read`          | Status des Kontos und seine Hinweise (wie im Dashboard von 24fire) in der Übersicht des Providers                                                                  | ja            | ja        |
+| `services:read`        | Zahl der Dienste im Verbindungstest, in der Übersicht pro Art (KVM, Domains, Webspaces, dedizierte Server)                                                         | ja            | ja        |
+| `servers:read`         | Server finden (Sync)                                                                                                                                               | ja            | ja        |
+| `server:read`          | Server importieren, Konfiguration, Status, Traffic, Netzwerk, rDNS und DDoS-Schutz ansehen, Listen der Betriebssysteme und ISO-Images, Stand einer Neuinstallation | ja            | ja        |
+| `server:power`         | Energie (starten, stoppen, neu starten)                                                                                                                            | ja            | nein      |
+| `server:console`       | Browser-Konsole                                                                                                                                                    | ja            | nein      |
+| `server:reinstall`     | Rebuild (Neuinstallation)                                                                                                                                          | ja            | nein      |
+| `server:credentials`   | Root-Passwort zurücksetzen (sensibel)                                                                                                                              | ja            | nein      |
+| `server:backups`       | Backups ansehen, erstellen, wiederherstellen und löschen                                                                                                           | ja            | nein      |
+| `server:network`       | rDNS setzen und entfernen, DDoS-Schutz ändern                                                                                                                      | ja            | nein      |
+| `server:iso`           | ISO-Image einlegen und auswerfen                                                                                                                                   | ja            | nein      |
+| `server:monitoring`    | Graphen (CPU, RAM, Ping) und Verfügbarkeit                                                                                                                         | ja            | nein      |
+| `domains:read`         | Domains finden (Sync)                                                                                                                                              | ja            | ja        |
+| `domain:read`          | Domain-Infos, DNS-Einträge und Nameserver ansehen, die Einträge für den DNS-Umzug lesen                                                                            | ja            | ja        |
+| `domain:dns`           | DNS-Einträge hinzufügen, ändern und löschen, auch "Fehlende Einträge hinzufügen" bei E-Mail                                                                        | ja            | nein      |
+| `domain:nameserver`    | Nameserver ändern, auch im DNS-Umzug zu Cloudflare                                                                                                                 | ja            | nein      |
+| `webspaces:read`       | Webspaces finden (Sync)                                                                                                                                            | ja            | ja        |
+| `webspace:read`        | Webspace-Details, Ressourcen und Belegung                                                                                                                          | ja            | ja        |
+| `webspace:credentials` | "Plesk öffnen" (einmaliger Anmeldelink, sensibel)                                                                                                                  | ja            | nein      |
+
+Nicht nötig sind `server:ssh` (SSH-Keys verwaltet die Console noch nicht, den Scope erst dazunehmen,
+wenn das kommt), `donations:read` und `affiliate:read`.
+
+- **Volle Nutzung (20 Scopes):** für die produktive Verbindung, ein Token für alles, ohne
+  Produktfreigabe.
+- **Nur lesen (9 Scopes):** Die Console synchronisiert und zeigt Server (mit Traffic, Konfiguration,
+  Netzwerk und DDoS-Schutz), Domains (mit DNS-Einträgen und Nameservern) und Webspaces. Es fehlen
+  Energie, Konsole, Rebuild, Root-Passwort, alle Backup-Funktionen (24fire hat für Backups einen
+  Scope zum Lesen und Schreiben), Graphen und Verfügbarkeit (beim Monitoring ebenso), Änderungen an
+  rDNS, DDoS-Schutz und ISO, DNS- und Nameserver-Änderungen und der Plesk-Login.
+
+**Fehlt ein Scope,** antwortet 24fire mit 403 (`insufficient_scope`), und die Console meldet
+"24fire: the access token lacks the scope "server:power". Add it to the token in the 24fire account
+settings." (Code `provider_scope_missing`, der Scope steht in `details.scope`). Den Scope nimmt sie
+aus ihrer Tabelle der Endpunkte, nicht aus der Meldung. Sie merkt ihn sich 10 Minuten lang und
+blendet so lange die passenden Tabs und Buttons aus: Energie, Konsole, Rebuild, Root-Passwort,
+Backups, Graphen und Verfügbarkeit, rDNS bearbeiten und ISO. Ohne `domain:dns` ist DNS nur lesbar.
+Gelingt ein Aufruf mit dem Scope wieder, ist die Funktion sofort zurück. Nach einem Neustart der API
+weiss die Console nichts mehr davon: Der erste abgelehnte Aufruf scheitert mit der Meldung, danach
+verschwindet die Funktion wieder. Der Tab "Graphen" bleibt ohne `server:monitoring` mit der
+Traffic-Karte stehen.
+
+**Der Verbindungstest** liest Konto, Status, die erste Seite jeder Liste und je ein Produkt jeder Art
+(Server, Domain, Webspace). Er zeigt `api: "v1"`, Konto, Kundennummer, 24fire+, Guthaben, die Zahl der
+Server, Domains, Webspaces und Dienste (`meta.total`), die Lese-Scopes, die durchgingen (`scopesOk`),
+und die fehlenden (`scopesMissing`, dazu Scopes, die 24fire in den letzten 10 Minuten abgelehnt hat).
+Schreib-Scopes prüft er nicht, das ginge nur mit echten Änderungen. Er scheitert nur bei einem alten
+Key, einem abgelehnten Token, wenn 24fire nicht erreichbar ist oder wenn der Token keinen einzigen
+Lese-Scope hat. `unrecognised` listet Antworten, deren Form die Console nicht kannte (siehe
+[Unbekannte Antworten](#unbekannte-antworten)).
+
+**Im Sync** wird eine Liste übersprungen, wenn dem Token `servers:read`, `domains:read` oder
+`webspaces:read` fehlt: Nichts davon wird als fehlend markiert, die anderen Listen laufen normal, und
+die Meldung nach "Jetzt synchronisieren" nennt den Scope ("Übersprungen, weil dem Token der Scope
+fehlt: domains:read"). Fehlen alle drei, scheitert der Sync ("the access token has none of the read
+scopes the console needs"), und die Verbindung steht auf Fehler.
+
+### Produktfreigabe
+
+Ein Token lässt sich auf einzelne Produkte beschränken. Die Listen `/v1/servers`, `/v1/domains`,
+`/v1/webspaces` und `/v1/services` zeigen dann nur die freigegebenen Produkte (`/v1/services` pro Art:
+eine Art ohne Beschränkung bleibt ganz sichtbar), und keine Antwort sagt, dass etwas fehlt.
+
+Die Console nimmt, was der Token sieht, als Stand: Produkte ausserhalb der Freigabe markiert der Sync
+als fehlend. Zeilen, Zuweisungen und Einstellungen bleiben, und wird die Freigabe erweitert, sind die
+Produkte beim nächsten Sync wieder da. "Eingeschränkt" und "gelöscht" lassen sich nicht
+auseinanderhalten, deshalb: **Produktfreigabe leer lassen.** Was die Detail-Endpunkte für ein Produkt
+ausserhalb der Freigabe antworten (404 oder 403), ist nicht dokumentiert. Ein 403 ohne
+`insufficient_scope` meldet die Console als "refused access (the token's product allowlist may exclude
+this product)".
+
+### Was die Console nutzt
+
+Alle 48 Endpunkte, die die Console kennt, stehen mit Methode, Pfad und Scope in
+[`apps/api/src/providers/fire24/endpoints.ts`](../apps/api/src/providers/fire24/endpoints.ts). Ein Test
+vergleicht jede Zeile mit der Kopie der Spezifikation, und jede Operation der Spezifikation muss dort
+stehen oder in `FIRE24_UNUSED_OPERATIONS` (die sechs Endpunkte für Spenden und Affiliate). Eine neue
+Kopie der Spezifikation mit weiteren Endpunkten lässt den Test scheitern, bis jemand entscheidet.
+
+Die Spalte "Antwort" sagt, wie genau die Spezifikation die Antwort beschreibt:
+
+- **dokumentiert** (DOCUMENTED, `documented: true`): Die Felder von `data` stehen in der Spezifikation.
+- **ungeprüft** (UNVERIFIED, `documented: false`): Die Spezifikation zeigt nur `"data": "example"`.
+  Die Console erwartet die Form der API v2 (v1 scheint die Daten von 24fire durchzureichen, auch das
+  ist nicht belegt) und liest tolerant, siehe [Unbekannte Antworten](#unbekannte-antworten).
+
+Wo ein Aufruf einen Body hat, beschreibt ihn die Spezifikation Feld für Feld. `{server}`, `{domain}`
+und `{webspace}` sind die `id` aus den Listen (bei Domains nicht der Domainname).
+
+| Funktion in der Console                                                             | Endpunkt                                                                                 | Scope                  | Antwort                             |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------- | ----------------------------------- |
+| Verbindungstest, Übersicht (Konto, Kundennummer, Guthaben, 24fire+)                 | `GET /v1/account`                                                                        | `account:read`         | dokumentiert                        |
+| Übersicht: Status und Hinweise des Kontos (z.B. offene Rechnungen)                  | `GET /v1/status`                                                                         | `status:read`          | dokumentiert                        |
+| Zahl der Dienste (Verbindungstest), pro Art (Übersicht)                             | `GET /v1/services` (in der Übersicht alle Seiten)                                        | `services:read`        | dokumentiert                        |
+| Server finden (Sync), Name, Verlängerung                                            | `GET /v1/servers` (alle Seiten)                                                          | `servers:read`         | dokumentiert                        |
+| Server importieren, nach einer Aktion neu laden                                     | `GET /v1/servers/{server}`                                                               | `server:read`          | dokumentiert                        |
+| Status, Auslastung, laufender Task                                                  | `GET /v1/servers/{server}/status`                                                        | `server:read`          | ungeprüft                           |
+| Konfiguration (CPU, RAM, Disk, IPs, OS, ISO, Standort, Abuse-Status, Maximalausbau) | `GET /v1/servers/{server}/config`                                                        | `server:read`          | ungeprüft                           |
+| IP-Adressen, wenn die Konfiguration keine nennt                                     | `GET /v1/servers/{server}/network`                                                       | `server:read`          | ungeprüft                           |
+| Traffic des Monats (GB) und Limits                                                  | `GET /v1/servers/{server}/traffic`                                                       | `server:read`          | ungeprüft                           |
+| (nur API Explorer) Abuse-Meldungen                                                  | `GET /v1/servers/{server}/abuses`                                                        | `server:read`          | ungeprüft                           |
+| Betriebssysteme für den Rebuild                                                     | `GET /v1/servers/{server}/os-list`                                                       | `server:read`          | ungeprüft                           |
+| ISO-Images                                                                          | `GET /v1/servers/{server}/iso-list`                                                      | `server:read`          | ungeprüft                           |
+| Fortschritt des Rebuilds                                                            | `GET /v1/servers/{server}/reinstall/status`                                              | `server:read`          | ungeprüft                           |
+| Energie (start, stop, restart)                                                      | `POST /v1/servers/{server}/power` mit `mode`                                             | `server:power`         | ungeprüft                           |
+| Browser-Konsole (noVNC)                                                             | `POST /v1/servers/{server}/console`                                                      | `server:console`       | ungeprüft                           |
+| Rebuild                                                                             | `POST /v1/servers/{server}/reinstall` mit `os`, `hostname`, `password_login`             | `server:reinstall`     | ungeprüft                           |
+| Root-Passwort zurücksetzen                                                          | `POST /v1/servers/{server}/password-reset`                                               | `server:credentials`   | ungeprüft                           |
+| Backups auflisten                                                                   | `GET /v1/servers/{server}/backups`                                                       | `server:backups`       | ungeprüft                           |
+| Backup erstellen, Fortschritt                                                       | `POST /v1/servers/{server}/backups`, `GET .../backups/{backup}/create-status`            | `server:backups`       | ungeprüft                           |
+| Backup wiederherstellen, Fortschritt                                                | `POST .../backups/{backup}/restore`, `GET .../backups/{backup}/restore-status`           | `server:backups`       | ungeprüft                           |
+| Backup löschen                                                                      | `DELETE /v1/servers/{server}/backups/{backup}`                                           | `server:backups`       | ungeprüft                           |
+| Reverse DNS ansehen                                                                 | `GET /v1/servers/{server}/rdns`                                                          | `server:read`          | ungeprüft                           |
+| Reverse DNS setzen bzw. entfernen                                                   | `PUT /v1/servers/{server}/rdns` mit `ip_address`, `ptr`, `DELETE .../rdns?ip_address=`   | `server:network`       | ungeprüft                           |
+| DDoS-Schutz pro IPv4 ansehen                                                        | `GET /v1/servers/{server}/ddos`                                                          | `server:read`          | ungeprüft                           |
+| DDoS-Schutz ändern (Layer 4 dynamic/permanent, Layer 7 on/off)                      | `POST /v1/servers/{server}/ddos` mit `layer4`, `layer7`, `ip_address`                    | `server:network`       | ungeprüft                           |
+| ISO einlegen bzw. auswerfen                                                         | `PUT /v1/servers/{server}/iso` mit `iso`, `DELETE /v1/servers/{server}/iso`              | `server:iso`           | ungeprüft                           |
+| Graphen (CPU, RAM, Ping alle 10 Min.) und Verfügbarkeit                             | `GET /v1/servers/{server}/monitoring`                                                    | `server:monitoring`    | ungeprüft                           |
+| (noch nicht genutzt) Monitoring ein- und ausschalten                                | `POST /v1/servers/{server}/monitoring` mit `enabled`, `port`                             | `server:monitoring`    | ungeprüft                           |
+| (noch nicht genutzt) SSH-Keys auflisten, hochladen, erzeugen, löschen               | `GET`, `POST .../ssh-keys`, `POST .../ssh-keys/generate`, `DELETE .../ssh-keys/{sshKey}` | `server:ssh`           | ungeprüft                           |
+| Domains finden (Sync), Ablauf, automatische Verlängerung                            | `GET /v1/domains` (alle Seiten)                                                          | `domains:read`         | dokumentiert                        |
+| Domain-Infos (Status, Nameserver, Handle, Anlage- und Ablaufdatum)                  | `GET /v1/domains/{domain}`                                                               | `domain:read`          | ungeprüft                           |
+| DNS-Einträge ansehen                                                                | `GET /v1/domains/{domain}/dns`                                                           | `domain:read`          | ungeprüft                           |
+| DNS-Eintrag hinzufügen                                                              | `POST /v1/domains/{domain}/dns` mit `type`, `name`, `data`                               | `domain:dns`           | dokumentiert                        |
+| DNS-Eintrag ändern                                                                  | `PATCH /v1/domains/{domain}/dns/{record}` mit `type`, `name`, `data`                     | `domain:dns`           | dokumentiert                        |
+| DNS-Eintrag löschen                                                                 | `DELETE /v1/domains/{domain}/dns/{record}`                                               | `domain:dns`           | dokumentiert                        |
+| Nameserver ansehen                                                                  | `GET /v1/domains/{domain}/nameservers`                                                   | `domain:read`          | ungeprüft                           |
+| Nameserver ändern, auch im DNS-Umzug                                                | `PUT /v1/domains/{domain}/nameservers` mit `ns1` bis `ns5`                               | `domain:nameserver`    | ungeprüft                           |
+| Webspaces finden (Sync)                                                             | `GET /v1/webspaces` (alle Seiten)                                                        | `webspaces:read`       | dokumentiert                        |
+| Webspace (Paket, Ressourcen)                                                        | `GET /v1/webspaces/{webspace}`                                                           | `webspace:read`        | dokumentiert, `resources` ungeprüft |
+| Belegung, füllt Ressourcen, die das Detail offen lässt                              | `GET /v1/webspaces/{webspace}/usage`                                                     | `webspace:read`        | ungeprüft                           |
+| Plesk öffnen (einmaliger Anmeldelink)                                               | `POST /v1/webspaces/{webspace}/login`                                                    | `webspace:credentials` | dokumentiert                        |
+
+Pro Sync liest die Console die drei Listen, pro Server Konfiguration und Status, rDNS höchstens alle
+10 Minuten und das Netzwerk nur, wenn die Konfiguration keine IP-Adressen nennt. Domain- und
+Webspace-Details liest sie höchstens alle 30 Minuten. Telefon, Geburtsdatum und Rechnungsadresse aus
+`GET /v1/account` übernimmt sie nicht.
+
+### Verhalten im Detail
+
+- **Servernamen** kommen aus `GET /v1/servers` (`name`), also so, wie sie im 24fire Control Panel
+  heissen. Der Hostname aus der Konfiguration taugt nicht dafür, er ist bei Installationen aus
+  24fire-Images immer `24fire`. Wer einen Server in der Console umbenennt, behält diesen Namen, ein
+  Umbenennen bei 24fire wird dann nicht mehr übernommen.
+- **Verlängerung:** Datum, Preis, Intervall, automatische Verlängerung, Kündigung und Resttage aus der
+  Liste stehen im Meta der Server, Domains und Webspaces (`meta.renewal`). Angezeigt werden sie noch
+  nicht. `disabled` steht nur dort, ein Server wird dadurch nicht gesperrt, solange unklar ist, was
+  das Feld bedeutet.
+- **Teil-Server:** Scheitert die Konfiguration eines Servers oder kennt die Console ihre Form nicht,
+  nimmt sie den letzten vollständigen Stand dieses Servers (im Speicher des API-Prozesses). Ohne einen
+  solchen meldet sie den Server als "partial": Der Sync aktualisiert dann nur Name, Status und Meta und
+  behält die gespeicherten Werte für CPU, RAM, Disk, Auslastung, IPs, OS und Node. Scheitert der
+  Status, gilt der zuletzt bekannte, sonst `unknown`. Ein 429, ein 502 oder eine unbekannte Antwort bei
+  einem Server löscht so nie seine IPs und lässt den Sync nicht scheitern. Scheitert die Liste selbst,
+  scheitert der Sync wie bisher.
+- **Konsole:** `POST .../console` öffnet eine noVNC-Sitzung. Liefert 24fire eine Seite (`https`), öffnet
+  die Console sie in einem neuen Tab. Liefert 24fire eine Websocket-Adresse mit Passwort, verbindet
+  die API sich selbst damit und reicht die Sitzung wie bei Hetzner an den Browser weiter. Welche der
+  beiden Formen kommt, ist nicht belegt. Adresse und Passwort stehen nie in Logs oder Meldungen.
+  Berechtigung `server:console`, nur mit Login.
+- **Rebuild:** Die Betriebssysteme kommen aus `os-list` (eine Stunde zwischengespeichert), ein anderes
+  lehnt die Console vor dem Aufruf ab. Sie sendet `os`, den bisherigen Hostnamen (nur, wenn er gültig
+  ist) und `password_login=1`, damit die Anmeldung mit Passwort möglich bleibt. Ein Root-Passwort gibt
+  v1 dabei nie heraus: Nach dem Rebuild das Root-Passwort in den Einstellungen zurücksetzen. Den Fortschritt fragt die Console bei `reinstall/status` ab. Versteht sie die Antwort
+  nicht, gilt der Rebuild als fertig, sobald der Status des Servers keinen Reinstall-Task mehr zeigt
+  und der Server läuft oder gestoppt ist. Berechtigung `server:rebuild`, der Rebuild-Schutz des
+  Servers gilt.
+- **Root-Passwort zurücksetzen:** Berechtigung `server:password-reset`, nur mit Login. Die Console zeigt
+  das neue Passwort einmal an und speichert es nirgends, auch nicht im Audit-Log.
+- **Reverse DNS:** `PUT .../rdns` mit `ip_address` und `ptr` (ohne Punkt am Ende), nur für IPs des
+  Servers. Ein leerer Name entfernt den Eintrag (`DELETE .../rdns?ip_address=`), das Formular bietet
+  das aber noch nicht an. Nach einer Änderung verwirft die Console den zwischengespeicherten rDNS-Stand
+  des Servers.
+- **ISO:** Die Liste kommt aus `iso-list` (eine Stunde zwischengespeichert), ein anderes Image lehnt die
+  Console ab. Der Server startet nach dem nächsten Neustart vom eingelegten Image.
+- **DDoS-Schutz:** pro IPv4, Layer 4 `dynamic` oder `permanent`, Layer 7 `on` oder `off`. Ein 24fire+
+  Abo prüft die Console dafür nicht mehr.
+- **Graphen und Verfügbarkeit** kommen aus einem einzigen `GET .../monitoring` (60 Sekunden
+  zwischengespeichert): CPU, RAM und Ping alle 10 Minuten, dazu Verfügbarkeit und Ausfälle.
+- **Traffic:** nur der laufende Monat mit Limits. Einen Verlauf hat v1 nicht.
 
 ### Backups
 
-`backup/create` und `backup/restore` starten nur einen Task. Die Console merkt sich die
-`backup_id` an der Aktion und fragt alle paar Sekunden die passenden `/status`-Endpunkte ab, bis
-24fire `finished` meldet. Beschreibungen erlaubt 24fire nur mit höchstens 24 Zeichen aus
-Buchstaben, Umlauten, Leerzeichen und `- _ + # ( ) . :` (keine Ziffern).
+Ein Scope (`server:backups`) gilt für alles: ansehen, erstellen, wiederherstellen und löschen.
+`POST /v1/servers/{server}/backups` nimmt keinen Body, eine Beschreibung gibt es deshalb nicht mehr,
+und der Dialog fragt bei 24fire auch keine ab. Die ID des neuen Backups nimmt die Console aus der
+Antwort, sonst aus dem Vergleich der Backup-Liste vorher und nachher. Erstellen und Wiederherstellen
+starten nur einen Task: Die Console merkt sich die ID an der Aktion und fragt alle paar Sekunden
+`create-status` bzw. `restore-status` ab (beides `GET` mit der ID im Pfad), bis 24fire fertig meldet.
+Ein 24fire+ Abo prüft sie nicht mehr.
 
 ### Domains und DNS
 
-Domains kommen beim Sync aus `GET /api/account/services` (Typ `DOMAIN`) in die Console und
-werden im Admin-Bereich unter Domains einer Organisation zugewiesen. Dabei wird das Modul
-"Domains & DNS" für die Organisation freigeschaltet (abschaltbar). Kunden sehen danach Status,
-Nameserver und Ablaufdatum und können DNS-Einträge verwalten, sofern der 24fire-Account 24fire+
-hat. Der Auth-Code für einen Transfer wird nie gespeichert, sondern nur über einen eigenen,
-protokollierten Aufruf live geholt (Berechtigung `domain:authcode`, nur mit Login, nicht per
-API-Token). Nameserver, Transfersperre und Verlängerung kann die 24fire-API nicht ändern, das
-geht nur im 24fire Control Panel (siehe [Domain-Funktionen im
-Vergleich](#domain-funktionen-im-vergleich)).
+Domains kommen beim Sync aus `GET /v1/domains` (ID, Name, Ablaufdatum, automatische Verlängerung) in
+die Console, die Details (Status, Nameserver, Handle, Daten) höchstens alle 30 Minuten pro Domain.
+Scheitert ein Detail, bleiben die Werte aus der Liste und die gespeicherten. Im Admin-Bereich werden
+die Domains unter Domains einer Organisation zugewiesen, dabei wird das Modul "Domains & DNS" für die
+Organisation freigeschaltet (abschaltbar). Die Detailansicht liest Domain und Nameserver frisch. Enden
+alle Nameserver auf `fireapi.de` oder `24fire.de` (in der v2 waren es `ns1.fireapi.de` und
+`ns2.fireapi.de`), gilt die DNS der Domain als von 24fire bedient. Endet keiner so (z.B. nach dem Umzug
+zu Cloudflare), ist der Tab "DNS" nur lesbar und zeigt die anderen Nameserver an oder verweist auf die
+Zone desselben Namens bei Cloudflare. Der DNS-Umzug kopiert die Einträge nur, solange 24fire die
+Domain bedient.
+
+- **DNS-Einträge:** A, AAAA, CNAME, ALIAS, MX, SRV, TXT, CAA, PTR, NS, TLSA, DS, DNSKEY und
+  HTTP_REDIRECT (Weiterleitung), ohne TTL (die setzt 24fire). Kunden mit der Berechtigung
+  "DNS-Einträge bearbeiten" ändern sie bei jeder 24fire-Domain, die 24fire bedient, solange der Token
+  `domain:dns` hat.
+  Einen neuen Eintrag findet die Console über den Vergleich der Liste vorher und nachher, weil 24fire
+  nur `{ created: true }` antwortet. Ändern geht per `PATCH` mit Typ, Name und Wert zusammen (die
+  Console ergänzt, was sich nicht ändert). Einträge des Typs `HTTP_FRAME` aus der v2 sind nur lesbar,
+  löschen geht.
+- **24fire+:** Die Spezifikation kennt keine Endpunkte nur für 24fire+. Lehnt 24fire eine Änderung
+  trotzdem mit einem Hinweis auf 24fire+ ab, meldet die Console das (Code `plus_required`) und hält DNS
+  10 Minuten lang nur lesbar.
+- **Nameserver:** Kunden mit der Berechtigung "Nameserver und Transfersperre ändern" (`domain:manage`,
+  Owner und Admin) setzen 2 bis 5 Nameserver (24fire nimmt `ns1` bis `ns5` in dieser Reihenfolge),
+  kleingeschrieben, ohne Punkt am Ende, keiner doppelt. Eine Vorlage für die Nameserver von 24fire
+  gibt es nicht. Im Audit-Log steht `domain.nameservers_update`. Damit stellt auch der
+  [DNS-Umzug zu Cloudflare](#dns-zu-cloudflare-umziehen) die Nameserver bei 24fire selbst um.
+- **Auth-Code:** Gibt v1 nie heraus. Den Code für einen Transfer im 24fire Control Panel anfordern.
+  Transfersperre, automatische Verlängerung und Verlängern gehen ebenfalls nur dort (siehe
+  [Domain-Funktionen im Vergleich](#domain-funktionen-im-vergleich)). Per API antworten diese Aufrufe
+  mit 422 (`unsupported`).
 
 ### Webspaces
 
-Webspaces (Plesk) werden im 24fire Control Panel bestellt. Die API kann sie nicht anlegen, sie
-liefert nur Ressourcen und Zugangsdaten. Ein neuer Webspace erscheint nach dem nächsten Sync
+Webspaces (Plesk) werden im 24fire Control Panel bestellt. Die API kann sie nicht anlegen, sie liefert
+Paket, Ressourcen und einen Anmeldelink. Ein neuer Webspace erscheint nach dem nächsten Sync
 (automatisch oder von Hand beim Provider im Admin-Bereich) unter Webspaces und wird dort einer
-Organisation zugewiesen, dabei wird das Modul "Webhosting" freigeschaltet. Das Plesk-Passwort
-wird nie gespeichert; die Console holt es nur über einen eigenen, protokollierten Aufruf
-(Berechtigung `webspace:credentials`, nur mit Login). Liefert 24fire das Passwort maskiert,
-zeigt die Console keines an.
+Organisation zugewiesen, dabei wird das Modul "Webhosting" freigeschaltet. Er heisst "Paket
+(Hauptdomain)", z.B. "Plesk-Medium (kunde.de)". Die Ressourcen kommen aus dem Detail, in der
+Detailansicht ergänzt `usage`, was dort fehlt. Im Beispiel der Spezifikation ist `resources` leer, dann
+zeigt die Console keine Werte.
+
+Ein Plesk-Passwort gibt v1 nicht mehr heraus. "Zugangsdaten anzeigen" erzeugt stattdessen einen
+einmaligen Anmeldelink (`POST /v1/webspaces/{webspace}/login`), die Karte zeigt den Button "Plesk
+öffnen" und die Adresse des Panels. Der Link meldet einmal an und läuft nach kurzer Zeit ab, die
+Console nimmt nur `https`-Links an, speichert ihn nicht, zeigt ihn nicht als Text und blendet ihn nach
+3 Minuten wieder aus. Berechtigung `webspace:credentials`, nur mit Login, jeder Abruf steht im
+Audit-Log (`webspace.credentials_view`). Die Adresse von Plesk meldet v1 nicht. Die Karte mit den
+Einstellungen für Mailprogramme fehlt deshalb bei 24fire-Webspaces, solange 24fire keine meldet.
+
+### Unbekannte Antworten
+
+Weil die meisten Antworten unterhalb der Listen nur als Beispiel beschrieben sind, liest die Console
+sie tolerant: die Form der v2, eine einfache Liste, eine Hülle mehr (`{ data: … }`, `{ result: … }` oder
+der Name des Endpunkts), Objekte mit der ID als Schlüssel, Zahlen als Text, Ja/Nein als `1`/`0` oder
+`"true"`. Unbekannte Werte von Aufzählungen gehen durch. Ein Parser wirft nie einen Fehler, bei
+Unbrauchbarem kommen leere Werte.
+
+Erkennt die Console eine Antwort nicht, merkt sie sich die Namen der obersten Felder (höchstens 12, nie
+die Werte), einen Eintrag pro Endpunkt, solange der API-Prozess läuft und die Zugangsdaten gleich
+bleiben. Sie erscheinen in der Übersicht des Providers als "Unrecognised 24fire data:
+GET /v1/servers/{server}/config (keys: a, b, c)" und im Verbindungstest unter `unrecognised`. So zeigt
+der Live-Test die echten Formen, ohne dass Werte ins Log kommen. Die Einträge entstehen beim Sync und
+beim Öffnen der Tabs, nicht im API Explorer.
+
+### API Explorer
+
+Für alles ohne eigenen Button: Admin > API Explorer, Provider 24fire wählen.
+
+- Pfade unter `/v1`, z.B. `/v1/servers/<id>/config`. `v1/…`, `/…` ohne `/v1` und die volle Base URL
+  davor gehen auch. Methoden GET, POST, PUT, PATCH und DELETE. Listen haben 25 Einträge pro Seite
+  (`?page=2`).
+- GET und DELETE senden die Felder aus dem JSON-Feld als Query, die anderen Methoden als Formular.
+- Pfade der v2 (`/api/…`) lehnt der Explorer mit einem Hinweis ab, ebenso `//`, `..`, `\`, `@` und
+  `%` im Pfad.
+- Gesperrt (422, es geht nichts an 24fire) sind die drei Aufrufe, die ein Geheimnis nur einmal
+  herausgeben: `POST …/password-reset` (dafür "Root-Passwort zurücksetzen" in den Einstellungen des
+  Servers), `POST …/ssh-keys/generate` (privater Schlüssel) und `POST /v1/webspaces/{id}/login`
+  (dafür "Plesk öffnen" auf der Seite des Webspaces).
+- In Antworten sind Werte von Feldern wie `password`, `secret`, `token`, `ticket`, `auth_code`,
+  `private_key`, `login_url`, `console_url`, `wss_url`, `url` und `link` ausgeblendet, PEM-Blöcke und
+  Tokens der Form `123|cra_…` überall. Die Konsole lässt sich deshalb aus dem Explorer zwar öffnen,
+  aber nicht benutzen.
+- Vorlagen: Konto, globaler Status, alle Dienste, Server, Konfiguration, Status, Netzwerk und
+  Abuse-Meldungen eines Servers, Betriebssysteme, Domains, DNS-Einträge, Webspaces.
+- Ändernde Requests stehen mit Pfad und Body im Audit-Log (`provider.explorer`), lesende nicht.
+
+### Fehler, Rate-Limit und Zwischenspeicher
+
+| Antwort von 24fire                          | Meldung der Console                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| (Key ohne `\|`, vor jeder Anfrage)          | 502 `provider_auth`: "24fire: the configured key is a key of the old API v2. Create a Personal Access Token (format 123\|cra_...) ..."      |
+| 401 `unauthorized`                          | 502 `provider_auth`: "24fire rejected the access token (401): it is wrong, expired or revoked. ..."                                         |
+| 403 `insufficient_scope`                    | 502 `provider_scope_missing` mit `details.scope`, siehe [Scopes](#scopes)                                                                   |
+| 403 sonst                                   | 502 `provider_error`: "refused access (the token's product allowlist may exclude this product)"                                             |
+| 404 `not_found`                             | 404 `provider_error`. IDs mit `/`, `\`, `%`, `?`, `#` oder `..` beantwortet die Console selbst mit 404, ohne Anfrage                        |
+| 422 `validation_failed`                     | 422 `provider_validation`, die Felder und Texte von 24fire in `details.errors`                                                              |
+| 400 `dns_error`                             | 422 `dns_rejected`: "24fire rejected the DNS record: ..."                                                                                   |
+| 429 `too_many_requests`                     | einmal wiederholt (siehe unten), dann 429 `provider_rate_limited` mit `details.retryAfterSeconds`                                           |
+| 502 `upstream_error`                        | 502 `provider_error`: "the 24fire backend failed: ..."                                                                                      |
+| Meldung nennt 24fire+                       | 422 `plus_required` (nur falls 24fire das noch tut, nicht belegt)                                                                           |
+| keine JSON-Antwort (z.B. HTML eines Proxys) | `provider_error`: "unexpected answer (HTTP n)", bei 404 und einer anderen Base URL als `https://api.24fire.de` mit der Bitte, sie zu prüfen |
+
+Schickt 24fire einen Header `x-request-id`, steht er in `details.requestId` der Meldung.
+
+- **Rate-Limit:** Zahlen nennt die Spezifikation keine, ein 429 ist nur bei `GET /v1/status`,
+  Neuinstallation, Backup erstellen und Backup wiederherstellen dokumentiert, Header gar keine. Die
+  Console schickt pro Verbindung höchstens 4 Anfragen gleichzeitig (Sync und Ansichten zusammen) und
+  arbeitet höchstens 3 Server, Domains oder Webspaces parallel ab. Bei 429 wartet sie, was
+  `Retry-After` (Sekunden oder Datum) oder `X-RateLimit-Reset` sagt, ohne Header 2 Sekunden, und
+  versucht es einmal neu, auch bei ändernden Aufrufen (ein gedrosselter Request wurde nicht
+  ausgeführt). Sind es mehr als 10 Sekunden oder kommt wieder 429, meldet sie "too many requests, try
+  again in N s".
+- **Zeitlimits:** 20 Sekunden für lesende Aufrufe, 45 Sekunden für ändernde (Neuinstallation und
+  Backups antworten langsam).
+- **Seiten:** Listen liest die Console bis `meta.last_page`, höchstens 200 Seiten (5000 Produkte),
+  doppelte IDs nur einmal. Ohne `meta` gilt die erste Seite als ganze Liste.
+
+Zwischengespeichert wird pro Verbindung im API-Prozess:
+
+| Daten                                       | Wie lange                                                                |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| Konto                                       | 5 Minuten, Verbindungstest und Übersicht lesen neu                       |
+| Listen, Konfiguration und Status der Server | gar nicht, gleiche Anfragen zur selben Zeit gehen nur einmal hinaus      |
+| letzter vollständiger Stand pro Server      | bis ein neuer kommt (für Teil-Server)                                    |
+| rDNS pro Server                             | 10 Minuten, eine Änderung verwirft ihn                                   |
+| Monitoring pro Server                       | 60 Sekunden                                                              |
+| Betriebssysteme und ISO-Images pro Server   | 1 Stunde                                                                 |
+| Domain-Details                              | 30 Minuten, die Detailansicht und eine Änderung der Nameserver lesen neu |
+| Webspace-Details                            | 30 Minuten, die Detailansicht liest neu                                  |
+| fehlende Scopes                             | 10 Minuten pro Scope                                                     |
+| unbekannte Antworten                        | bis zum Neustart der API oder einer Änderung der Zugangsdaten            |
+
+Root-Passwörter, Konsolen-Sitzungen und Plesk-Links speichert die Console nie zwischen.
+
+### Umstieg von API v2
+
+Die Console spricht nur noch die Customer REST API v1. Der Typ des Providers bleibt `fire24`, die
+Konfiguration ebenso (`apiKey` mit dem Token, `baseUrl`), und die Datenbank braucht keine Migration.
+
+**Verbindung aus der `.env`:**
+
+1. Den Token anlegen (siehe [Personal Access Token](#personal-access-token)).
+2. In der `.env` den alten Key ersetzen: `FIRE24_API_KEY='123|cra_…'`. `FIRE24_BASE_URL` entfernen oder
+   auf `https://api.24fire.de` setzen. Steht dort noch `https://manage.24fire.de`, nimmt die Console
+   trotzdem den neuen Host und warnt beim Start im Log ("FIRE24_BASE_URL points to the old API v2
+   host").
+3. Neue Version und neuen Token zusammen ausrollen. Mit nur einem von beiden meldet die Verbindung
+   einen Fehler, sonst ändert sich nichts: Die alte Version kann mit dem Token nichts anfangen, die
+   neue lehnt den alten Key ab, bevor sie eine Anfrage schickt.
+4. Beim Start übernimmt die Console die geänderte Konfiguration. Im Admin-Bereich unter Provider
+   "Verbindung testen": erwartet sind `api: "v1"`, Konto, Zahlen und `scopesMissing: []`.
+5. "Jetzt synchronisieren", danach im Audit-Log nach `server.rekey` und `domain.rekey` sehen und im
+   Inventar nach fehlenden Servern, Domains und Webspaces (siehe unten).
+
+**Verbindung aus dem Admin-Bereich:** Verbindung bearbeiten, den Token ins Feld "Personal Access
+Token" einfügen, speichern. Die Base URL wird dabei zu `https://api.24fire.de` (der alte Host wird
+ersetzt, ein `/v1` am Ende entfernt). Ein leeres Feld behält sonst den gespeicherten Wert, bei einem
+alten Key geht das nicht: Formular und API verlangen den neuen Token. Eine Verbindung, die niemand
+bearbeitet, nutzt schon den neuen Host, scheitert aber mit dem alten Key.
+
+**Mit dem alten Key** scheitert jeder Aufruf, bevor etwas an 24fire geht, mit `provider_auth` ("the
+configured key is a key of the old API v2 …"). Der Sync speichert die Meldung als letzten Fehler, die
+Verbindung steht auf Fehler. Server, Domains und Webspaces bleiben, wie sie sind, nichts wird als
+fehlend markiert. Bei einer Verbindung aus der `.env` warnt zusätzlich das Log beim Start
+("FIRE24_API_KEY is a key of the old 24fire API v2, create a Personal Access Token").
+
+**Gespeicherte Daten:** Das Meta der Server ersetzt der nächste Sync (neu ist `meta.renewal`, der rohe
+Eintrag `meta.service` der v2 fällt weg). Bei Domains bleiben Felder, die v1 nicht meldet, gespeichert.
+Webspaces heissen nach dem ersten Sync "Paket (Hauptdomain)" statt "Paket (Login)", der Benutzername
+bleibt leer, solange 24fire keinen meldet. Laufende Backup-Aktionen aus der Zeit vor dem Umstieg fragt
+die Console mit den neuen Aufrufen ab, haben sich die IDs geändert, enden sie nach einer Stunde als
+"Timed out".
+
+**IDs und Re-Key:** Die v2 nannte die IDs `internal_id`, die v1 `UserProduct.internal_id`. Sehr
+wahrscheinlich sind es dieselben Werte, belegt ist das nicht. Damit eine geänderte ID keine Zuweisung
+kostet und keine Doppelten anlegt, gleicht der Sync bei 24fire vor dem Speichern ab (`rekeyOnSync` im
+Adapter, `rekeyServers` und `rekeyDomains` in `apps/api/src/jobs/sync.ts`):
+
+- Es zählen nur neue IDs (ohne Zeile auf dieser Verbindung) und Zeilen, die beim letzten Sync noch da
+  waren und jetzt in der Liste fehlen.
+- **Server:** zuerst gleicher Name beim Provider, gleiche Art und mindestens eine gemeinsame
+  IPv4-Adresse, auf beiden Seiten genau ein Kandidat. Danach, nur wenn einer Seite die IPv4-Adressen
+  fehlen (z.B. einem Teil-Server): gleicher Name und gleiche Art, einmalig unter den neuen IDs und
+  unter den verschwundenen Zeilen. Haben beide IPv4-Adressen, aber keine gemeinsame, sind es zwei
+  verschiedene Server.
+- **Domains:** gleicher Name (Gross- und Kleinschreibung egal), auf beiden Seiten einmalig.
+- Nur eindeutige Paare werden übernommen: Die Zeile behält ihre ID in der Console und bekommt die neue
+  ID von 24fire. Kunde, Projekt, Labels, Schutz, Aktionen und Verknüpfungen mit der Abrechnung bleiben
+  so erhalten. Im Audit-Log steht `server.rekey` bzw. `domain.rekey` mit "Sync" als Auslöser und
+  `from`, `to`, `name` und `matchedBy` (`name+ipv4` oder `name`).
+- Alles Mehrdeutige bleibt, wie es ist: Die alte Zeile wird als fehlend markiert, die neue kommt nicht
+  zugewiesen dazu (bei Servern meldet das Log der API "servers not re-keyed: no unambiguous match").
+  Dann von Hand zuweisen.
+
+**Webspaces von Hand prüfen:** Webspaces gleicht der Sync nicht ab, weil sich ihr Name beim Umstieg
+ändert. Vor dem Umstieg die IDs notieren und nach dem ersten Sync mit `GET /v1/webspaces` im API
+Explorer vergleichen:
+
+```sql
+select id, name from provider_connections where type = 'fire24';
+select external_id, name from servers where provider_connection_id = '<ID der Verbindung>';
+select external_id, name from domains where provider_connection_id = '<ID der Verbindung>';
+select external_id, name from webspaces where provider_connection_id = '<ID der Verbindung>' and kind = 'webspace';
+```
+
+Sind sie gleich, ist nichts zu tun. Sonst stehen die alten Webspaces als fehlend da und die neuen als
+nicht zugewiesen: die neuen unter Admin > Domains & Webspaces denselben Kunden zuweisen.
+
+**Was wegfällt und was die Console stattdessen zeigt:**
+
+| Bisher (v2)                                                                  | Jetzt (v1)                                                                                                                                                             |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth-Code für den Transfer                                                   | gibt v1 nie heraus. Der Button verschwindet, die API antwortet mit 422 (`unsupported`). Den Code im 24fire Control Panel anfordern                                     |
+| Traffic-Verlauf (`traffic/log`) und Traffic-Diagramm                         | nur noch der laufende Monat. Die Traffic-Karte zeigt dasselbe wie bisher                                                                                               |
+| Beschreibung beim Backup                                                     | `POST …/backups` nimmt keinen Body, der Dialog fragt keine Beschreibung mehr ab                                                                                        |
+| Plesk-Passwort des Webspaces                                                 | einmaliger Anmeldelink, Button "Plesk öffnen"                                                                                                                          |
+| DNS-Typ `HTTP_FRAME`                                                         | nicht mehr wählbar. Vorhandene Einträge sind nur lesbar, löschen geht                                                                                                  |
+| 24fire+ für DNS-Änderungen, Backups, Graphen, Verfügbarkeit, DDoS-Änderungen | keine Prüfung mehr, nur der Scope zählt. Lehnt 24fire trotzdem mit einem Hinweis auf 24fire+ ab, kommt `plus_required`. Die Übersicht zeigt den 24fire+ Status weiter  |
+| `GET /api/account/services` (alle Dienste gruppiert)                         | die Listen `/v1/servers`, `/v1/domains` und `/v1/webspaces`, für die Zahlen `/v1/services`. Dedizierte Server zählt die Übersicht nur, synchronisiert werden sie nicht |
+| `X-Fire-Apikey`, `manage.24fire.de`, `requestID` in der Antwort              | Bearer-Token, `api.24fire.de`, der Header `x-request-id` in `details.requestId`                                                                                        |
+
+**Neu bei 24fire:** Browser-Konsole, Rebuild mit Auswahl des Betriebssystems und Fortschritt,
+Root-Passwort zurücksetzen, rDNS setzen, ISO einlegen und auswerfen, Nameserver ändern (damit läuft
+der DNS-Umzug zu Cloudflare bis zum Schluss automatisch), "Plesk öffnen" mit einem Einmal-Link, Status,
+Hinweise und Zahl der Dienste in der Übersicht des Providers, Verlängerungsdaten im Meta.
+
+### Live-Test der API v1
+
+Gegen das echte 24fire ist die v1-Anbindung noch nicht getestet, nur gegen einen Mock-Server, der aus
+der Spezifikation gebaut ist ([`apps/api/test/fire24-mock.ts`](../apps/api/test/fire24-mock.ts)). Mit
+einem echten Token in dieser Reihenfolge prüfen:
+
+1. Token mit den 20 Scopes der vollen Nutzung und ohne Produktfreigabe anlegen. Am besten zuerst in
+   einer Staging-Kopie der Console (mit einer Kopie der Datenbank) eintragen und "Verbindung testen":
+   erwartet sind `api: "v1"`, Kontoname, Zahlen und kein Eintrag in `scopesMissing`.
+2. Im API Explorer `GET /v1/servers`, `GET /v1/domains` und `GET /v1/webspaces` aufrufen. Einmal mit
+   `curl -i` nachsehen, ob 24fire `Retry-After` oder `X-RateLimit-*` schickt (der Explorer zeigt keine
+   Header).
+3. Die `id` mit der `external_id` der gespeicherten 24fire-Server, -Domains und -Webspaces vergleichen
+   (SQL oben). Gleich: nichts zu tun. Verschieden: einen Sync laufen lassen, im Audit-Log nach
+   `server.rekey` und `domain.rekey` sehen, im Inventar nach fehlenden Zeilen, und die Webspaces von
+   Hand zuweisen.
+4. Für einen Server `status`, `config`, `network`, `traffic`, `os-list`, `iso-list`, `rdns`, `ddos`,
+   `monitoring` und `backups` per GET lesen und mit den Formen der v2 im Mock vergleichen (Form `'v2'`
+   in `fire24-mock.ts`). Danach in der Übersicht des Providers und im Verbindungstest nach "Unrecognised
+   24fire data" sehen (die Einträge entstehen beim Sync und beim Öffnen der Tabs). Steht in der
+   Konfiguration ein Root-Passwort?
+5. Für eine Domain das Detail, `dns` und `nameservers` lesen (kommen `timings`, `handle` und
+   `nameserver` noch, enden die Nameserver von 24fire auf `fireapi.de` oder `24fire.de`?).
+6. Für einen Webspace das Detail und `usage` lesen (Ressourcen, Adresse von Plesk).
+7. Auf einem Test-Server: neu starten, die Konsole öffnen (Seite oder Websocket, wie lange gültig?), ein
+   ISO einlegen und auswerfen, einen rDNS-Namen setzen und im Tab "Netzwerk" prüfen.
+8. Nur auf einem Test-Server: Root-Passwort zurücksetzen, dann neu installieren und warten, bis der
+   Eintrag unter "Aktivität" fertig ist. Danach die Anmeldung per SSH mit Passwort prüfen.
+9. Ein Backup erstellen, den Fortschritt verfolgen und es löschen (steht eine Beschreibung in der
+   Liste?).
+10. Auf einer Test-Domain einen TXT-Eintrag anlegen, ändern und löschen (verlangt 24fire dafür noch
+    24fire+?). Die Nameserver auf dieselben Werte setzen, die sie schon haben, und zurücklesen.
+11. Auf der Seite eines Webspaces "Plesk öffnen" und prüfen, dass der Link nur einmal funktioniert.
+12. Einen zweiten Token mit den 9 Lese-Scopes und einer Produktfreigabe für einen Server anlegen, die
+    Verbindung testen (fehlende Scopes?) und einen Server ausserhalb der Freigabe mit
+    `GET /v1/servers/<id>` lesen (404 oder 403?). Den Token danach löschen.
+13. Ein paar schnelle `GET /v1/status` hintereinander schicken, um ein 429 zu sehen, falls das Limit
+    niedrig ist.
+14. Den alten Key der v2 in das Formular einer neuen Verbindung einfügen: erwartet ist die Meldung, dass
+    ein Personal Access Token nötig ist.
+
+Echte Antworten danach als Fixtures ablegen und die Parser enger machen, wo es sich lohnt.
+
+### Offene Punkte
+
+Nicht belegt, erst im Live-Test zu klären:
+
+- Die Form der Antworten mit "ungeprüft" in der Tabelle oben, und ob v1 dort die Daten der v2
+  durchreicht.
+- Ob die IDs der v1 die `internal_id` der v2 sind. Für Server und Domains fängt der Re-Key das ab, für
+  Webspaces nicht.
+- Was ein Produkt ausserhalb der Produktfreigabe auf Detail-Endpunkten antwortet (404 oder 403).
+- Rate-Limits: wie viele Anfragen, für welche Endpunkte, ob `Retry-After` oder `X-RateLimit-*` kommen.
+- Ob 24fire DNS-Änderungen, Backups, Monitoring oder DDoS-Änderungen noch an 24fire+ knüpft, und mit
+  welchem Fehler.
+- Ob `POST /v1/servers/{server}/backups` eine Beschreibung nimmt und ob die Liste noch eine zeigt.
+- Neuinstallation: welcher Hostname ohne Angabe gilt, was `password_login` genau bewirkt, was `ssh_key`
+  erwartet (ID oder Schlüssel).
+- Was `disabled`, `renew_state`, `cancellation_pending` und `manageable` bedeuten.
+- Ob die Konsole eine Seite oder ein Websocket mit Passwort ist und wie lange sie gilt.
+- Ob die Konfiguration noch ein Root-Passwort enthält (die Console blendet es ohnehin aus).
+- Ob `GET /v1/domains/{domain}` noch `timings`, `handle` und `nameserver` liefert.
+- Wie die Nameserver von 24fire heute heissen. Endet keiner auf `fireapi.de` oder `24fire.de`, hält die
+  Console die Domains für nicht von 24fire bedient: DNS ist dann nur lesbar, und der DNS-Umzug kopiert
+  keine Einträge.
+- Der Host von Plesk für die Adresse des Panels (v2: `plesk.24fire.de:8443`).
+- Ob ein Key der v2 wirklich nie ein `|` enthält.
+
+### Grenzen
+
+Noch nicht in der Console, das geht weiterhin im 24fire Control Panel oder kommt später:
+
+- Server, Domains und Webspaces bestellen und kündigen
+- Auth-Code, Transfersperre, automatische Verlängerung und Verlängern von Domains
+- SSH-Keys verwalten (die Endpunkte und der Scope `server:ssh` sind bekannt, Tab und Rechte fehlen)
+- Monitoring bei 24fire ein- und ausschalten (mit Port)
+- Abuse-Meldungen (nur im API Explorer)
+- Belegung der Webspaces (die Console zeigt nur Limits) und die Adresse von Plesk
+- Verlängerungsdaten anzeigen (sie stehen schon im Meta)
+- Dedizierte Server (die Übersicht zählt sie nur)
+- rDNS-Eintrag entfernen (der Adapter kann es, das Formular nimmt keinen leeren Namen)
+
+Ideen dafür stehen in der [Roadmap](roadmap.md#rechenzentrum-de-24fire).
 
 ## Proxmox VE (Self-Host CH)
 
@@ -494,7 +970,7 @@ curl -X PUT -H "Authorization: Bearer wlc_…" -H "Content-Type: application/jso
 ```
 
 Die Antwort ist `{ "ok": true, "message": "...", "providerRef": "<Proc-ID>" }`. Kann der
-Provider das nicht (z.B. 24fire), antwortet die API mit 422 (`unsupported`).
+Provider das nicht (z.B. die Transfersperre bei 24fire), antwortet die API mit 422 (`unsupported`).
 
 ### Automatische Verlängerung und Verlängern
 
@@ -905,14 +1381,15 @@ Einträge, die kopiert werden, die angepassten (Typ oder TTL) und die nicht übe
    kopiert nie in eine Zone, die schon Einträge hat, und höchstens 500 Einträge (sonst im Dashboard
    importieren), vier gleichzeitig. Kopierte Einträge laufen nie über den Proxy, am Verkehr ändert
    sich beim Umstellen also nichts. Nicht übernommen werden Einträge, die nur gelesen werden
-   können, NS-Einträge für `@` und Typen, die Cloudflare nicht nimmt (Weiterleitungen und
-   E-Mail-Weiterleitungen von Joker, DNSKEY). ALIAS wird zu CNAME für `@`. Eine TTL unter 60
+   können, NS-Einträge für `@` und Typen, die Cloudflare nicht nimmt (Weiterleitungen von Joker und
+   24fire, E-Mail-Weiterleitungen von Joker, DNSKEY). ALIAS wird zu CNAME für `@`. Eine TTL unter 60
    Sekunden (auch 0) wird "Automatisch", eine über 86400 wird 86400.
 3. **Nameserver** (Standard aus): Die Console stellt sie beim Registrar nur um, wenn Schritt 2 im
-   selben Lauf alles kopiert hat und der Registrar das über die Console kann (Joker.com). Sonst
-   listet das Ergebnis die Nameserver, die man von Hand setzt. Joker übernimmt die Änderung
-   asynchron, danach wird die Zone aktiv, sobald Cloudflare die neue Delegation sieht (Minuten bis
-   Stunden).
+   selben Lauf alles kopiert hat und der Registrar das über die Console kann (Joker.com und 24fire,
+   bei 24fire mit dem Scope `domain:nameserver`). Sonst listet das Ergebnis die Nameserver, die man
+   von Hand setzt. Die Registry übernimmt die Änderung mit Verzögerung, danach wird die Zone aktiv,
+   sobald Cloudflare die neue Delegation sieht (Minuten bis Stunden). Sobald 24fire die neuen
+   Nameserver meldet, verweist der Tab "DNS" der Registrierung auf die Zone bei Cloudflare.
 
 Das Ergebnis zeigt jeden Schritt mit Status. Im Audit-Log stehen `domain.zone_create` (auf der Zone,
 bei einem Fehler auf der Registrierung), `domain.dns_import` (auf der Zone, mit kopierten,
@@ -1043,24 +1520,24 @@ Registrierung desselben Namens beim Demo-Provider auf ihre Nameserver zeigt.
 Jeder Adapter meldet, was er bei Domains kann, die Console zeigt nur das an. Ruft jemand per
 API etwas auf, das der Provider nicht kann, antwortet sie mit 422 (`unsupported`).
 
-|                                       | 24fire        | Joker.com                 | Cloudflare                                   | Demo                |
-| ------------------------------------- | ------------- | ------------------------- | -------------------------------------------- | ------------------- |
-| Art                                   | Registrierung | Registrierung             | DNS-Zone                                     | Registrierung       |
-| DNS-Einträge ansehen                  | ja            | ja, mit Joker-Nameservern | ja, auch bei wartenden Zonen                 | ja                  |
-| DNS-Einträge ändern                   | mit 24fire+   | ja, mit Joker-Nameservern | ja, ausser in sekundären Zonen               | ja                  |
-| TTL pro Eintrag                       | nein          | ja, ab 300 Sekunden       | ja, "Automatisch" oder 60 bis 86400 Sekunden | ja                  |
-| Proxy pro Eintrag                     | nein          | nein                      | A, AAAA, CNAME                               | nein                |
-| CNAME für `@`                         | nein          | nein                      | ja                                           | nein                |
-| NAPTR                                 | nein          | ja                        | ja                                           | ja                  |
-| E-Mail-Weiterleitung, Weiterleitungen | nein          | ja                        | nein                                         | ja                  |
-| ALIAS                                 | ja            | nein                      | nein (CNAME für `@`)                         | ja                  |
-| NS, PTR, TLSA, DS                     | ja            | nein                      | ja (NS nicht für `@`)                        | ja                  |
-| DNSKEY                                | ja            | nein                      | nur lesen                                    | ja                  |
-| CDN-Einstellungen, Cache leeren       | nein          | nein                      | ja                                           | nein                |
-| Nameserver ändern                     | nein          | ja                        | nein (setzt Cloudflare)                      | ja                  |
-| Transfersperre                        | nein          | ja                        | nein                                         | ja                  |
-| Auth-Code                             | ja            | ja, asynchron             | nein                                         | ja                  |
-| Automatische Verlängerung, Verlängern | nein          | ja, nur weblion.one       | nein                                         | ja, nur weblion.one |
+|                                       | 24fire                                                | Joker.com                 | Cloudflare                                   | Demo                |
+| ------------------------------------- | ----------------------------------------------------- | ------------------------- | -------------------------------------------- | ------------------- |
+| Art                                   | Registrierung                                         | Registrierung             | DNS-Zone                                     | Registrierung       |
+| DNS-Einträge ansehen                  | ja                                                    | ja, mit Joker-Nameservern | ja, auch bei wartenden Zonen                 | ja                  |
+| DNS-Einträge ändern                   | ja, mit 24fire-Nameservern und dem Scope `domain:dns` | ja, mit Joker-Nameservern | ja, ausser in sekundären Zonen               | ja                  |
+| TTL pro Eintrag                       | nein                                                  | ja, ab 300 Sekunden       | ja, "Automatisch" oder 60 bis 86400 Sekunden | ja                  |
+| Proxy pro Eintrag                     | nein                                                  | nein                      | A, AAAA, CNAME                               | nein                |
+| CNAME für `@`                         | nein                                                  | nein                      | ja                                           | nein                |
+| NAPTR                                 | nein                                                  | ja                        | ja                                           | ja                  |
+| E-Mail-Weiterleitung, Weiterleitungen | nur Weiterleitung (URL)                               | ja                        | nein                                         | ja                  |
+| ALIAS                                 | ja                                                    | nein                      | nein (CNAME für `@`)                         | ja                  |
+| NS, PTR, TLSA, DS                     | ja                                                    | nein                      | ja (NS nicht für `@`)                        | ja                  |
+| DNSKEY                                | ja                                                    | nein                      | nur lesen                                    | ja                  |
+| CDN-Einstellungen, Cache leeren       | nein                                                  | nein                      | ja                                           | nein                |
+| Nameserver ändern                     | ja, 2 bis 5                                           | ja                        | nein (setzt Cloudflare)                      | ja                  |
+| Transfersperre                        | nein                                                  | ja                        | nein                                         | ja                  |
+| Auth-Code                             | nein (im 24fire Control Panel)                        | ja, asynchron             | nein                                         | ja                  |
+| Automatische Verlängerung, Verlängern | nein                                                  | ja, nur weblion.one       | nein                                         | ja, nur weblion.one |
 
 Der Demo-Provider (`ENABLE_DEMO_PROVIDER=true`) simuliert alle Funktionen eines Registrars im
 Speicher, mit den Regeln von Joker (TTL ab 300 Sekunden, eine Auftragsnummer wie die Proc-ID). Zum
@@ -1866,7 +2343,7 @@ rund 420 Zeichen, mehr als ein DNS-String fasst (255 Bytes). Joker.com und Cloud
 Wert deshalb in mehreren Teilen, DNS fügt sie wieder zusammen. Im Audit-Log steht `mail.dkim_create`.
 
 **Fehlende Einträge hinzufügen:** braucht `domain:dns:write` auf der Domain der Zone, einen Provider,
-dessen DNS sich gerade ändern lässt (bei 24fire nur mit 24fire+), und lesbare Einträge (sonst fügt
+dessen DNS sich gerade ändern lässt (bei 24fire nicht, solange dem Token der Scope `domain:dns` fehlt), und lesbare Einträge (sonst fügt
 die Console nichts hinzu, 502). Die Console fügt nur Einträge mit Status "Fehlt" hinzu, einen nach
 dem anderen (Joker schreibt bei jeder Änderung die ganze Zone), mit TTL 3600 Sekunden, wo der
 Provider eine TTL nimmt, bei Cloudflare nie über den Proxy. Einträge, die abweichen, ändert oder

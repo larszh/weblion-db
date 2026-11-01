@@ -164,7 +164,7 @@ Angebundene Provider:
 
 | Provider      | Adapter                | Server            | Besonderheiten                                                                                                                                       |
 | ------------- | ---------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 24fire        | `providers/fire24`     | KVM               | Domains, DNS und Webspaces, manche Funktionen nur mit 24fire+                                                                                        |
+| 24fire        | `providers/fire24`     | KVM               | Customer REST API v1 mit Scopes: Konsole, Neuinstallation, Root-Passwort, rDNS, ISO, Domains mit DNS und Nameservern, Webspaces mit Plesk-Link       |
 | Proxmox VE    | `providers/proxmox`    | VMs und Container | Firewall, Erstellen aus Templates, Konsole über `vncwebsocket`                                                                                       |
 | Hetzner Cloud | `providers/hetzner`    | Cloud-Server      | Feste Server-Typen (`listPlans`) und Standorte (`listLocations`), Konsole über `request_console`, Standort pro Server                                |
 | Joker.com     | `providers/joker`      | keine             | Reiner Domain-Provider: DNS-Zone, Nameserver, Transfersperre, Verlängerung, Auth-Code                                                                |
@@ -470,6 +470,13 @@ und markiert verschwundene als `missing`. Liefert ein Provider in der Liste nich
 (Joker.com z.B. keine Nameserver, die kommen erst live beim Öffnen der Domain), bleibt der
 gespeicherte Wert.
 Neue Cloudflare-Zonen weist er dem Kunden der gleichnamigen Registrierung zu (siehe oben).
+Bei 24fire übernimmt eine gespeicherte Zeile eine neue ID, wenn sich die ID eines Servers (gleicher
+Name, eine gemeinsame IPv4-Adresse) oder einer Domain (gleicher Name) eindeutig geändert hat, statt
+als fehlend zu gelten (`rekeyOnSync`, im Audit-Log `server.rekey` bzw. `domain.rekey`, Regeln in
+[providers.md](providers.md#umstieg-von-api-v2)). Scheitert dort die Konfiguration eines Servers,
+kommt er als Teil-Server (`partial`): Name, Status und Meta werden aktualisiert, Specs, IPs und OS
+bleiben. Fehlt dem Token der Scope für eine Liste, überspringt der Sync sie, ohne etwas als fehlend
+zu markieren (`skipped` im Ergebnis).
 Bei Nextcloud aktualisiert er Belegung, Kontingent und Status der Konten, die die Console
 verwaltet. Für unbekannte Benutzer legt er nichts an, die übernimmt weblion.one von Hand. Bei
 Mailcow liest er pro Instanz einmal alle Mail-Domains mit Limits und Verbrauch. Bei CloudPanel
@@ -506,7 +513,13 @@ API-Instanzen nur einmal.
 - Provider-Zugangsdaten AES-256-GCM-verschlüsselt, nie in API-Antworten (nur maskiert)
 - Root-Passwörter aus Provider-Konfigurationen werden ausgeblendet
 - Neue Passwörter (Root-Passwörter, Cloud-Konten, Postfächer, Websites und ihre Datenbanken,
-  Streaming-Zugänge) zeigt die Console einmal an und speichert sie nicht, auch nicht im Audit-Log
+  Streaming-Zugänge) zeigt die Console einmal an und speichert sie nicht, auch nicht im Audit-Log.
+  Dasselbe gilt für den einmaligen Plesk-Link der 24fire-Webspaces
+- 24fire: Vom Personal Access Token zeigt der Admin-Bereich nur die Nummer vor dem `|`, in Meldungen
+  und Logs steht er nie. Die Konfiguration der Server und Antworten im API Explorer kommen ohne
+  Passwörter, Konsolen-Adressen, Plesk-Links, private Schlüssel und Tokens an. Aufrufe, die ein
+  Geheimnis nur einmal herausgeben (Root-Passwort, SSH-Schlüssel erzeugen, Plesk-Link), sperrt der
+  Explorer
 - Vom Cloudflare-Token zeigt der Admin-Bereich nur Anfang und Ende, vom Mailcow-API-Key und den
   Schlüsseln für 3CX und Jellyfin gar nichts, vom API-Schlüssel für Uptime Kuma nur die Nummer und
   vom Sitzungstoken nur, ob es gesetzt ist. Clients folgen keinen Weiterleitungen, damit
