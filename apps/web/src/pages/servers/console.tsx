@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as RadixDialog from '@radix-ui/react-dialog';
-import { Keyboard, Maximize2, X } from 'lucide-react';
+import { ExternalLink, Keyboard, Maximize2, X } from 'lucide-react';
 import RFB from '@novnc/novnc';
 import type { ServerDto } from '@weblion/shared';
 import { api, errorMessage } from '@/lib/api';
@@ -10,7 +10,8 @@ import { Spinner } from '@/components/ui/primitives';
 import { StatusDot } from '@/components/server-bits';
 
 type ConsoleResponse = { type: 'url'; url: string } | { type: 'vnc'; path: string; password: string };
-type State = 'connecting' | 'connected' | 'disconnected' | 'error';
+/** `page`: the provider's own console page, opened from a link in the dialog. */
+type State = 'connecting' | 'connected' | 'disconnected' | 'error' | 'page';
 
 /** Browser console via noVNC, bridged through the API so provider credentials stay server side. */
 export function ConsoleDialog({
@@ -27,20 +28,24 @@ export function ConsoleDialog({
   const rfbRef = useRef<RFB | null>(null);
   const [state, setState] = useState<State>('connecting');
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setState('connecting');
     setError(null);
+    setPage(null);
 
     api
       .post<ConsoleResponse>(`/servers/${server.id}/console`)
       .then((res) => {
         if (cancelled) return;
         if (res.type === 'url') {
-          window.open(res.url, '_blank', 'noopener');
-          onOpenChange(false);
+          // Opened by the user's click on the link below. A window.open after this request comes
+          // too late for popup blockers, and with noopener it cannot even tell it was blocked.
+          setPage(res.url);
+          setState('page');
           return;
         }
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -70,6 +75,8 @@ export function ConsoleDialog({
 
     return () => {
       cancelled = true;
+      // The link is a console session: it does not outlive the dialog.
+      setPage(null);
       try {
         rfbRef.current?.disconnect();
       } catch {
@@ -87,7 +94,13 @@ export function ConsoleDialog({
           <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2.5 text-white">
             <RadixDialog.Title className="flex items-center gap-2.5 text-sm font-medium">
               <StatusDot
-                status={state === 'connected' ? 'running' : state === 'connecting' ? 'starting' : 'stopped'}
+                status={
+                  state === 'connected' || state === 'page'
+                    ? 'running'
+                    : state === 'connecting'
+                      ? 'starting'
+                      : 'stopped'
+                }
               />
               {t('console.title', { name: server.name })}
             </RadixDialog.Title>
@@ -130,6 +143,23 @@ export function ConsoleDialog({
                   <>
                     <Spinner className="text-white/70" />
                     {t('console.connecting')}
+                  </>
+                )}
+                {state === 'page' && page && (
+                  <>
+                    <a
+                      href={page}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      // Closed only after the click has opened the tab: a link removed during the
+                      // click would not be followed.
+                      onClick={() => setTimeout(() => onOpenChange(false), 0)}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 font-medium text-white shadow-card transition-colors hover:bg-primary-hover"
+                    >
+                      <ExternalLink className="size-4" />
+                      {t('console.openPage')}
+                    </a>
+                    <span className="max-w-md text-center">{t('console.pageText')}</span>
                   </>
                 )}
                 {state === 'disconnected' && t('console.closed')}

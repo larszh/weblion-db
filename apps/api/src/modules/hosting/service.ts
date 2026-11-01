@@ -130,7 +130,10 @@ export function requireSupport(adapter: ProviderAdapter, method: keyof ProviderA
   if (typeof adapter[method] !== 'function') throw unsupported(`This provider does not support ${what}`);
 }
 
-/** DNS changes need a provider implementation and, at 24fire, an active 24fire+ plan. */
+/**
+ * DNS changes need a provider implementation, and the provider may refuse them for a while (24fire:
+ * the access token lacks the scope domain:dns, or a write was refused for a missing 24fire+ plan).
+ */
 export async function dnsWritable(adapter: ProviderAdapter): Promise<boolean> {
   if (typeof adapter.addDnsRecord !== 'function') return false;
   if (!adapter.dnsWritable) return true;

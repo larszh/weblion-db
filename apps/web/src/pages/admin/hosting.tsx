@@ -29,6 +29,7 @@ import {
   useAdminWebspaces,
   useAssignHosting,
   useProviderSync,
+  withSkipped,
   type AdminHostingFilters,
   type DomainActionResult,
 } from '@/lib/api/hosting';
@@ -109,19 +110,23 @@ export function AdminHostingPage() {
   const canAssign = perms.includes('platform:server:assign');
   const [assigning, setAssigning] = useState<Item | null>(null);
   const sync = useProviderSync((r) =>
-    tab === 'cloud'
-      ? t('storage.admin.synced', {
-          seen: r.cloudAccounts?.seen ?? 0,
-          missing: r.cloudAccounts?.missing ?? 0,
-        })
-      : tab === 'mail'
-        ? t('mail.admin.synced', { seen: r.mailDomains?.seen ?? 0, missing: r.mailDomains?.missing ?? 0 })
-        : t('hosting.admin.synced', {
-            domains: r.domains?.seen ?? 0,
-            // Websites are web spaces of a CloudPanel server.
-            webspaces: (r.webspaces?.seen ?? 0) + (r.websites?.seen ?? 0),
-            servers: r.seen,
-          }),
+    withSkipped(
+      tab === 'cloud'
+        ? t('storage.admin.synced', {
+            seen: r.cloudAccounts?.seen ?? 0,
+            missing: r.cloudAccounts?.missing ?? 0,
+          })
+        : tab === 'mail'
+          ? t('mail.admin.synced', { seen: r.mailDomains?.seen ?? 0, missing: r.mailDomains?.missing ?? 0 })
+          : t('hosting.admin.synced', {
+              domains: r.domains?.seen ?? 0,
+              // Websites are web spaces of a CloudPanel server.
+              webspaces: (r.webspaces?.seen ?? 0) + (r.websites?.seen ?? 0),
+              servers: r.seen,
+            }),
+      r,
+      t,
+    ),
   );
 
   const set = (key: string, value: string) => {

@@ -73,6 +73,12 @@ export interface RemoteServer {
   os?: string | null;
   node?: string | null;
   meta?: Record<string, unknown>;
+  /**
+   * Only name, status and meta are current: keep the stored specs, usage, ips, os and node,
+   * merge meta. Set when a per-server call failed or answered an unknown shape (24fire), so one
+   * bad answer never wipes a server's IPs.
+   */
+  partial?: boolean;
 }
 
 /** What an adapter needs to address a stored server. */
@@ -616,6 +622,11 @@ export interface MonitoringStatus {
 
 export interface ProviderAdapter {
   readonly type: ProviderType;
+  /**
+   * Ids this provider may change: the sync adopts unknown ids into stored rows that match (see
+   * sync), so assignments survive and no duplicates appear. 24fire sets both for the move to API v1.
+   */
+  readonly rekeyOnSync?: { servers?: boolean; domains?: boolean };
 
   capabilities(server?: ServerRef): Capability[];
   powerActions(server?: ServerRef): PowerAction[];
@@ -687,7 +698,10 @@ export interface ProviderAdapter {
   /** Returns the changed record, or null if the provider does not report it back. */
   updateDnsRecord?(externalId: string, recordId: string, patch: DnsRecordPatch): Promise<DnsRecord | null>;
   deleteDnsRecord?(externalId: string, recordId: string): Promise<void>;
-  /** Whether DNS changes are possible right now (24fire: only with an active 24fire+ plan). */
+  /**
+   * Whether DNS changes are possible right now (24fire: not while the token is known to lack
+   * domain:dns, or after a write was refused for a missing 24fire+ plan).
+   */
   dnsWritable?(): Promise<boolean>;
   /** Domain features beyond listing. Without it: "dns" and "authcode" as far as implemented. */
   domainCapabilities?(): DomainCapability[];
@@ -766,7 +780,10 @@ export interface ProviderAdapter {
   // Web spaces (module "webhosting", kind "webspace"): read only, 24fire/Plesk offer no provisioning API.
   listWebspaces?(): Promise<RemoteWebspace[]>;
   getWebspace?(externalId: string): Promise<WebspaceInfo>;
-  /** Control panel login. Only for the audited reveal route, never stored. */
+  /**
+   * Control panel login (24fire: a one-time `loginUrl`, no password). Only for the audited reveal
+   * route, never stored.
+   */
   getWebspaceCredentials?(externalId: string): Promise<WebspaceCredentials>;
 
   // Websites (module "webhosting", CloudPanel). Addressed by ASCII domain. Only sites on the
@@ -905,8 +922,11 @@ export interface ProviderAdapter {
   close?(): void;
 }
 
+/** 24fire Customer REST API v1 (see providers/fire24/config.ts). */
 export interface Fire24Config {
+  /** Personal Access Token "{id}|cra_..." (Bearer). A key without "|" is an old API v2 key and is refused. */
   apiKey: string;
+  /** https://api.24fire.de without "/v1"; the old host manage.24fire.de is rewritten (fire24BaseUrl). */
   baseUrl: string;
 }
 

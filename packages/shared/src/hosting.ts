@@ -197,8 +197,14 @@ export interface WebspaceInfo {
 export interface WebspaceCredentials {
   panelUrl: string | null;
   username: string | null;
+  /** Null when the provider only gives a sign-in link (24fire: loginUrl). */
   password: string | null;
   email: string | null;
+  /**
+   * One-time sign-in link to the control panel (24fire: Plesk link from the login call). Shown
+   * once like a password, never stored or logged; the UI offers "Open Plesk" instead of a password.
+   */
+  loginUrl?: string | null;
 }
 
 export interface DomainDto {
@@ -239,7 +245,11 @@ export interface DomainDetailDto extends DomainDto {
   info: DomainInfo | null;
   /** Set when live data could not be loaded from the provider. */
   liveError: string | null;
-  /** DNS changes need the provider's premium plan (24fire+). */
+  /**
+   * DNS changes are possible right now. False when the provider refuses them for the account,
+   * e.g. the 24fire access token lacks the scope domain:dns or 24fire refused a write for a
+   * missing 24fire+ plan (both remembered for a few minutes).
+   */
   dnsWritable: boolean;
   /** Record types the provider accepts when adding or changing records. */
   dnsRecordTypes: DnsRecordType[];

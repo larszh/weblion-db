@@ -16,6 +16,8 @@ export interface HttpResponse {
   statusText: string;
   body: unknown;
   text: string;
+  /** Lower-case names (retry-after, x-request-id, ...). May carry cookies: read single ones. */
+  headers: Record<string, string>;
 }
 
 export function toForm(values: Record<string, unknown>): URLSearchParams {
@@ -60,7 +62,13 @@ export async function httpRequest(provider: string, options: HttpRequestOptions)
       // Keep the raw text, some endpoints answer with plain strings.
     }
   }
-  return { status: response.status, statusText: response.statusText, body: parsed, text };
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    body: parsed,
+    text,
+    headers: Object.fromEntries(response.headers),
+  };
 }
 
 /** Runs async work over a list with bounded concurrency. */

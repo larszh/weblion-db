@@ -35,6 +35,8 @@ interface TabDef {
   label: TranslationKey;
   element: ReactNode;
   capability?: Capability;
+  /** Visible when the provider has at least one of them (the tab shows what is there). */
+  anyCapability?: Capability[];
   permission?: Permission;
   anyPermission?: Permission[];
   danger?: boolean;
@@ -46,7 +48,8 @@ const TABS: TabDef[] = [
     path: 'graphs',
     label: 'tab.graphs',
     element: <GraphsTab />,
-    capability: 'metrics',
+    // A 24fire token without server:monitoring still has traffic.
+    anyCapability: ['metrics', 'traffic', 'monitoring'],
     permission: 'server:metrics',
   },
   {
@@ -121,6 +124,7 @@ function visibleTabs(can: (p: Permission) => boolean, has: (c: Capability) => bo
   return TABS.filter(
     (tab) =>
       (!tab.capability || has(tab.capability)) &&
+      (!tab.anyCapability || tab.anyCapability.some(has)) &&
       (!tab.permission || can(tab.permission)) &&
       (!tab.anyPermission || tab.anyPermission.some(can)),
   );

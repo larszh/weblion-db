@@ -193,7 +193,7 @@ export const hostingDe = {
   'hosting.dns.noPermission':
     'Sie können die DNS-Einträge ansehen. Zum Bearbeiten fehlt Ihnen die Berechtigung "DNS-Einträge bearbeiten".',
   'hosting.dns.needsPlus':
-    'DNS-Änderungen sind bei 24fire nur mit 24fire+ möglich, das für dieses Konto nicht aktiv ist. Wenden Sie sich an den Support, wenn Sie einen Eintrag ändern möchten.',
+    'DNS-Änderungen sind für diese Domain gerade nicht möglich. Wenden Sie sich an den Support, wenn Sie einen Eintrag ändern möchten.',
   'hosting.dns.notSupported':
     'Dieser Provider erlaubt keine DNS-Änderungen über die Console. Wenden Sie sich an den Support.',
   'hosting.dns.nameHint':
@@ -316,6 +316,11 @@ export const hostingDe = {
   'hosting.creds.confirmTitle': 'Zugangsdaten anzeigen?',
   'hosting.creds.confirmText':
     'Mit diesen Daten hat man vollen Zugriff auf den Webspace. Der Abruf wird im Audit-Log festgehalten.',
+  'hosting.creds.openPlesk': 'Plesk öffnen',
+  'hosting.creds.loginUrlHint':
+    'Dieser Link meldet Sie einmalig an und läuft nach kurzer Zeit ab. Geben Sie ihn nicht weiter.',
+  'hosting.creds.loginConfirmText':
+    'Es wird ein einmaliger Anmeldelink für Plesk erstellt. Der Abruf wird im Audit-Log festgehalten.',
   'hosting.mail.title': 'E-Mail-Programm einrichten',
   'hosting.mail.text': 'Übliche Einstellungen für Outlook, Apple Mail, Thunderbird und Smartphones.',
   'hosting.mail.incoming': 'Posteingang (IMAP)',

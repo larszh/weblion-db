@@ -6,6 +6,12 @@ import type { Env } from './config/env';
 import type { Database } from './db/client';
 import { memberships, organizations, projects, providerConnections, users } from './db/schema';
 import { hashPassword, type SecretBox } from './lib/crypto';
+import {
+  FIRE24_DEFAULT_BASE_URL,
+  fire24BaseUrl,
+  fire24TokenKind,
+  isLegacyFire24Host,
+} from './providers/fire24/config';
 import type {
   CloudflareConfig,
   CloudPanelConfig,
@@ -80,12 +86,26 @@ function cloudPanelPrivateKey(env: Env, log: FastifyBaseLogger): string | null {
 function envProviders(env: Env, log: FastifyBaseLogger): EnvProvider[] {
   const list: EnvProvider[] = [];
   if (env.FIRE24_API_KEY) {
+    // The connection is registered even with an old v2 key or host: one provider must not stop
+    // the boot, and the admin page then shows the adapter's error for it.
+    const kind = fire24TokenKind(env.FIRE24_API_KEY);
+    if (kind === 'legacy') {
+      log.warn('FIRE24_API_KEY is a key of the old 24fire API v2, create a Personal Access Token');
+    } else if (kind === 'pat-unusual') {
+      log.info('FIRE24_API_KEY does not start with "<id>|cra_" as documented, it is sent anyway');
+    }
+    if (isLegacyFire24Host(env.FIRE24_BASE_URL)) {
+      log.warn(`FIRE24_BASE_URL points to the old API v2 host, using ${FIRE24_DEFAULT_BASE_URL}`);
+    }
     list.push({
       key: 'fire24',
       type: 'fire24',
       name: env.FIRE24_NAME,
       location: { country: env.FIRE24_COUNTRY, city: env.FIRE24_CITY, label: `${env.FIRE24_CITY} (24fire)` },
-      config: { apiKey: env.FIRE24_API_KEY, baseUrl: env.FIRE24_BASE_URL } satisfies Fire24Config,
+      config: {
+        apiKey: env.FIRE24_API_KEY.trim(),
+        baseUrl: fire24BaseUrl(env.FIRE24_BASE_URL),
+      } satisfies Fire24Config,
     });
   }
   if (env.PROXMOX_URL && env.PROXMOX_TOKEN_ID && env.PROXMOX_TOKEN_SECRET) {

@@ -35,6 +35,60 @@ export const PROVIDER_LABELS: Record<ProviderType, string> = {
   demo: 'Demo',
 };
 
+/** 24fire Customer REST API v1, without "/v1" (the adapter adds it). Default of env and forms. */
+export const FIRE24_DEFAULT_BASE_URL = 'https://api.24fire.de';
+
+/**
+ * A 24fire Personal Access Token as the console accepts it at all (Sanctum style "<id>|<secret>").
+ * Keys of the old API v2 have no "|". The API and the provider form check the same pattern.
+ */
+export const FIRE24_TOKEN = /^\d+\|\S{8,}$/;
+
+/**
+ * Scopes of a 24fire Personal Access Token (Customer REST API v1), as the token form in the
+ * 24fire account settings names them. The provider form and the docs show these lists.
+ * Full use: everything the console calls. Not needed: server:ssh (SSH keys are not built yet),
+ * donations:read, affiliate:read.
+ */
+export const FIRE24_SCOPES_FULL = [
+  'account:read',
+  'status:read',
+  'services:read',
+  'servers:read',
+  'server:read',
+  'server:power',
+  'server:console',
+  'server:reinstall',
+  'server:credentials',
+  'server:backups',
+  'server:network',
+  'server:iso',
+  'server:monitoring',
+  'domains:read',
+  'domain:read',
+  'domain:dns',
+  'domain:nameserver',
+  'webspaces:read',
+  'webspace:read',
+  'webspace:credentials',
+] as const;
+
+/**
+ * Read only: the console syncs and shows servers, domains (with DNS records and name servers)
+ * and web spaces. Actions, backups, graphs and every change hide after the first refusal.
+ */
+export const FIRE24_SCOPES_READ_ONLY = [
+  'account:read',
+  'status:read',
+  'services:read',
+  'servers:read',
+  'server:read',
+  'domains:read',
+  'domain:read',
+  'webspaces:read',
+  'webspace:read',
+] as const satisfies readonly (typeof FIRE24_SCOPES_FULL)[number][];
+
 export const CAPABILITIES = [
   'power',
   'metrics',

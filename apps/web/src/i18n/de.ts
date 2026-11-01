@@ -349,7 +349,8 @@ export const de = {
   'backups.deleteTitle': 'Backup löschen?',
   'backups.deleteText': 'Das Backup vom {date} wird endgültig gelöscht.',
   'backups.deleted': 'Backup gelöscht',
-  'backups.fire24Hint': 'Backups bei 24fire benötigen ein aktives 24fire+ Abo auf dem Account.',
+  'backups.fire24Hint':
+    'Backups belegen die Backup-Slots des Servers. Das Erstellen kann einige Minuten dauern.',
 
   // Snapshots
   'snapshots.subtitle': 'Schnelle Zwischenstände, ideal vor Updates. Kein Ersatz für Backups.',
@@ -493,6 +494,8 @@ export const de = {
   'console.lost': 'Die Verbindung wurde unterbrochen.',
   'console.authFailed': 'Anmeldung an der Konsole fehlgeschlagen.',
   'console.fullscreen': 'Vollbild',
+  'console.openPage': 'Konsole öffnen',
+  'console.pageText': 'Die Konsole öffnet sich in einem neuen Tab. Geben Sie den Link nicht weiter.',
 
   // Members
   'members.subtitle': 'Wer Zugriff auf diese Organisation hat und mit welcher Rolle.',
@@ -744,7 +747,7 @@ export const de = {
   'inventory.importText':
     'Fügt einen Server per Provider-ID hinzu, falls die automatische Erkennung ihn nicht findet.',
   'inventory.importHint.fire24':
-    'Die internal_id aus /api/account/services oder der URL im 24fire Control Panel.',
+    'Die id aus GET /v1/servers im API Explorer oder die id in der URL im 24fire Control Panel.',
   'inventory.importHint.proxmox': 'Format qemu/<vmid> oder lxc/<vmid>, z.B. qemu/100.',
   'inventory.imported': 'Server importiert',
   'inventory.create': 'Server erstellen',
@@ -789,6 +792,7 @@ export const de = {
   'providers.sync': 'Jetzt synchronisieren',
   'providers.synced': '{seen} Server synchronisiert, {missing} fehlen',
   'providers.syncedDomains': '{seen} Domains synchronisiert, {missing} fehlen',
+  'providers.syncSkipped': 'Übersprungen, weil dem Token der Scope fehlt: {scopes}',
   'providers.joker.help':
     'Die DMAPI setzt ein Reseller-Konto bei Joker.com voraus. Den API-Key erstellen Sie auf joker.com in den Einstellungen Ihres Reseller-Kontos. Joker.com liefert nur Domains, keine Server.',
   'providers.joker.auth': 'Anmeldung',
@@ -804,6 +808,16 @@ export const de = {
   'providers.joker.baseUrlHint': 'Standard: {url}. Das Testsystem (OT&E) braucht ein eigenes Konto.',
   'providers.joker.useOte': 'Testsystem (OT&E) verwenden',
   'providers.joker.useLive': 'Live-System verwenden',
+  'providers.fire24.help':
+    'Die 24fire Customer REST API v1 meldet sich mit einem Personal Access Token an. Erstellen Sie ihn in den 24fire Kontoeinstellungen mit den Scopes unten und lassen Sie die Produktfreigabe leer (alle Produkte): Produkte ausserhalb der Freigabe gelten im Panel als fehlend. Fehlende Scopes zeigt der Verbindungstest an.',
+  'providers.fire24.scopesFull': 'Volle Nutzung ({count} Scopes)',
+  'providers.fire24.scopesReadOnly':
+    'Nur lesen ({count} Scopes; ohne Aktionen, Konsole, Backups, Graphen und Änderungen)',
+  'providers.fire24.token': 'Personal Access Token',
+  'providers.fire24.tokenHint':
+    'Format 123|cra_… aus den 24fire Kontoeinstellungen. Wird verschlüsselt gespeichert und nie mehr angezeigt.',
+  'providers.fire24.legacyKey':
+    'Erwartet wird ein 24fire Personal Access Token wie 123|cra_…; Keys der alten API v2 funktionieren nicht mehr.',
   'providers.nodes': 'Nodes',
   'providers.cores': 'Kerne',
   'providers.storages': 'Storages',
@@ -832,6 +846,8 @@ export const de = {
   'explorer.jokerHint':
     'Bei Joker.com ist der Pfad der Name des DMAPI-Requests mit optionalem Query-String, z. B. /query-whois?domain=example.com. Joker erhält immer POST; ändernde Requests werden im Audit-Log protokolliert.',
   'explorer.jokerBodyHint': 'Weitere Request-Parameter, z. B. { "domain": "example.com" }.',
+  'explorer.fire24Hint':
+    'Pfade unterhalb von https://api.24fire.de/v1, das /v1 am Anfang ist optional. Listen haben 25 Einträge pro Seite (?page=2). Parameter werden als Formular gesendet, bei DELETE als Query-String. Passwort-Reset, SSH-Key-Erzeugung und das Plesk-Login sind hier gesperrt.',
 } as const;
 
 export type TranslationKey = keyof typeof de;

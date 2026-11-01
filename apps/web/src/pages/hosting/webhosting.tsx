@@ -50,6 +50,25 @@ import { CreateWebsiteDialog } from './website-dialogs';
 /** Revealed credentials disappear again after this time. */
 const REVEAL_MS = 3 * 60_000;
 
+/** Only an https sign-in link is offered: it carries a session, so never over plain http. */
+function safeLoginUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The panel address shown next to a sign-in link: its origin, never its path or query. */
+function loginOrigin(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
 // --- List ----------------------------------------------------------------------------
 
 /**
@@ -485,7 +504,7 @@ function CredentialsCard({ webspace }: { webspace: WebspaceDetailDto }) {
   const creds = reveal.data;
   const { reset } = reveal;
 
-  // Do not leave passwords on screen when somebody walks away.
+  // Do not leave passwords or sign-in links on screen when somebody walks away.
   useEffect(() => {
     if (!creds) return;
     const timer = setTimeout(reset, REVEAL_MS);
@@ -501,7 +520,9 @@ function CredentialsCard({ webspace }: { webspace: WebspaceDetailDto }) {
     ) : (
       '–'
     );
-  const panel = safePanelUrl(creds?.panelUrl);
+  // 24fire gives no password, only a one-time sign-in link (POST /v1/webspaces/{id}/login).
+  const loginUrl = safeLoginUrl(creds?.loginUrl);
+  const panel = safePanelUrl(creds?.panelUrl) ?? (loginUrl ? loginOrigin(loginUrl) : null);
 
   return (
     <Card>
@@ -509,8 +530,15 @@ function CredentialsCard({ webspace }: { webspace: WebspaceDetailDto }) {
       <CardBody className="space-y-3">
         {creds ? (
           <>
+            {loginUrl && (
+              <div className="space-y-2">
+                {/* No copy button and no visible address: the link is a session, not to be passed on. */}
+                <PanelLink href={loginUrl}>{t('hosting.creds.openPlesk')}</PanelLink>
+                <p className="text-xs text-muted">{t('hosting.creds.loginUrlHint')}</p>
+              </div>
+            )}
             <KeyValue
-              className="-mt-2.5"
+              className={loginUrl ? undefined : '-mt-2.5'}
               items={[
                 {
                   label: t('hosting.webspace.panel'),
@@ -530,15 +558,22 @@ function CredentialsCard({ webspace }: { webspace: WebspaceDetailDto }) {
                     '–'
                   ),
                 },
-                { label: t('hosting.webspace.username'), value: secret(creds.username) },
-                {
-                  label: t('hosting.creds.password'),
-                  value: creds.password ? (
-                    secret(creds.password)
-                  ) : (
-                    <span className="text-muted">{t('hosting.creds.noPassword')}</span>
-                  ),
-                },
+                ...(!loginUrl || creds.username
+                  ? [{ label: t('hosting.webspace.username'), value: secret(creds.username) }]
+                  : []),
+                // With a sign-in link there is no password to show, and no "ask support" hint either.
+                ...(!loginUrl
+                  ? [
+                      {
+                        label: t('hosting.creds.password'),
+                        value: creds.password ? (
+                          secret(creds.password)
+                        ) : (
+                          <span className="text-muted">{t('hosting.creds.noPassword')}</span>
+                        ),
+                      },
+                    ]
+                  : []),
                 ...(creds.email
                   ? [{ label: t('hosting.webspace.contact'), value: secret(creds.email) }]
                   : []),
@@ -571,7 +606,11 @@ function CredentialsCard({ webspace }: { webspace: WebspaceDetailDto }) {
         open={confirming}
         onOpenChange={setConfirming}
         title={t('hosting.creds.confirmTitle')}
-        description={t('hosting.creds.confirmText')}
+        description={
+          webspace.provider.type === 'fire24'
+            ? t('hosting.creds.loginConfirmText')
+            : t('hosting.creds.confirmText')
+        }
         confirmLabel={t('hosting.creds.show')}
         danger={false}
         loading={reveal.isPending}

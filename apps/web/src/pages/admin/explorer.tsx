@@ -30,9 +30,20 @@ const PRESETS: Record<string, { method: string; path: string; label: string }[]>
     { method: 'GET', path: '/pools', label: 'Pools' },
     { method: 'GET', path: '/cluster/backup', label: 'Backup jobs' },
   ],
+  // Customer REST API v1, relative to https://api.24fire.de. Lists have 25 entries per page (?page=).
   fire24: [
-    { method: 'GET', path: '/api/account/services', label: 'Account services' },
-    { method: 'GET', path: '/api/account/donations', label: 'Donations' },
+    { method: 'GET', path: '/v1/account', label: 'Account' },
+    { method: 'GET', path: '/v1/status', label: 'Global status' },
+    { method: 'GET', path: '/v1/services', label: 'All services' },
+    { method: 'GET', path: '/v1/servers', label: 'Servers' },
+    { method: 'GET', path: '/v1/servers/<id>/config', label: 'Server config' },
+    { method: 'GET', path: '/v1/servers/<id>/status', label: 'Server status' },
+    { method: 'GET', path: '/v1/servers/<id>/network', label: 'Network' },
+    { method: 'GET', path: '/v1/servers/<id>/abuses', label: 'Abuse reports' },
+    { method: 'GET', path: '/v1/servers/<id>/os-list', label: 'Operating systems' },
+    { method: 'GET', path: '/v1/domains', label: 'Domains' },
+    { method: 'GET', path: '/v1/domains/<id>/dns', label: 'DNS records' },
+    { method: 'GET', path: '/v1/webspaces', label: 'Web spaces' },
   ],
   // Relative to /v1. Lists are paginated (?page=&per_page=, at most 50).
   hetzner: [
@@ -142,7 +153,7 @@ const mailcowMethod = (path: string) =>
 
 const PLACEHOLDERS: Record<string, { path: string; body: string }> = {
   proxmox: { path: '/nodes/pve01/qemu/100/status/current', body: '{ "vmid": 100 }' },
-  fire24: { path: '/api/kvm/<id>/config', body: '{ "mode": "start" }' },
+  fire24: { path: '/v1/servers/<id>/power', body: '{ "mode": "start" }' },
   hetzner: { path: '/servers/<id>', body: '{ "server_type": "cx32", "upgrade_disk": false }' },
   joker: { path: '/query-whois?domain=example.com', body: '{ "domain": "example.com" }' },
   nextcloud: { path: '/ocs/v2.php/cloud/users/<userid>', body: '{ "key": "quota", "value": "10 GB" }' },
@@ -271,6 +282,9 @@ export function ExplorerPage() {
                 </Button>
               </div>
               {isJoker && <p className="text-xs text-muted">{t('explorer.jokerHint')}</p>}
+              {provider?.type === 'fire24' && (
+                <p className="text-xs text-muted">{t('explorer.fire24Hint')}</p>
+              )}
               {provider?.type === 'hetzner' && (
                 <p className="text-xs text-muted">{t('explorer.hetznerPath')}</p>
               )}

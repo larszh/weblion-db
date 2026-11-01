@@ -10,6 +10,7 @@ import type {
   WebspaceDto,
 } from '@weblion/shared';
 import { ApiError, api, errorMessage } from '@/lib/api';
+import type { TFunction } from '@/lib/i18n';
 import { qk, useApiMutation } from '@/lib/queries';
 
 /** Query hooks for domains/DNS and web spaces (customer views and admin inventory). */
@@ -33,7 +34,9 @@ export interface AdminHostingFilters {
 export interface ProviderSyncResult {
   seen: number;
   missing: number;
-  domains?: { seen: number; missing: number };
+  /** Stored servers that took over a changed provider id (24fire), only when > 0. */
+  rekeyed?: number;
+  domains?: { seen: number; missing: number; rekeyed?: number };
   webspaces?: { seen: number; missing: number };
   /** Nextcloud: accounts the panel manages that the instance reported. */
   cloudAccounts?: { seen: number; missing: number };
@@ -47,6 +50,15 @@ export interface ProviderSyncResult {
   mediaAccounts?: { seen: number; missing: number; repaired: number; repairFailed: number };
   /** Uptime Kuma: monitors of the instance; managementError when the management session failed. */
   monitors?: { seen: number; missing: number; managementError: string | null };
+  /** Scopes the access token lacks (24fire): those lists were skipped, nothing marked missing. */
+  skipped?: string[];
+}
+
+/** The synced message, plus the scopes whose lists were skipped because the token lacks them. */
+export function withSkipped(message: string, result: ProviderSyncResult, t: TFunction): string {
+  return result.skipped?.length
+    ? `${message}. ${t('providers.syncSkipped', { scopes: result.skipped.join(', ') })}`
+    : message;
 }
 
 export const useDomains = (orgId: string, enabled = true) =>
@@ -204,8 +216,13 @@ export const useRenewDomain = (options: DomainActionOptions<RenewVars>) =>
     { ...options, invalidate: ({ domainId }) => domainEverywhere(domainId) },
   );
 
+/**
+ * Reveals the panel credentials (audited by the API, answered with no-store). gcTime 0: the
+ * answer holds a password or a one-time sign-in link and leaves the mutation cache as soon as
+ * the card hides it or unmounts.
+ */
 export const useRevealWebspaceCredentials = (webspaceId: string) =>
-  useApiMutation(() => api.get<WebspaceCredentials>(`/webspaces/${webspaceId}/credentials`));
+  useApiMutation(() => api.get<WebspaceCredentials>(`/webspaces/${webspaceId}/credentials`), { gcTime: 0 });
 
 export interface AssignVars {
   type: 'domain' | 'webspace';

@@ -4,6 +4,7 @@ import {
   DEFAULT_CUSTOMER_BOUNDARY,
   DEFAULT_RESELLER_BOUNDARY,
   DNS_RECORD_TYPES,
+  FIRE24_SCOPES_READ_ONLY,
   REGISTRAR_CAPABILITIES,
   type DnsRecord,
   type DomainDetailDto,
@@ -20,7 +21,9 @@ import {
   domains,
   memberships,
   organizations,
+  projects,
   providerConnections,
+  servers,
   users,
   websiteAllowances,
   webspaces,
@@ -31,7 +34,17 @@ import { DemoAdapter } from '../src/providers/demo/adapter';
 import { demoHostingState } from '../src/providers/demo/hosting';
 import type { RemoteDomain } from '../src/providers/types';
 import { ADMIN, Client, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
-import { startMockServer } from './mock-server';
+import {
+  AUTHCODE,
+  FIRE24_FULL_TOKEN,
+  FIRE24_READ_TOKEN,
+  LOGIN_TOKEN,
+  op,
+  PLESK_PASSWORD,
+  ROOT_PASSWORD,
+  startFire24Mock,
+  type Fire24Mock,
+} from './fire24-mock';
 
 let t: TestApp;
 let admin: Client;
@@ -1198,105 +1211,128 @@ describe('server DDoS settings', () => {
 });
 
 describe('24fire provider', () => {
-  const DOMAIN_ID = 'fire-domain-1';
-  const WEBSPACE_ID = 'fire-webspace-1';
-  let mock: Awaited<ReturnType<typeof startMockServer>>;
+  let mock: Fire24Mock;
   let providerId: string;
 
-  beforeAll(async () => {
-    const ok = (data: unknown) => ({ body: { status: 'success', message: 'ok', data } });
-    mock = await startMockServer((req) => {
-      if (req.headers['x-fire-apikey'] !== 'fire-test-key') return { status: 401, body: { status: 'error' } };
-      switch (req.path) {
-        case '/api/account':
-          return ok({ id: 7, firstname: 'Test', lastname: 'Account', balance: 12.5, is_plus_user: false });
-        case '/api/account/services':
-          return ok({
-            services: {
-              WEBSPACE: [{ internal_id: WEBSPACE_ID, name: 'Plesk-Small', username: 'firetest' }],
-              KVM: [],
-              DOMAIN: [{ internal_id: DOMAIN_ID, name: 'fire-test.de', accounting: { auto_renew: true } }],
-            },
-          });
-        case `/api/domain/${DOMAIN_ID}`:
-          return ok({
-            domain: { name: 'fire-test.de', authcode: 'FIRE-AUTH-CODE', status: 'OK', terminated: false },
-            nameserver: { ns1: 'ns1.fireapi.de', ns2: 'ns2.fireapi.de' },
-            timings: { create: '2023-03-14 15:53:44', expire: '2027-03-14 15:53:44' },
-          });
-        case `/api/domain/${DOMAIN_ID}/dns`:
-          return ok([{ record_id: 1, type: 'A', name: '@', data: '192.0.2.1', ttl: 300 }]);
-        case `/api/webspace/${WEBSPACE_ID}`:
-          return ok({
-            resources: { domains: 1, emails: 3, ssd_storage: 5 },
-            access: { host: 'plesk.24fire.de:8443', username: 'firetest', password: 'FIRE-PLESK-PASS' },
-          });
-      }
-      return undefined;
-    });
+  /** Creates a connection through the admin API and waits for its first sync. */
+  async function createConnection(name: string, apiKey: string, baseUrl = mock.url): Promise<string> {
     const created = await admin.post('/admin/providers', {
       type: 'fire24',
-      name: '24fire Test',
+      name,
       location: { country: 'DE', city: 'Frankfurt', label: 'Frankfurt (24fire)' },
-      config: { apiKey: 'fire-test-key', baseUrl: mock.url },
+      config: { apiKey, baseUrl },
     });
-    providerId = json<{ id: string }>(created).id;
-    // Creating a provider starts the first sync in the background.
-    await waitFor(async () => {
-      const row = await t.db.query.providerConnections.findFirst({
-        where: eq(providerConnections.id, providerId),
-      });
-      return row?.lastSyncAt ?? null;
-    });
+    const { id } = json<{ id: string }>(created);
+    expect(id).toBeTruthy();
+    await waitFor(async () => (await connectionRow(id))?.lastSyncAt ?? null);
+    return id;
+  }
+
+  const connectionRow = (id: string) =>
+    t.db.query.providerConnections.findFirst({ where: eq(providerConnections.id, id) });
+  const sync = async (id = providerId) =>
+    json<Record<string, unknown> & { domains?: Record<string, unknown>; rekeyed?: number }>(
+      await admin.post(`/admin/providers/${id}/sync`),
+    );
+  const serverRows = (id = providerId) =>
+    t.db.select().from(servers).where(eq(servers.providerConnectionId, id));
+  const domainRows = (id = providerId) =>
+    t.db.select().from(domains).where(eq(domains.providerConnectionId, id));
+  const firstDomain = async (id = providerId) =>
+    json<DomainDto[]>(await admin.get(`/admin/domains?providerId=${id}`))[0]!;
+
+  beforeAll(async () => {
+    mock = await startFire24Mock({ servers: 3 });
+    // Not documented for v1, but a v2 style access object must never bring the password along.
+    mock.state.webspaces[0]!.access = {
+      host: 'plesk.24fire.de:8443',
+      username: 'firetest',
+      password: PLESK_PASSWORD,
+    };
+    providerId = await createConnection('24fire Test', FIRE24_FULL_TOKEN);
   });
 
   afterAll(async () => {
     await mock?.close();
   });
 
-  it('syncs domains and web spaces without auth code or password', async () => {
-    const result = json(await admin.post(`/admin/providers/${providerId}/sync`));
-    expect(result).toMatchObject({ seen: 0, domains: { seen: 1 }, webspaces: { seen: 1 } });
+  it('syncs servers, domains and web spaces without secrets', async () => {
+    const result = await sync();
+    expect(result).toMatchObject({ seen: 3, missing: 0, domains: { seen: 1 }, webspaces: { seen: 1 } });
+    expect(result).not.toHaveProperty('skipped');
+    expect(result).not.toHaveProperty('rekeyed');
     const rows = JSON.stringify([
-      await t.db.select().from(domains).where(eq(domains.providerConnectionId, providerId)),
+      await serverRows(),
+      await domainRows(),
       await t.db.select().from(webspaces).where(eq(webspaces.providerConnectionId, providerId)),
     ]);
     expect(rows).toContain('fire-test.de');
-    expect(rows).toContain('Plesk-Small (firetest)');
-    expect(rows).not.toContain('FIRE-AUTH-CODE');
-    expect(rows).not.toContain('FIRE-PLESK-PASS');
+    expect(rows).toContain('Plesk-Medium (kunde.de)');
+    expect(rows).toContain('EPYC 01');
+    for (const secret of [AUTHCODE, PLESK_PASSWORD, ROOT_PASSWORD, LOGIN_TOKEN, FIRE24_FULL_TOKEN]) {
+      expect(rows).not.toContain(secret);
+    }
   });
 
-  it('reports DNS as read only without 24fire+', async () => {
-    const [domain] = json<DomainDto[]>(await admin.get(`/admin/domains?providerId=${providerId}`));
-    const detail = json<DomainDetailDto>(await admin.get(`/domains/${domain!.id}`));
+  it('opens DNS editing for a full token and closes it after a refused write', async () => {
+    const domain = await firstDomain();
+    const detail = json<DomainDetailDto>(await admin.get(`/domains/${domain.id}`));
     expect(detail).toMatchObject({
-      dnsWritable: false,
+      dnsWritable: true,
       liveError: null,
-      info: { expiresAt: '2027-03-14T15:53:44', autoRenew: true },
+      info: { expiresAt: '2027-03-14T15:53:44', autoRenew: true, providerDns: true },
     });
-    expect(json<DnsRecord[]>(await admin.get(`/domains/${domain!.id}/dns`))).toHaveLength(1);
-    const res = await admin.post(`/domains/${domain!.id}/dns`, { type: 'A', name: 'www', data: '192.0.2.2' });
-    expect(res.statusCode).toBe(422);
-    expect(json(res).error.code).toBe('plus_required');
-    const [failure] = await auditEntries('domain.dns_add', domain!.id);
+    const added = await admin.post(`/domains/${domain.id}/dns`, { type: 'TXT', name: 'v1', data: 'hello' });
+    expect(added.statusCode).toBe(200);
+    expect(Object.fromEntries(mock.calls('dnsCreate').at(-1)!.form)).toEqual({
+      type: 'TXT',
+      name: 'v1',
+      data: 'hello',
+    });
+
+    const readOnly = await createConnection('24fire Read only', FIRE24_READ_TOKEN);
+    const readDomain = await firstDomain(readOnly);
+    expect(json<DomainDetailDto>(await admin.get(`/domains/${readDomain.id}`)).dnsWritable).toBe(true);
+    const refused = await admin.post(`/domains/${readDomain.id}/dns`, { type: 'TXT', name: 'x', data: 'y' });
+    expect(refused.statusCode).toBe(502);
+    expect(json(refused).error).toMatchObject({
+      code: 'provider_scope_missing',
+      details: { scope: 'domain:dns' },
+    });
+    const [failure] = await auditEntries('domain.dns_add', readDomain.id);
     expect(failure!.status).toBe('failure');
+    expect(json<DomainDetailDto>(await admin.get(`/domains/${readDomain.id}`)).dnsWritable).toBe(false);
   });
 
-  it('offers only what 24fire supports', async () => {
-    const [domain] = json<DomainDto[]>(await admin.get(`/admin/domains?providerId=${providerId}`));
-    expect(domain!.capabilities).toEqual(['dns', 'authcode']);
-    const detail = json<DomainDetailDto>(await admin.get(`/domains/${domain!.id}`));
-    expect(detail.dnsRecordTypes).toHaveLength(15);
+  it('changes name servers and refuses lock, renewal and the auth code', async () => {
+    const domain = await firstDomain();
+    expect(domain.capabilities).toEqual(['dns', 'nameservers']);
+    const detail = json<DomainDetailDto>(await admin.get(`/domains/${domain.id}`));
+    expect(detail.dnsRecordTypes).toHaveLength(14);
+    expect(detail.dnsRecordTypes).not.toContain('HTTP_FRAME');
     expect(detail.dnsRecordTypes).not.toContain('NAPTR');
-    expect(detail.dnsRecordTypes).not.toContain('MAILFW');
 
-    const id = domain!.id;
+    const id = domain.id;
+    const changed = await put(admin, `/domains/${id}/nameservers`, {
+      nameservers: ['ns1.example.net', 'ns2.example.net'],
+    });
+    expect(changed.statusCode).toBe(200);
+    expect([...mock.calls('nameserversSet').at(-1)!.form]).toEqual([
+      ['ns1', 'ns1.example.net'],
+      ['ns2', 'ns2.example.net'],
+    ]);
+    const after = json<DomainDetailDto>(await admin.get(`/domains/${id}`));
+    expect(after.info).toMatchObject({
+      nameservers: ['ns1.example.net', 'ns2.example.net'],
+      providerDns: false,
+    });
+    await put(admin, `/domains/${id}/nameservers`, { nameservers: ['ns1.fireapi.de', 'ns2.fireapi.de'] });
+
     const refused = [
-      await put(admin, `/domains/${id}/nameservers`, { nameservers: ['ns1.example.net', 'ns2.example.net'] }),
       await put(admin, `/domains/${id}/lock`, { locked: true }),
       await admin.post(`/admin/domains/${id}/auto-renew`, { enabled: false }),
       await admin.post(`/admin/domains/${id}/renew`, { years: 1 }),
+      await admin.get(`/domains/${id}/authcode`),
     ];
     for (const res of refused) {
       expect(res.statusCode).toBe(422);
@@ -1310,33 +1346,327 @@ describe('24fire provider', () => {
       data: '100 10 "u" "E2U+sip" "!^.*$!sip:info@fire-test.de!" .',
     });
     expect(naptr.statusCode).toBe(400);
-    expect(json(naptr).error.details[0]).toMatchObject({ path: 'type' });
     const withTtl = await admin.post(`/domains/${id}/dns`, {
       type: 'A',
       name: 'ttl',
       data: '192.0.2.3',
       ttl: 600,
     });
-    expect(json(withTtl).error.code).toBe('plus_required');
-    const [failure] = (await auditEntries('domain.dns_add', id)).filter((e) => e.details?.name === 'ttl');
-    expect(failure!.status).toBe('failure');
-    expect(failure!.details).not.toHaveProperty('ttl');
-    const [record] = json<DnsRecord[]>(await admin.get(`/domains/${id}/dns`));
-    const ttlOnly = await admin.patch(`/domains/${id}/dns/${record!.id}`, { ttl: 600 });
-    expect(ttlOnly.statusCode).toBe(400);
-    expect(json(ttlOnly).error.message).toBe('Nothing to change');
+    expect(withTtl.statusCode).toBe(200);
+    expect([...mock.calls('dnsCreate').at(-1)!.form.keys()]).toEqual(['type', 'name', 'data']);
   });
 
-  it('reveals the 24fire secrets only through the reveal routes', async () => {
-    const [domain] = json<DomainDto[]>(await admin.get(`/admin/domains?providerId=${providerId}`));
-    expect(json(await admin.get(`/domains/${domain!.id}/authcode`))).toEqual({ authcode: 'FIRE-AUTH-CODE' });
+  it('hands out the Plesk login link only to sessions and audits it', async () => {
     const [webspace] = json<WebspaceDto[]>(await admin.get(`/admin/webspaces?providerId=${providerId}`));
-    expect(
-      json<WebspaceCredentials>(await admin.get(`/webspaces/${webspace!.id}/credentials`)),
-    ).toMatchObject({
+    const res = await admin.get(`/webspaces/${webspace!.id}/credentials`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(json<WebspaceCredentials>(res)).toEqual({
       panelUrl: 'https://plesk.24fire.de:8443',
       username: 'firetest',
-      password: 'FIRE-PLESK-PASS',
+      password: null,
+      email: null,
+      loginUrl: `https://plesk.24fire.de:8443/login?token=${LOGIN_TOKEN}-1`,
     });
+    const entries = await auditEntries('webspace.credentials_view', webspace!.id);
+    expect(entries).toHaveLength(1);
+    expect(JSON.stringify(entries)).not.toContain(LOGIN_TOKEN);
+    const stored = await t.db.query.webspaces.findFirst({ where: eq(webspaces.id, webspace!.id) });
+    expect(JSON.stringify(stored)).not.toContain(LOGIN_TOKEN);
+
+    // An API token of the organization the web space belongs to gets no link.
+    await admin.post(`/admin/webspaces/${webspace!.id}/assign`, { orgId: musterOrgId });
+    const { token } = json(
+      await anna.post(`/orgs/${musterOrgId}/tokens`, { name: 'plesk-bot', scope: 'read_write' }),
+    );
+    const bot = new Client(t.app);
+    bot.bearer = token;
+    expect((await bot.get(`/webspaces/${webspace!.id}/credentials`)).statusCode).toBe(403);
+    expect(mock.calls('webspaceLogin')).toHaveLength(1);
+    await admin.post(`/admin/webspaces/${webspace!.id}/assign`, { orgId: null });
+  });
+
+  it('re-keys a server and a domain whose ids changed, keeping their assignment', async () => {
+    const [project] = await t.db.select().from(projects).where(eq(projects.orgId, musterOrgId)).limit(1);
+    const remote = mock.state.servers[0]!;
+    const oldId = remote.id;
+    const row = (await serverRows()).find((r) => r.externalId === oldId)!;
+    await t.db.update(servers).set({ projectId: project!.id }).where(eq(servers.id, row.id));
+    remote.id = `v1-${oldId}`;
+
+    const domain = (await domainRows())[0]!;
+    await t.db.update(domains).set({ orgId: musterOrgId }).where(eq(domains.id, domain.id));
+    const oldDomainId = mock.state.domains[0]!.id;
+    mock.state.domains[0]!.id = 'v1-domain-1';
+
+    const result = await sync();
+    expect(result).toMatchObject({
+      seen: 3,
+      missing: 0,
+      rekeyed: 1,
+      domains: { seen: 1, missing: 0, rekeyed: 1 },
+    });
+    const rows = await serverRows();
+    expect(rows).toHaveLength(3);
+    expect(rows.find((r) => r.id === row.id)).toMatchObject({
+      externalId: remote.id,
+      projectId: project!.id,
+      missingSince: null,
+      status: 'running',
+    });
+    const [entry] = await auditEntries('server.rekey', row.id);
+    expect(entry).toMatchObject({
+      actorName: 'Sync',
+      orgId: musterOrgId,
+      details: { from: oldId, to: remote.id, name: 'EPYC 01', matchedBy: 'name+ipv4' },
+    });
+
+    const domainsAfter = await domainRows();
+    expect(domainsAfter).toHaveLength(1);
+    expect(domainsAfter[0]).toMatchObject({
+      id: domain.id,
+      externalId: 'v1-domain-1',
+      orgId: musterOrgId,
+      missingSince: null,
+    });
+    const [domainEntry] = await auditEntries('domain.rekey', domain.id);
+    expect(domainEntry).toMatchObject({
+      actorName: 'Sync',
+      details: { from: oldDomainId, to: 'v1-domain-1', name: 'fire-test.de', matchedBy: 'name' },
+    });
+  });
+
+  it('keeps stored specs and addresses when a server config fails', async () => {
+    const remote = mock.state.servers[0]!;
+    const before = (await serverRows()).find((r) => r.externalId === remote.id)!;
+    expect(before.ips.length).toBeGreaterThan(0);
+    // A fresh adapter has no last good result to fall back on.
+    t.ctx.providers.invalidate(providerId);
+    mock.state.upstreamFail[op('serverConfig')] = Infinity;
+    remote.renewal.renew_price = 11;
+    remote.status = 'stopped';
+    try {
+      expect(await sync()).toMatchObject({ seen: 3, missing: 0 });
+    } finally {
+      mock.state.upstreamFail[op('serverConfig')] = 0;
+    }
+    const after = (await serverRows()).find((r) => r.id === before.id)!;
+    expect(after).toMatchObject({
+      specs: before.specs,
+      ips: before.ips,
+      os: before.os,
+      node: before.node,
+      status: 'stopped',
+      projectId: before.projectId,
+    });
+    expect(after.meta).toMatchObject({
+      hostname: 'shop-01',
+      datacenter: { city: 'Frankfurt' },
+      renewal: { price: 11 },
+    });
+  });
+
+  it('skips a list the token may not read without marking anything missing', async () => {
+    const token = '6|cra_scopetest';
+    mock.tokens[token] = [...FIRE24_SCOPES_READ_ONLY];
+    const id = await createConnection('24fire Scopes', token);
+    expect(await domainRows(id)).toHaveLength(1);
+
+    mock.tokens[token] = FIRE24_SCOPES_READ_ONLY.filter((s) => s !== 'domains:read');
+    const result = await sync(id);
+    expect(result).toMatchObject({ seen: 3, missing: 0, webspaces: { seen: 1 }, skipped: ['domains:read'] });
+    expect(result).not.toHaveProperty('domains');
+    expect((await domainRows(id))[0]!.missingSince).toBeNull();
+    expect(await connectionRow(id)).toMatchObject({ status: 'ok', lastError: null });
+
+    mock.tokens[token] = ['server:power'];
+    const res = await admin.post(`/admin/providers/${id}/sync`);
+    expect(res.statusCode).toBe(502);
+    expect(json(res).error.code).toBe('provider_scope_missing');
+    const connection = await connectionRow(id);
+    expect(connection!.status).toBe('error');
+    expect(connection!.lastError).toMatch(/none of the read scopes/);
+    expect((await serverRows(id)).every((r) => r.missingSince === null)).toBe(true);
+    expect((await domainRows(id))[0]!.missingSince).toBeNull();
+  });
+
+  it('reports a legacy v2 key as a connection error and leaves the rows alone', async () => {
+    const id = await createConnection('24fire Legacy', FIRE24_FULL_TOKEN);
+    expect(await serverRows(id)).toHaveLength(3);
+    await t.db
+      .update(providerConnections)
+      .set({ configEnc: t.ctx.box.encryptJson({ apiKey: 'abcdef0123456789abcdef01', baseUrl: mock.url }) })
+      .where(eq(providerConnections.id, id));
+    const requests = mock.requests.length;
+    const res = await admin.post(`/admin/providers/${id}/sync`);
+    expect(res.statusCode).toBe(502);
+    expect(json(res).error.code).toBe('provider_auth');
+    const connection = await connectionRow(id);
+    expect(connection!.status).toBe('error');
+    expect(connection!.lastError).toMatch(/old API v2/);
+    expect(connection!.lastError).not.toContain('abcdef0123456789');
+    expect((await serverRows(id)).every((r) => r.missingSince === null && r.status !== 'missing')).toBe(true);
+    expect(mock.requests).toHaveLength(requests);
+  });
+
+  it('re-keys only unambiguous matches', async () => {
+    const other = await startFire24Mock({ servers: 4 });
+    try {
+      const id = await createConnection('24fire Re-key', FIRE24_FULL_TOKEN, other.url);
+      const [s0, s1, s2, s3] = other.state.servers as [
+        (typeof other.state.servers)[number],
+        (typeof other.state.servers)[number],
+        (typeof other.state.servers)[number],
+        (typeof other.state.servers)[number],
+      ];
+      // Two stored servers with the same name and address.
+      s2.name = s1.name;
+      s2.ipv4 = [...s1.ipv4];
+      await sync(id);
+      const byExternal = async () => new Map((await serverRows(id)).map((r) => [r.externalId, r]));
+      const stored = await byExternal();
+      const rowOf = (externalId: string) => stored.get(externalId)!;
+      const [r0, r1, r2, r3] = [rowOf(s0.id), rowOf(s1.id), rowOf(s2.id), rowOf(s3.id)];
+
+      // Two vanished rows match one new id: no re-key.
+      other.state.servers.splice(other.state.servers.indexOf(s2), 1);
+      s1.id = 'twin-new';
+      // Same name, but another IPv4 address: a different server.
+      s3.id = 's3-new';
+      s3.ipv4 = ['203.0.113.50'];
+      // A partial server (its config fails) with a unique name is re-keyed by name.
+      s0.id = 's0-new';
+      other.state.errors[op('serverConfig')] = (req) =>
+        req.path.includes('/s0-new/')
+          ? { status: 502, body: { status: 'error', type: 'upstream_error', message: 'down' } }
+          : undefined;
+
+      const result = await sync(id);
+      expect(result).toMatchObject({ seen: 3, rekeyed: 1 });
+      let rows = await byExternal();
+      expect(rows.get('s0-new')).toMatchObject({
+        id: r0.id,
+        missingSince: null,
+        ips: r0.ips,
+        specs: r0.specs,
+      });
+      const [entry] = await auditEntries('server.rekey', r0.id);
+      expect(entry!.details).toMatchObject({ to: 's0-new', matchedBy: 'name' });
+      for (const row of [r1, r2, r3]) {
+        expect(rows.get(row.externalId)!.missingSince).not.toBeNull();
+        expect(await auditEntries('server.rekey', row.id)).toHaveLength(0);
+      }
+      expect(rows.get('twin-new')!.id).not.toBe(r1.id);
+      expect(rows.get('twin-new')!.projectId).toBeNull();
+      expect(rows.get('s3-new')!.id).not.toBe(r3.id);
+
+      // Two new ids for one vanished row: no re-key either; rows missing before never take part.
+      const twin = rows.get('twin-new')!;
+      s1.id = 'twin-x';
+      other.state.servers.push({ ...structuredClone(s1), id: 'twin-y' });
+      const second = await sync(id);
+      expect(second).not.toHaveProperty('rekeyed');
+      rows = await byExternal();
+      expect(rows.get('twin-new')!.missingSince).not.toBeNull();
+      expect(rows.get('twin-x')!.id).not.toBe(twin.id);
+      expect(rows.get('twin-y')!.id).not.toBe(twin.id);
+      expect(rows.get(r1.externalId)!.id).toBe(r1.id);
+      expect(rows.size).toBe(8);
+    } finally {
+      await other.close();
+    }
+  });
+
+  /** Two servers with the same name, stored by a first sync; their rows by mock server. */
+  async function twins(name: string) {
+    const other = await startFire24Mock({ servers: 2 });
+    const [s0, s1] = other.state.servers as [
+      (typeof other.state.servers)[number],
+      (typeof other.state.servers)[number],
+    ];
+    s1.name = s0.name;
+    const id = await createConnection(name, FIRE24_FULL_TOKEN, other.url);
+    const stored = new Map((await serverRows(id)).map((r) => [r.externalId, r]));
+    return { other, id, s0, s1, r0: stored.get(s0.id)!, r1: stored.get(s1.id)! };
+  }
+
+  it('re-keys twins when one of them comes back partial', async () => {
+    const { other, id, s0, s1, r0, r1 } = await twins('24fire Twins');
+    try {
+      s0.id = 'twin-a';
+      s1.id = 'twin-b';
+      other.state.errors[op('serverConfig')] = (req) =>
+        req.path.includes('/twin-b/')
+          ? { status: 502, body: { status: 'error', type: 'upstream_error', message: 'down' } }
+          : undefined;
+
+      expect(await sync(id)).toMatchObject({ seen: 2, missing: 0, rekeyed: 2 });
+      const rows = await serverRows(id);
+      expect(rows).toHaveLength(2);
+      expect(rows.find((r) => r.id === r0.id)).toMatchObject({ externalId: 'twin-a', missingSince: null });
+      expect(rows.find((r) => r.id === r1.id)).toMatchObject({
+        externalId: 'twin-b',
+        missingSince: null,
+        ips: r1.ips,
+        specs: r1.specs,
+      });
+      expect((await auditEntries('server.rekey', r0.id))[0]!.details).toMatchObject({
+        matchedBy: 'name+ipv4',
+      });
+      expect((await auditEntries('server.rekey', r1.id))[0]!.details).toMatchObject({ matchedBy: 'name' });
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('holds back partial new servers with an ambiguous name for a few syncs', async () => {
+    const { other, id, s0, s1, r0, r1 } = await twins('24fire Held');
+    try {
+      // Both configs fail at the first sync with the new ids: nothing tells the twins apart.
+      s0.id = 'held-a';
+      s1.id = 'held-b';
+      other.state.upstreamFail[op('serverConfig')] = Infinity;
+      const first = await sync(id);
+      expect(first).toMatchObject({ seen: 2, missing: 0 });
+      expect(first).not.toHaveProperty('rekeyed');
+      let rows = await serverRows(id);
+      expect(rows.map((r) => r.id).sort()).toEqual([r0.id, r1.id].sort());
+      expect(rows.every((r) => r.missingSince === null)).toBe(true);
+
+      // The next good sync matches them by name and IPv4: no duplicate, assignments kept.
+      other.state.upstreamFail[op('serverConfig')] = 0;
+      expect(await sync(id)).toMatchObject({ seen: 2, missing: 0, rekeyed: 2 });
+      rows = await serverRows(id);
+      expect(rows).toHaveLength(2);
+      expect(rows.find((r) => r.id === r0.id)).toMatchObject({ externalId: 'held-a', missingSince: null });
+      expect(rows.find((r) => r.id === r1.id)).toMatchObject({ externalId: 'held-b', missingSince: null });
+      for (const row of [r0, r1]) {
+        expect((await auditEntries('server.rekey', row.id))[0]!.details).toMatchObject({
+          matchedBy: 'name+ipv4',
+        });
+      }
+
+      // A config that keeps failing holds them back three syncs at most, then they are stored as
+      // new servers and the old rows go missing, as without the re-key step.
+      s0.id = 'late-a';
+      s1.id = 'late-b';
+      other.state.upstreamFail[op('serverConfig')] = Infinity;
+      for (let i = 0; i < 3; i++) {
+        expect(await sync(id)).toMatchObject({ seen: 2, missing: 0 });
+        expect(await serverRows(id)).toHaveLength(2);
+      }
+      expect(await sync(id)).toMatchObject({ seen: 2, missing: 2 });
+      rows = await serverRows(id);
+      expect(rows).toHaveLength(4);
+      expect(
+        rows
+          .filter((r) => r.missingSince !== null)
+          .map((r) => r.id)
+          .sort(),
+      ).toEqual([r0.id, r1.id].sort());
+    } finally {
+      other.state.upstreamFail[op('serverConfig')] = 0;
+      await other.close();
+    }
   });
 });
