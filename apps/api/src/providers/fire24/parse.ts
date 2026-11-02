@@ -855,13 +855,9 @@ export function parseDdos(data: unknown): DdosSettings[] | null {
   });
 }
 
-/**
- * `GET rdns`: a list or an object keyed by IP. The PUT fields suggest `ip_address` and `ptr`;
- * `ip`, `address`, `rdns`, `hostname` and `name` are accepted as well.
- */
-export function parseRdns(data: unknown): { ip: string; ptr: string | null }[] | null {
-  const list = listOf(unwrap(data, ['rdns']), ['rdns', 'records', 'entries'], true);
-  if (!list) return null;
+const RDNS_LISTS = ['rdns', 'records', 'entries'];
+
+function rdnsEntries(list: Record<string, unknown>[]): { ip: string; ptr: string | null }[] {
   return list.flatMap((entry) => {
     const ip = str(entry.ip_address) ?? str(entry.ip) ?? str(entry.address) ?? str(entry.id);
     if (!ip || !looksLikeIp(ip)) return [];
@@ -869,6 +865,31 @@ export function parseRdns(data: unknown): { ip: string; ptr: string | null }[] |
       str(entry.ptr) ?? str(entry.rdns) ?? str(entry.hostname) ?? str(entry.name) ?? str(entry.value);
     return [{ ip, ptr: ptr ? ptr.replace(/\.$/, '') : null }];
   });
+}
+
+/**
+ * `GET rdns`: a list or an object keyed by IP, or split by IP version as `{ ipv4, ipv6 }` with
+ * either inside (the live API answers with these two keys). The PUT fields suggest `ip_address`
+ * and `ptr`; `ip`, `address`, `rdns`, `hostname` and `name` are accepted as well. Null when
+ * nothing is recognised, also when there are entries but none of them reads as an address, so
+ * the connection test keeps naming the shape.
+ */
+export function parseRdns(data: unknown): { ip: string; ptr: string | null }[] | null {
+  const root = unwrap(data, ['rdns']);
+  if (isRecord(root) && ('ipv4' in root || 'ipv6' in root)) {
+    let seen = 0;
+    const found: { ip: string; ptr: string | null }[] = [];
+    for (const part of [root.ipv4, root.ipv6]) {
+      if (part === undefined || part === null) continue;
+      const list = listOf(part, RDNS_LISTS, true);
+      if (!list) return null;
+      seen += list.length;
+      found.push(...rdnsEntries(list));
+    }
+    return seen > 0 && found.length === 0 ? null : found;
+  }
+  const list = listOf(root, RDNS_LISTS, true);
+  return list ? rdnsEntries(list) : null;
 }
 
 /**

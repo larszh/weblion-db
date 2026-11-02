@@ -108,25 +108,30 @@ export function ConsoleDialog({
               {t('console.title', { name: server.name })}
             </RadixDialog.Description>
             <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-white/80 hover:bg-white/10 hover:text-white"
-                icon={<Keyboard className="size-4" />}
-                disabled={state !== 'connected'}
-                onClick={() => rfbRef.current?.sendCtrlAltDel()}
-              >
-                Ctrl+Alt+Del
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="text-white/80 hover:bg-white/10 hover:text-white"
-                onClick={() => screen.current?.requestFullscreen?.()}
-                aria-label={t('console.fullscreen')}
-              >
-                <Maximize2 className="size-4" />
-              </Button>
+              {/* A console on the provider's own page has its own keys and full screen. */}
+              {state !== 'page' && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-white/80 hover:bg-white/10 hover:text-white"
+                    icon={<Keyboard className="size-4" />}
+                    disabled={state !== 'connected'}
+                    onClick={() => rfbRef.current?.sendCtrlAltDel()}
+                  >
+                    Ctrl+Alt+Del
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-white/80 hover:bg-white/10 hover:text-white"
+                    onClick={() => screen.current?.requestFullscreen?.()}
+                    aria-label={t('console.fullscreen')}
+                  >
+                    <Maximize2 className="size-4" />
+                  </Button>
+                </>
+              )}
               <RadixDialog.Close
                 className="rounded-md p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
                 aria-label={t('common.close')}
