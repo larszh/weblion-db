@@ -1163,7 +1163,8 @@ class CreateTest(AgentTestCase):
             try:
                 with open("/proc/%d/stat" % pid, encoding="ascii") as handle:
                     state = handle.read().rsplit(")", 1)[1].split()[0]
-            except FileNotFoundError:
+            # Collected between open and read, the kernel answers ESRCH: gone as well.
+            except (FileNotFoundError, ProcessLookupError):
                 state = None
             if state in (None, "Z") or time.monotonic() > give_up:
                 break
