@@ -192,7 +192,7 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
   'hosting.dns.noPermission':
     'You can view the DNS records. To edit them you need the permission "Edit DNS records".',
   'hosting.dns.needsPlus':
-    'At 24fire, DNS changes need 24fire+, which is not active for this account. Contact support if you want a record changed.',
+    'DNS changes are not possible for this domain right now. Contact support if you want a record changed.',
   'hosting.dns.notSupported':
     'This provider does not allow DNS changes through the console. Please contact support.',
   'hosting.dns.nameHint':
@@ -309,6 +309,10 @@ export const hostingEn: Record<keyof typeof hostingDe, string> = {
   'hosting.creds.confirmTitle': 'Show login details?',
   'hosting.creds.confirmText':
     'These details give full access to the web space. The view is recorded in the audit log.',
+  'hosting.creds.openPlesk': 'Open Plesk',
+  'hosting.creds.loginUrlHint':
+    'This link signs you in once and expires after a short time. Do not share it.',
+  'hosting.creds.loginConfirmText': 'A one-time sign-in link to Plesk is created. This is logged.',
   'hosting.mail.title': 'Set up an email client',
   'hosting.mail.text': 'Usual settings for Outlook, Apple Mail, Thunderbird and phones.',
   'hosting.mail.incoming': 'Incoming (IMAP)',

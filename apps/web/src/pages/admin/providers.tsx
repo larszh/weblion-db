@@ -11,14 +11,21 @@ import {
   Settings2,
   Stethoscope,
 } from 'lucide-react';
-import type { ProviderConnectionDto, ProviderType } from '@weblion/shared';
+import {
+  FIRE24_DEFAULT_BASE_URL as FIRE24_BASE_URL,
+  FIRE24_SCOPES_FULL,
+  FIRE24_SCOPES_READ_ONLY,
+  FIRE24_TOKEN,
+  type ProviderConnectionDto,
+  type ProviderType,
+} from '@weblion/shared';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/lib/i18n';
 import type { TranslationKey } from '@/i18n/de';
 import { formatBytes, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { qk, useAdminProviders, useApiMutation, useMe, useMeta, useProviderOverview } from '@/lib/queries';
-import type { ProviderSyncResult } from '@/lib/api/hosting';
+import { withSkipped, type ProviderSyncResult } from '@/lib/api/hosting';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
@@ -132,7 +139,7 @@ const DEFAULT_NAME: Record<ProviderType, string> = {
 };
 
 const DEFAULT_BASE_URL: Partial<Record<ProviderType, string>> = {
-  fire24: 'https://manage.24fire.de',
+  fire24: FIRE24_BASE_URL,
   hetzner: HETZNER_BASE_URL,
   joker: 'https://dmapi.joker.com/request',
   cloudflare: CLOUDFLARE_BASE_URL,
@@ -214,7 +221,11 @@ const installCommand = (publicKey: string) =>
 function configFromForm(f: ProviderForm, editing: boolean) {
   switch (f.type) {
     case 'fire24':
-      return { baseUrl: f.baseUrl, ...(f.apiKey || !editing ? { apiKey: f.apiKey } : {}) };
+      // An empty token keeps the stored one (the API refuses that while it is a v2 key).
+      return {
+        baseUrl: f.baseUrl.trim() || FIRE24_BASE_URL,
+        ...(f.apiKey.trim() || !editing ? { apiKey: f.apiKey.trim() } : {}),
+      };
     case 'proxmox':
       return {
         baseUrl: f.baseUrl,
@@ -320,6 +331,22 @@ function configFromForm(f: ProviderForm, editing: boolean) {
     default:
       return {};
   }
+}
+
+/**
+ * Whether the stored key is one of the old API v2, which the API refuses to keep on edit: its
+ * summary is a note without "|", a token's is "12|cra_••••••".
+ */
+const fire24StoredLegacy = (existing?: ProviderConnectionDto) =>
+  typeof existing?.summary.apiKey === 'string' && !existing.summary.apiKey.includes('|');
+
+/** 24fire needs a Personal Access Token, unless a stored token (not a v2 key) is kept. */
+function fire24Incomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (f.type !== 'fire24') return false;
+  const key = f.apiKey.trim();
+  if (key && !FIRE24_TOKEN.test(key)) return true;
+  if (f.baseUrl.trim() && !/^https?:\/\/\S+$/i.test(f.baseUrl.trim())) return true;
+  return !key && (!existing || fire24StoredLegacy(existing));
 }
 
 /** Cloudflare needs a token (kept on edit when left empty); the account id is optional. */
@@ -489,7 +516,8 @@ function ProviderDialog({
             disabled={
               !form.name ||
               (!envManaged &&
-                (jokerIncomplete(form, existing) ||
+                (fire24Incomplete(form, existing) ||
+                  jokerIncomplete(form, existing) ||
                   nextcloudIncomplete(form, existing) ||
                   cloudflareIncomplete(form, existing) ||
                   mailcowIncomplete(form, existing) ||
@@ -551,26 +579,7 @@ function ProviderDialog({
             {t('providers.envManaged')}
           </Notice>
         ) : form.type === 'fire24' ? (
-          <>
-            <Field label="API Base URL" htmlFor="p-base">
-              <Input
-                id="p-base"
-                value={form.baseUrl}
-                onChange={(e) => set('baseUrl', e.target.value)}
-                className="font-mono"
-              />
-            </Field>
-            <Field label="API Key" hint={existing ? t('providers.keepSecret') : undefined} htmlFor="p-key">
-              <Input
-                id="p-key"
-                type="password"
-                value={form.apiKey}
-                onChange={(e) => set('apiKey', e.target.value)}
-                className="font-mono"
-                autoComplete="off"
-              />
-            </Field>
-          </>
+          <Fire24Fields form={form} set={set} existing={existing} />
         ) : form.type === 'hetzner' ? (
           <>
             <Notice tone="info" className="sm:col-span-2">
@@ -698,6 +707,69 @@ function ProviderDialog({
         </label>
       </div>
     </Dialog>
+  );
+}
+
+function Fire24Fields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const key = form.apiKey.trim();
+  // A stored v2 key cannot be kept: the field asks for the token right away.
+  const keyError =
+    (key && !FIRE24_TOKEN.test(key)) || (!key && fire24StoredLegacy(existing))
+      ? t('providers.fire24.legacyKey')
+      : undefined;
+  const scopeList = (scopes: readonly string[]) => <Mono className="break-words">{scopes.join(', ')}</Mono>;
+  return (
+    <>
+      <Notice tone="info" className="sm:col-span-2">
+        <p>{t('providers.fire24.help')}</p>
+        <p className="mt-2">
+          {t('providers.fire24.scopesFull', { count: FIRE24_SCOPES_FULL.length })}:{' '}
+          {scopeList(FIRE24_SCOPES_FULL)}
+        </p>
+        <p className="mt-2">
+          {t('providers.fire24.scopesReadOnly', { count: FIRE24_SCOPES_READ_ONLY.length })}:{' '}
+          {scopeList(FIRE24_SCOPES_READ_ONLY)}
+        </p>
+      </Notice>
+      <Field
+        label="API Base URL"
+        hint={t('providers.baseUrlDefault', { url: FIRE24_BASE_URL })}
+        htmlFor="p-base"
+      >
+        <Input
+          id="p-base"
+          value={form.baseUrl}
+          onChange={(e) => set('baseUrl', e.target.value)}
+          placeholder={FIRE24_BASE_URL}
+          className="font-mono"
+        />
+      </Field>
+      <Field
+        label={t('providers.fire24.token')}
+        hint={existing ? t('providers.keepSecret') : t('providers.fire24.tokenHint')}
+        error={keyError}
+        htmlFor="p-key"
+      >
+        <Input
+          id="p-key"
+          type="password"
+          value={form.apiKey}
+          onChange={(e) => set('apiKey', e.target.value)}
+          placeholder="123|cra_…"
+          className="font-mono"
+          autoComplete="new-password"
+        />
+      </Field>
+    </>
   );
 }
 
@@ -1526,30 +1598,32 @@ function useProviderActions(id: string) {
       invalidate: [qk.admin('providers')],
     },
   );
+  // Registrars (Joker.com) and Cloudflare only have domains, Nextcloud instances only cloud
+  // accounts, Mailcow only mail domains, CloudPanel only websites, 3CX only a phone system,
+  // Jellyfin only streaming accounts, Uptime Kuma only monitors.
+  const syncedMessage = (r: ProviderSyncResult) =>
+    r.seen === 0 && r.missing === 0 && r.monitors
+      ? t('uptime.admin.synced', { seen: r.monitors.seen, missing: r.monitors.missing })
+      : r.seen === 0 && r.missing === 0 && r.mediaAccounts
+        ? t('media.admin.synced', {
+            seen: r.mediaAccounts.seen,
+            missing: r.mediaAccounts.missing,
+            repaired: r.mediaAccounts.repaired,
+          })
+        : r.seen === 0 && r.missing === 0 && r.phoneSystems
+          ? t('phone.admin.synced', { seen: r.phoneSystems.seen, missing: r.phoneSystems.missing })
+          : r.seen === 0 && r.missing === 0 && r.websites
+            ? t('websites.admin.synced', { seen: r.websites.seen, missing: r.websites.missing })
+            : r.seen === 0 && r.missing === 0 && r.cloudAccounts
+              ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
+              : r.seen === 0 && r.missing === 0 && r.mailDomains
+                ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
+                : r.seen === 0 && r.missing === 0 && r.domains
+                  ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
+                  : t('providers.synced', { seen: r.seen, missing: r.missing });
   const sync = useApiMutation(() => api.post<ProviderSyncResult>(`/admin/providers/${id}/sync`), {
-    // Registrars (Joker.com) and Cloudflare only have domains, Nextcloud instances only cloud
-    // accounts, Mailcow only mail domains, CloudPanel only websites, 3CX only a phone system,
-    // Jellyfin only streaming accounts, Uptime Kuma only monitors.
-    success: (r) =>
-      r.seen === 0 && r.missing === 0 && r.monitors
-        ? t('uptime.admin.synced', { seen: r.monitors.seen, missing: r.monitors.missing })
-        : r.seen === 0 && r.missing === 0 && r.mediaAccounts
-          ? t('media.admin.synced', {
-              seen: r.mediaAccounts.seen,
-              missing: r.mediaAccounts.missing,
-              repaired: r.mediaAccounts.repaired,
-            })
-          : r.seen === 0 && r.missing === 0 && r.phoneSystems
-            ? t('phone.admin.synced', { seen: r.phoneSystems.seen, missing: r.phoneSystems.missing })
-            : r.seen === 0 && r.missing === 0 && r.websites
-              ? t('websites.admin.synced', { seen: r.websites.seen, missing: r.websites.missing })
-              : r.seen === 0 && r.missing === 0 && r.cloudAccounts
-                ? t('storage.admin.synced', { seen: r.cloudAccounts.seen, missing: r.cloudAccounts.missing })
-                : r.seen === 0 && r.missing === 0 && r.mailDomains
-                  ? t('mail.admin.synced', { seen: r.mailDomains.seen, missing: r.mailDomains.missing })
-                  : r.seen === 0 && r.missing === 0 && r.domains
-                    ? t('providers.syncedDomains', { seen: r.domains.seen, missing: r.domains.missing })
-                    : t('providers.synced', { seen: r.seen, missing: r.missing }),
+    // A 24fire token without a list scope skips that list; the toast says which.
+    success: (r) => withSkipped(syncedMessage(r), r, t),
     invalidate: [
       qk.admin('providers'),
       qk.admin('servers'),

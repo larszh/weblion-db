@@ -7,12 +7,14 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
 
 - **Live-Test gegen 24fire, Proxmox, Hetzner Cloud, Joker.com, Cloudflare, Nextcloud, Mailcow,
   CloudPanel, 3CX, Jellyfin und Uptime Kuma** mit den echten Zugangsdaten (die Build-Umgebung hatte
-  keinen Zugriff), bei Joker.com zuerst im Testsystem (OT&E), bei Cloudflare mit einem Test-Konto
-  und einer Test-Zone, bei Nextcloud und Mailcow mit eigenen Test-Instanzen, bei CloudPanel mit
-  einem Test-Server und dem Agent `weblion-clp`, bei 3CX mit einer V20 mit Enterprise-Testlizenz,
-  bei Jellyfin mit 10.10 und 10.11 im Container, bei Uptime Kuma mit einer Test-Instanz 2.x (echte
-  Antworten als Fixtures ablegen). Offene Detailfragen stehen in docs/providers.md unter "Offene
-  Punkte"
+  keinen Zugriff), bei 24fire die neue Customer REST API v1 nach der
+  [Checkliste](providers.md#live-test-der-api-v1) (zuerst die Antworten ohne beschriebene Form, die
+  IDs und das Rate-Limit), bei Joker.com zuerst im Testsystem (OT&E), bei Cloudflare mit einem
+  Test-Konto und einer Test-Zone, bei Nextcloud und Mailcow mit eigenen Test-Instanzen, bei
+  CloudPanel mit einem Test-Server und dem Agent `weblion-clp`, bei 3CX mit einer V20 mit
+  Enterprise-Testlizenz, bei Jellyfin mit 10.10 und 10.11 im Container, bei Uptime Kuma mit einer
+  Test-Instanz 2.x (echte Antworten als Fixtures ablegen). Offene Detailfragen stehen in
+  docs/providers.md unter "Offene Punkte"
 - **Cloud-Speicher, E-Mail, Websites, Telefonie, Streaming und Monitoring an Sperre und Abrechnung
   koppeln**: Heute laufen die Nextcloud-Konten, Mail-Domains, Websites, Telefonanlagen,
   Streaming-Zugänge und Monitore eines gesperrten Kunden oder nach gekündigtem Dienst weiter (siehe
@@ -33,6 +35,33 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
 - **SSH-Keys und Cloud-Init** beim Erstellen und Neuinstallieren von Servern
 - **OpenAPI-Doku** der REST-API, danach Terraform-Provider und eine kleine CLI
 - **SSO und Passkeys**: Login mit Microsoft/Google (OIDC), WebAuthn statt nur TOTP
+
+## Rechenzentrum DE (24fire)
+
+Die Anbindung nutzt die Customer REST API v1: Server mit Energie, Konsole, Rebuild, Root-Passwort,
+Backups, Graphen, rDNS, DDoS-Schutz und ISO, Domains mit DNS und Nameservern (auch im DNS-Umzug zu
+Cloudflare) und Webspaces mit Plesk-Login per Einmal-Link. Als Nächstes, meist erst nach dem
+Live-Test, weil die Form der Antworten noch offen ist:
+
+- **SSH-Keys**: auflisten, hochladen und löschen pro Server (Scope `server:ssh`, eigener Tab und eine
+  Berechtigung), ein Key beim Rebuild (`ssh_key`). Keys erzeugen lässt die Console weg, weil 24fire
+  den privaten Schlüssel dabei einmal herausgibt
+- **Monitoring bei 24fire ein- und ausschalten** mit Port (`POST .../monitoring`), dazu ein Hinweis im
+  Tab "Graphen", wenn es aus ist. Wenig Nutzen neben den Monitoren aus Uptime Kuma
+- **Abuse-Meldungen**: die Zahl der offenen Meldungen im Meta und als Hinweis im Server-Inventar für
+  weblion.one. Kunden sehen sie nicht, dringende Fälle zeigen schon die Hinweise des Kontos in der
+  Übersicht
+- **Belegung der Webspaces** (`usage`): Speicher, Postfächer und Datenbanken neben den Limits, sobald
+  die Form der Antwort bekannt ist
+- **Verlängerung anzeigen**: Datum, automatische Verlängerung und laufende Kündigung als Spalten im
+  Inventar (die Daten stehen schon in `meta.renewal`)
+- **Dedizierte Server** als Zeilen nur zum Lesen, falls gewünscht (heute zählt die Übersicht sie nur)
+- **rDNS entfernen**: ein Button "Entfernen" im Tab "Netzwerk" (der Adapter kann es schon, die Route
+  nimmt noch keinen leeren Namen)
+- **Gesperrte Produkte** (`disabled`) als Status `locked` zeigen, sobald klar ist, was das Feld
+  bedeutet
+- **Adresse von Plesk** für Webspaces (als feste Adresse oder aus dem Anmeldelink), damit die Hinweise
+  für Mailprogramme wieder erscheinen
 
 ## Domains (Joker.com)
 

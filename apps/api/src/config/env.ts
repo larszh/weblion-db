@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FIRE24_DEFAULT_BASE_URL } from '../providers/fire24/config';
 
 const bool = (fallback: boolean) =>
   z
@@ -36,8 +37,10 @@ const EnvSchema = z.object({
   BOOTSTRAP_ADMIN_PASSWORD: optionalString,
   BOOTSTRAP_ADMIN_NAME: z.string().default('weblion Admin'),
 
+  /** Personal Access Token of the 24fire Customer REST API v1 ("123|cra_..."). */
   FIRE24_API_KEY: optionalString,
-  FIRE24_BASE_URL: z.string().url().default('https://manage.24fire.de'),
+  /** Without "/v1". The old v2 host manage.24fire.de is rewritten on boot (see bootstrap). */
+  FIRE24_BASE_URL: z.string().url().default(FIRE24_DEFAULT_BASE_URL),
   FIRE24_NAME: z.string().default('24fire'),
   FIRE24_COUNTRY: z.string().default('DE'),
   FIRE24_CITY: z.string().default('Rechenzentrum DE'),

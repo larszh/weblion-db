@@ -333,7 +333,7 @@ export const en: Record<TranslationKey, string> = {
   'backups.deleteTitle': 'Delete backup?',
   'backups.deleteText': 'The backup from {date} will be deleted permanently.',
   'backups.deleted': 'Backup deleted',
-  'backups.fire24Hint': 'Backups at 24fire require an active 24fire+ subscription on the account.',
+  'backups.fire24Hint': "Backups use the server's backup slots. Creating one can take a few minutes.",
 
   'snapshots.subtitle': 'Quick restore points, ideal before updates. Not a replacement for backups.',
   'snapshots.create': 'Create snapshot',
@@ -466,6 +466,8 @@ export const en: Record<TranslationKey, string> = {
   'console.lost': 'The connection was lost.',
   'console.authFailed': 'Console authentication failed.',
   'console.fullscreen': 'Fullscreen',
+  'console.openPage': 'Open console',
+  'console.pageText': 'The console opens in a new tab. Do not share the link.',
 
   'members.subtitle': 'Who has access to this organization and with which role.',
   'members.invite': 'Invite member',
@@ -702,7 +704,7 @@ export const en: Record<TranslationKey, string> = {
   'inventory.import': 'Import server',
   'inventory.importText': 'Adds a server by provider ID in case automatic discovery misses it.',
   'inventory.importHint.fire24':
-    'The internal_id from /api/account/services or the URL in the 24fire control panel.',
+    'The id from GET /v1/servers in the API explorer or the id in the URL in the 24fire control panel.',
   'inventory.importHint.proxmox': 'Format qemu/<vmid> or lxc/<vmid>, e.g. qemu/100.',
   'inventory.imported': 'Server imported',
   'inventory.create': 'Create server',
@@ -745,6 +747,7 @@ export const en: Record<TranslationKey, string> = {
   'providers.sync': 'Sync now',
   'providers.synced': '{seen} servers synced, {missing} missing',
   'providers.syncedDomains': '{seen} domains synced, {missing} missing',
+  'providers.syncSkipped': 'Skipped, the token lacks the scope: {scopes}',
   'providers.joker.help':
     'The DMAPI requires a reseller account at Joker.com. Create the API key on joker.com in the settings of your reseller account. Joker.com only provides domains, no servers.',
   'providers.joker.auth': 'Sign-in',
@@ -760,6 +763,16 @@ export const en: Record<TranslationKey, string> = {
   'providers.joker.baseUrlHint': 'Default: {url}. The test system (OT&E) needs a separate account.',
   'providers.joker.useOte': 'Use test system (OT&E)',
   'providers.joker.useLive': 'Use live system',
+  'providers.fire24.help':
+    'The 24fire Customer REST API v1 signs in with a Personal Access Token. Create it in the 24fire account settings with the scopes below and leave the product allowlist empty (all products): products outside the allowlist count as missing in the panel. The connection test lists missing scopes.',
+  'providers.fire24.scopesFull': 'Full use ({count} scopes)',
+  'providers.fire24.scopesReadOnly':
+    'Read only ({count} scopes; no actions, console, backups, graphs or changes)',
+  'providers.fire24.token': 'Personal Access Token',
+  'providers.fire24.tokenHint':
+    'Format 123|cra_… from the 24fire account settings. Stored encrypted and never shown again.',
+  'providers.fire24.legacyKey':
+    'Expected a 24fire Personal Access Token like 123|cra_…; keys of the old API v2 no longer work.',
   'providers.nodes': 'Nodes',
   'providers.cores': 'cores',
   'providers.storages': 'Storages',
@@ -786,4 +799,6 @@ export const en: Record<TranslationKey, string> = {
   'explorer.jokerHint':
     'For Joker.com the path is the DMAPI request name with an optional query string, e.g. /query-whois?domain=example.com. Joker always receives a POST; requests that change something are recorded in the audit log.',
   'explorer.jokerBodyHint': 'Further request parameters, e.g. { "domain": "example.com" }.',
+  'explorer.fire24Hint':
+    'Paths below https://api.24fire.de/v1, the leading /v1 is optional. Lists have 25 entries per page (?page=2). Parameters are sent as form data, with DELETE as the query string. Password reset, SSH key generation and the Plesk login are refused here.',
 };

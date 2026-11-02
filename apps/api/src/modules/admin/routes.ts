@@ -50,6 +50,12 @@ import {
   generateCloudPanelKeyPair,
   publicKeyLine,
 } from '../../providers/cloudpanel/keys';
+import {
+  FIRE24_DEFAULT_BASE_URL,
+  fire24BaseUrl,
+  fire24TokenKind,
+  fire24TokenSummary,
+} from '../../providers/fire24/config';
 import type {
   CloudflareConfig,
   CloudPanelConfig,
@@ -86,9 +92,21 @@ const locationSchema = z.object({
   label: z.string().trim().min(1).max(80),
 });
 
+/**
+ * A Personal Access Token of the Customer REST API v1. Keys of the old API v2 are refused, also
+ * when an edit keeps a stored one, so the admin has to paste the new token. The base URL is
+ * stored without "/v1" and the old v2 host becomes api.24fire.de.
+ */
 const fire24ConfigSchema = z.object({
-  apiKey: z.string().min(8).max(500),
-  baseUrl: z.url().default('https://manage.24fire.de'),
+  apiKey: z
+    .string()
+    .trim()
+    .max(500)
+    .refine(
+      (k) => fire24TokenKind(k) !== 'legacy',
+      'Expected a 24fire Personal Access Token like 123|cra_...; keys of the old API v2 no longer work.',
+    ),
+  baseUrl: z.url().default(FIRE24_DEFAULT_BASE_URL).transform(fire24BaseUrl),
 });
 const proxmoxConfigSchema = z.object({
   baseUrl: z.url(),
@@ -314,7 +332,9 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
   switch (type) {
     case 'fire24': {
       const c = config as Fire24Config;
-      return { baseUrl: c.baseUrl, apiKey: `${c.apiKey.slice(0, 4)}…${c.apiKey.slice(-3)}` };
+      // Only the token id ("12|cra_••••••"), never a part of the secret. Stored connections nobody
+      // edited may still hold the v2 host: shown as the adapter uses it.
+      return { baseUrl: fire24BaseUrl(c.baseUrl), apiKey: fire24TokenSummary(c.apiKey) };
     }
     case 'proxmox': {
       const c = config as ProxmoxConfig;

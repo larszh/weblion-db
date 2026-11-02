@@ -240,7 +240,7 @@ export interface MailDnsZoneDto {
   domainId: string;
   name: string;
   provider: { id: string; type: ProviderType; name: string };
-  /** DNS changes possible at the provider now (24fire: only with 24fire+). */
+  /** DNS changes possible at the provider now (24fire: not while the token lacks domain:dns). */
   writable: boolean;
   /** The caller has domain:dns:write on it. */
   canEdit: boolean;

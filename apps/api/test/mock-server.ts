@@ -9,9 +9,17 @@ export interface RecordedRequest {
   form: URLSearchParams;
 }
 
-export type Handler = (
-  req: RecordedRequest,
-) => { status?: number; statusText?: string; body: unknown } | undefined;
+export interface MockAnswer {
+  status?: number;
+  statusText?: string;
+  body?: unknown;
+  /** Sent verbatim instead of the JSON body (HTML error pages, empty answers). */
+  text?: string;
+  /** Response headers, e.g. Retry-After. A content-type here replaces application/json. */
+  headers?: Record<string, string>;
+}
+
+export type Handler = (req: RecordedRequest) => MockAnswer | undefined;
 
 /** Tiny HTTP server that records requests and answers from a route table. */
 export async function startMockServer(handler: Handler) {
@@ -37,7 +45,8 @@ export async function startMockServer(handler: Handler) {
       res.statusCode = answer.status ?? 200;
       if (answer.statusText) res.statusMessage = answer.statusText;
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(answer.body));
+      for (const [name, value] of Object.entries(answer.headers ?? {})) res.setHeader(name, value);
+      res.end(answer.text ?? JSON.stringify(answer.body));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

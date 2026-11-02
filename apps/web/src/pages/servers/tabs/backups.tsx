@@ -31,9 +31,11 @@ export function BackupsTab() {
   const [restore, setRestore] = useState<BackupInfo | null>(null);
   const [remove, setRemove] = useState<BackupInfo | null>(null);
   const keys = [qk.serverSub(server.id, 'backups'), qk.serverSub(server.id, 'tasks'), qk.server(server.id)];
+  // 24fire API v1 creates backups without a body, so a description would be dropped silently.
+  const describable = server.provider.type !== 'fire24';
 
   const create = useApiMutation(
-    () => api.post(`/servers/${server.id}/backups`, description ? { description } : {}),
+    () => api.post(`/servers/${server.id}/backups`, describable && description ? { description } : {}),
     {
       success: t('backups.started'),
       invalidate: keys,
@@ -177,15 +179,17 @@ export function BackupsTab() {
           </>
         }
       >
-        <Field label={t('backups.description')} hint={t('common.optional')} htmlFor="backup-desc">
-          <Input
-            id="backup-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            maxLength={200}
-            autoFocus
-          />
-        </Field>
+        {describable && (
+          <Field label={t('backups.description')} hint={t('common.optional')} htmlFor="backup-desc">
+            <Input
+              id="backup-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={200}
+              autoFocus
+            />
+          </Field>
+        )}
       </Dialog>
 
       <ConfirmDialog

@@ -152,9 +152,10 @@ function TrafficCard() {
   );
 }
 
-export function GraphsTab() {
+/** Range picker and charts, only rendered with the capability `metrics` (no request otherwise). */
+function MetricsSection() {
   const { t } = useI18n();
-  const { server, has } = useServerContext();
+  const { server } = useServerContext();
   const [range, setRange] = useState<MetricRange>('day');
   const metrics = useServerMetrics(server.id, range);
   const keys = new Set(metrics.data?.series.map((s) => s.key) ?? []);
@@ -163,7 +164,7 @@ export function GraphsTab() {
     (server.specs.memoryMb ? server.specs.memoryMb * 1024 * 1024 : null);
 
   return (
-    <div className="space-y-6">
+    <>
       {/* One filter row above everything it scopes. */}
       <div className="flex flex-wrap items-center gap-3">
         <div
@@ -257,7 +258,19 @@ export function GraphsTab() {
           )}
         </div>
       )}
+    </>
+  );
+}
 
+/**
+ * Visible with any of metrics, traffic and monitoring (see the tab list): a 24fire token without
+ * server:monitoring has no charts and no availability, but still the traffic card.
+ */
+export function GraphsTab() {
+  const { has } = useServerContext();
+  return (
+    <div className="space-y-6">
+      {has('metrics') && <MetricsSection />}
       {has('traffic') && <TrafficCard />}
       {has('monitoring') && <MonitoringCard />}
     </div>

@@ -1,18 +1,20 @@
 import { and, eq, inArray, isNotNull, isNull, lt, ne, notInArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type pg from 'pg';
-import type { DomainInfo } from '@weblion/shared';
+import type { DomainInfo, IpAddress } from '@weblion/shared';
 import { AuditService } from '../audit';
 import type { Database } from '../db/client';
 import {
   cloudAccounts,
   domains,
+  projects,
   providerConnections,
   serverActions,
   servers,
   webspaces,
   type ProviderConnection,
 } from '../db/schema';
+import { AppError, isScopeMissing } from '../lib/errors';
 import { settlePending } from '../modules/hosting/pending';
 import { domainKind } from '../modules/hosting/service';
 import { serverRef, type ProviderRegistry } from '../providers/registry';
@@ -32,6 +34,8 @@ import { syncWebsites } from './sync-websites';
 export interface SyncCounts {
   seen: number;
   missing: number;
+  /** Stored rows that took over a changed provider id (adapters with rekeyOnSync), only when > 0. */
+  rekeyed?: number;
 }
 
 /**
@@ -52,10 +56,18 @@ export interface SyncResult extends SyncCounts {
   mediaAccounts?: MediaSyncCounts;
   /** Uptime Kuma: monitors of the instance; managementError when the management session failed. */
   monitors?: MonitorSyncCounts;
+  /**
+   * Scopes the provider's access token lacks (24fire): the steps that need them were skipped and
+   * nothing of theirs was marked missing.
+   */
+  skipped?: string[];
 }
 
 /** Postgres advisory lock ids, so only one API instance runs each job at a time. */
 const LOCKS = { sync: 742_001, actions: 742_002 } as const;
+
+/** Syncs in a row a partial new server with an ambiguous name is held back for (see rekeyServers). */
+const HOLD_PARTIAL_SYNCS = 3;
 
 /**
  * Keeps the server inventory in sync with the providers and finishes tracked actions.
@@ -69,6 +81,8 @@ export class SyncService {
   private followUps = new Map<string, { connection: ProviderConnection; result: Promise<SyncResult> }>();
   /** For changes the sync makes on its own (zone assignments). */
   private readonly audit: AuditService;
+  /** Per connection: the new server ids held back by rekeyServers and for how many syncs in a row. */
+  private readonly heldBack = new Map<string, Map<string, number>>();
 
   constructor(
     private readonly db: Database,
@@ -81,6 +95,14 @@ export class SyncService {
 
   private async upsert(connection: ProviderConnection, remote: RemoteServer) {
     const now = new Date();
+    const current = {
+      // Follow provider renames unless the server was renamed in the panel.
+      name: sql`case when ${servers.name} = ${servers.providerName} then excluded.provider_name else ${servers.name} end`,
+      providerName: sql`excluded.provider_name`,
+      status: sql`excluded.status`,
+      lastSyncedAt: now,
+      missingSince: null,
+    };
     await this.db
       .insert(servers)
       .values({
@@ -100,22 +122,243 @@ export class SyncService {
       })
       .onConflictDoUpdate({
         target: [servers.providerConnectionId, servers.externalId],
-        set: {
-          // Follow provider renames unless the server was renamed in the panel.
-          name: sql`case when ${servers.name} = ${servers.providerName} then excluded.provider_name else ${servers.name} end`,
-          providerName: sql`excluded.provider_name`,
-          kind: sql`excluded.kind`,
-          status: sql`excluded.status`,
-          specs: sql`excluded.specs`,
-          usage: sql`excluded.usage`,
-          ips: sql`excluded.ips`,
-          os: sql`coalesce(excluded.os, ${servers.os})`,
-          node: sql`excluded.node`,
-          meta: sql`excluded.meta`,
-          lastSyncedAt: now,
-          missingSince: null,
-        },
+        // A partial server (a per-server call failed) only knows name, status and some meta: the
+        // stored specs, usage, IPs, OS and node stay, the meta is merged.
+        set: remote.partial
+          ? { ...current, meta: sql`coalesce(${servers.meta}, '{}'::jsonb) || excluded.meta` }
+          : {
+              ...current,
+              kind: sql`excluded.kind`,
+              specs: sql`excluded.specs`,
+              usage: sql`excluded.usage`,
+              ips: sql`excluded.ips`,
+              os: sql`coalesce(excluded.os, ${servers.os})`,
+              node: sql`excluded.node`,
+              meta: sql`excluded.meta`,
+            },
       });
+  }
+
+  /** Re-keys, stores and marks missing the servers of one listing. */
+  private async syncServers(
+    connection: ProviderConnection,
+    adapter: ProviderAdapter,
+    remote: RemoteServer[],
+  ): Promise<SyncCounts> {
+    // Before the upserts, so the upsert updates the re-keyed row instead of inserting a new one.
+    const { rekeyed, held, kept } = adapter.rekeyOnSync?.servers
+      ? await this.rekeyServers(connection, remote)
+      : { rekeyed: 0, held: new Set<string>(), kept: [] };
+    for (const server of remote) {
+      if (!held.has(server.externalId)) await this.upsert(connection, server);
+    }
+
+    const seenIds = [...remote.map((s) => s.externalId), ...kept];
+    const missing = await this.db
+      .update(servers)
+      .set({ status: 'missing', missingSince: sql`coalesce(${servers.missingSince}, now())` })
+      .where(
+        and(
+          eq(servers.providerConnectionId, connection.id),
+          seenIds.length > 0 ? notInArray(servers.externalId, seenIds) : undefined,
+        ),
+      )
+      .returning({ id: servers.id });
+    return { seen: remote.length, missing: missing.length, ...(rekeyed > 0 ? { rekeyed } : {}) };
+  }
+
+  /**
+   * Adopts changed provider ids into the stored rows (24fire: API v1 ids are very likely the v2
+   * ids, but that is not verified), so the row id, and with it project, labels, protection, actions
+   * and billing references, stays with the server and no duplicate appears.
+   *
+   * Conservative: only new ids (no row on this connection) and rows that were present at the last
+   * sync and are gone now take part, and only one-to-one matches are applied. Pass 1: same
+   * provider name and kind, at least one shared IPv4 address, one candidate on both sides. Pass 2,
+   * only where one side has no IPv4 (a partial server): same name and kind, unique among the new
+   * ids and among the vanished rows that pass 1 left. Anything ambiguous is left alone: the old row
+   * goes missing and the new one comes unassigned, as without the step.
+   *
+   * A new id that is partial (its config failed, so its addresses are unknown) and still has
+   * vanished rows of its name left is held back: it is not stored, and those rows are not marked
+   * missing (`kept`), so the next sync can match it by name and IPv4. Without that, the re-key
+   * would have one chance only: the new row is stored, and the old one is no longer a candidate
+   * once it is missing. After HOLD_PARTIAL_SYNCS syncs in a row it is stored as without the step.
+   */
+  private async rekeyServers(
+    connection: ProviderConnection,
+    remote: RemoteServer[],
+  ): Promise<{ rekeyed: number; held: Set<string>; kept: string[] }> {
+    const rows = await this.db
+      .select({
+        id: servers.id,
+        externalId: servers.externalId,
+        providerName: servers.providerName,
+        kind: servers.kind,
+        ips: servers.ips,
+        missingSince: servers.missingSince,
+        orgId: projects.orgId,
+      })
+      .from(servers)
+      .leftJoin(projects, eq(projects.id, servers.projectId))
+      .where(eq(servers.providerConnectionId, connection.id));
+    const stored = new Set(rows.map((r) => r.externalId));
+    const listed = new Set(remote.map((r) => r.externalId));
+    const unknown = remote.filter((r) => !stored.has(r.externalId));
+    const orphans = rows.filter((r) => !listed.has(r.externalId) && r.missingSince === null);
+    const heldBefore = this.heldBack.get(connection.id);
+    this.heldBack.delete(connection.id);
+    if (unknown.length === 0 || orphans.length === 0) return { rekeyed: 0, held: new Set(), kept: [] };
+
+    const ipv4 = (ips: IpAddress[]) => new Set(ips.filter((ip) => ip.version === 4).map((ip) => ip.address));
+    const shares = (a: Set<string>, b: Set<string>) => [...a].some((address) => b.has(address));
+    const sameName = (u: RemoteServer, o: (typeof rows)[number]) =>
+      o.providerName !== null && o.providerName === u.name && o.kind === u.kind;
+    const byIp = (u: RemoteServer, o: (typeof rows)[number]) =>
+      sameName(u, o) && shares(ipv4(u.ips), ipv4(o.ips));
+
+    const matches: { row: (typeof rows)[number]; remote: RemoteServer; matchedBy: 'name+ipv4' | 'name' }[] =
+      [];
+    for (const u of unknown) {
+      const candidates = orphans.filter((o) => byIp(u, o));
+      if (candidates.length !== 1) continue;
+      const row = candidates[0]!;
+      if (unknown.filter((x) => byIp(x, row)).length !== 1) continue;
+      matches.push({ row, remote: u, matchedBy: 'name+ipv4' });
+    }
+    // Pass 2 counts only what pass 1 left: a twin matched by its address no longer makes the
+    // name of the other twin ambiguous.
+    const byAddress = new Set<unknown>(matches.flatMap((m) => [m.row, m.remote]));
+    const leftRows = orphans.filter((o) => !byAddress.has(o));
+    const leftUnknown = unknown.filter((u) => !byAddress.has(u));
+    for (const u of leftUnknown) {
+      const named = leftRows.filter((o) => sameName(u, o));
+      if (named.length !== 1) continue;
+      if (leftUnknown.filter((x) => x.name === u.name && x.kind === u.kind).length !== 1) continue;
+      const row = named[0]!;
+      if (matches.some((m) => m.row === row)) continue;
+      // Both sides know their IPv4 addresses and share none: two different servers.
+      if (ipv4(u.ips).size > 0 && ipv4(row.ips).size > 0) continue;
+      matches.push({ row, remote: u, matchedBy: 'name' });
+    }
+
+    const held = new Map<string, number>();
+    const kept = new Set<string>();
+    for (const u of leftUnknown) {
+      if (!u.partial || matches.some((m) => m.remote === u)) continue;
+      const named = leftRows.filter((o) => sameName(u, o) && !matches.some((m) => m.row === o));
+      const syncs = heldBefore?.get(u.externalId) ?? 0;
+      if (named.length === 0 || syncs >= HOLD_PARTIAL_SYNCS) continue;
+      held.set(u.externalId, syncs + 1);
+      for (const o of named) kept.add(o.externalId);
+    }
+    if (held.size > 0) {
+      this.heldBack.set(connection.id, held);
+      this.log.info(
+        { provider: connection.name, newIds: held.size, vanished: kept.size },
+        'new servers held back until their addresses are known',
+      );
+    }
+
+    let rekeyed = 0;
+    for (const { row, remote: server, matchedBy } of matches) {
+      const details = { from: row.externalId, to: server.externalId, name: server.name, matchedBy };
+      try {
+        const updated = await this.db
+          .update(servers)
+          .set({ externalId: server.externalId })
+          .where(
+            and(eq(servers.id, row.id), eq(servers.externalId, row.externalId), isNull(servers.missingSince)),
+          )
+          .returning({ id: servers.id });
+        if (updated.length === 0) continue;
+      } catch (err) {
+        // A parallel sync stored the new id meanwhile: leave both rows as they are.
+        this.log.warn(
+          { err, provider: connection.name, serverId: row.id, ...details },
+          'server re-key failed',
+        );
+        continue;
+      }
+      rekeyed++;
+      this.log.info({ provider: connection.name, serverId: row.id, ...details }, 'server re-keyed');
+      await this.audit.record(null, {
+        action: 'server.rekey',
+        orgId: row.orgId,
+        resourceType: 'server',
+        resourceId: row.id,
+        actorName: 'Sync',
+        details,
+      });
+    }
+    const left = unknown.length - rekeyed - held.size;
+    if (left > 0 && orphans.length > rekeyed + kept.size) {
+      this.log.info(
+        { provider: connection.name, newIds: left, vanished: orphans.length - rekeyed - kept.size },
+        'servers not re-keyed: no unambiguous match',
+      );
+    }
+    return { rekeyed, held: new Set(held.keys()), kept: [...kept] };
+  }
+
+  /**
+   * The same for domains: a new id and a row that vanished since the last sync with the same name
+   * (case-insensitive), each the only one of that name. Audited as domain.rekey.
+   */
+  private async rekeyDomains(connection: ProviderConnection, remote: RemoteDomain[]): Promise<number> {
+    const rows = await this.db
+      .select({
+        id: domains.id,
+        externalId: domains.externalId,
+        name: domains.name,
+        orgId: domains.orgId,
+        missingSince: domains.missingSince,
+      })
+      .from(domains)
+      .where(eq(domains.providerConnectionId, connection.id));
+    const stored = new Set(rows.map((r) => r.externalId));
+    const listed = new Set(remote.map((r) => r.externalId));
+    const unknown = remote.filter((r) => !stored.has(r.externalId));
+    const orphans = rows.filter((r) => !listed.has(r.externalId) && r.missingSince === null);
+    if (unknown.length === 0 || orphans.length === 0) return 0;
+
+    const key = (name: string) => name.trim().toLowerCase().replace(/\.$/, '');
+    let rekeyed = 0;
+    for (const u of unknown) {
+      const name = key(u.name);
+      if (!name) continue;
+      const candidates = orphans.filter((o) => key(o.name) === name);
+      if (candidates.length !== 1 || unknown.filter((x) => key(x.name) === name).length !== 1) continue;
+      const row = candidates[0]!;
+      const details = { from: row.externalId, to: u.externalId, name: u.name, matchedBy: 'name' };
+      try {
+        const updated = await this.db
+          .update(domains)
+          .set({ externalId: u.externalId })
+          .where(
+            and(eq(domains.id, row.id), eq(domains.externalId, row.externalId), isNull(domains.missingSince)),
+          )
+          .returning({ id: domains.id });
+        if (updated.length === 0) continue;
+      } catch (err) {
+        this.log.warn(
+          { err, provider: connection.name, domainId: row.id, ...details },
+          'domain re-key failed',
+        );
+        continue;
+      }
+      rekeyed++;
+      this.log.info({ provider: connection.name, domainId: row.id, ...details }, 'domain re-keyed');
+      await this.audit.record(null, {
+        action: 'domain.rekey',
+        orgId: row.orgId,
+        resourceType: 'domain',
+        resourceId: row.id,
+        actorName: 'Sync',
+        details,
+      });
+    }
+    return rekeyed;
   }
 
   /**
@@ -125,6 +368,8 @@ export class SyncService {
    */
   private async syncDomains(connection: ProviderConnection, adapter: ProviderAdapter): Promise<SyncCounts> {
     const remote: RemoteDomain[] = await adapter.listDomains!();
+    // Before anything reads the stored ids (zones, pending changes, upserts).
+    const rekeyed = adapter.rekeyOnSync?.domains ? await this.rekeyDomains(connection, remote) : 0;
     const now = new Date();
     const zones = domainKind(adapter) === 'zone';
     const known = zones
@@ -199,7 +444,7 @@ export class SyncService {
         ),
       )
       .returning({ id: domains.id });
-    return { seen: remote.length, missing: missing.length };
+    return { seen: remote.length, missing: missing.length, ...(rekeyed > 0 ? { rekeyed } : {}) };
   }
 
   /**
@@ -397,24 +642,47 @@ export class SyncService {
   private async runSync(connection: ProviderConnection): Promise<SyncResult> {
     try {
       const adapter = this.providers.forConnection(connection);
-      const remote = await adapter.listServers();
-      for (const server of remote) await this.upsert(connection, server);
-
-      const seenIds = remote.map((s) => s.externalId);
-      const missing = await this.db
-        .update(servers)
-        .set({ status: 'missing', missingSince: sql`coalesce(${servers.missingSince}, now())` })
-        .where(
-          and(
-            eq(servers.providerConnectionId, connection.id),
-            seenIds.length > 0 ? notInArray(servers.externalId, seenIds) : undefined,
-          ),
-        )
-        .returning({ id: servers.id });
-
-      const result: SyncResult = { seen: remote.length, missing: missing.length };
-      if (adapter.listDomains) result.domains = await this.syncDomains(connection, adapter);
-      if (adapter.listWebspaces) result.webspaces = await this.syncWebspaces(connection, adapter);
+      // A list the access token may not read (24fire scopes) is skipped: nothing of it is marked
+      // missing, the other lists still sync.
+      const skipped: string[] = [];
+      const optional = async <T>(step: () => Promise<T>): Promise<T | undefined> => {
+        try {
+          return await step();
+        } catch (err) {
+          if (!isScopeMissing(err)) throw err;
+          const scope = (err.details as { scope?: string } | undefined)?.scope ?? 'unknown';
+          skipped.push(scope);
+          this.log.warn(
+            { provider: connection.name, scope },
+            'sync step skipped: the access token lacks a scope',
+          );
+          return undefined;
+        }
+      };
+      let steps = 1;
+      const remote = await optional(() => adapter.listServers());
+      const result: SyncResult = remote
+        ? await this.syncServers(connection, adapter, remote)
+        : { seen: 0, missing: 0 };
+      if (adapter.listDomains) {
+        steps++;
+        const counts = await optional(() => this.syncDomains(connection, adapter));
+        if (counts) result.domains = counts;
+      }
+      if (adapter.listWebspaces) {
+        steps++;
+        const counts = await optional(() => this.syncWebspaces(connection, adapter));
+        if (counts) result.webspaces = counts;
+      }
+      if (skipped.length === steps) {
+        throw new AppError(
+          502,
+          'provider_scope_missing',
+          `${connection.name}: the access token has none of the read scopes the console needs (${skipped.join(', ')})`,
+          { scopes: skipped },
+        );
+      }
+      if (skipped.length > 0) result.skipped = skipped;
       if (adapter.listCloudAccounts) result.cloudAccounts = await this.syncCloudAccounts(connection, adapter);
       if (adapter.listMailDomains) result.mailDomains = await syncMailDomains(this.db, connection, adapter);
       if (adapter.listWebsites) result.websites = await syncWebsites(this.db, connection, adapter);

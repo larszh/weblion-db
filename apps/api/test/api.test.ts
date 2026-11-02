@@ -327,17 +327,123 @@ describe('administration', () => {
   });
 
   it('never returns provider secrets', async () => {
-    const created = json<{ id: string; summary: Record<string, string> }>(
-      await admin.post('/admin/providers', {
-        type: 'fire24',
-        name: 'Second 24fire',
-        location: { country: 'DE', label: 'Test' },
-        config: { apiKey: 'super-secret-api-key-123' },
-      }),
-    );
-    expect(JSON.stringify(created)).not.toContain('super-secret-api-key-123');
-    expect(created.summary.apiKey).toMatch(/…/);
-    expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+    // No initial sync: it would send the made-up token to the real 24fire API.
+    const sync = vi.spyOn(t.ctx.sync, 'syncConnection').mockResolvedValue({ seen: 0, missing: 0 });
+    try {
+      const created = json<{ id: string; summary: Record<string, string> }>(
+        await admin.post('/admin/providers', {
+          type: 'fire24',
+          name: 'Second 24fire',
+          location: { country: 'DE', label: 'Test' },
+          config: { apiKey: '12|cra_supersecretapikey123' },
+        }),
+      );
+      expect(JSON.stringify(created)).not.toContain('supersecretapikey123');
+      // The token id names the token in the 24fire account settings; no part of the secret.
+      expect(created.summary.apiKey).toBe('12|cra_••••••');
+      expect(created.summary.baseUrl).toBe('https://api.24fire.de');
+      expect((await admin.get(`/admin/providers/${created.id}`)).body).not.toContain('supersecretapikey123');
+      expect((await admin.get('/admin/providers')).body).not.toContain('supersecretapikey123');
+      const [entry] = await t.db
+        .select()
+        .from(auditLogs)
+        .where(eq(auditLogs.resourceId, created.id))
+        .orderBy(desc(auditLogs.createdAt));
+      expect(entry?.action).toBe('provider.create');
+      expect(JSON.stringify(entry)).not.toContain('supersecretapikey123');
+      expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+    } finally {
+      sync.mockRestore();
+    }
+  });
+
+  it('accepts only 24fire Personal Access Tokens and stores the v1 base URL', async () => {
+    type Provider = { id: string; summary: Record<string, string> };
+    const sync = vi.spyOn(t.ctx.sync, 'syncConnection').mockResolvedValue({ seen: 0, missing: 0 });
+    const stored = async (id: string) =>
+      t.ctx.providers.decryptConfig(
+        (await t.db.query.providerConnections.findFirst({ where: eq(providerConnections.id, id) }))!,
+      );
+    const tokenMessage = /Personal Access Token like 123\|cra_\.\.\.; keys of the old API v2 no longer work/;
+    try {
+      const create = (config: Record<string, unknown>) =>
+        admin.post('/admin/providers', {
+          type: 'fire24',
+          name: 'New 24fire',
+          location: { country: 'DE', label: 'Test' },
+          config,
+        });
+      // A v2 key (no "|"), a malformed token and an empty one.
+      for (const apiKey of ['abcdef0123456789abcdef0123456789', '12|short', '']) {
+        const refused = await create({ apiKey });
+        expect(refused.statusCode).toBe(400);
+        expect(json(refused).error.details).toEqual([
+          { path: 'apiKey', message: expect.stringMatching(tokenMessage) },
+        ]);
+        expect(refused.body).not.toContain('abcdef0123456789');
+      }
+      expect(sync).not.toHaveBeenCalled();
+
+      const res = await create({
+        apiKey: ' 13|cra_anothersecret456 ',
+        baseUrl: 'https://manage.24fire.de/api/',
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      const created = json<Provider>(res);
+      expect(created.summary).toMatchObject({ baseUrl: 'https://api.24fire.de', apiKey: '13|cra_••••••' });
+      expect(await stored(created.id)).toEqual({
+        apiKey: '13|cra_anothersecret456',
+        baseUrl: 'https://api.24fire.de',
+      });
+      // A pasted "/v1" is cut (the adapter adds it), the stored token is kept.
+      const moved = await admin.patch(`/admin/providers/${created.id}`, {
+        config: { baseUrl: 'http://127.0.0.1:4567/v1/', apiKey: '' },
+      });
+      expect(moved.statusCode, moved.body).toBe(200);
+      expect(await stored(created.id)).toEqual({
+        apiKey: '13|cra_anothersecret456',
+        baseUrl: 'http://127.0.0.1:4567',
+      });
+      expect((await admin.del(`/admin/providers/${created.id}`)).statusCode).toBe(200);
+
+      // A connection saved before the switch still holds a v2 key and host: the summary says so,
+      // and an edit fails until a token is pasted.
+      const [legacy] = await t.db
+        .insert(providerConnections)
+        .values({
+          type: 'fire24',
+          name: 'Old 24fire',
+          location: { country: 'DE', label: 'Test' },
+          configEnc: t.ctx.box.encryptJson({
+            apiKey: 'abcdef0123456789abcdef0123456789',
+            baseUrl: 'https://manage.24fire.de',
+          }),
+        })
+        .returning();
+      const before = json<Provider>(await admin.get(`/admin/providers/${legacy!.id}`));
+      expect(before.summary).toMatchObject({
+        baseUrl: 'https://api.24fire.de',
+        apiKey: 'legacy v2 key, replace it',
+      });
+      expect(JSON.stringify(before)).not.toContain('abcdef0123456789');
+      const kept = await admin.patch(`/admin/providers/${legacy!.id}`, {
+        config: { baseUrl: 'https://api.24fire.de', apiKey: '' },
+      });
+      expect(kept.statusCode).toBe(400);
+      expect(json(kept).error.details[0].message).toMatch(tokenMessage);
+      const replaced = await admin.patch(`/admin/providers/${legacy!.id}`, {
+        config: { baseUrl: 'https://api.24fire.de', apiKey: '14|cra_replacement789' },
+      });
+      expect(replaced.statusCode, replaced.body).toBe(200);
+      expect(json<Provider>(replaced).summary.apiKey).toBe('14|cra_••••••');
+      expect(await stored(legacy!.id)).toEqual({
+        apiKey: '14|cra_replacement789',
+        baseUrl: 'https://api.24fire.de',
+      });
+      expect((await admin.del(`/admin/providers/${legacy!.id}`)).statusCode).toBe(200);
+    } finally {
+      sync.mockRestore();
+    }
   });
 
   it('keeps the private key of a CloudPanel connection inside the API', async () => {
