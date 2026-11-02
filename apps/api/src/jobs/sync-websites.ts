@@ -1,6 +1,7 @@
 import { and, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { webspaces, type ProviderConnection } from '../db/schema';
+import { runStart } from '../lib/clock';
 import {
   STALE_CHANGE_MS,
   applyRemoteWebsite,
@@ -26,7 +27,7 @@ export async function syncWebsites(
   connection: ProviderConnection,
   adapter: ProviderAdapter,
 ): Promise<SyncCounts & { databases: number }> {
-  const started = new Date();
+  const started = await runStart();
   const remote = await adapter.listWebsites!();
   // Only for new rows and their info; an unreachable options call keeps the stored address.
   const ipAddress = (await websiteServerAddress(adapter)) ?? undefined;

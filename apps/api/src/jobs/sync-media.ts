@@ -9,6 +9,7 @@ import {
 import type { AuditService } from '../audit';
 import type { Database } from '../db/client';
 import { mediaAccounts, mediaAllowances, type MediaAllowance, type ProviderConnection } from '../db/schema';
+import { runStart } from '../lib/clock';
 import {
   MAX_REPAIRS_PER_RUN,
   errorMessage,
@@ -42,7 +43,7 @@ export async function syncMediaAccounts(
   /** For the failures that do not stop the run; syncConnection may pass its logger. */
   log?: Pick<FastifyBaseLogger, 'warn'>,
 ): Promise<MediaSyncCounts> {
-  const started = new Date();
+  const started = await runStart();
   const remote = await adapter.listMediaUsers!();
   const byId = new Map(remote.map((user) => [user.externalId, user]));
   const rows = await db

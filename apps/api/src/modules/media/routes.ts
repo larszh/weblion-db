@@ -44,6 +44,7 @@ import {
   type Organization,
   type ProviderConnection,
 } from '../../db/schema';
+import { runStart } from '../../lib/clock';
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import { JELLYFIN_ADMIN_REFUSED } from '../../providers/jellyfin/rules';
@@ -531,7 +532,7 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
     const loaded = await account(req);
     const { adapter, account: current } = loaded;
     if (supportsMedia(adapter)) {
-      const started = new Date();
+      const started = await runStart();
       try {
         const remote = await within(adapter.getMediaUser!(current.externalId), LIVE_TIMEOUT_MS);
         const expected = await expectedPolicyFor(db, current.orgId, current.providerConnectionId);
