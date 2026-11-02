@@ -28,6 +28,7 @@ import {
   parseConsole,
   parseMonth,
   parseNameservers,
+  parseRdns,
   parseReinstallStatus,
   parseServiceItem,
   parseStatus,
@@ -1443,6 +1444,29 @@ describe('24fire parsers', () => {
     expect(parseReinstallStatus({ reinstall: { done: false } })).toMatchObject({ status: 'running' });
     expect(parseReinstallStatus(null)).toBeNull();
     expect(parseReinstallStatus({ foo: 1 })).toBeNull();
+  });
+
+  it('reads rDNS lists, also split by IP version', () => {
+    expect(parseRdns([{ ip_address: '192.0.2.10', ptr: 'a.example.' }])).toEqual([
+      { ip: '192.0.2.10', ptr: 'a.example' },
+    ]);
+    // The shape a live v1 server answered with.
+    expect(
+      parseRdns({
+        ipv4: [{ ip_address: '192.0.2.10', rdns: 'a.example' }],
+        ipv6: [{ ip: '2001:db8::10', ptr: 'b.example.' }],
+      }),
+    ).toEqual([
+      { ip: '192.0.2.10', ptr: 'a.example' },
+      { ip: '2001:db8::10', ptr: 'b.example' },
+    ]);
+    expect(parseRdns({ ipv4: { '192.0.2.10': 'a.example' }, ipv6: null })).toEqual([
+      { ip: '192.0.2.10', ptr: 'a.example' },
+    ]);
+    expect(parseRdns({ data: { ipv4: [], ipv6: [] } })).toEqual([]);
+    // Entries nobody can read stay unrecognised, so the connection test keeps naming them.
+    expect(parseRdns({ ipv4: [{ foo: 1 }], ipv6: [] })).toBeNull();
+    expect(parseRdns({ ipv4: 'unknown' })).toBeNull();
   });
 
   it('reads console sessions and name servers', () => {
