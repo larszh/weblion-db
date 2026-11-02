@@ -1,6 +1,7 @@
 import { and, eq, lt, notInArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { mailDomains, type ProviderConnection } from '../db/schema';
+import { runStart } from '../lib/clock';
 import type { ProviderAdapter, RemoteMailDomain } from '../providers/types';
 import type { SyncCounts } from './sync';
 
@@ -15,7 +16,7 @@ export async function syncMailDomains(
   connection: ProviderConnection,
   adapter: ProviderAdapter,
 ): Promise<SyncCounts> {
-  const started = new Date();
+  const started = await runStart();
   const remote: RemoteMailDomain[] = await adapter.listMailDomains!();
   const now = new Date();
   for (const domain of remote) {

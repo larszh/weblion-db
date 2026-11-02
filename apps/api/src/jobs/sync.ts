@@ -14,6 +14,7 @@ import {
   webspaces,
   type ProviderConnection,
 } from '../db/schema';
+import { runStart } from '../lib/clock';
 import { AppError, isScopeMissing } from '../lib/errors';
 import { settlePending } from '../modules/hosting/pending';
 import { domainKind } from '../modules/hosting/service';
@@ -560,7 +561,7 @@ export class SyncService {
     connection: ProviderConnection,
     adapter: ProviderAdapter,
   ): Promise<SyncCounts> {
-    const started = new Date();
+    const started = await runStart();
     const remote: RemoteCloudAccount[] = await adapter.listCloudAccounts!();
     const byId = new Map(remote.map((r) => [r.externalId, r]));
     const rows = await this.db

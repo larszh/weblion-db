@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   DEFAULT_CUSTOMER_BOUNDARY,
@@ -680,6 +680,28 @@ describe('sync', () => {
     // The management session lists every monitor again.
     await syncDemo();
     expect((await row('7'))!).toMatchObject({ status: 'up', missingSince: null, intervalSeconds: 30 });
+  });
+
+  it('counts a write in the same millisecond as the start of the run as earlier', async () => {
+    const list = (name: string) =>
+      stubAdapter({ monitors: [remote('90', { name })], complete: false, managementError: null });
+    await syncMonitors(t.db, connection, list('Tick'));
+    // Timestamps have millisecond precision: on a fast machine the last write before a run can
+    // carry the very millisecond the run starts in. The clock only moves on once the run asked
+    // for its start time.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-02T08:00:00.123Z'));
+      await t.db
+        .update(monitors)
+        .set({ intervalSeconds: 30 })
+        .where(and(eq(monitors.providerConnectionId, connection.id), eq(monitors.externalId, '90')));
+      setImmediate(() => vi.setSystemTime(new Date('2026-11-02T08:00:00.124Z')));
+      await syncMonitors(t.db, connection, list('Tock'));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect((await stored('90'))!).toMatchObject({ name: 'Tock', providerName: 'Tock', intervalSeconds: 60 });
   });
 });
 

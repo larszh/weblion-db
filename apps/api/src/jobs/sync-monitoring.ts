@@ -1,6 +1,7 @@
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { monitors, type ProviderConnection } from '../db/schema';
+import { runStart } from '../lib/clock';
 import type { ProviderAdapter } from '../providers/types';
 import type { SyncCounts } from './sync';
 
@@ -25,7 +26,7 @@ export async function syncMonitors(
   connection: ProviderConnection,
   adapter: ProviderAdapter,
 ): Promise<MonitorSyncCounts> {
-  const started = new Date();
+  const started = await runStart();
   const inventory = await adapter.listMonitors!();
   const now = new Date();
   const seen = new Set<string>();
