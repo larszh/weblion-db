@@ -19,6 +19,8 @@ import {
   MEDIA_MAX_BITRATE_MBIT,
   MEDIA_PASSWORD_MAX,
   MEDIA_PASSWORD_MIN,
+  MEDIA_REQUEST_QUOTA_DAYS_MAX,
+  MEDIA_REQUEST_QUOTA_MAX,
   isMediaAccountName,
   mediaPasswordIssues,
   mediaUsername,
@@ -27,6 +29,7 @@ import {
   type MediaLibraryRef,
   type MediaLoginDto,
   type MediaPolicyApplyResult,
+  type MediaRequestsAccess,
 } from '@weblion/shared';
 import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -64,9 +67,13 @@ import {
   parseCount,
   quickConnectField,
   readBitrate,
+  requestTypeText,
   streamLimitOf,
   usernamePreview,
   type BitrateChoice,
+  type MediaRequestType,
+  type MediaRequestsErrors,
+  type MediaRequestsForm,
 } from './bits';
 
 /**
@@ -861,17 +868,22 @@ export function MediaAccountActions({
 
 // --- Allowance fields (admin and reseller dialogs) -----------------------------------
 
-/** Accounts whose policy could not be written after a change (the sync tries again). */
+/**
+ * Accounts whose policy could not be written after a change (the sync tries again). `title`:
+ * another heading, e.g. for request rights in Seerr.
+ */
 export function PolicyFailures({
   failed,
   onDismiss,
+  title,
 }: {
   failed: MediaPolicyApplyResult['failed'];
   onDismiss: () => void;
+  title?: string;
 }) {
   const { t } = useI18n();
   return (
-    <Notice tone="warning" title={t('media.allowance.policyFailed')}>
+    <Notice tone="warning" title={title ?? t('media.allowance.policyFailed')}>
       <ul className="mt-1 space-y-0.5">
         {failed.map((f) => (
           <li key={f.accountId} className="break-words">
@@ -1192,6 +1204,188 @@ export function MediaAccessFields({
           )}
         </div>
       </Field>
+    </div>
+  );
+}
+
+// --- Requests add-on (admin and reseller dialogs) ---------------------------------------
+
+/** One type of the add-on: the switch for the type and its limit (or none). */
+function RequestTypeFields({
+  id,
+  type,
+  form,
+  onChange,
+  errors,
+  cap,
+}: {
+  id: string;
+  type: MediaRequestType;
+  form: MediaRequestsForm;
+  onChange: (form: MediaRequestsForm) => void;
+  errors: MediaRequestsErrors;
+  cap?: MediaRequestsAccess;
+}) {
+  const { t } = useI18n();
+  const movies = type === 'movies';
+  const on = form[type];
+  const limited = movies ? form.movieLimited : form.tvLimited;
+  const limit = movies ? form.movieLimit : form.tvLimit;
+  const days = movies ? form.movieDays : form.tvDays;
+  const limitError = movies ? errors.movieLimit : errors.tvLimit;
+  const daysError = movies ? errors.movieDays : errors.tvDays;
+  const error = movies ? errors.movies : errors.tv;
+  // A reseller's customer gets at most the reseller's types, and a limit where the reseller has one.
+  const capLacksType = !!cap && !cap[type];
+  const capLimited = !!cap && (movies ? cap.movieQuota : cap.tvQuota) !== null;
+  const set = (patch: Partial<MediaRequestsForm>) => onChange({ ...form, ...patch });
+  return (
+    <fieldset className="space-y-2 rounded-lg border border-border px-3 py-2.5">
+      <label
+        className={cn(
+          'flex items-center gap-2.5 text-sm font-medium text-text',
+          capLacksType && !on ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+        )}
+      >
+        <input
+          type="checkbox"
+          className="size-4 accent-[var(--primary)]"
+          checked={on}
+          disabled={capLacksType && !on}
+          onChange={(e) => set(movies ? { movies: e.target.checked } : { tv: e.target.checked })}
+        />
+        {t(movies ? 'media.requests.fieldMovies' : 'media.requests.fieldTv')}
+      </label>
+      {cap && (
+        <p className="text-xs text-muted">
+          {t('media.reseller.requestsYours', { value: requestTypeText(t, type, cap) })}
+        </p>
+      )}
+      {on && (
+        <>
+          <label
+            className={cn(
+              'flex items-center gap-2.5 text-sm text-text',
+              capLimited && limited ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+            )}
+          >
+            <input
+              type="checkbox"
+              className="size-4 accent-[var(--primary)]"
+              checked={!limited}
+              disabled={capLimited && limited}
+              onChange={(e) =>
+                set(movies ? { movieLimited: !e.target.checked } : { tvLimited: !e.target.checked })
+              }
+            />
+            {t('media.requests.limitNone')}
+          </label>
+          {limited && (
+            <div className="grid grid-cols-2 gap-2">
+              <Field
+                label={t('media.requests.quotaLimit')}
+                htmlFor={`${id}-${type}-limit`}
+                error={limitError}
+              >
+                <Input
+                  id={`${id}-${type}-limit`}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={MEDIA_REQUEST_QUOTA_MAX}
+                  step={1}
+                  value={limit}
+                  onChange={(e) => set(movies ? { movieLimit: e.target.value } : { tvLimit: e.target.value })}
+                  className="tabular"
+                  aria-invalid={!!limitError}
+                />
+              </Field>
+              <Field label={t('media.requests.quotaDays')} htmlFor={`${id}-${type}-days`} error={daysError}>
+                <Input
+                  id={`${id}-${type}-days`}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={MEDIA_REQUEST_QUOTA_DAYS_MAX}
+                  step={1}
+                  value={days}
+                  onChange={(e) => set(movies ? { movieDays: e.target.value } : { tvDays: e.target.value })}
+                  className="tabular"
+                  aria-invalid={!!daysError}
+                />
+              </Field>
+            </div>
+          )}
+        </>
+      )}
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </fieldset>
+  );
+}
+
+/**
+ * The requests add-on (Seerr) of an allowance: on or off, movies and series, a limit per account
+ * and window or none. Only rendered where the caller may set it (the instance has Seerr; for a
+ * reseller, its own allowance has the add-on). `cap`: the reseller's own add-on. `warnings`:
+ * notices shown while the add-on is on (shared instance, Seerr off, one stream).
+ */
+export function MediaRequestsFields({
+  id,
+  form,
+  onChange,
+  errors,
+  cap,
+  warnings,
+}: {
+  id: string;
+  form: MediaRequestsForm;
+  onChange: (form: MediaRequestsForm) => void;
+  errors: MediaRequestsErrors;
+  cap?: MediaRequestsAccess;
+  warnings?: ReactNode;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-3">
+      <div className="space-y-3 rounded-lg border border-border px-3 py-2.5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-text">{t('media.requests.field')}</p>
+            <p className="text-xs text-muted">{t('media.requests.fieldHint')}</p>
+            {cap && <p className="mt-0.5 text-xs text-muted">{t('media.reseller.requestsCap')}</p>}
+          </div>
+          <Switch
+            checked={form.on}
+            onCheckedChange={(on) => onChange({ ...form, on })}
+            label={t('media.requests.field')}
+          />
+        </div>
+        {form.on && (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <RequestTypeFields
+                id={id}
+                type="movies"
+                form={form}
+                onChange={onChange}
+                errors={errors}
+                cap={cap}
+              />
+              <RequestTypeFields
+                id={id}
+                type="tv"
+                form={form}
+                onChange={onChange}
+                errors={errors}
+                cap={cap}
+              />
+            </div>
+            {errors.types && <p className="text-xs text-danger">{errors.types}</p>}
+            <p className="text-xs text-muted">{t('media.requests.seasonsHint')}</p>
+          </>
+        )}
+      </div>
+      {form.on && warnings}
     </div>
   );
 }

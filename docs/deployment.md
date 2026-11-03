@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire (HTTPS zu `api.24fire.de`, für die Konsole je nach Antwort ein Websocket zu 24fire), Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), 3CX-Telefonanlagen (HTTPS zu `/connect/token` und zur XAPI), Jellyfin-Instanzen (HTTP(S) zur API), Uptime-Kuma-Instanzen (HTTP(S) zu `/metrics` und den Statusseiten, für die Verwaltung ein Websocket auf `/socket.io/`), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire (HTTPS zu `api.24fire.de`, für die Konsole je nach Antwort ein Websocket zu 24fire), Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), 3CX-Telefonanlagen (HTTPS zu `/connect/token` und zur XAPI), Jellyfin-Instanzen (HTTP(S) zur API, mit Anfragen auch zu ihrem Seerr), Uptime-Kuma-Instanzen (HTTP(S) zu `/metrics` und den Statusseiten, für die Verwaltung ein Websocket auf `/socket.io/`), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -135,6 +135,11 @@ Console wichtig:
   Zugängen kann das länger dauern als die 60 Sekunden, die nginx standardmässig wartet (die Zeilen
   aus [Websockets im Vhost](#websockets-im-vhost) mit 3600 Sekunden reichen). Bricht der Proxy ab,
   arbeitet die Console trotzdem zu Ende, und was nicht geschrieben wurde, repariert der Sync.
+- **Seerr für Anfragen (optional):** ein eigener Dienst neben Jellyfin (ein Seerr pro
+  Jellyfin-Instanz), den die Console unter derselben Adresse erreicht wie die Kunden. Eine neue,
+  geänderte oder entfernte Seerr-Adresse in der `.env` schaltet Anfragen beim Start aus,
+  weblion.one schaltet sie nach der Prüfung unter Admin > Streaming wieder ein. Einrichtung in
+  [providers.md](providers.md#anfragen-seerr).
 
 ### Uptime Kuma für Monitoring
 
@@ -217,6 +222,11 @@ CLOUDPANEL_ACCESS_HOST=web1.weblion.cloud
 # Streaming: eigene Jellyfin-Instanz und ein API-Schlüssel aus dem Dashboard
 JELLYFIN_URL=https://media.weblion.one
 JELLYFIN_API_KEY='...'
+# Optional, für Anfragen: das Seerr dieser Instanz (mit genau diesem Jellyfin verbunden), die
+# Adresse, die Kunden öffnen, und der API-Schlüssel aus Seerr > Einstellungen > Allgemein (volle
+# Rechte in Seerr). Beides oder keins. Eingeschaltet wird unter Admin > Streaming.
+JELLYFIN_SEERR_URL=https://anfragen.weblion.one
+JELLYFIN_SEERR_API_KEY='...'
 
 # Monitoring: eigene Instanz von Uptime Kuma 2.x und ein API-Schlüssel, optional das
 # Sitzungstoken für eigene Monitore der Kunden (pnpm --filter @weblion/api kuma:token)

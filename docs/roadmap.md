@@ -12,7 +12,8 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
   IDs und das Rate-Limit), bei Joker.com zuerst im Testsystem (OT&E), bei Cloudflare mit einem
   Test-Konto und einer Test-Zone, bei Nextcloud und Mailcow mit eigenen Test-Instanzen, bei
   CloudPanel mit einem Test-Server und dem Agent `weblion-clp`, bei 3CX mit einer V20 mit
-  Enterprise-Testlizenz, bei Jellyfin mit 10.10 und 10.11 im Container, bei Uptime Kuma mit einer
+  Enterprise-Testlizenz, bei Jellyfin mit 10.10 und 10.11 im Container (dazu Seerr 3.5 für
+  Anfragen nach der [Checkliste](providers.md#anfragen-seerr)), bei Uptime Kuma mit einer
   Test-Instanz 2.x (echte Antworten als Fixtures ablegen). Offene Detailfragen stehen in
   docs/providers.md unter "Offene Punkte"
 - **Cloud-Speicher, E-Mail, Websites, Telefonie, Streaming und Monitoring an Sperre und Abrechnung
@@ -220,11 +221,24 @@ Die Anbindung deckt heute Streaming-Kontingente pro Kunde und Reseller auf belie
 Jellyfin-Instanzen ab (gemeinsam oder dediziert), Zugänge mit Login-Namen aus Name und Code,
 Passwörter (einmal angezeigt), Deaktivieren und Löschen (mit Stopp der Wiedergabe), die verwaltete
 Richtlinie mit Reparatur durch den Sync, das Übernehmen bestehender Benutzer, eine Anmeldehilfe,
-"Fernseher verbinden" mit dem Quick-Connect-Code und "Alle Geräte abmelden". Als Nächstes:
+"Fernseher verbinden" mit dem Quick-Connect-Code, "Alle Geräte abmelden" und das Add-on "Anfragen"
+über Seerr (pro Instanz geprüft und eingeschaltet, pro Kunde mit Filmen, Serien und Grenzen, nur
+Zahlen für Kunden). Als Nächstes:
 
 - **Abrechnung koppeln**: Ein Produkt mit Streaming-Kontingent ("Familie: 5 Zugänge, 2 Streams") als
   Dienst, das Kontingent folgt dem Dienst. Kündigen deaktiviert die Zugänge und löscht sie nach einer
   Frist. Optional pro Zugang abrechnen (Zugänge als Rechnungszeilen)
+- **Anfragen an Abrechnung koppeln**: "Anfragen" als Option des Streaming-Produkts, mit Typen und
+  Grenzen und optional einem Preis pro Zugang mit Anfragen. Der Dienst setzt das Add-on über
+  `setMediaRequests()` (gleiche Prüfungen und gleicher Audit-Eintrag wie im Admin-Bereich), Kündigen
+  schaltet es aus. Siehe [billing.md](billing.md#streaming-anfragen-als-option)
+- **Verwaiste Seerr-Benutzer löschen**: Seerr-Benutzer ohne Jellyfin-Benutzer zählt die Prüfung heute
+  nur, gelöscht werden sie von Hand in Seerr. Ein Knopf im Dialog "Anfragen…" (mit Bestätigung, weil
+  Seerr ihre Anfragen mit löscht) oder ein Schritt im Sync
+- **Seerr wechseln**: Die gespeicherten Seerr-IDs der Zugänge verwerfen, wenn sich die Seerr-Adresse
+  einer Instanz ändert, und beim Entziehen von Rechten prüfen, dass der Seerr-Benutzer zur
+  Jellyfin-ID des Zugangs gehört (heute nur beim Löschen). Bis dahin siehe
+  [Grenzen der Anfragen](providers.md#anfragen-seerr)
 - **Sperre koppeln**: Zugänge gesperrter Kunden deaktivieren und beim Entsperren wieder aktivieren.
   Ebenso auf Wunsch beim Lösen eines Zugangs von seiner Organisation
 - **Grosse Änderungen im Hintergrund**: Die Richtlinie aller Zugänge nach einer Änderung am

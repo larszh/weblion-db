@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { MEDIA_BITRATE_PRESETS_MBIT, MEDIA_MAX_ACCOUNTS, type MediaAccountIssue } from '@weblion/shared';
+import {
+  MEDIA_BITRATE_PRESETS_MBIT,
+  MEDIA_MAX_ACCOUNTS,
+  MEDIA_REQUESTS_DEFAULT,
+  type MediaAccountIssue,
+  type MediaRequestsAccess,
+  type MediaSeerrCheck,
+} from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import type { TFunction } from '@/lib/i18n';
 import { isMediaProvider } from '@/pages/admin/media';
+import { seerrBadge, seerrCanSwitchOn, seerrCheckItems, seerrOnlyFixable } from '@/pages/admin/media-seerr';
 import {
   activityDayKind,
   activityDayText,
@@ -12,6 +20,7 @@ import {
   formatMediaDay,
   groupPassword,
   mediaAllowanceFull,
+  mediaRequestsFormFrom,
   mediaStatus,
   mediaToday,
   ownMediaAccounts,
@@ -19,8 +28,13 @@ import {
   previousDay,
   quickConnectField,
   readBitrate,
+  readMediaRequestsForm,
+  requestQuotaUsage,
+  requestTypeText,
+  requestTypesText,
   streamLimitOf,
   usernamePreview,
+  type MediaRequestsForm,
 } from './bits';
 import { mediaAccessFormFrom, readMediaAccessForm, type MediaAccessLimits } from './dialogs';
 
@@ -323,5 +337,265 @@ describe('connect a TV', () => {
     expect(streamLimitOf(refused('stream_limit', 409, {}))).toBeNull();
     expect(streamLimitOf(refused('conflict', 409, { maxStreams: 2 }))).toBeNull();
     expect(streamLimitOf(null)).toBeNull();
+  });
+});
+
+describe('requests add-on form', () => {
+  const access = (patch: Partial<MediaRequestsAccess> = {}): MediaRequestsAccess => ({
+    movies: true,
+    tv: true,
+    movieQuota: { limit: 5, days: 30 },
+    tvQuota: { limit: 3, days: 30 },
+    ...patch,
+  });
+  const form = (patch: Partial<MediaRequestsForm> = {}): MediaRequestsForm => ({
+    ...mediaRequestsFormFrom(access()),
+    ...patch,
+  });
+
+  it('starts off with the suggestion of 5 movies and 3 seasons in 30 days', () => {
+    expect(mediaRequestsFormFrom(null)).toEqual({
+      on: false,
+      movies: true,
+      tv: true,
+      movieLimited: true,
+      movieLimit: '5',
+      movieDays: '30',
+      tvLimited: true,
+      tvLimit: '3',
+      tvDays: '30',
+    });
+    // Off sends null: no requests is the add-on off, never a limit of 0.
+    expect(readMediaRequestsForm(t, mediaRequestsFormFrom(null))).toEqual({
+      value: null,
+      valid: true,
+      errors: expect.objectContaining({ types: null, movies: null, tv: null }),
+      conflicts: [],
+    });
+  });
+
+  it('gives a stored add-on back unchanged', () => {
+    for (const value of [
+      access(),
+      access({ tv: false, tvQuota: null }),
+      access({ movies: false, movieQuota: null, tvQuota: null }),
+      access({ movieQuota: null, tvQuota: { limit: 100, days: 365 } }),
+    ]) {
+      const read = readMediaRequestsForm(t, mediaRequestsFormFrom(value));
+      expect(read.valid).toBe(true);
+      expect(read.value).toEqual(value);
+    }
+  });
+
+  it('keeps a number in the inputs of a type without a limit, for when one is chosen', () => {
+    const f = mediaRequestsFormFrom(access({ movieQuota: null }));
+    expect(f.movieLimited).toBe(false);
+    expect(f.movieLimit).toBe('5');
+    // A type that is off starts from the defaults (here a reseller's own add-on) once switched on.
+    const reseller = access({ movieQuota: { limit: 10, days: 30 }, tvQuota: { limit: 6, days: 14 } });
+    const g = mediaRequestsFormFrom(access({ tv: false, tvQuota: null }), reseller);
+    expect([g.tv, g.tvLimited, g.tvLimit, g.tvDays]).toEqual([false, true, '6', '14']);
+    expect(mediaRequestsFormFrom(null, reseller).movieLimit).toBe('10');
+  });
+
+  it('needs movies, series or both while it is on', () => {
+    const read = readMediaRequestsForm(t, form({ movies: false, tv: false }));
+    expect(read.valid).toBe(false);
+    expect(read.value).toBeNull();
+    expect(read.errors.types).toBe('media.requests.typeRequired');
+  });
+
+  it('takes limits from 1 to 100 and windows from 1 to 365 days', () => {
+    for (const limit of ['0', '101', '1.5', '-1', '', 'x']) {
+      const read = readMediaRequestsForm(t, form({ movieLimit: limit }));
+      expect(read.valid).toBe(false);
+      expect(read.errors.movieLimit).toBe('media.requests.quotaInvalid {"max":100}');
+    }
+    for (const days of ['0', '366', '']) {
+      const read = readMediaRequestsForm(t, form({ tvDays: days }));
+      expect(read.valid).toBe(false);
+      expect(read.errors.tvDays).toBe('media.requests.daysInvalid {"max":365}');
+    }
+    const edge = readMediaRequestsForm(
+      t,
+      form({ movieLimit: '100', movieDays: '365', tvLimit: '1', tvDays: '1' }),
+    );
+    expect(edge.value).toEqual(
+      access({ movieQuota: { limit: 100, days: 365 }, tvQuota: { limit: 1, days: 1 } }),
+    );
+  });
+
+  it('sends no limit as null and ignores the inputs of a type that is off', () => {
+    const unlimited = readMediaRequestsForm(t, form({ movieLimited: false, movieLimit: 'garbage' }));
+    expect(unlimited.value).toEqual(access({ movieQuota: null }));
+    const off = readMediaRequestsForm(t, form({ tv: false, tvLimit: '0', tvDays: '0' }));
+    expect(off.valid).toBe(true);
+    expect(off.value).toEqual(access({ tv: false, tvQuota: null }));
+  });
+
+  it("keeps a reseller's customer within the reseller's own add-on", () => {
+    const cap = access({ tv: false, tvQuota: null, movieQuota: { limit: 10, days: 30 } });
+    const within = readMediaRequestsForm(t, form({ tv: false, movieLimit: '10', movieDays: '30' }), cap);
+    expect(within.valid).toBe(true);
+    expect(within.value).toEqual(access({ tv: false, tvQuota: null, movieQuota: { limit: 10, days: 30 } }));
+    // A longer window allows less, so it fits.
+    expect(readMediaRequestsForm(t, form({ tv: false, movieLimit: '10', movieDays: '60' }), cap).valid).toBe(
+      true,
+    );
+
+    for (const patch of [
+      { movieLimit: '11', movieDays: '30' },
+      { movieLimit: '10', movieDays: '7' },
+      // No limit under a reseller with a limit.
+      { movieLimited: false },
+    ]) {
+      const read = readMediaRequestsForm(t, form({ tv: false, ...patch }), cap);
+      expect(read.valid).toBe(false);
+      expect(read.value).toBeNull();
+      expect(read.conflicts).toEqual(['movieQuota']);
+      expect(read.errors.movies).toBe('media.reseller.requestsCap');
+      expect(read.errors.tv).toBeNull();
+    }
+    // Series the reseller does not have.
+    const tv = readMediaRequestsForm(t, form({ movieLimit: '10' }), cap);
+    expect(tv.conflicts).toEqual(['requestsTv']);
+    expect(tv.errors.tv).toBe('media.reseller.requestsCap');
+    // A reseller without the add-on has nothing to hand on; off is always fine.
+    expect(readMediaRequestsForm(t, form(), null).conflicts).toEqual(['requestsMovies', 'requestsTv']);
+    expect(readMediaRequestsForm(t, form({ on: false }), null).valid).toBe(true);
+    // Staff have no cap.
+    expect(readMediaRequestsForm(t, form({ movieLimit: '100' })).valid).toBe(true);
+  });
+
+  it('suggests the shared defaults', () => {
+    expect(mediaRequestsFormFrom(null).movieLimit).toBe(String(MEDIA_REQUESTS_DEFAULT.movieQuota!.limit));
+  });
+});
+
+describe('requests texts', () => {
+  const both: MediaRequestsAccess = {
+    movies: true,
+    tv: true,
+    movieQuota: { limit: 5, days: 30 },
+    tvQuota: null,
+  };
+
+  it('says what each type includes', () => {
+    expect(requestTypeText(t, 'movies', both)).toBe('media.requests.movieQuota {"limit":5,"days":30}');
+    expect(requestTypeText(t, 'tv', both)).toBe('media.requests.unlimited');
+    expect(requestTypeText(t, 'tv', { ...both, tv: false })).toBe('media.requests.notIncluded');
+    expect(requestTypeText(t, 'tv', { ...both, tvQuota: { limit: 3, days: 14 } })).toBe(
+      'media.requests.tvQuota {"limit":3,"days":14}',
+    );
+    expect(requestTypeText(t, 'movies', null)).toBe('media.requests.notIncluded');
+  });
+
+  it('names the types', () => {
+    expect(requestTypesText(t, both)).toBe('media.requests.figureBoth');
+    expect(requestTypesText(t, { ...both, tv: false })).toBe('media.requests.movies');
+    expect(requestTypesText(t, { ...both, movies: false })).toBe('media.requests.tv');
+  });
+
+  it('shows the quota used per type with a limit, and a dash before the sync read it', () => {
+    const counts = { pending: 1, approved: 1, available: 2, movieUsed: 2, tvUsed: 4 };
+    const limited = { ...both, tvQuota: { limit: 3, days: 30 } };
+    expect(requestQuotaUsage(t, limited, counts)).toEqual([
+      'media.requests.quotaMovies {"used":2,"limit":5}',
+      'media.requests.quotaSeasons {"used":4,"limit":3}',
+    ]);
+    expect(requestQuotaUsage(t, limited, null)).toEqual([
+      'media.requests.quotaMovies {"used":"–","limit":5}',
+      'media.requests.quotaSeasons {"used":"–","limit":3}',
+    ]);
+    expect(requestQuotaUsage(t, both, { ...counts, tvUsed: null })).toEqual([
+      'media.requests.quotaMovies {"used":2,"limit":5}',
+    ]);
+    // A quota of a type that is off counts for nothing.
+    expect(requestQuotaUsage(t, { ...limited, movies: false }, counts)).toEqual([
+      'media.requests.quotaSeasons {"used":4,"limit":3}',
+    ]);
+    expect(requestQuotaUsage(t, { ...both, movieQuota: null }, counts)).toEqual([]);
+  });
+});
+
+describe('Seerr of an instance (admin)', () => {
+  const check = (patch: Partial<MediaSeerrCheck> = {}): MediaSeerrCheck => ({
+    version: '3.5.1',
+    sameServer: true,
+    newSignIns: false,
+    defaultPermissions: 0,
+    mediaServerLogin: true,
+    localLogin: true,
+    csrfProtection: false,
+    unmanagedRequesters: 0,
+    orphans: 0,
+    problems: [],
+    ...patch,
+  });
+  const states = (c: MediaSeerrCheck | null) => seerrCheckItems(c).map((i) => i.state);
+
+  it('badges no Seerr, off and the check state while on', () => {
+    expect(seerrBadge(null)).toEqual({ tone: 'neutral', key: 'media.seerr.none' });
+    const seerr = { url: 'https://requests.example.com', enabled: false, organizationsWithRequests: 0 };
+    // Off stays off whatever the last check said.
+    expect(seerrBadge({ ...seerr, status: 'error' }).key).toBe('media.seerr.status.off');
+    expect(seerrBadge({ ...seerr, enabled: true, status: 'ok' })).toEqual({
+      tone: 'success',
+      key: 'media.seerr.status.ok',
+    });
+    expect(seerrBadge({ ...seerr, enabled: true, status: 'unsafe' }).tone).toBe('warning');
+    expect(seerrBadge({ ...seerr, enabled: true, status: 'error' }).tone).toBe('danger');
+    expect(seerrBadge({ ...seerr, enabled: true, status: 'unknown' }).key).toBe('media.seerr.status.unknown');
+  });
+
+  it('lists every step of the check, unknown where it was never asked', () => {
+    expect(seerrCheckItems(check()).map((i) => i.key)).toEqual([
+      'media.seerr.check.reachable',
+      'media.seerr.check.key',
+      'media.seerr.check.sameServer',
+      'media.seerr.check.newSignIns',
+      'media.seerr.check.defaultPermissions',
+      'media.seerr.check.mediaServerLogin',
+      'media.seerr.check.csrf',
+    ]);
+    expect(states(check())).toEqual(Array(7).fill('ok'));
+    expect(states(null)).toEqual(Array(7).fill('unknown'));
+    const unreachable = check({
+      problems: ['unreachable'],
+      sameServer: null,
+      newSignIns: null,
+      defaultPermissions: null,
+      mediaServerLogin: null,
+      csrfProtection: null,
+    });
+    expect(states(unreachable)).toEqual(['fail', ...Array(6).fill('unknown')]);
+    // A rejected key: reached, but nothing behind the key was read (even if values came along).
+    expect(states(check({ problems: ['key'] }))).toEqual(['ok', 'fail', ...Array(5).fill('unknown')]);
+  });
+
+  it('marks each problem at its step', () => {
+    expect(states(check({ problems: ['other_server'], sameServer: false }))[2]).toBe('fail');
+    expect(states(check({ problems: ['not_jellyfin'] }))[2]).toBe('fail');
+    expect(states(check({ problems: ['new_signins'], newSignIns: true }))[3]).toBe('fail');
+    expect(states(check({ problems: ['default_permissions'], defaultPermissions: 32 }))[4]).toBe('fail');
+    expect(states(check({ problems: ['media_server_login'], mediaServerLogin: false }))[5]).toBe('fail');
+    expect(states(check({ problems: ['csrf'], csrfProtection: true }))[6]).toBe('fail');
+    // A value that is not the safe one never counts as passed.
+    expect(states(check({ defaultPermissions: 32 }))[4]).toBe('unknown');
+  });
+
+  it('offers the recommended settings only when nothing else is wrong', () => {
+    expect(seerrOnlyFixable(check({ problems: ['new_signins', 'default_permissions'] }))).toBe(true);
+    expect(seerrOnlyFixable(check({ problems: ['media_server_login'] }))).toBe(true);
+    expect(seerrOnlyFixable(check({ problems: ['new_signins', 'csrf'] }))).toBe(false);
+    expect(seerrOnlyFixable(check({ problems: ['other_server', 'default_permissions'] }))).toBe(false);
+    expect(seerrOnlyFixable(check())).toBe(false);
+    expect(seerrOnlyFixable(null)).toBe(false);
+  });
+
+  it('switches on only after a check without problems', () => {
+    expect(seerrCanSwitchOn({ check: check() })).toBe(true);
+    expect(seerrCanSwitchOn({ check: check({ problems: ['new_signins'] }) })).toBe(false);
+    expect(seerrCanSwitchOn({ check: null })).toBe(false);
   });
 });

@@ -98,6 +98,13 @@ const EnvSchema = z.object({
   // in Admin > Provider.
   JELLYFIN_URL: optionalString,
   JELLYFIN_API_KEY: optionalString,
+  /**
+   * Optional Seerr of that instance (requests add-on): the address customers open and Seerr's
+   * API key (Settings > General, full rights in Seerr). Both or neither; switched on for
+   * customers under Admin > Streaming.
+   */
+  JELLYFIN_SEERR_URL: optionalString,
+  JELLYFIN_SEERR_API_KEY: optionalString,
   JELLYFIN_NAME: z.string().default('Jellyfin'),
   JELLYFIN_COUNTRY: z.string().default('CH'),
   JELLYFIN_CITY: z.string().default('Zürich'),

@@ -4118,7 +4118,8 @@ Mit `pnpm db:seed`:
   Adresse (die sind in Jellyfin veraltet und landen in Logs). Antworten in PascalCase-JSON.
 - Version: **Jellyfin 10.10 oder neuer**, 10.11 empfohlen. Ältere lehnt "Verbindung testen" ab.
 - Konfiguration: `JELLYFIN_URL` und `JELLYFIN_API_KEY` in der `.env` oder im Admin-Bereich unter
-  Provider > Provider hinzufügen > Jellyfin
+  Provider > Provider hinzufügen > Jellyfin, optional ein Seerr für Anfragen
+  (`JELLYFIN_SEERR_URL`, `JELLYFIN_SEERR_API_KEY`, siehe [Anfragen (Seerr)](#anfragen-seerr))
 - Jellyfin liefert keine Server. Im Server-Inventar und in den Server-Filtern taucht der Provider
   deshalb nicht auf.
 
@@ -4138,6 +4139,8 @@ Das Modul **Streaming** (`media`) bringt das in die Console:
   Sync stellt sie wieder her, wenn jemand sie in Jellyfin ändert.
 - **Anmeldehilfe:** Eine Karte zeigt die Server-Adresse, den Namen des Servers in den Apps, die
   Schritte zur Anmeldung, die Apps und wie Quick Connect auf dem Fernseher funktioniert.
+- **Anfragen (optional):** Mit einem Seerr an der Instanz und dem Add-on "Anfragen" im Kontingent
+  wünschen sich die Zugänge Filme und Serien, siehe [Anfragen (Seerr)](#anfragen-seerr).
 
 Gespeichert werden die Kontingente (Tabelle `media_allowances`) und die Zugänge, die die Console
 verwaltet (`media_accounts`), nie Passwörter, Richtlinien, Sitzungen oder der Verlauf.
@@ -4145,7 +4148,8 @@ verwaltet (`media_accounts`), nie Passwörter, Richtlinien, Sitzungen oder der V
 **Datenschutz:** Was jemand anschaut, wann und auf welchem Gerät, zeigt die Console niemandem. Pro
 Zugang sehen Kunden und weblion.one Login-Name, Status, den **Tag** der letzten Aktivität (Zeitzone
 Zürich, nie die Uhrzeit) und das Erstelldatum. weblion.one sieht pro Instanz zusätzlich nur zwei
-Zahlen: Sitzungen der letzten 10 Minuten und wie viele davon etwas abspielen.
+Zahlen: Sitzungen der letzten 10 Minuten und wie viele davon etwas abspielen. Mit Anfragen kommen
+pro Zugang nur Zahlen dazu, nie Titel.
 
 Für die Lizenzen der Inhalte, die auf einer Instanz angeboten werden, ist der Betreiber der Instanz
 verantwortlich. Die Console verteilt nur Zugänge.
@@ -4210,7 +4214,9 @@ danach werden sie im Admin-Bereich geändert.
 
 Oder im Admin-Bereich unter Provider > Provider hinzufügen, Typ Jellyfin: Adresse der Instanz und
 API-Schlüssel. Beim Bearbeiten behält ein leeres Feld den gespeicherten Schlüssel. Vom Schlüssel
-zeigt die Console kein Zeichen.
+zeigt die Console kein Zeichen. Adresse und Schlüssel eines Seerr für Anfragen kommen an dieselbe
+Stelle (in der `.env` `JELLYFIN_SEERR_URL` und `JELLYFIN_SEERR_API_KEY`), siehe
+[Anfragen (Seerr)](#anfragen-seerr).
 
 "Verbindung testen" liest die Server-Info (Version, Ersteinrichtung), alle Benutzer und die
 Bibliotheken und meldet Version, Servername, Zahl der Benutzer, der Administratoren und der
@@ -4416,6 +4422,8 @@ Admin > Kunden > Kunde, Karte "Streaming" > Einrichten (Berechtigung `platform:m
   und **Qualität unterwegs**
 - **Modul "Streaming" aktivieren** (Standard an). Bei einem Kunden eines Resellers nur, wenn der
   Reseller das Modul hat (sonst 409).
+- **Anfragen (Seerr)**, nur auf Instanzen mit Seerr: Filme, Serien und Grenzen pro Zugang, siehe
+  [Anfragen (Seerr)](#anfragen-seerr)
 
 Die Instanz lässt sich nur wechseln, solange die Organisation keine Zugänge und keine
 Kundenkontingente darauf hat. Senken geht nicht unter die bestehenden Zugänge (409 `account_limit`).
@@ -4450,6 +4458,8 @@ seinem Reseller) zu buchen.
   `{"maxAccounts": 3, "libraryIds": ["<id>"], "maxStreams": 2, "downloads": false, "remoteBitrateMbit": 15}`.
 - Zugänge selbst wandern nicht zwischen Reseller und Kunde. Ein Kunde mit Zugängen oder Kontingent
   lässt sich nicht löschen.
+- Das Add-on "Anfragen" gibt ein Reseller nur weiter, wenn er es selbst hat und Anfragen auf der
+  Instanz an sind, siehe [Anfragen (Seerr)](#anfragen-seerr).
 
 ### Mehrere Instanzen
 
@@ -4477,14 +4487,15 @@ Admin > Streaming:
 
 - **Instanzen:** Nutzung (dediziert, gemeinsam, ungenutzt), Version, Benutzer und Bibliotheken,
   aktive Sitzungen und wie viele abspielen, Quick Connect, Zugänge und solche mit Hinweisen, live
-  gelesen mit höchstens 10 Sekunden pro Instanz, dazu Synchronisieren.
+  gelesen mit höchstens 10 Sekunden pro Instanz, dazu Synchronisieren. Dazu der Stand der Anfragen
+  (Seerr) mit "Anfragen…" zum Prüfen und Einschalten, siehe [Anfragen (Seerr)](#anfragen-seerr).
 - **Zugänge:** alle verwalteten Zugänge aller Instanzen, mit Filter nach Kunde, Instanz und "Nur mit
   Hinweisen", Suche nach Login-Name. Hier gehen auch Deaktivieren, Passwort und Löschen, auch für
   Zugänge ohne Kunde. **Zuweisen** gibt einen Zugang einer Organisation mit Kontingent auf derselben
   Instanz (sonst 409) und schreibt ihre Richtlinie. Ohne Organisation (lösen) läuft der Zugang mit
   seiner Richtlinie weiter, zum Abstellen deaktivieren oder löschen. **Richtlinie anwenden**
-  schreibt sie sofort. Die Höchstzahl des Kontingents prüft die Console beim Zuweisen und Übernehmen
-  bewusst nicht (der Dialog warnt).
+  schreibt sie sofort, bei eingeschaltetem Seerr auch die Rechte in Seerr. Die Höchstzahl des
+  Kontingents prüft die Console beim Zuweisen und Übernehmen bewusst nicht (der Dialog warnt).
 - **Nicht verwaltete Benutzer:** "Benutzer abrufen" liest live alle Benutzer einer Instanz, die die
   Console nicht verwaltet, z.B. direkt in Jellyfin angelegte. "Übernehmen" verwaltet sie danach, auf
   Wunsch gleich bei einem Kunden (dann mit seiner Richtlinie). Name, Verlauf und Favoriten bleiben.
@@ -4516,6 +4527,7 @@ API nur mit Login: `GET /api/v1/admin/providers/<id>/media/unmanaged`,
 - Danach aktualisiert er Namen und Typ der Bibliotheken in den Kontingenten der Instanz.
 - Ein einzelner Zugang (`GET /api/v1/media/accounts/<id>`) wird live nachgelesen. Von Hand: Admin >
   Streaming > Synchronisieren, oder Admin > Provider > Jellyfin > "Jetzt synchronisieren".
+- Mit eingeschaltetem Seerr folgt der Sync der Anfragen, siehe [Anfragen (Seerr)](#anfragen-seerr).
 
 Jellyfin hat keine Ratenbegrenzung. Die Console schickt trotzdem höchstens vier Anfragen
 gleichzeitig pro Instanz, jede mit 30 Sekunden Timeout, und wiederholt keine Änderung. Bibliotheken
@@ -4542,7 +4554,8 @@ hält sie 5 Minuten im Speicher, die Server-Info 10 Minuten, die Zahlen der Sitz
 `ResetPassword: true` schickt die Console nie, und sie legt nie einen Benutzer ohne Passwort an:
 Beides hiesse in Jellyfin, dass man sich mit dem Namen allein anmeldet. Fehler von Jellyfin sagen
 oft nichts ("Error processing request."). Nach einem 400 beim Anlegen sucht die Console deshalb den
-Namen, um "vergeben" von "ungültig" zu unterscheiden, und prüft Namen vorher selbst.
+Namen, um "vergeben" von "ungültig" zu unterscheiden, und prüft Namen vorher selbst. Die Aufrufe bei
+Seerr stehen unter [Anfragen (Seerr)](#anfragen-seerr).
 
 ### Fehler der API
 
@@ -4570,7 +4583,7 @@ Streaming:
 | 502  | `provider_error`       | Jellyfin hat abgelehnt oder war nicht erreichbar, `message` mit dem Grund, HTTP-Status und einem Hinweis (Schlüssel abgelehnt, Fernzugriff aus, Weiterleitung)                                     |
 
 Schlägt eine Änderung bei Jellyfin fehl, steht das mit `status: failure` und der Meldung im
-Audit-Log.
+Audit-Log. Die Fehler der Anfragen (Seerr) stehen in deren Abschnitt.
 
 ### API Explorer
 
@@ -4601,8 +4614,9 @@ Für alles ohne eigenen Button: Admin > API Explorer, Provider Jellyfin wählen.
 - **Sperren:** Ein gesperrter Kunde sieht seine Zugänge in der Console nur noch lesend. In Jellyfin
   bleiben sie aktiv. Wer den Zugang sperren will, deaktiviert die Zugänge. Ebenso lassen ein
   abgeschaltetes Modul und eine gelöste Zuweisung Jellyfin unberührt.
-- **Abrechnung:** Kontingent und Dienst sind getrennt, eine Abrechnung pro Zugang gibt es nicht.
-  Siehe [Roadmap](roadmap.md#streaming-jellyfin).
+- **Abrechnung:** Kontingent und Dienst sind getrennt, eine Abrechnung pro Zugang gibt es nicht,
+  und das Add-on "Anfragen" folgt keinem Dienst. Siehe
+  [Abrechnung](billing.md#streaming-anfragen-als-option) und [Roadmap](roadmap.md#streaming-jellyfin).
 - **Ein Kontingent pro Organisation**, alle Zugänge auf seiner Instanz. Umziehen siehe oben.
 - **Für alle Zugänge gleich:** Das Kontingent gilt für jeden Zugang der Organisation, einzelne
   Zugänge mit mehr Streams oder Downloads gibt es nicht.
@@ -4688,6 +4702,436 @@ Prüfungen wie die echte Anbindung. Die Adresse `https://media.demo.weblion.one`
   auslässt), `huber-bivane` und `ben-kemaro` auf je einem Gerät.
 - "Fernseher verbinden" nimmt den Code `246810` an und meldet ein neues Gerät an, jeder andere
   gültige Code ist "unbekannt oder abgelaufen".
+- Anfragen sind für die Demo-Instanz eingeschaltet, Muster AG und Alpen Hosting haben das Add-on,
+  siehe [Anfragen (Seerr)](#anfragen-seerr).
+
+### Anfragen (Seerr)
+
+Seerr ist die Anfrage-Seite einer Jellyfin-Instanz: Wer sich dort mit seinem Jellyfin-Login
+anmeldet, wünscht sich Filme und Serien, die es auf dem Server noch nicht gibt. weblion.one prüft
+jede Anfrage in Seerr und stellt genehmigte Titel bereit. In der Console ist das das **Add-on
+"Anfragen"** des Streaming-Kontingents. Es ist an zwei Stellen optional:
+
+- **Pro Instanz:** Ein Seerr gehört zu genau einer Jellyfin-Instanz. Adresse und API-Schlüssel
+  stehen in der Verbindung dieser Instanz, eingeschaltet wird es unter Admin > Streaming. Ein
+  eigener Provider-Typ ist Seerr nicht, ein Ausfall von Seerr lässt die Jellyfin-Verbindung nie als
+  fehlerhaft gelten.
+- **Pro Kunde:** Das Kontingent sagt, ob die Zugänge anfragen dürfen, was (Filme, Serien oder
+  beides) und wie viel pro Zugang in einem Zeitraum. Manche Kunden haben das Add-on, andere nicht.
+
+Die Console legt die Zugänge von Kunden mit Add-on in Seerr an und gibt ihnen genau die Rechte
+"Request Movies" und "Request Series" mit den Grenzen des Kontingents. Genehmigt wird nur in Seerr,
+durch weblion.one. Eine Liste der Anfragen hat die Console nicht. Ohne Add-on, oder wenn Seerr auf
+seiner Instanz fehlt oder aus ist, sieht ein Kunde nichts davon: keine Karte, keine Texte, keine
+Felder in den Antworten der API (auch nicht `requests: null`). Die Anbindung folgt dem Quellcode von
+Seerr 3.5.1, die API liegt unter `<Seerr-Adresse>/api/v1`.
+
+| Wer                             | Darf                                                                                                                                                                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| weblion.one Superadmin          | Seerr beim Provider eintragen (`platform:provider:write`), Anfragen pro Instanz ein- und ausschalten, die empfohlenen Einstellungen anwenden und das Add-on in Kontingenten setzen (`platform:media:write`, nur mit Login) |
+| weblion.one Support             | Prüfung, Add-on und Zahlen ansehen, nichts ändern                                                                                                                                                                          |
+| Mitarbeitende eines Resellers   | das eigene Add-on an Kunden weitergeben, höchstens so viel, wie der Reseller selbst hat (`reseller:customer:write`)                                                                                                        |
+| Owner, Admin, Member, Nur lesen | Adresse, Umfang und die Zahlen pro Zugang ansehen (`media:read`). Angefragt wird in Seerr                                                                                                                                  |
+
+**Seerr vorbereiten:**
+
+1. Seerr mit **genau dieser** Jellyfin-Instanz verbinden (in Seerr unter Einstellungen > Jellyfin).
+   Die Console vergleicht die Server-ID, die Seerr meldet, mit der ihres Jellyfin und schaltet sonst
+   nicht ein. Jede Jellyfin-Instanz braucht ein eigenes Seerr, Plex und Emby gehen nicht.
+2. **API-Schlüssel** aus Seerr > Einstellungen > Allgemein. Er ist der Owner von Seerr (Benutzer 1)
+   mit allen Rechten und lässt sich nicht eingrenzen. Die Console schickt ihn nur im Header
+   `X-Api-Key`, speichert ihn verschlüsselt und zeigt kein Zeichen davon.
+3. **Drei Einstellungen**, die "Empfohlene Einstellungen anwenden" im Dialog setzt (genau diese drei
+   Felder, alles andere in Seerr bleibt):
+   - neue Anmeldungen über Jellyfin aus (`newPlexLogin: false`). Sonst legt Seerr für jeden
+     Benutzer des Servers, der sich dort anmeldet, einen Seerr-Benutzer an, mit seinem
+     Jellyfin-Passwort als lokalem Passwort;
+   - neue Benutzer ohne Rechte (`defaultPermissions: 0`, Standard in Seerr ist "Request");
+   - Anmeldung mit Jellyfin an (`mediaServerLogin: true`), sonst kommen die Kunden nicht hinein.
+4. **CSRF-Schutz aus** (Einstellungen > Netzwerk, Standard aus). Mit CSRF-Schutz verlangt Seerr bei
+   jeder Änderung ein CSRF-Token, das die Console nicht hat. Sie schaltet ihn nicht selbst aus, weil
+   er die Weboberfläche von Seerr schützt.
+5. **Adresse:** die, unter der die Kunden Seerr öffnen, z.B. `https://anfragen.weblion.one`, http
+   oder https, ohne Abfrage, Anker oder Zugangsdaten. Die Console spricht Seerr unter derselben
+   Adresse an und folgt keinen Weiterleitungen.
+
+**Eintragen:** Admin > Provider, Jellyfin-Instanz anlegen oder bearbeiten, Abschnitt "Anfragen
+(Seerr, optional)": Seerr-Adresse und Seerr-API-Schlüssel, nur zusammen. Beim Bearbeiten behält ein
+leeres Schlüsselfeld den gespeicherten Schlüssel, "Seerr entfernen" löscht beide. Die Adresse ändern oder
+entfernen geht nur, solange Anfragen für die Instanz aus sind (sonst 409 `conflict`): Die Kunden
+sähen sonst ein anderes Seerr, während ihre Zugänge die Rechte noch im alten haben. Den Schlüssel
+allein tauschen geht immer. Eine neue Adresse verwirft die letzte Prüfung. Im Audit-Log steht
+`provider.update` mit `seerr: added`, `changed` oder `removed`, nie der Schlüssel. "Verbindung
+testen" prüft nur Jellyfin. Per API nur mit Login:
+`PATCH /api/v1/admin/providers/<id>` mit
+`{"config": {"seerrUrl": "https://anfragen.weblion.one", "seerrApiKey": "..."}}`,
+`{"config": {"seerrUrl": null, "seerrApiKey": null}}` entfernt Seerr.
+
+Für die Instanz aus der `.env`:
+
+```env
+JELLYFIN_SEERR_URL=https://anfragen.weblion.one
+JELLYFIN_SEERR_API_KEY='...'
+```
+
+Nur beides zusammen. Fehlt eins oder ist ein Wert ungültig, startet die Console ohne Seerr und warnt
+im Log (ohne den Schlüssel). Eine neue, geänderte oder entfernte Adresse in der `.env` schaltet
+Anfragen beim nächsten Start aus und verwirft die Prüfung, weil sich die `.env` nicht ablehnen lässt.
+weblion.one schaltet sie danach mit der Prüfung wieder ein. Ein neuer Schlüssel allein lässt sie an.
+
+**Prüfen und einschalten:** Admin > Streaming > Instanzen, Schaltfläche "Anfragen…" in der Zeile der
+Instanz. Der Dialog prüft Seerr live (höchstens 10 Sekunden, sonst zeigt er den letzten Stand) und
+zeigt jede Prüfung mit Haken oder Kreuz:
+
+| Prüfung im Dialog                     | Problem                        | Behebt                                                         |
+| ------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
+| Erreichbar                            | `unreachable`                  | Adresse, Proxy oder Seerr selbst                               |
+| API-Schlüssel angenommen              | `key`                          | neuen Schlüssel beim Provider eintragen                        |
+| Mit dieser Jellyfin-Instanz verbunden | `not_jellyfin`, `other_server` | in Seerr: für Jellyfin einrichten, mit diesem Server verbinden |
+| CSRF-Schutz aus                       | `csrf`                         | in Seerr unter Einstellungen > Netzwerk                        |
+| Neue Anmeldungen über Jellyfin aus    | `new_signins`                  | "Empfohlene Einstellungen anwenden"                            |
+| Neue Benutzer ohne Rechte             | `default_permissions`          | "Empfohlene Einstellungen anwenden"                            |
+| Anmeldung mit Jellyfin an             | `media_server_login`           | "Empfohlene Einstellungen anwenden"                            |
+
+- Ein Wert, den Seerr nicht liefert, zählt als Problem: Die Console schaltet nur ein, was sie
+  geprüft hat. Ist Seerr nicht erreichbar oder lehnt es den Schlüssel ab, bleiben die anderen
+  Prüfungen offen, und der Dialog zeigt den Grund.
+- Status der Instanz: `error` bei `unreachable`, `key`, `not_jellyfin` und `other_server`, `unsafe`
+  bei den anderen, `ok` ohne Problem, `unknown` vor der ersten Prüfung und nach einer neuen Adresse.
+  Gespeichert wird er bei jeder Prüfung (auch der von Support) und von jedem Sync.
+- Dazu zählt der Dialog Seerr-Benutzer, die anfragen dürfen, ohne dass die Console sie verwaltet
+  (der Sync nimmt ihnen das Recht), und Seerr-Benutzer ohne Jellyfin-Benutzer (in Seerr löschen).
+- **"Empfohlene Einstellungen anwenden"** gibt es nur, solange keine anderen Probleme bleiben. Die
+  API lehnt sonst mit 409 `seerr_unsafe` ab, so gehen die Einstellungen nie an ein Seerr eines
+  anderen Servers. Im Audit-Log steht `media.seerr_settings` mit `before` und `after` der drei Werte.
+- **"Anfragen für Kunden anbieten"** geht erst, wenn alle Prüfungen bestanden sind (409
+  `seerr_unsafe` mit `details.problems`). Haben mehrere Organisationen ein Kontingent auf der
+  Instanz, muss weblion.one zuerst eine Warnung bestätigen (409 `seerr_shared` ohne `confirmShared`):
+  In Seerr sieht jeder angemeldete Zugang die Benutzerliste und bei jedem Titel, wer ihn angefragt
+  hat. Danach richtet die Console alle Zugänge der Organisationen mit Add-on ein und nennt, wie
+  viele, und wo es scheiterte. Im Audit-Log steht `media.seerr_enable` mit `organizations`,
+  `shared`, `applied` und `failed` (Login-Namen).
+- **Ausschalten** (mit Bestätigung): Kunden sehen Anfragen nicht mehr, jeder Seerr-Benutzer der
+  Zugänge der Instanz verliert seine Rechte (auch einer, dessen ID die Console nie gespeichert hat:
+  Sie findet ihn über die Jellyfin-ID, lässt dabei aber den Owner und Seerr-Personal in Ruhe),
+  Hinweise und Zahlen verschwinden. Seerr-Benutzer und ihre Anfragen bleiben in Seerr. Das geht auch
+  noch, wenn die Seerr-Adresse inzwischen fehlt (dann nur Hinweise und Zahlen). Im Audit-Log steht
+  `media.seerr_disable`.
+- In der Liste der Instanzen zeigt die Spalte "Anfragen" (auf schmaleren Bildschirmen unter dem
+  Namen) "Kein Seerr", "Aus" oder den Status der letzten Prüfung ("An", "Unsicher", "Fehler",
+  "Ungeprüft"), dazu ein Warnzeichen, wenn Anfragen an sind und mehrere Organisationen mit Add-on
+  die Instanz teilen.
+
+Per API nur mit Login: `GET /api/v1/admin/providers/<id>/media/seerr` prüft live und speichert das
+Ergebnis (`null` ohne Seerr), `POST /api/v1/admin/providers/<id>/media/seerr/settings` wendet die
+empfohlenen Einstellungen an, `PUT /api/v1/admin/providers/<id>/media/seerr` mit
+`{"enabled": true}` (bei mehreren Organisationen `{"enabled": true, "confirmShared": true}`) oder
+`{"enabled": false}` schaltet. Die Prüfung sieht so aus:
+
+```json
+{
+  "url": "https://anfragen.weblion.one",
+  "enabled": false,
+  "status": "unsafe",
+  "check": {
+    "version": "3.5.1",
+    "sameServer": true,
+    "newSignIns": true,
+    "defaultPermissions": 32,
+    "mediaServerLogin": true,
+    "localLogin": true,
+    "csrfProtection": false,
+    "unmanagedRequesters": 0,
+    "orphans": 0,
+    "problems": ["new_signins", "default_permissions"]
+  },
+  "checkedAt": "2026-11-03T09:00:00.000Z",
+  "lastError": null,
+  "organizations": 3,
+  "organizationsWithRequests": 2,
+  "accountsInSeerr": 0
+}
+```
+
+Das Schalten antwortet `{ "seerr": { ... }, "applied": { "applied": 2, "failed": [] } }`.
+
+**Das Add-on im Kontingent:** Admin > Kunden > Kunde, Karte "Streaming" > Einrichten oder Ändern,
+nur auf Instanzen mit eingetragenem Seerr: Schalter "Anfragen (Seerr)", dann "Filme anfragen",
+"Serien anfragen" oder beides, pro Typ "Ohne Grenze" oder eine Anzahl (1 bis 100) in Tagen (1 bis
+365). Eingeschaltet schlägt der Dialog 5 Filme und 3 Staffeln in 30 Tagen vor.
+
+- **Serien zählt Seerr in Staffeln**, nicht in Serien: 3 Staffeln in 30 Tagen sind z.B. eine Serie
+  mit drei Staffeln.
+- **0 heisst in Seerr "ohne Grenze".** "Keine Anfragen" ist deshalb das Add-on aus, nie eine Grenze
+  von 0. Für "Ohne Grenze" schreibt die Console ausdrücklich 0, denn eine leere Grenze nähme die
+  Standardgrenze von Seerr.
+- Die Grenzen gelten pro Zugang, nicht für die Organisation zusammen.
+- Setzen lässt sich das Add-on nur auf einer Instanz mit Seerr (sonst 409 `requests_unavailable`),
+  auch beim Wechsel eines Kontingents auf eine andere Instanz (der Dialog schaltet es dann beim
+  Speichern aus). Wirksam wird es erst, wenn Anfragen auf der Instanz an sind, bis dahin sagt es der
+  Dialog.
+- Warnungen im Dialog: weitere Organisationen auf der Instanz (sie sähen sich in Seerr), Seerr auf
+  der Instanz aus, und 1 Stream (die Anmeldung bei Seerr braucht ein freies Gerät, siehe Grenzen).
+- Nach dem Speichern bringt die Console alle Zugänge der Organisation in Seerr auf den neuen Stand,
+  vier gleichzeitig: Add-on an richtet sie ein, aus nimmt allen die Rechte, neue Typen oder Grenzen
+  schreibt sie. Die Antwort nennt das in `seerr` (`applied`, `failed`), die Karte zeigt die Zugänge,
+  bei denen es scheiterte, und der Sync versucht es wieder.
+- Im Audit-Log steht `media.allowance_set` mit `requests`, den bisherigen Werten und `seerr`. Im
+  Audit-Log der Organisation steht das Add-on nur, wenn sie es auch auf ihrer Seite sieht.
+- Die Karte "Streaming" beim Kunden zeigt das Add-on und, solange Anfragen an sind, die Summen
+  "Offen, genehmigt, verfügbar" seiner Zugänge. Ist Seerr auf der Instanz aus, sagt sie das.
+- Engt weblion.one das Add-on eines Resellers so ein, dass die seiner Kunden nicht mehr hineinpassen,
+  lehnt die Console mit 409 `allowance_conflict` ab, die Konflikte heissen `requestsMovies`,
+  `requestsTv`, `movieQuota` und `tvQuota`. Einem Kunden eines Resellers kann weblion.one auch mehr
+  geben, als der Reseller hat (der Dialog warnt).
+
+Per API: `PUT /api/v1/admin/orgs/<org-id>/media-allowance` mit den Feldern unter "Kontingente
+einrichten" oben, dazu z.B.
+`"requests": {"movies": true, "tv": true, "movieQuota": {"limit": 5, "days": 30}, "tvQuota": {"limit": 3, "days": 30}}`.
+`"movieQuota": null` heisst ohne Grenze, `"requests": null` schaltet das Add-on aus, ohne `requests`
+bleibt es, wie es ist. `GET` auf denselben Pfad liefert `requests` (`null` für aus) auf Instanzen
+mit Seerr und `requestTotals` (`accounts`, `pending`, `approved`, `available`), solange Anfragen an
+sind.
+
+**Reseller:**
+
+- Weitergeben kann ein Reseller das Add-on nur, wenn sein eigenes Kontingent es hat und Anfragen auf
+  der Instanz an sind. Dann zeigt Reseller > Meine Kunden > Kunde > Ressourcen, Karte "Streaming",
+  die Felder mit seinen eigenen Werten ("Ihr Kontingent: ..."), eingeschaltet mit diesen als
+  Vorschlag.
+- Ein Kunde bekommt höchstens das Add-on des Resellers: nur seine Typen und, wo der Reseller eine
+  Grenze hat, eine Grenze mit höchstens seiner Anzahl und mindestens seinen Tagen. Sonst 409
+  `allowance_conflict` mit den Konflikten.
+- Ohne eigenes Add-on lehnt die Console ein mitgeschicktes ab (409 `allowance_conflict`). Ohne
+  `requests` behält der Kunde sein Add-on. Liegt es ausserhalb des Add-ons des Resellers, muss er es
+  einengen, sonst lehnt die Console das Speichern ab. Ein Add-on, das weblion.one einem Kunden eines
+  Resellers ohne eigenes gegeben hat, bleibt beim Speichern, wie es ist, und der Reseller sieht
+  nichts davon, auch nicht im Audit-Log.
+- Per API: `PUT /api/v1/reseller/customers/<id>/media-allowance` mit den Feldern aus "Reseller"
+  oben und z.B.
+  `"requests": {"movies": true, "tv": false, "movieQuota": {"limit": 3, "days": 30}, "tvQuota": null}`.
+
+**Zugänge in Seerr:**
+
+| Ereignis                                                | In Seerr                                                                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Zugang angelegt (Kunde mit Add-on)                      | übernommen (`import-from-jellyfin`), Grenzen gesetzt, dann die Rechte                                  |
+| Übernommen oder zugewiesen (weblion.one)                | wie beim Anlegen, für die neue Organisation. Zu einer Organisation ohne Add-on oder gelöst: Rechte weg |
+| Deaktiviert                                             | Rechte weg                                                                                             |
+| Aktiviert                                               | Rechte und Grenzen wieder gesetzt                                                                      |
+| Nach Fehlversuchen gesperrt, in Jellyfin nicht gefunden | Rechte weg (beim nächsten Sync)                                                                        |
+| Gelöscht                                                | nach dem Löschen in Jellyfin der Seerr-Benutzer mit seinen Anfragen                                    |
+| "Richtlinie anwenden" (weblion.one)                     | Rechte und Grenzen repariert                                                                           |
+| Add-on eingeschaltet                                    | alle Zugänge der Organisation eingerichtet                                                             |
+| Add-on ausgeschaltet                                    | alle Zugänge der Organisation: Rechte weg                                                              |
+| Typen oder Grenzen geändert                             | alle Zugänge der Organisation neu gesetzt                                                              |
+| Anfragen für die Instanz ein- oder ausgeschaltet        | alle berechtigten Zugänge eingerichtet, bzw. allen die Rechte weg                                      |
+
+- **Rechte:** Die Console vergibt nur "Request Movies" (262144) und "Request Series" (524288). Nie
+  "Request" (32), "Auto-Approve", 4K, "View Requests", Verwaltungsrechte oder andere: Genehmigen ist
+  eine Entscheidung über Lizenzen und bleibt bei weblion.one, die anderen Rechte zeigen Daten anderer
+  Benutzer. Die Console legt nie einen Seerr-Benutzer an, nur um ihm keine Rechte zu geben: Zugänge
+  ohne Add-on kommen gar nicht erst nach Seerr.
+- **"Best effort":** Jeder Schritt in Seerr läuft erst, wenn der Schritt in Jellyfin gelungen ist
+  (höchstens 10 Sekunden), und lässt die Aktion nie scheitern. Scheitert er, steht am Zugang der
+  Hinweis "Nicht in Anfragen" (`seerr_missing`) oder "Anfragen weichen ab" (`seerr_drift`), der
+  nächste Sync versucht es wieder, "Richtlinie anwenden" im Admin-Bereich sofort. Im Audit-Eintrag
+  der Aktion steht `seerr`: `ok`, `skipped` (nichts zu tun in Seerr) oder `{ "error" }`, aber nur bei
+  Organisationen, die Anfragen sehen.
+- **Reihenfolge:** Rechte wegnehmen zuerst, beim Geben zuerst die Grenzen, dann die Rechte (so gibt
+  es nie Rechte ohne Grenze), danach liest die Console den Benutzer zurück und vergleicht. Frisch
+  übernommene Benutzer haben in Seerr noch keine eigenen Einstellungen. Schriebe sie der Schlüssel
+  (der Owner), hängte Seerr sie an den Owner. Die Console legt sie deshalb zuerst als der Benutzer
+  selbst an (`X-API-User`) und schreibt die Grenzen danach als Owner.
+- **Owner und andere Benutzer:** Den Owner (Benutzer 1) ändert oder löscht die Console nie. Vor dem
+  Löschen prüft sie, dass der Seerr-Benutzer noch zu diesem Jellyfin-Benutzer gehört.
+- **Gleichzeitig:** Ändert sich ein Zugang, während die Console in Seerr schreibt (z.B. Deaktivieren
+  während des Einrichtens), speichert sie das Ergebnis nicht, schreibt mit dem neuen Stand noch
+  einmal und nimmt dabei gegebene Rechte wieder weg.
+- **In Seerr nicht ändern:** Rechte und Grenzen verwalteter Zugänge setzt der Sync zurück
+  (`media.seerr_repair`). Dauerhaft ändert man sie am Kontingent.
+
+**Was Kunden sehen:** Streaming > Karte "Anfragen", zwischen Kontingent und Zugängen, nur mit
+Add-on auf einer Instanz mit eingeschaltetem Seerr:
+
+- die Adresse mit "Anfragen öffnen" und Kopieren, dazu der Hinweis, sich dort mit Login-Namen und
+  Passwort des Zugangs anzumelden, und dass das in Jellyfin als ein angemeldetes Gerät zählt;
+- was enthalten ist, z.B. "Filme: bis 5 Filme in 30 Tagen pro Zugang", "Serien: ohne Grenze";
+- pro Zugang Offen, Genehmigt, Verfügbar und "Kontingent genutzt" (z.B. "Filme: 2 von 5"). Neue
+  Zugänge zeigen "Wird eingerichtet", bis Seerr sie kennt, deaktivierte "Deaktivierte Zugänge können
+  nicht anfragen";
+- wann der Sync die Zahlen gelesen hat, und den Hinweis zum Datenschutz.
+
+Ändern kann der Kunde nichts. Auch per API-Token:
+
+```bash
+curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/orgs/<org-id>/media \
+  | jq -c '{requests, accounts: [.accounts[] | {username, requests}]}'
+# {"requests":{"url":"https://anfragen.weblion.one","access":{"movies":true,"tv":true,
+#   "movieQuota":{"limit":5,"days":30},"tvQuota":{"limit":3,"days":30}},"syncedAt":"2026-11-03T08:55:12.000Z"},
+#  "accounts":[{"username":"anna-kemaro","requests":{"ready":true,"counts":{"pending":1,"approved":1,
+#   "available":2,"movieUsed":2,"tvUsed":2}}}]}
+```
+
+`movieUsed` und `tvUsed` sind `null` für Typen ohne Grenze. Ohne Add-on fehlt `requests` überall,
+auch im Kontingent, und die beiden Hinweise der Anfragen fehlen bei den Zugängen.
+
+**Datenschutz:**
+
+- Kunden und Reseller sehen nur Zahlen: pro Zugang offene, genehmigte und verfügbare Anfragen und
+  das genutzte Kontingent, vom Sync am Zugang gespeichert. Titel, TMDB-IDs, Daten und IDs von
+  Anfragen und die E-Mail-Adressen in Seerr verlassen den Adapter nie: Sie stehen weder in der
+  Datenbank noch im Audit-Log oder in Logs.
+- **In Seerr selbst** sieht jeder angemeldete Benutzer die Liste aller Benutzer (Name, Bild, Rechte,
+  Zahl der Anfragen), bei jedem Titel, wer ihn angefragt hat, und Zahlen über alle Anfragen. Das lässt
+  sich in Seerr nicht abstellen. Auf einer gemeinsamen Instanz sehen Kunden mit Add-on so
+  Login-Namen und Wünsche anderer Kunden. Deshalb die Bestätigung beim Einschalten, das Warnzeichen
+  an der Instanz, die Warnung in den Dialogen der Kontingente und der Hinweis auf der Karte des
+  Kunden. Kunden, die Wert auf Vertraulichkeit legen, bekommen eine dedizierte Instanz mit eigenem
+  Seerr.
+- Ein Seerr-Benutzer ohne Rechte (Zugang deaktiviert, Add-on aus) kann in Seerr stöbern, aber nicht
+  anfragen.
+
+**Sync** (pro Lauf und Instanz mit eingeschaltetem Seerr, nach dem Sync der Zugänge):
+
+1. Prüfen wie im Dialog. Weichen nur die drei empfohlenen Einstellungen ab, setzt der Sync sie
+   wieder (`media.seerr_settings` von "Sync" mit vorher und nachher). Jedes andere Problem setzt den
+   Status auf `unsafe` oder `error` und beendet den Lauf: Der Sync schreibt dann nichts in Seerr.
+   Anfragen bleiben dabei an, die Schritte nach Aktionen an Zugängen laufen weiter (ausschalten
+   geht im Dialog).
+2. Alle Seerr-Benutzer lesen.
+3. Jeder Zugang der Instanz: Fehlt ein berechtigter in Seerr, richtet der Sync ihn ein. Weichen
+   Rechte oder Grenzen ab, setzt er sie neu (`media.seerr_repair` von "Sync" mit `imported` oder den
+   Feldern). Scheitert es, bleibt der Hinweis, und der Eintrag hat `status: failure`. Zugänge und
+   Kontingente, die während des Laufs geändert wurden, lässt er aus.
+4. Seerr-Benutzer, die anfragen dürfen, ohne dass die Console sie verwaltet, verlieren die Rechte
+   zum Anfragen (`media.seerr_revoke` von "Sync" mit Seerr- und Jellyfin-ID). Ausgenommen sind der
+   Owner und Personal von Seerr (`ADMIN`, `MANAGE_SETTINGS`, `MANAGE_USERS`, `MANAGE_REQUESTS`). So
+   fragen nur Zugänge aus der Console an, auch wenn sich ein gelöschter Zugang in Seerr nicht löschen
+   liess. Schritte 3 und 4 zusammen schreiben höchstens 25-mal pro Lauf.
+5. Zahlen aus allen Anfragen (höchstens 50 Seiten zu 100). Hat Seerr mehr als 5000, bleiben die
+   alten Zahlen, und der Fehler der Instanz sagt das.
+6. Genutztes Kontingent für höchstens 50 Zugänge pro Lauf, die ältesten Zahlen zuerst.
+7. Status `ok` und die Zahl der nicht verwalteten Benutzer mit Rechten. Seerr-Benutzer ohne
+   Jellyfin-Benutzer zählt nur die Prüfung im Dialog.
+
+Ist Seerr aus, entfernt der Sync nur die Hinweise der Anfragen. "Jetzt synchronisieren" antwortet
+dazu mit `seerr`: `imported`, `repaired`, `revoked`, `failed` und `counted` (Zugänge mit neuen
+Zahlen).
+
+**Fehler der API** für Anfragen:
+
+| HTTP | `code`                 | Wann                                                                                                                                                                                                                        |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `bad_request`          | `requests` ungültig: Filme, Serien oder beides, Anzahl 1 bis 100, Tage 1 bis 365                                                                                                                                            |
+| 409  | `requests_unavailable` | Add-on auf einer Instanz ohne Seerr, auch beim Wechsel der Instanz eines Kontingents                                                                                                                                        |
+| 409  | `allowance_conflict`   | Reseller gibt mehr als sein Add-on oder schickt eins ohne eigenes, das Add-on eines Resellers wird enger als das seiner Kunden. `details.customers[].conflicts` mit `requestsMovies`, `requestsTv`, `movieQuota`, `tvQuota` |
+| 409  | `seerr_not_configured` | Einschalten oder empfohlene Einstellungen ohne Seerr-Adresse und Schlüssel                                                                                                                                                  |
+| 409  | `seerr_unsafe`         | Einschalten mit Problemen, empfohlene Einstellungen bei Problemen, die sie nicht beheben, `details.problems`                                                                                                                |
+| 409  | `seerr_shared`         | Einschalten auf einer Instanz mit mehreren Organisationen ohne `confirmShared`, `details.organizations`                                                                                                                     |
+| 409  | `conflict`             | Seerr-Adresse ändern oder entfernen, solange Anfragen an sind, oder die Adresse hat sich während des Einschaltens geändert                                                                                                  |
+| 422  | `unsupported`          | Der Provider kann kein Streaming                                                                                                                                                                                            |
+| 502  | `provider_error`       | Seerr liess sich beim Einschalten nicht prüfen oder hat die empfohlenen Einstellungen abgelehnt, `message` mit Grund und Hinweis (Schlüssel abgelehnt, CSRF-Schutz an, Weiterleitung)                                       |
+
+Routen der Kunden scheitern nie an Seerr.
+
+**Was die Console bei Seerr nutzt** (unter `/api/v1`):
+
+| Funktion in der Console  | Endpunkt                                                                                                                                                                                                                        | Berechtigung                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Prüfen                   | `GET /status?checkUpdateAvailable=` (öffentlich, der leere Wert hält Seerr von einer Anfrage bei GitHub ab), `GET /settings/main`, `GET /settings/jellyfin` (nur die Server-ID), `GET /settings/network` (nur `csrfProtection`) | `platform:provider:read`, Sync-Job              |
+| Empfohlene Einstellungen | `POST /settings/main` mit genau `newPlexLogin`, `defaultPermissions` und `mediaServerLogin`                                                                                                                                     | `platform:media:write`, Sync-Job                |
+| Benutzer lesen           | `GET /user?take=100&skip=&sort=created` (alle Seiten, höchstens 100), `GET /user/{id}`                                                                                                                                          | Sync-Job, Prüfen, Löschen, Ausschalten          |
+| Zugang einrichten        | `POST /user/import-from-jellyfin` mit `{"jellyfinUserIds": ["<id>"]}`, kennt Seerr ihn schon: `GET /user/jellyfin/{jellyfinId}`                                                                                                 | `media:write`, `platform:media:write`, Sync-Job |
+| Rechte und Grenzen       | `POST /user/{id}/settings/permissions`, `GET` und `POST /user/{id}/settings/main` (zum Anlegen der Einstellungen mit `X-API-User`)                                                                                              | `media:write`, `platform:media:write`, Sync-Job |
+| Löschen                  | `DELETE /user/{id}`                                                                                                                                                                                                             | `media:write`                                   |
+| Zahlen                   | `GET /request?take=100&skip=` (höchstens 50 Seiten), `GET /user/{id}/quota`                                                                                                                                                     | Sync-Job                                        |
+
+Jede Anfrage trägt den Schlüssel im Header `X-Api-Key`, nie in der Adresse. Die Console schickt
+höchstens vier gleichzeitig, jede mit 15 Sekunden Timeout, wiederholt nichts und folgt keinen
+Weiterleitungen. Aus Antworten entfernt der Client Schlüssel und Passwörter, bevor jemand sie sieht
+(der Schlüssel von Seerr in den Haupteinstellungen, der eigene Jellyfin-Schlüssel von Seerr, ein
+Passwort des Proxys). Von Anfragen behält der Parser nur ID, Status und wer angefragt hat. Einen API
+Explorer für Seerr gibt es nicht.
+
+**Grenzen:**
+
+- **Keine Liste der Anfragen** in der Console: genehmigen, ablehnen und bereitstellen in Seerr.
+  Automatisch genehmigt wird nie. Ohne Radarr oder Sonarr bleibt eine genehmigte Anfrage
+  "genehmigt", bis Jellyfin den Titel beim Scan findet, dann zählt sie als verfügbar. Abgelehnte und
+  gescheiterte Anfragen zeigt die Console nicht.
+- **0 heisst ohne Grenze**, Serien zählen in Staffeln (siehe oben).
+- **Die Anmeldung bei Seerr braucht ein freies Gerät:** Seerr meldet sich bei Jellyfin wie eine App
+  an (Gerät "Seerr"). Das zählt gegen die gleichzeitigen Streams des Zugangs. Mit 1 Stream und einem
+  angemeldeten Fernseher scheitert die Anmeldung bei Seerr, und "Alle Geräte abmelden" zählt Seerr
+  als ein Gerät.
+- **Die Sitzung in Seerr** gilt 30 Tage und fragt Jellyfin nicht mehr. Ein neues Passwort, "Alle
+  Geräte abmelden" und Deaktivieren beenden sie nicht: Ein deaktivierter Zugang hat in Seerr keine
+  Rechte mehr, kann aber bis zum Ende der Sitzung stöbern. Erst Löschen beendet sie.
+- **Verwaiste Seerr-Benutzer** (ohne Jellyfin-Benutzer) zählt der Dialog nur, löschen muss man sie in
+  Seerr.
+- **Bilder von TMDB:** Seerr bringt einen eigenen, geteilten TMDB-Schlüssel mit, und die Browser der
+  Kunden laden Poster direkt von `image.tmdb.org`, ausser das Zwischenspeichern von Bildern ist in
+  Seerr an.
+- **Ein anderes Seerr eintragen:** Die Console merkt sich pro Zugang die ID seines Seerr-Benutzers
+  und verwirft sie beim Wechsel der Adresse nicht. Der erste Sync mit dem neuen Seerr liest alle neu
+  (über die Jellyfin-ID), das Einrichten eines berechtigten Zugangs seine. Bis dahin geht ein Entzug
+  der Rechte bei einem Zugang ohne Rechte (z.B. einem deaktivierten) an die alte ID, im neuen Seerr
+  also an einen anderen Benutzer, auch an Personal von Seerr (nie an den Owner): beim Einschalten,
+  beim Ausschalten und bei Aktionen am Zugang. Bis das gelöst ist (siehe
+  [Roadmap](roadmap.md#streaming-jellyfin)), ein anderes Seerr nur eintragen, wenn die
+  Organisationen mit Add-on keine deaktivierten Zugänge haben, nach dem Einschalten gleich
+  synchronisieren und bis dahin nichts an den Zugängen ändern.
+- **Nicht in der Console**, das geht in Seerr: Anfragen, Radarr und Sonarr, Benachrichtigungen,
+  Problemmeldungen, die Benutzer des Personals.
+
+**Offene Punkte:** Gegen ein echtes Seerr ist die Anbindung noch nicht getestet, nur gegen einen
+Mock-Server nach dem Quellcode von Seerr 3.5.1 und gegen den Demo-Provider. Vor dem ersten Einsatz
+mit Seerr 3.5.1 an einer Jellyfin 10.11 im Container prüfen: Ein frisches Seerr meldet
+`new_signins` und `default_permissions`, "Empfohlene Einstellungen anwenden" behebt beides und lässt
+den Rest. Ein Seerr an einem anderen Jellyfin meldet `other_server`, CSRF-Schutz an `csrf`.
+Einschalten, einen Zugang anlegen: Er erscheint in Seerr nur mit "Request Movies" und "Request
+Series" und mit den Grenzen, die Einstellungen des Owners bleiben. Mit dem Jellyfin-Login anmelden,
+einen Film anfragen (offen), in Seerr genehmigen, die Datei hinzufügen, nach dem Scan zeigt die
+Console ihn als verfügbar. Grenze erreicht: Seerr lehnt ab, die Console zeigt "5 von 5".
+Deaktivieren (Rechte weg, eine offene Sitzung kann noch stöbern), Aktivieren, Löschen. Ein
+Jellyfin-Benutzer ohne Zugang in der Console wird beim Anmelden abgewiesen ("Access denied."). Mit 1
+Stream und einem angemeldeten Fernseher scheitert die Anmeldung bei Seerr, nach "Alle Geräte
+abmelden" geht sie. Die Antworten als Fixtures neben `apps/api/test/seerr-mock.ts` ablegen. Dazu die
+ungeprüften Annahmen:
+
+1. Was Seerr mit Einstellungen macht, die der Schlüssel des Owners für einen Benutzer ohne eigene
+   Einstellungen schreibt (die Console vermeidet das mit `X-API-User`)
+2. Dass Seerr `mediaServerLogin` in `POST /settings/main` annimmt (das Feld fehlt im Schema,
+   zusätzliche Felder sind erlaubt) und die genaue Form seiner Fehler 400
+3. Dass `POST /user/{id}/settings/main` den Namen lässt, wenn er im Body fehlt (die Console schickt
+   ihn so mit, wie sie ihn gelesen hat), und wie Seerr Grenze 0 mit 0 Tagen anzeigt (erwartet: ohne
+   Grenze)
+4. Dass das Übernehmen einer ID, die das Jellyfin von Seerr nicht kennt, mit 500 scheitert
+5. Dass `GET /user` Rechte und Grenzen für Administratoren mit jeder Datenbank von Seerr liefert
+6. Versionshinweise und Stabilität von Seerr 3.x und der Name des Container-Images
+7. Die Bedingungen von TMDB für den eingebauten Schlüssel in einem bezahlten Dienst
+8. Dass der CSRF-Schutz auch Änderungen mit API-Schlüssel ablehnt
+9. Wie lange die Anmeldung von Seerr bei Jellyfin einen Platz der gleichzeitigen Streams hält
+
+**Demo:** Der Demo-Provider simuliert zu seinem Jellyfin ein Seerr 3.5.1 unter
+`https://requests.demo.weblion.one` (die Adresse gibt es nicht), mit denselben Prüfungen und Regeln
+wie die echte Anbindung (Owner, nur die beiden Rechte, Grenzen, Übernehmen, Löschen mit den
+Anfragen). Mit `pnpm db:seed`:
+
+- Anfragen sind für die Demo-Instanz eingeschaltet ("Ungeprüft" bis zur ersten Prüfung oder zum
+  ersten Sync). Drei Organisationen haben dort ein Kontingent, der Dialog zeigt also die Warnung.
+- Muster AG hat das Add-on mit Filmen und Serien, 5 Filme und 3 Staffeln in 30 Tagen. `anna-kemaro`
+  hat in Seerr 1 offene, 1 genehmigte und 2 verfügbare Anfragen (eine davon älter als 30 Tage), nach
+  dem ersten Sync zeigt die Karte "Filme: 2 von 5" und "Staffeln: 2 von 3". `wohnzimmer-kemaro`
+  (gesperrt) hat keine Rechte.
+- Alpen Hosting hat das Add-on mit 10 Filmen und 6 Staffeln in 30 Tagen und kann es Bäckerei Huber
+  weitergeben (die Karte dafür erscheint, sobald Alpen das Modul "Streaming" hat). Bäckerei Huber hat
+  keins und sieht nichts von Anfragen.
+- `ben-kemaro` ist in Seerr, aber nicht verwaltet, mit dem alten Standardrecht "Request" und einer
+  offenen Anfrage: Der erste Sync nimmt ihm das Recht. `weblion-admin` ist der Owner.
+- Titel und TMDB-IDs der Anfragen gibt es nur in der Simulation. Die Tests prüfen, dass nichts davon
+  herauskommt.
 
 ## Weitere Provider anbinden
 

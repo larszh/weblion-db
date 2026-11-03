@@ -10,11 +10,14 @@ import type {
   MediaInstanceDto,
   MediaLibraryRef,
   MediaPasswordResultDto,
+  MediaRequestsAccess,
+  MediaSeerrChangeResult,
+  MediaSeerrDto,
   MediaSignOutResultDto,
   OrgMediaDto,
   UnmanagedMediaUserDto,
 } from '@weblion/shared';
-import { api, errorMessage } from '@/lib/api';
+import { ApiError, api, errorMessage } from '@/lib/api';
 import { qk, useApiMutation } from '@/lib/queries';
 
 /**
@@ -32,7 +35,11 @@ export const mediaKeys = {
   unmanaged: (providerId: string) => ['media', 'admin', 'unmanaged', providerId] as const,
   resellerAllowance: (customerId: string) => ['media', 'reseller', customerId] as const,
   devices: (accountId: string) => ['media', 'devices', accountId] as const,
+  /** The requests add-on (Seerr) of an instance, checked live. */
+  seerr: (providerId: string) => ['media', 'admin', 'seerr', providerId] as const,
 };
+
+const isSeerrKey = (key: QueryKey) => key[0] === 'media' && key[1] === 'admin' && key[2] === 'seerr';
 
 /** Accounts, allowances and the organization data (an allowance can switch the module on). */
 const everywhere: QueryKey[] = [mediaKeys.all, ['org'], qk.orgs, qk.admin('org'), qk.admin('orgs')];
@@ -245,6 +252,11 @@ export interface MediaAllowanceInput {
   maxStreams: number;
   downloads: boolean;
   remoteBitrateMbit: number | null;
+  /**
+   * The requests add-on (Seerr). Absent keeps it; null switches it off. Sent only where the
+   * instance has Seerr (or as null when it has none, so an add-on never stays on such an instance).
+   */
+  requests?: MediaRequestsAccess | null;
   enableModule: boolean;
 }
 
@@ -311,3 +323,90 @@ export const useDeleteResellerMediaAllowance = (customerId: string, success: str
     invalidate: [...everywhere, ['reseller']],
     onSuccess,
   });
+
+// --- Admin: requests (Seerr) of an instance ------------------------------------------
+
+/**
+ * The add-on of an instance with a live check (Seerr's settings, numbers only); null while the
+ * instance has no Seerr address and key. Read when the dialog opens, never on focus: every read
+ * asks Seerr.
+ */
+export const useMediaSeerr = (providerId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: mediaKeys.seerr(providerId),
+    queryFn: () => api.get<MediaSeerrDto | null>(`/admin/providers/${providerId}/media/seerr`),
+    enabled: !!providerId && enabled,
+    retry: false,
+    refetchOnWindowFocus: false,
+    gcTime: 0,
+  });
+
+/**
+ * After a change: the answer replaces the check, everything else of streaming is read again
+ * (instances, accounts with their requests, allowances). The check itself is not asked again.
+ */
+function useSeerrChanged(providerId: string) {
+  const qc = useQueryClient();
+  return (seerr: MediaSeerrDto) => {
+    qc.setQueryData(mediaKeys.seerr(providerId), seerr);
+    void qc.invalidateQueries({ queryKey: mediaKeys.all, predicate: (q) => !isSeerrKey(q.queryKey) });
+  };
+}
+
+export interface SetMediaSeerrInput {
+  enabled: boolean;
+  /** Needed to switch on while more than one organization has an allowance on the instance. */
+  confirmShared?: boolean;
+}
+
+/**
+ * Switches requests on or off for the instance. A 409 "seerr_shared" (more organizations than the
+ * dialog knew) goes to `onShared` with the number instead of a toast, so the dialog can ask;
+ * a 409 "seerr_unsafe" reads the check again.
+ */
+export const useSetMediaSeerr = (
+  providerId: string,
+  options: {
+    success: (result: MediaSeerrChangeResult, vars: SetMediaSeerrInput) => string;
+    onSuccess: (result: MediaSeerrChangeResult, vars: SetMediaSeerrInput) => void;
+    onShared: (organizations: number) => void;
+  },
+) => {
+  const qc = useQueryClient();
+  const changed = useSeerrChanged(providerId);
+  return useMutation({
+    mutationFn: (body: SetMediaSeerrInput) =>
+      api.put<MediaSeerrChangeResult>(`/admin/providers/${providerId}/media/seerr`, body),
+    onSuccess: (result, vars) => {
+      toast.success(options.success(result, vars));
+      changed(result.seerr);
+      options.onSuccess(result, vars);
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409 && err.code === 'seerr_shared') {
+        const n = (err.details as { organizations?: unknown } | undefined)?.organizations;
+        options.onShared(typeof n === 'number' && Number.isFinite(n) ? n : 2);
+        return;
+      }
+      if (err instanceof ApiError && err.status === 409 && err.code === 'seerr_unsafe') {
+        void qc.invalidateQueries({ queryKey: mediaKeys.seerr(providerId) });
+      }
+      toast.error(errorMessage(err));
+    },
+  });
+};
+
+/** "Empfohlene Einstellungen anwenden": the three safe values in Seerr's main settings. */
+export const useApplySeerrSettings = (providerId: string, success: string) => {
+  const changed = useSeerrChanged(providerId);
+  return useMutation({
+    mutationFn: () => api.post<MediaSeerrDto>(`/admin/providers/${providerId}/media/seerr/settings`, {}),
+    onSuccess: (seerr) => {
+      toast.success(success);
+      changed(seerr);
+    },
+    onError: (err) => {
+      toast.error(errorMessage(err));
+    },
+  });
+};

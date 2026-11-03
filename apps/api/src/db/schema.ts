@@ -26,7 +26,10 @@ import type {
   InvoiceStatus,
   MailDomainInfo,
   MediaAccountIssue,
+  MediaAccountRequestsDto,
   MediaLibraryRef,
+  MediaSeerrCheck,
+  MediaSeerrStatus,
   ModuleKey,
   MonitorFacts,
   MonitorOrigin,
@@ -572,6 +575,15 @@ export const mediaAllowances = pgTable(
     downloads: boolean('downloads').notNull().default(false),
     /** Limit for clients outside the server's network, Mbit/s. null = the server's own setting. */
     remoteBitrateMbit: integer('remote_bitrate_mbit'),
+    /** Requests add-on (Seerr): which types the accounts may request. Both false = off. */
+    requestsMovies: boolean('requests_movies').notNull().default(false),
+    requestsTv: boolean('requests_tv').notNull().default(false),
+    /** Per account; null limit = no limit (written to Seerr as 0). Days 1..365 with a limit. */
+    movieQuotaLimit: integer('movie_quota_limit'),
+    movieQuotaDays: integer('movie_quota_days'),
+    /** Seasons, as Seerr counts them. */
+    tvQuotaLimit: integer('tv_quota_limit'),
+    tvQuotaDays: integer('tv_quota_days'),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     ...timestamps,
   },
@@ -601,6 +613,11 @@ export const mediaAccounts = pgTable(
     lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
     /** Problems found by the last sync or change (policy drift, administrator, ...). */
     issues: jsonb('issues').$type<MediaAccountIssue[]>().notNull().default([]),
+    /** Seerr user id on the connection's Seerr; refreshed by the sync from externalId. */
+    seerrUserId: integer('seerr_user_id'),
+    /** Numbers only, as the sync read them: never titles or ids of requests. */
+    seerrRequests: jsonb('seerr_requests').$type<MediaAccountRequestsDto>(),
+    seerrSyncedAt: timestamp('seerr_synced_at', { withTimezone: true }),
     meta: jsonb('meta').$type<Record<string, unknown>>().notNull().default({}),
     lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
     missingSince: timestamp('missing_since', { withTimezone: true }),
@@ -612,6 +629,24 @@ export const mediaAccounts = pgTable(
     index('media_accounts_username_lower_idx').on(sql`lower(${t.username})`),
   ],
 );
+
+/**
+ * The requests add-on of one Jellyfin connection: the switch and the last check. URL and key are
+ * in the connection's config (encrypted), so a Seerr failure never marks the connection.
+ */
+export const mediaSeerr = pgTable('media_seerr', {
+  providerConnectionId: uuid('provider_connection_id')
+    .primaryKey()
+    .references(() => providerConnections.id, { onDelete: 'cascade' }),
+  enabled: boolean('enabled').notNull().default(false),
+  status: text('status').$type<MediaSeerrStatus>().notNull().default('unknown'),
+  lastError: text('last_error'),
+  /** MediaSeerrCheck of the last check: settings values, never keys. */
+  lastCheck: jsonb('last_check').$type<MediaSeerrCheck>(),
+  checkedAt: timestamp('checked_at', { withTimezone: true }),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps,
+});
 
 // --- Monitoring (Uptime Kuma) ---------------------------------------------------------
 
@@ -945,6 +980,7 @@ export type WebsiteAllowance = typeof websiteAllowances.$inferSelect;
 export type PhoneSystem = typeof phoneSystems.$inferSelect;
 export type MediaAllowance = typeof mediaAllowances.$inferSelect;
 export type MediaAccount = typeof mediaAccounts.$inferSelect;
+export type MediaSeerrRow = typeof mediaSeerr.$inferSelect;
 export type Monitor = typeof monitors.$inferSelect;
 export type MonitorAllowance = typeof monitorAllowances.$inferSelect;
 export type MonitorStatusPage = typeof monitorStatusPages.$inferSelect;

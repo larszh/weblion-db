@@ -6,8 +6,10 @@ import {
   type MediaPolicyState,
   type PowerAction,
 } from '@weblion/shared';
-import { ProviderError, badRequest, conflict } from '../../lib/errors';
+import { ProviderError, badRequest, conflict, unsupported } from '../../lib/errors';
 import { num } from '../http';
+import type { SeerrClientOptions } from '../seerr/client';
+import { SeerrApi } from '../seerr/seerr';
 import type {
   InfraOverview,
   JellyfinConfig,
@@ -19,7 +21,11 @@ import type {
   ProviderAdapter,
   RawResponse,
   RemoteMediaUser,
+  RemoteSeerrUser,
   RemoteServer,
+  SeerrCheckResult,
+  SeerrRequestCounts,
+  SeerrUserAccess,
   ServerRef,
 } from '../types';
 import {
@@ -59,6 +65,11 @@ import {
 
 /** Oldest Jellyfin the console manages (same user, policy and password endpoints as 10.11). */
 export const JELLYFIN_MIN_VERSION = '10.10.0';
+
+export interface JellyfinAdapterOptions extends JellyfinClientOptions {
+  /** For the connection's Seerr (timeouts in tests). */
+  seerr?: SeerrClientOptions;
+}
 
 const LIBRARIES_TTL_MS = 5 * 60_000;
 const SERVER_INFO_TTL_MS = 10 * 60_000;
@@ -179,9 +190,18 @@ export class JellyfinAdapter implements ProviderAdapter {
   private readonly libraries = new Cached(LIBRARIES_TTL_MS, () => this.readLibraries());
   private readonly serverInfo = new Cached(SERVER_INFO_TTL_MS, () => this.readServerInfo());
   private readonly activity = new Cached(ACTIVITY_TTL_MS, () => this.readActivity());
+  /** The requests add-on: only with both address and key. Never used by a Jellyfin action. */
+  private readonly seerr: SeerrApi | null;
+  private readonly seerrAddress: string | null;
 
-  constructor(config: JellyfinConfig, options: JellyfinClientOptions = {}) {
-    this.client = new JellyfinClient(config, options);
+  constructor(config: JellyfinConfig, options: JellyfinAdapterOptions = {}) {
+    const { seerr, ...jellyfin } = options;
+    this.client = new JellyfinClient(config, jellyfin);
+    this.seerrAddress = config.seerrUrl ?? null;
+    this.seerr =
+      config.seerrUrl && config.seerrApiKey
+        ? new SeerrApi({ url: config.seerrUrl, apiKey: config.seerrApiKey }, seerr)
+        : null;
   }
 
   capabilities(): Capability[] {
@@ -774,6 +794,70 @@ export class JellyfinAdapter implements ProviderAdapter {
     } finally {
       if (this.locks.get(id) === tail) this.locks.delete(id);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Requests add-on (Seerr). Separate from every Jellyfin action above: none of them calls
+  // Seerr, so a Seerr failure never fails a Jellyfin step. Errors are ProviderErrors named Seerr.
+
+  seerrConfigured(): boolean {
+    return this.seerr !== null;
+  }
+
+  seerrUrl(): string | null {
+    return this.seerrAddress;
+  }
+
+  /** Design 19.3 against this server's id (Jellyfin's own error when Jellyfin cannot tell it). */
+  async seerrCheck(): Promise<SeerrCheckResult> {
+    const seerr = this.seerrApi();
+    return seerr.check(await this.jellyfinServerId());
+  }
+
+  async seerrApplySafeSettings(): Promise<SeerrCheckResult> {
+    const seerr = this.seerrApi();
+    const serverId = await this.jellyfinServerId();
+    return seerr.applySafeSettings(serverId);
+  }
+
+  async listSeerrUsers(): Promise<RemoteSeerrUser[]> {
+    return this.seerrApi().listUsers();
+  }
+
+  async importSeerrUser(jellyfinUserId: string): Promise<RemoteSeerrUser> {
+    return this.seerrApi().importUser(jellyfinUserId);
+  }
+
+  async setSeerrUserAccess(
+    seerrUserId: number,
+    access: SeerrUserAccess,
+    current: RemoteSeerrUser,
+  ): Promise<RemoteSeerrUser> {
+    return this.seerrApi().setAccess(seerrUserId, access, current);
+  }
+
+  async deleteSeerrUser(seerrUserId: number): Promise<void> {
+    await this.seerrApi().deleteUser(seerrUserId);
+  }
+
+  async seerrRequestCounts(): Promise<SeerrRequestCounts> {
+    return this.seerrApi().requestCounts();
+  }
+
+  async seerrQuotaUsage(seerrUserId: number): Promise<{ movieUsed: number; tvUsed: number }> {
+    return this.seerrApi().quotaUsage(seerrUserId);
+  }
+
+  private seerrApi(): SeerrApi {
+    if (!this.seerr) {
+      throw unsupported('This Jellyfin connection has no Seerr: add its address and API key first');
+    }
+    return this.seerr;
+  }
+
+  /** The id Seerr must serve (cached like the server info: it never changes for a server). */
+  private async jellyfinServerId(): Promise<string | null> {
+    return (await this.mediaServerInfo()).serverId;
   }
 
   // ---------------------------------------------------------------------------

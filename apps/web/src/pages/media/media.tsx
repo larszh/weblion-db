@@ -28,11 +28,12 @@ import {
   type ShownMediaPassword,
 } from './dialogs';
 import { MediaLoginCard } from './login-card';
+import { MediaRequestsCard } from './requests-card';
 
 /**
- * Streaming accounts of the organization (/o/:slug/media): allowance, login card and the
- * accounts on the organization's Jellyfin instance. Shows the calendar day of the last activity
- * only, never what anyone watches.
+ * Streaming accounts of the organization (/o/:slug/media): allowance, login card, the requests
+ * card (only with the add-on) and the accounts on the organization's Jellyfin instance. Shows the
+ * calendar day of the last activity only, never what anyone watches.
  */
 export function MediaPage() {
   const { t } = useI18n();
@@ -48,6 +49,8 @@ export function MediaPage() {
   const allowance = media.data?.allowance ?? null;
   const accounts = media.data?.accounts ?? [];
   const login = media.data?.login ?? null;
+  // Only with the requests add-on on an instance whose Seerr is active; absent otherwise.
+  const requests = media.data?.requests;
   const openUrl = safePanelUrl(login?.url ?? allowance?.provider?.url);
   const canCreate = can('media:write') && !!allowance;
   const createBlocked = allowance && mediaAllowanceFull(allowance) ? t('media.limit.accounts') : null;
@@ -94,6 +97,7 @@ export function MediaPage() {
           <Notice tone="warning">{t('media.noAllowanceAccounts')}</Notice>
         )}
         {allowance && can('media:write') && createBlocked && <Notice tone="info">{createBlocked}</Notice>}
+        {requests && <MediaRequestsCard requests={requests} accounts={accounts} />}
         <AccountsCard
           accounts={accounts}
           onCreate={canCreate && !createBlocked ? () => setCreating(true) : undefined}

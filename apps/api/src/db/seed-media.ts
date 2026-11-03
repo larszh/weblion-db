@@ -5,12 +5,14 @@ import {
   type MediaAccess,
   type MediaAccountIssue,
   type MediaLibraryRef,
+  type MediaRequestsAccess,
 } from '@weblion/shared';
 import { DEMO_MEDIA_ACCESS, DEMO_MEDIA_IDS, DEMO_MEDIA_LIBRARIES } from '../providers/demo/media';
+import { DEMO_SEERR_IDS } from '../providers/demo/seerr';
 import { createAdapter } from '../providers/registry';
 import type { RemoteMediaUser } from '../providers/types';
 import type { Database } from './client';
-import { mediaAccounts, mediaAllowances, organizations, providerConnections } from './schema';
+import { mediaAccounts, mediaAllowances, mediaSeerr, organizations, providerConnections } from './schema';
 
 interface AllowanceSeed {
   slug: keyof typeof DEMO_MEDIA_ACCESS;
@@ -22,6 +24,8 @@ interface AllowanceSeed {
   accounts: (keyof typeof DEMO_MEDIA_IDS)[];
   /** Activate the "media" module along with the allowance. */
   enableModule: boolean;
+  /** The requests add-on (Seerr); null: none. */
+  requests: MediaRequestsAccess | null;
 }
 
 /**
@@ -38,6 +42,12 @@ const ALLOWANCES: AllowanceSeed[] = [
     access: DEMO_MEDIA_ACCESS['alpen-hosting'],
     accounts: [],
     enableModule: false,
+    requests: {
+      movies: true,
+      tv: true,
+      movieQuota: { limit: 10, days: 30 },
+      tvQuota: { limit: 6, days: 30 },
+    },
   },
   {
     slug: 'muster-ag',
@@ -46,6 +56,7 @@ const ALLOWANCES: AllowanceSeed[] = [
     access: DEMO_MEDIA_ACCESS['muster-ag'],
     accounts: ['anna-kemaro', 'wohnzimmer-kemaro'],
     enableModule: true,
+    requests: { movies: true, tv: true, movieQuota: { limit: 5, days: 30 }, tvQuota: { limit: 3, days: 30 } },
   },
   {
     slug: 'baeckerei-huber',
@@ -54,6 +65,8 @@ const ALLOWANCES: AllowanceSeed[] = [
     access: DEMO_MEDIA_ACCESS['baeckerei-huber'],
     accounts: ['huber-bivane'],
     enableModule: false,
+    // No requests: Bäckerei Huber shows that a customer without the add-on sees nothing of it.
+    requests: null,
   },
 ];
 
@@ -82,9 +95,14 @@ function issuesOf(user: RemoteMediaUser): MediaAccountIssue[] {
  * Demo data for streaming: allowances on the demo connection's simulated Jellyfin for Alpen
  * Hosting (code "alpen"), Muster AG ("kemaro", with the "media" module and two accounts) and
  * Bäckerei Huber ("bivane", one account); the other demo users stay unmanaged for the import.
+ * Requests (Seerr) are switched on for the demo instance, which three organizations share (the
+ * admin dialog shows the warning); Alpen Hosting and Muster AG have the add-on, Bäckerei Huber
+ * has none. The seeded accounts carry the ids of their demo Seerr users; their numbers come
+ * with the first sync, which also takes ben-kemaro's request rights (not managed).
  * Idempotent. Called from seedDemo after the telephony demo, once the reseller data exist. An
  * organization is only seeded while it has no allowance, so later changes (a deleted account,
- * other libraries) are left alone. Accounts are taken from the demo instance as they are there.
+ * other libraries) are left alone, and the Seerr switch only while the instance has no row for
+ * it. Accounts are taken from the demo instance as they are there.
  */
 export async function seedMediaDemo(db: Database, log: string[]): Promise<void> {
   const demo = await db.query.providerConnections.findFirst({
@@ -94,6 +112,14 @@ export async function seedMediaDemo(db: Database, log: string[]): Promise<void> 
   // The demo keeps its state per connection in memory, the configuration does not matter here.
   const adapter = createAdapter(demo.type, demo.id, {});
   if (!adapter.getMediaUser) return;
+  if (adapter.seerrConfigured?.()) {
+    const [switched] = await db
+      .insert(mediaSeerr)
+      .values({ providerConnectionId: demo.id, enabled: true })
+      .onConflictDoNothing({ target: mediaSeerr.providerConnectionId })
+      .returning({ id: mediaSeerr.providerConnectionId });
+    if (switched) log.push(`requests (Seerr) switched on for ${demo.name}`);
+  }
 
   for (const seed of ALLOWANCES) {
     const org = await db.query.organizations.findFirst({ where: eq(organizations.slug, seed.slug) });
@@ -122,6 +148,12 @@ export async function seedMediaDemo(db: Database, log: string[]): Promise<void> 
         maxStreams: seed.access.maxStreams,
         downloads: seed.access.downloads,
         remoteBitrateMbit: seed.access.remoteBitrateMbit,
+        requestsMovies: seed.requests?.movies ?? false,
+        requestsTv: seed.requests?.tv ?? false,
+        movieQuotaLimit: seed.requests?.movieQuota?.limit ?? null,
+        movieQuotaDays: seed.requests?.movieQuota?.days ?? null,
+        tvQuotaLimit: seed.requests?.tvQuota?.limit ?? null,
+        tvQuotaDays: seed.requests?.tvQuota?.days ?? null,
       });
       if (seed.enableModule) {
         const current = await tx.query.organizations.findFirst({ where: eq(organizations.id, org.id) });
@@ -146,6 +178,8 @@ export async function seedMediaDemo(db: Database, log: string[]): Promise<void> 
             hasPassword: user.hasPassword,
             lastActivityAt: user.lastActivityAt ? new Date(user.lastActivityAt) : null,
             issues: issuesOf(user),
+            // The demo Seerr knows the seeded accounts already (see providers/demo/seerr.ts).
+            seerrUserId: DEMO_SEERR_IDS[user.username as keyof typeof DEMO_SEERR_IDS] ?? null,
             lastSyncedAt: now,
           })
           .onConflictDoNothing({ target: [mediaAccounts.providerConnectionId, mediaAccounts.externalId] })

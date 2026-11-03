@@ -52,7 +52,9 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
   mit erzeugtem (einmal angezeigt, fernbedienungsfreundlich) oder eigenem Passwort, deaktivieren,
   Passwort neu setzen, löschen. Jeder Zugang bekommt genau die Bibliotheken, Streams, Downloads und
   Bitrate des Kontingents. Anmeldehilfe mit Server-Adresse, Apps und Quick Connect für den
-  Fernseher. Was jemand anschaut, zeigt die Console nicht
+  Fernseher. Was jemand anschaut, zeigt die Console nicht. Mit dem Add-on "Anfragen" (Seerr)
+  wünschen sich die Zugänge Filme und Serien, die Console zeigt pro Zugang nur Zahlen (offen,
+  genehmigt, verfügbar, genutztes Kontingent)
 - Monitoring (Uptime Kuma): Status, Uptime über 24 Stunden und 30 Tage, Antwortzeit und Ablauf der
   Zertifikate der eigenen Monitore, Verlauf als Diagramm, Link zur Statusseite. Im Kontingent eigene
   Monitore anlegen (HTTP(S), Keyword, Ping, Port, nur öffentliche Ziele), ändern, pausieren,
@@ -96,7 +98,9 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 - Streaming: beliebig viele Jellyfin-Instanzen (gemeinsam oder dediziert), Kontingent pro Kunde
   (Zugänge, Bibliotheken, Streams, Downloads, Bitrate unterwegs) mit Kontingent-Code für die
   Login-Namen, bestehende Jellyfin-Benutzer übernehmen und zuweisen, Richtlinie anwenden. Der Sync
-  stellt Rechte wieder her, die jemand in Jellyfin geändert hat
+  stellt Rechte wieder her, die jemand in Jellyfin geändert hat. Optional Anfragen über Seerr: pro
+  Instanz prüfen (mit "Empfohlene Einstellungen anwenden") und einschalten, pro Kunde als Add-on mit
+  Filmen, Serien und Grenzen pro Zugang, auch für Reseller
 - Monitoring: beliebig viele Instanzen von Uptime Kuma, Monitore Kunden zuweisen (auch alle einer
   Instanz auf einmal), Instanzen für die Verwaltung anmelden (nur das Sitzungstoken wird
   gespeichert), Kontingente für eigene Monitore und verknüpfte Statusseiten pro Kunde

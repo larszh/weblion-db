@@ -99,6 +99,12 @@ interface ProviderForm {
   clientId: string;
   /** 3CX: API key of the API client, empty on edit = keep the stored one. */
   clientSecret: string;
+  /** Jellyfin: address of its Seerr (requests add-on), empty = none or, on edit, keep. */
+  seerrUrl: string;
+  /** Jellyfin: Seerr's API key, empty on edit = keep the stored one. */
+  seerrApiKey: string;
+  /** Jellyfin, on edit: remove the stored Seerr (address and key). */
+  seerrRemove: boolean;
 }
 
 const HETZNER_BASE_URL = 'https://api.hetzner.cloud/v1';
@@ -122,6 +128,9 @@ const UPTIMEKUMA_API_KEY = /^uk\d+_[A-Za-z0-9_-]{16,200}$/;
 /** Jellyfin: http(s) address, a path for Jellyfin's base URL is fine; API key of 32 hex characters. */
 const JELLYFIN_URL = /^https?:\/\/[^/\s?#@]+(\/[^\s?#]*)?$/i;
 const JELLYFIN_API_KEY = /^[0-9a-f]{32}$/i;
+/** Seerr of a Jellyfin instance: the same address rule; keys as the API accepts them (SEERR_API_KEY). */
+const SEERR_URL = JELLYFIN_URL;
+const SEERR_API_KEY = /^[A-Za-z0-9+/=._-]{16,256}$/;
 
 const DEFAULT_NAME: Record<ProviderType, string> = {
   fire24: '24fire',
@@ -199,6 +208,9 @@ const emptyForm = (type: ProviderType): ProviderForm => ({
   nodejs: false,
   clientId: '',
   clientSecret: '',
+  seerrUrl: '',
+  seerrApiKey: '',
+  seerrRemove: false,
 });
 
 /** "a, b,,c" -> ["a", "b", "c"] */
@@ -317,10 +329,17 @@ function configFromForm(f: ProviderForm, editing: boolean) {
         ...(f.clientSecret.trim() || !editing ? { clientSecret: f.clientSecret.trim() } : {}),
       };
     case 'jellyfin':
-      // An empty API key keeps the stored one.
+      // An empty API key keeps the stored one. Seerr goes only when typed (an empty key keeps the
+      // stored one); removing it sends both as null.
       return {
         baseUrl: f.baseUrl.trim().replace(/\/+$/, ''),
         ...(f.apiKey.trim() || !editing ? { apiKey: f.apiKey.trim().toLowerCase() } : {}),
+        ...(editing && f.seerrRemove
+          ? { seerrUrl: null, seerrApiKey: null }
+          : {
+              ...(f.seerrUrl.trim() ? { seerrUrl: f.seerrUrl.trim().replace(/\/+$/, '') } : {}),
+              ...(f.seerrApiKey.trim() ? { seerrApiKey: f.seerrApiKey.trim() } : {}),
+            }),
       };
     case 'uptimekuma':
       // An empty API key keeps the stored one; the session token is set by the management sign-in.
@@ -397,7 +416,28 @@ function jellyfinIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): 
   if (f.type !== 'jellyfin') return false;
   const key = f.apiKey.trim();
   if (key && !JELLYFIN_API_KEY.test(key)) return true;
-  return !JELLYFIN_URL.test(f.baseUrl.trim()) || (!key && !existing);
+  return !JELLYFIN_URL.test(f.baseUrl.trim()) || (!key && !existing) || seerrIncomplete(f, existing);
+}
+
+/**
+ * The optional Seerr after the merge on save (empty fields keep the stored values): both an
+ * address and a key, or neither.
+ */
+function seerrPairMissing(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (existing && f.seerrRemove) return false;
+  const hasUrl = !!f.seerrUrl.trim() || !!existing?.summary.seerrUrl;
+  const hasKey = !!f.seerrApiKey.trim() || !!existing?.summary.seerrApiKey;
+  return hasUrl !== hasKey;
+}
+
+/** A valid Seerr address and key where typed, as a pair. */
+function seerrIncomplete(f: ProviderForm, existing?: ProviderConnectionDto): boolean {
+  if (existing && f.seerrRemove) return false;
+  const url = f.seerrUrl.trim();
+  const key = f.seerrApiKey.trim();
+  if (url && !SEERR_URL.test(url)) return true;
+  if (key && !SEERR_API_KEY.test(key)) return true;
+  return seerrPairMissing(f, existing);
 }
 
 /** Uptime Kuma needs the instance address and, on create, the API key (kept on edit when left empty). */
@@ -463,6 +503,7 @@ function ProviderDialog({
           templates: existing.summary.templates ?? '',
           nodejs: existing.summary.nodejs === 'true',
           clientId: existing.summary.clientId ?? '',
+          seerrUrl: existing.summary.seerrUrl ?? '',
         }
       : emptyForm('proxmox'),
   );
@@ -492,7 +533,8 @@ function ProviderDialog({
     },
     {
       success: t('common.saved'),
-      invalidate: [qk.admin('providers'), qk.admin('stats')],
+      // A Jellyfin edit can add or remove its Seerr, which the streaming pages show.
+      invalidate: [qk.admin('providers'), qk.admin('stats'), ['media']],
       onSuccess: () => onOpenChange(false),
     },
   );
@@ -1227,6 +1269,97 @@ function JellyfinFields({
           autoComplete="new-password"
         />
       </Field>
+      <SeerrFields form={form} set={set} existing={existing} />
+    </>
+  );
+}
+
+/** The optional Seerr of a Jellyfin instance (requests add-on), switched on under Admin > Streaming. */
+function SeerrFields({
+  form,
+  set,
+  existing,
+}: {
+  form: ProviderForm;
+  set: <K extends keyof ProviderForm>(k: K, v: ProviderForm[K]) => void;
+  existing?: ProviderConnectionDto;
+}) {
+  const { t } = useI18n();
+  const url = form.seerrUrl.trim();
+  const key = form.seerrApiKey.trim();
+  const stored = !!existing?.summary.seerrUrl;
+  const removing = stored && form.seerrRemove;
+  const pairMissing = (!!url || !!key) && seerrPairMissing(form, existing);
+  return (
+    <>
+      <div className="border-t border-border pt-4 sm:col-span-2">
+        <p className="text-[13px] font-medium text-text">{t('providers.jellyfin.seerr')}</p>
+        <p className="mt-1 text-xs text-muted">{t('providers.jellyfin.seerrHelp')}</p>
+      </div>
+      <Field
+        label={t('providers.jellyfin.seerrUrl')}
+        hint={t('providers.jellyfin.seerrUrlHint')}
+        error={
+          removing
+            ? undefined
+            : url && !SEERR_URL.test(url)
+              ? t('providers.jellyfin.seerrUrlInvalid')
+              : pairMissing && !url
+                ? t('providers.jellyfin.seerrBoth')
+                : undefined
+        }
+        htmlFor="p-seerr-url"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-seerr-url"
+          value={form.seerrUrl}
+          onChange={(e) => set('seerrUrl', e.target.value)}
+          placeholder="https://anfragen.weblion.one"
+          className="font-mono"
+          disabled={removing}
+        />
+      </Field>
+      {!removing && /^http:\/\//i.test(url) && (
+        <Notice tone="warning" className="sm:col-span-2">
+          {t('providers.jellyfin.httpWarning')}
+        </Notice>
+      )}
+      <Field
+        label={t('providers.jellyfin.seerrApiKey')}
+        hint={stored ? t('providers.keepSecret') : t('providers.jellyfin.seerrApiKeyHint')}
+        error={
+          removing
+            ? undefined
+            : key && !SEERR_API_KEY.test(key)
+              ? t('providers.jellyfin.seerrApiKeyInvalid')
+              : pairMissing && !key
+                ? t('providers.jellyfin.seerrBoth')
+                : undefined
+        }
+        htmlFor="p-seerr-key"
+        className="sm:col-span-2"
+      >
+        <Input
+          id="p-seerr-key"
+          type="password"
+          value={form.seerrApiKey}
+          onChange={(e) => set('seerrApiKey', e.target.value)}
+          className="font-mono"
+          autoComplete="new-password"
+          disabled={removing}
+        />
+      </Field>
+      {stored && (
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 sm:col-span-2">
+          <span className="text-sm">{t('providers.jellyfin.seerrRemove')}</span>
+          <Switch
+            checked={form.seerrRemove}
+            onCheckedChange={(v) => set('seerrRemove', v)}
+            label={t('providers.jellyfin.seerrRemove')}
+          />
+        </label>
+      )}
     </>
   );
 }

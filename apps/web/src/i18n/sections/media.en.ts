@@ -200,6 +200,11 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.issue.no_allowance': 'No allowance',
   'media.issue.no_allowance.text':
     "The organization has no allowance on this instance. The account's rights are not managed.",
+  'media.issue.seerr_missing': 'Not in requests',
+  'media.issue.seerr_missing.text': 'The account is not set up in Seerr yet. The sync tries again.',
+  'media.issue.seerr_drift': 'Requests differ',
+  'media.issue.seerr_drift.text':
+    'Rights or limits in Seerr differ from the allowance. The sync corrects them.',
 
   // Allowances (admin and reseller)
   'media.allowance.setUp': 'Set up',
@@ -313,6 +318,8 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.admin.reassign': 'Reassign…',
   'media.admin.repair': 'Apply policy',
   'media.admin.repairHint': "Writes the allowance's access to Jellyfin now",
+  'media.admin.repairHintSeerr':
+    "Writes the allowance's access to Jellyfin and the request rights to Seerr now",
   'media.admin.repaired': 'Policy of {username} applied',
   'media.admin.assignText': 'The account lives on {instance}. The customer then manages it in its console.',
   'media.admin.assignHint':
@@ -385,6 +392,124 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.reseller.removeBlocked':
     'Only possible without accounts. The customer has to delete its accounts first.',
 
+  // Requests (Seerr add-on): customer card, allowance fields, admin instances
+  'media.requests.title': 'Requests',
+  'media.requests.text':
+    'With requests your accounts ask for movies and series the server does not have yet. weblion.one reviews every request and adds approved titles.',
+  'media.requests.open': 'Open requests',
+  'media.requests.address': 'Requests address',
+  'media.requests.copyAddress': 'Copy address',
+  'media.requests.signIn': 'Sign in there with the login name and password of the account.',
+  'media.requests.included': 'Included',
+  'media.requests.movies': 'Movies',
+  'media.requests.tv': 'Series',
+  'media.requests.movieQuota': 'up to {limit} movies in {days} days per account',
+  'media.requests.tvQuota': 'up to {limit} seasons in {days} days per account',
+  'media.requests.unlimited': 'no limit',
+  'media.requests.notIncluded': 'not included',
+  'media.requests.devicesHint': 'Signing in to requests counts as one signed-in device in Jellyfin.',
+  'media.requests.col.pending': 'Open',
+  'media.requests.col.approved': 'Approved',
+  'media.requests.col.available': 'Available',
+  'media.requests.col.quota': 'Quota used',
+  'media.requests.quotaMovies': 'Movies: {used} of {limit}',
+  'media.requests.quotaSeasons': 'Seasons: {used} of {limit}',
+  'media.requests.notReady': 'Being set up',
+  'media.requests.notReadyHint': 'The account is being set up in requests. This takes a few minutes at most.',
+  'media.requests.disabled': 'Disabled accounts cannot request.',
+  'media.requests.syncedAt': 'As of {when}',
+  'media.requests.privacy':
+    "The console shows numbers only, never the requested titles. In requests itself, every account on this server sees the others' login names and who asked for a title.",
+  'media.requests.figure': 'Requests',
+  'media.requests.figureBoth': 'Movies and series',
+  'media.requests.totals': 'Open {pending}, approved {approved}, available {available}',
+  'media.requests.field': 'Requests (Seerr)',
+  'media.requests.fieldHint':
+    'The accounts may request movies or series. weblion.one approves them in Seerr.',
+  'media.requests.fieldMovies': 'Request movies',
+  'media.requests.fieldTv': 'Request series',
+  'media.requests.limitNone': 'No limit',
+  'media.requests.quotaLimit': 'Number',
+  'media.requests.quotaDays': 'in days',
+  'media.requests.seasonsHint':
+    'For series Seerr counts seasons, not series. "No requests" means switching requests off.',
+  'media.requests.typeRequired': 'Choose movies, series or both.',
+  'media.requests.quotaInvalid': 'A whole number from 1 to {max}.',
+  'media.requests.daysInvalid': 'A whole number from 1 to {max} days.',
+  'media.requests.sharedWarning':
+    "Several organizations have an allowance on this instance. In requests every account sees the others' login names and who asked for a title.",
+  'media.requests.inactive':
+    'Seerr is off on this instance. Customers see requests only once you switch it on.',
+  'media.requests.streamsWarning':
+    'With 1 stream an account cannot sign in to requests while another device is signed in.',
+  'media.requests.unavailable': 'No Seerr is set up for this instance.',
+  'media.requests.offOnSave': 'Requests are switched off on saving.',
+  'media.requests.applyFailed':
+    'The request rights of these accounts could not be set. The sync tries again.',
+  'media.reseller.requestsCap': 'At most what your allowance permits.',
+  'media.reseller.requestsYours': 'Your allowance: {value}',
+  'media.conflict.requestsMovies': 'Request movies',
+  'media.conflict.requestsTv': 'Request series',
+  'media.conflict.movieQuota': 'Movie limit',
+  'media.conflict.tvQuota': 'Season limit',
+  'media.seerr.column': 'Requests',
+  'media.seerr.none': 'No Seerr',
+  'media.seerr.status.off': 'Off',
+  'media.seerr.status.ok': 'On',
+  'media.seerr.status.unsafe': 'Unsafe',
+  'media.seerr.status.error': 'Error',
+  'media.seerr.status.unknown': 'Not checked',
+  'media.seerr.shared':
+    "Shared: {n} organizations with requests see each other's login names and wishes in Seerr.",
+  'media.seerr.manage': 'Requests…',
+  'media.seerr.title': 'Requests on {instance}',
+  'media.seerr.text':
+    'Seerr is the request site of this Jellyfin instance. The console sets up the accounts of customers with requests there and sets their rights and limits. You approve requests in Seerr.',
+  'media.seerr.version': 'Version {version}',
+  'media.seerr.checkedAt': 'Checked {when}',
+  'media.seerr.recheck': 'Check again',
+  'media.seerr.check.reachable': 'Reachable',
+  'media.seerr.check.key': 'API key accepted',
+  'media.seerr.check.sameServer': 'Connected to this Jellyfin instance',
+  'media.seerr.check.newSignIns': 'New sign-ins through Jellyfin off',
+  'media.seerr.check.defaultPermissions': 'New users without rights',
+  'media.seerr.check.mediaServerLogin': 'Sign-in with Jellyfin on',
+  'media.seerr.check.csrf': 'CSRF protection off',
+  'media.seerr.problem.unreachable': 'Seerr cannot be reached.',
+  'media.seerr.problem.key': 'Seerr rejected the API key.',
+  'media.seerr.problem.not_jellyfin': 'Seerr is not set up for Jellyfin.',
+  'media.seerr.problem.other_server': 'Seerr is connected to another Jellyfin server.',
+  'media.seerr.problem.csrf':
+    "Seerr's CSRF protection is on, so the console cannot change anything. Switch it off in Seerr under Settings > Network.",
+  'media.seerr.problem.new_signins':
+    'New sign-ins through Jellyfin are on: every user of the server could request.',
+  'media.seerr.problem.default_permissions': 'New users get rights. Recommended: none.',
+  'media.seerr.problem.media_server_login': 'Sign-in with Jellyfin is off: customers could not sign in.',
+  'media.seerr.unmanaged':
+    'Seerr users the console does not manage that may request: {n}. The sync takes this right away.',
+  'media.seerr.orphans': 'Seerr users without a Jellyfin user: {n}. Delete them in Seerr.',
+  'media.seerr.apply': 'Apply the recommended settings',
+  'media.seerr.applyText':
+    'Sets in Seerr: new sign-ins through Jellyfin off, new users without rights, sign-in with Jellyfin on. Other settings stay.',
+  'media.seerr.applied': 'Recommended settings set in Seerr',
+  'media.seerr.enable': 'Offer requests to customers',
+  'media.seerr.enableHint': 'Possible once every check passes.',
+  'media.seerr.enabled': 'Requests switched on for {instance}',
+  'media.seerr.disabled': 'Requests switched off for {instance}',
+  'media.seerr.disableTitle': 'Switch requests off for {instance}?',
+  'media.seerr.disableText':
+    'Customers no longer see requests. The console takes the right to request away from every account in Seerr. Users and requests stay in Seerr.',
+  'media.seerr.disableConfirm': 'Switch off',
+  'media.seerr.sharedTitle': 'Several organizations on this instance',
+  'media.seerr.sharedText':
+    '{n} organizations have an allowance on {instance}. In Seerr every signed-in account sees the user list and, for every title, who asked for it. Customers with requests thus see login names and wishes of other customers.',
+  'media.seerr.sharedConfirm': 'I have checked this and switch requests on anyway.',
+  'media.seerr.enableConfirm': 'Switch on',
+  'media.seerr.notConfigured':
+    'No Seerr is set up for this instance. Enter its address and API key at the provider.',
+  'media.seerr.toProvider': 'To the provider',
+  'media.seerr.applyResult': 'Request rights set: {n}',
+
   // Admin, dashboard
   'media.admin.synced':
     '{seen} streaming accounts synced, {missing} no longer found, {repaired} policies repaired',
@@ -407,6 +532,19 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'providers.jellyfin.accountsText':
     'Streaming accounts of this instance, customer allowances and the import of users created in Jellyfin directly.',
   'providers.jellyfin.toAccounts': 'To the streaming accounts',
+  'providers.jellyfin.seerr': 'Requests (Seerr, optional)',
+  'providers.jellyfin.seerrHelp':
+    'A Seerr instance connected to exactly this Jellyfin instance. Switch it on for customers under Admin > Streaming.',
+  'providers.jellyfin.seerrUrl': 'Seerr address',
+  'providers.jellyfin.seerrUrlHint':
+    'The address where your customers open Seerr, e.g. https://requests.weblion.one.',
+  'providers.jellyfin.seerrUrlInvalid': 'An http or https address without query and without credentials.',
+  'providers.jellyfin.seerrApiKey': 'Seerr API key',
+  'providers.jellyfin.seerrApiKeyHint':
+    'Seerr > Settings > General > API key. The key has full rights in Seerr. Stored encrypted and never shown again.',
+  'providers.jellyfin.seerrApiKeyInvalid': 'Paste the key as Seerr shows it.',
+  'providers.jellyfin.seerrBoth': 'Address and key go together.',
+  'providers.jellyfin.seerrRemove': 'Remove Seerr',
 
   // Reseller overview, delete blockers
   'admin.resources.mediaAccounts': 'Streaming accounts',

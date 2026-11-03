@@ -816,6 +816,8 @@ describe('devices and Quick Connect', () => {
       after: { enabled: false },
       ended: { sessions: 2, stopped: 1 },
       signedOut: 0,
+      // Muster AG has requests on the demo instance: the request rights went with the disable.
+      seerr: 'ok',
     });
   });
 
@@ -856,7 +858,11 @@ describe('devices and Quick Connect', () => {
     const del = await remove(anna, kitchenAccount, 'kueche-kemaro');
     expect(del.statusCode, del.body).toBe(200);
     const [entry] = await auditEntries('media.account_delete', kitchenAccount);
-    expect(entry!.details).toEqual({ username: 'kueche-kemaro', ended: { sessions: 0, stopped: 0 } });
+    expect(entry!.details).toEqual({
+      username: 'kueche-kemaro',
+      ended: { sessions: 0, stopped: 0 },
+      seerr: 'ok',
+    });
 
     const hall = await created(anna, musterId, { name: 'flur' });
     // Codes that cannot be one never reach the instance (5 attempts: within the limit).
@@ -875,6 +881,7 @@ describe('devices and Quick Connect', () => {
       expect(failed!.details).toEqual({
         username: 'flur-kemaro',
         ended: { error: 'Jellyfin: stopMediaUserPlayback failed: simulated (HTTP 503)' },
+        seerr: 'ok',
       });
     } finally {
       fail.delete('stop');
@@ -1185,6 +1192,7 @@ describe('accounts', () => {
       // Playback stopped first (none), devices left behind signed out after (none).
       ended: { sessions: 0, stopped: 0 },
       signedOut: 0,
+      seerr: 'ok',
     });
     expect((await anna.patch(`/media/accounts/${lea}`, { enabled: true })).statusCode).toBe(200);
     expect((await anna.patch(`/media/accounts/${lea}`, { enabled: 'yes' })).statusCode).toBe(400);
@@ -1246,7 +1254,11 @@ describe('accounts', () => {
     expect(await stored('max-kemaro')).toBeUndefined();
     const entries = await auditEntries('media.account_delete', id);
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.details).toEqual({ username: 'max-kemaro', ended: { sessions: 0, stopped: 0 } });
+    expect(entries[0]!.details).toEqual({
+      username: 'max-kemaro',
+      ended: { sessions: 0, stopped: 0 },
+      seerr: 'ok',
+    });
     expect((await remove(anna, id, 'max-kemaro')).statusCode).toBe(404);
 
     // Gone at the instance already: removed from the console only.

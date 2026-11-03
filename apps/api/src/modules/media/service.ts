@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { and, count, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, count, eq, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import {
   ALL_PERMISSIONS,
@@ -21,6 +21,7 @@ import {
   type MediaLoginDto,
   type MediaPolicyApplyResult,
   type MediaPolicyState,
+  type MediaRequestsAccess,
   type ModuleKey,
   type Permission,
 } from '@weblion/shared';
@@ -232,8 +233,14 @@ export async function lockMediaOrg(tx: Tx, org: Pick<Organization, 'id' | 'paren
 export interface MediaCommitments {
   /** The organization's own accounts (all instances). */
   accounts: number;
-  /** Customer allowances of a reseller on the instance, with their access. */
-  customers: { orgId: string; name: string; maxAccounts: number; access: MediaAccess }[];
+  /** Customer allowances of a reseller on the instance, with their access and requests add-on. */
+  customers: {
+    orgId: string;
+    name: string;
+    maxAccounts: number;
+    access: MediaAccess;
+    requests: MediaRequestsAccess | null;
+  }[];
   customerAccounts: number;
 }
 
@@ -245,6 +252,41 @@ export function mediaAccessOf(
     maxStreams: allowance.maxStreams,
     downloads: allowance.downloads,
     remoteBitrateMbit: allowance.remoteBitrateMbit,
+  };
+}
+
+/** The six columns of the requests add-on (Seerr) of an allowance. */
+export type MediaRequestsColumns = Pick<
+  MediaAllowance,
+  'requestsMovies' | 'requestsTv' | 'movieQuotaLimit' | 'movieQuotaDays' | 'tvQuotaLimit' | 'tvQuotaDays'
+>;
+
+/** The requests add-on of an allowance from its columns, or null when off. */
+export function mediaRequestsOf(allowance: MediaRequestsColumns): MediaRequestsAccess | null {
+  if (!allowance.requestsMovies && !allowance.requestsTv) return null;
+  const quota = (limit: number | null, days: number | null) =>
+    limit !== null && days !== null ? { limit, days } : null;
+  return {
+    movies: allowance.requestsMovies,
+    tv: allowance.requestsTv,
+    movieQuota: allowance.requestsMovies ? quota(allowance.movieQuotaLimit, allowance.movieQuotaDays) : null,
+    tvQuota: allowance.requestsTv ? quota(allowance.tvQuotaLimit, allowance.tvQuotaDays) : null,
+  };
+}
+
+/** The columns of an add-on (null: off, quotas null). Quotas of types that are off are not stored. */
+export function mediaRequestsColumns(requests: MediaRequestsAccess | null): MediaRequestsColumns {
+  const movies = !!requests?.movies;
+  const tv = !!requests?.tv;
+  const movieQuota = movies ? (requests?.movieQuota ?? null) : null;
+  const tvQuota = tv ? (requests?.tvQuota ?? null) : null;
+  return {
+    requestsMovies: movies,
+    requestsTv: tv,
+    movieQuotaLimit: movieQuota?.limit ?? null,
+    movieQuotaDays: movieQuota?.days ?? null,
+    tvQuotaLimit: tvQuota?.limit ?? null,
+    tvQuotaDays: tvQuota?.days ?? null,
   };
 }
 
@@ -288,6 +330,7 @@ export async function mediaCommitments(
     name,
     maxAccounts: allowance.maxAccounts,
     access: mediaAccessOf(allowance),
+    requests: mediaRequestsOf(allowance),
   }));
   result.customerAccounts = result.customers.reduce((sum, c) => sum + c.maxAccounts, 0);
   return result;
@@ -465,14 +508,40 @@ export function mediaAccountIssues(
   return sortMediaIssues(issues);
 }
 
-/** Row values from a Jellyfin user as the instance reports it. */
+/** Issues the requests add-on (Seerr) sets; MEDIA_ACCOUNT_ISSUES lists them last. */
+export const SEERR_ISSUES = ['seerr_missing', 'seerr_drift'] as const satisfies readonly MediaAccountIssue[];
+export type SeerrIssue = (typeof SEERR_ISSUES)[number];
+
+export const isSeerrIssue = (issue: MediaAccountIssue): issue is SeerrIssue =>
+  (SEERR_ISSUES as readonly MediaAccountIssue[]).includes(issue);
+
+/**
+ * The issues column set to `issues` (the Jellyfin side, which never knows about Seerr) plus the
+ * Seerr issues the row has: a Jellyfin write keeps what the Seerr steps found, and only those
+ * steps change them. They come last in MEDIA_ACCOUNT_ISSUES, so appending keeps the order.
+ */
+export function keepSeerrIssues(issues: readonly MediaAccountIssue[]): SQL {
+  const own = JSON.stringify(issues.filter((issue) => !isSeerrIssue(issue)));
+  return sql`${own}::jsonb || (case when ${mediaAccounts.issues} ? 'seerr_missing' then '["seerr_missing"]'::jsonb else '[]'::jsonb end) || (case when ${mediaAccounts.issues} ? 'seerr_drift' then '["seerr_drift"]'::jsonb else '[]'::jsonb end)`;
+}
+
+/** The issues column with its Seerr issues replaced by `issues` (the Jellyfin ones stay). */
+export function replaceSeerrIssues(issues: readonly SeerrIssue[]): SQL {
+  const seerr = JSON.stringify(SEERR_ISSUES.filter((issue) => issues.includes(issue)));
+  return sql`((${mediaAccounts.issues} - 'seerr_missing'::text) - 'seerr_drift'::text) || ${seerr}::jsonb`;
+}
+
+/**
+ * Row values from a Jellyfin user as the instance reports it, for an update: the issues keep the
+ * row's Seerr issues (keepSeerrIssues). An insert passes `issues` itself.
+ */
 export function remoteMediaFields(remote: RemoteMediaUser, issues: MediaAccountIssue[], now: Date) {
   return {
     username: remote.username,
     enabled: remote.enabled,
     hasPassword: remote.hasPassword,
     lastActivityAt: remote.lastActivityAt ? new Date(remote.lastActivityAt) : null,
-    issues,
+    issues: keepSeerrIssues(issues),
     lastSyncedAt: now,
     missingSince: null,
   };
@@ -540,7 +609,7 @@ export async function applyMediaPolicy(
       result.failed.push({ accountId: row.id, username: row.username, error: errorMessage(err) });
       await ctx.db
         .update(mediaAccounts)
-        .set({ issues: sortMediaIssues([...row.issues, 'policy']) })
+        .set({ issues: keepSeerrIssues(sortMediaIssues([...row.issues, 'policy'])) })
         .where(eq(mediaAccounts.id, row.id))
         .catch((e: unknown) =>
           ctx.log.warn({ err: e, accountId: row.id }, 'streaming account update failed'),
