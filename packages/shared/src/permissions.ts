@@ -201,8 +201,8 @@ export const PERMISSIONS = {
   ),
   'media:password': def(
     'media',
-    'Passwörter von Streaming-Zugängen neu setzen',
-    'Set new streaming account passwords',
+    'Passwörter von Streaming-Zugängen neu setzen und Fernseher verbinden',
+    'Set new streaming account passwords and connect TVs',
     { dangerous: true },
   ),
 

@@ -8,6 +8,7 @@ import {
   MEDIA_MAX_STREAMS,
   MEDIA_PASSWORD_MAX,
   MEDIA_PASSWORD_MIN,
+  MEDIA_QUICK_CONNECT_ATTEMPTS_PER_MINUTE,
   expectedMediaPolicy,
   isMediaAccountName,
   mediaAccessExceeds,
@@ -17,6 +18,7 @@ import {
   mediaUsername,
   normalizeMediaId,
   normalizeModules,
+  normalizeQuickConnectCode,
   type MediaAccess,
   type MediaAccessConflict,
   type MediaAccountDto,
@@ -24,10 +26,14 @@ import {
   type MediaAllowanceChangeResult,
   type MediaAllowanceConflictDetails,
   type MediaAllowanceDto,
+  type MediaConnectResultDto,
+  type MediaDevicesDto,
   type MediaInstanceDto,
   type MediaLibraryRef,
   type MediaPasswordIssue,
+  type MediaPasswordResultDto,
   type MediaPolicyApplyResult,
+  type MediaSignOutResultDto,
   type OrgMediaDto,
   type Permission,
   type UnmanagedMediaUserDto,
@@ -47,7 +53,7 @@ import {
 import { runStart } from '../../lib/clock';
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
-import { JELLYFIN_ADMIN_REFUSED } from '../../providers/jellyfin/rules';
+import { JELLYFIN_ADMIN_REFUSED, mediaAccountDisabled } from '../../providers/jellyfin/rules';
 import type { ProviderAdapter } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
 import {
@@ -55,6 +61,7 @@ import {
   accountLimit,
   allowanceConflict,
   applyMediaPolicy,
+  bestEffort,
   committedMediaAccounts,
   errorMessage,
   expectedPolicyFor,
@@ -74,6 +81,7 @@ import {
   noAllowance,
   remoteCodeSuffixes,
   remoteMediaFields,
+  requireMediaDevices,
   requireMediaSupport,
   sameMediaAccess,
   settleWithin,
@@ -137,6 +145,8 @@ const importBody = z.object({
   setPassword: z.boolean().default(false),
 });
 const assignBody = z.object({ orgId: z.uuid().nullable() });
+/** As typed ("123 456"); normalizeQuickConnectCode decides. The value is never echoed. */
+const connectBody = z.object({ code: z.string().max(20) });
 
 /** Budget for the live part of one instance in the admin overview. */
 const INSTANCE_LIVE_TIMEOUT_MS = 10_000;
@@ -145,7 +155,7 @@ const LIVE_TIMEOUT_MS = 10_000;
 
 const like = (q: string) => `%${q.replace(/[%_\\]/g, '')}%`;
 
-/** Passwords must not end up in browser or proxy caches. */
+/** Passwords and anything answered for a Quick Connect code must not end up in browser or proxy caches. */
 function noStore(reply: FastifyReply) {
   reply.header('cache-control', 'no-store');
 }
@@ -267,9 +277,46 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceType: 'media_account',
       resourceId: entry.resourceId,
       status: 'failure',
-      details: { ...entry.details, error: errorMessage(error) },
+      details: {
+        ...entry.details,
+        error: errorMessage(error),
+        // The error code (e.g. "quick_connect_code") says why without the message's wording.
+        ...(error instanceof AppError ? { code: error.code } : {}),
+      },
     });
     return error instanceof AppError ? error : new AppError(500, 'action_failed', errorMessage(error));
+  }
+
+  /**
+   * Stops playback before a disable or delete, best effort: audited as `ended`, never blocks the
+   * action. Jellyfin's own revocation ends the sessions too, but a stream in flight may run on.
+   * undefined when the adapter cannot stop playback.
+   */
+  async function stopPlayback(
+    adapter: ProviderAdapter,
+    externalId: string,
+  ): Promise<{ sessions: number; stopped: number } | { error: string } | undefined> {
+    if (!adapter.stopMediaUserPlayback) return undefined;
+    const stop = await bestEffort(() => adapter.stopMediaUserPlayback!(externalId));
+    return stop.ok ? { sessions: stop.value.sessions, stopped: stop.value.stopped } : { error: stop.error };
+  }
+
+  /**
+   * After a disable: Jellyfin revoked every token if the user was enabled there, so only rows a
+   * lockout left behind are still signed in. Best effort: the number signed out, null when that
+   * failed, undefined when the adapter cannot sign out devices.
+   */
+  async function signOutLeftovers(
+    adapter: ProviderAdapter,
+    externalId: string,
+  ): Promise<number | null | undefined> {
+    if (!adapter.countMediaUserDevices || !adapter.signOutMediaUserDevices) return undefined;
+    const left = await bestEffort(async () =>
+      (await adapter.countMediaUserDevices!(externalId)) > 0
+        ? adapter.signOutMediaUserDevices!(externalId)
+        : null,
+    );
+    return left.ok ? (left.value?.signedOut ?? 0) : null;
   }
 
   /**
@@ -561,20 +608,24 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
     requireMediaSupport(adapter);
     const body = parse(patchBody, req.body);
     if (body.enabled === current.enabled) return toMediaAccountDto(ctx, req, loaded);
-    const entry = {
-      action: 'media.account_update',
-      orgId: current.orgId,
-      resourceId: current.id,
-      details: {
-        username: current.username,
-        before: { enabled: current.enabled },
-        after: { enabled: body.enabled },
-      },
+    const details: Record<string, unknown> = {
+      username: current.username,
+      before: { enabled: current.enabled },
+      after: { enabled: body.enabled },
     };
+    const entry = { action: 'media.account_update', orgId: current.orgId, resourceId: current.id, details };
+    if (!body.enabled) {
+      const ended = await stopPlayback(adapter, current.externalId);
+      if (ended) details.ended = ended;
+    }
     // Disabling signs out every device of the user; enabling also lifts a lock after failed sign-ins.
     const remote = await atInstance(req, entry, () =>
       adapter.setMediaUserEnabled!(current.externalId, body.enabled),
     );
+    if (!body.enabled) {
+      const signedOut = await signOutLeftovers(adapter, current.externalId);
+      if (signedOut !== undefined) details.signedOut = signedOut;
+    }
     const expected = await expectedPolicyFor(db, current.orgId, current.providerConnectionId);
     await db
       .update(mediaAccounts)
@@ -584,7 +635,7 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
     return accountDto(req, current.id);
   });
 
-  app.post('/media/accounts/:id/password', async (req, reply): Promise<{ password: string | null }> => {
+  app.post('/media/accounts/:id/password', async (req, reply): Promise<MediaPasswordResultDto> => {
     const loaded = await account(req);
     requireSession(req);
     await access.assert(req, 'media:password', loaded.scope);
@@ -614,8 +665,117 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
       .where(eq(mediaAccounts.id, current.id));
     // Who set a new password is recorded, the password itself never is.
     await succeeded(req, entry);
+    // Jellyfin signed out every device: the fresh count tells the dialog whether one is left.
+    const devices = adapter.countMediaUserDevices
+      ? await bestEffort(() => adapter.countMediaUserDevices!(current.externalId))
+      : null;
     noStore(reply);
-    return { password: chosen ? null : newPassword };
+    return { password: chosen ? null : newPassword, devices: devices?.ok ? devices.value : null };
+  });
+
+  // --- Customer: devices and Quick Connect ----------------------------------------------
+
+  /**
+   * Quick Connect attempts per account and minute, wrong codes included: guessing the codes other
+   * devices show stays slow. Counted in the handler, once the caller may connect the account, so
+   * nobody else uses up its attempts. A route config would count before any access check and
+   * replace the global limit per address, which this route keeps.
+   */
+  const connectAttempts = app.createRateLimit({
+    max: MEDIA_QUICK_CONNECT_ATTEMPTS_PER_MINUTE,
+    timeWindow: '1 minute',
+    // Called only after account() loaded the account by this id, a UUID Postgres matches in any
+    // case: in lower case it is the stored id, one key for every spelling.
+    keyGenerator: (req) => `media-connect:${parse(idParams, req.params).id.toLowerCase()}`,
+  });
+
+  async function countConnectAttempt(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const limit = await connectAttempts(req);
+    if (limit.isAllowed || !limit.isExceeded) return;
+    reply.header('retry-after', limit.ttlInSeconds);
+    throw new AppError(
+      429,
+      'rate_limited',
+      `Too many attempts for this account, retry in ${limit.ttlInSeconds} seconds`,
+    );
+  }
+
+  /**
+   * "Fernseher verbinden": confirms the Quick Connect code a TV shows, for this account. It
+   * grants a sign-in like a password does, so it needs media:password in an interactive session.
+   * The code is a one-time secret: body only, never logged, stored, audited or answered.
+   */
+  app.post('/media/accounts/:id/connect', async (req, reply): Promise<MediaConnectResultDto> => {
+    const loaded = await account(req);
+    requireSession(req);
+    await access.assert(req, 'media:password', loaded.scope);
+    const { adapter, account: current } = loaded;
+    requireMediaSupport(adapter);
+    requireMediaDevices(adapter);
+    await countConnectAttempt(req, reply);
+    const code = normalizeQuickConnectCode(parse(connectBody, req.body ?? {}).code);
+    if (!code) throw badRequest('Validation failed', [{ path: 'code', message: 'a code has 6 digits' }]);
+    // Jellyfin itself would confirm the code for a disabled user; nothing is sent then.
+    if (current.missingSince || !current.enabled) throw mediaAccountDisabled();
+    const entry = {
+      action: 'media.device_connect',
+      orgId: current.orgId,
+      resourceId: current.id,
+      details: { username: current.username },
+    };
+    await atInstance(req, { ...entry, details: { ...entry.details } }, () =>
+      adapter.authorizeMediaQuickConnect!(current.externalId, code),
+    );
+    await succeeded(req, entry);
+    noStore(reply);
+    return { connected: true };
+  });
+
+  /** The number of signed-in devices only (the sign-out dialog): never names, apps or times. */
+  app.get('/media/accounts/:id/devices', async (req): Promise<MediaDevicesDto> => {
+    const { adapter, account: current } = await account(req, 'media:write');
+    requireMediaSupport(adapter);
+    requireMediaDevices(adapter);
+    if (current.missingSince) return { count: 0 };
+    return { count: await adapter.countMediaUserDevices!(current.externalId) };
+  });
+
+  /**
+   * "Alle Geräte abmelden": stops playback, then signs out every device of the account that no
+   * other account is signed in on (Jellyfin would sign out both). Password and history stay.
+   */
+  app.post('/media/accounts/:id/signout', async (req): Promise<MediaSignOutResultDto> => {
+    const { adapter, account: current } = await account(req, 'media:write');
+    requireMediaSupport(adapter);
+    requireMediaDevices(adapter);
+    if (current.missingSince) throw conflict('This account no longer exists at Jellyfin');
+    const stop = await bestEffort(() => adapter.stopMediaUserPlayback!(current.externalId));
+    const stopped = stop.ok ? stop.value.stopped : 0;
+    const details: Record<string, unknown> = {
+      username: current.username,
+      stopped,
+      ...(stop.ok ? {} : { stopError: stop.error }),
+    };
+    const entry = { action: 'media.device_signout', orgId: current.orgId, resourceId: current.id, details };
+    const result = await atInstance(req, entry, () => adapter.signOutMediaUserDevices!(current.externalId));
+    await succeeded(req, {
+      ...entry,
+      details: {
+        username: current.username,
+        stopped,
+        signedOut: result.signedOut,
+        skipped: result.skipped,
+        failed: result.failed,
+        ...(stop.ok ? {} : { stopError: stop.error }),
+      },
+    });
+    return {
+      stopped,
+      signedOut: result.signedOut,
+      skipped: result.skipped,
+      failed: result.failed,
+      remaining: result.remaining,
+    };
   });
 
   app.delete('/media/accounts/:id', async (req) => {
@@ -628,12 +788,13 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
         { path: 'confirm', message: `Type the login name ${current.username} to confirm` },
       ]);
     }
-    const entry = {
-      action: 'media.account_delete',
-      orgId: current.orgId,
-      resourceId: current.id,
-      details: { username: current.username },
-    };
+    const details: Record<string, unknown> = { username: current.username };
+    const entry = { action: 'media.account_delete', orgId: current.orgId, resourceId: current.id, details };
+    if (!current.missingSince) {
+      // DELETE /Users/{id} revokes every token itself; a stream in flight is stopped first.
+      const ended = await stopPlayback(adapter, current.externalId);
+      if (ended) details.ended = ended;
+    }
     await atInstance(req, entry, async () => {
       try {
         // Jellyfin removes the devices (signed out), playlists and watch history with the user.

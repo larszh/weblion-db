@@ -9,6 +9,7 @@ import {
   mediaPolicyDrift,
   mediaUsername,
   normalizeMediaId,
+  normalizeQuickConnectCode,
   type MediaAccess,
 } from './media';
 
@@ -191,5 +192,19 @@ describe('mediaActivityDay', () => {
     expect(mediaActivityDay(undefined)).toBeNull();
     expect(mediaActivityDay('')).toBeNull();
     expect(mediaActivityDay('yesterday')).toBeNull();
+  });
+});
+
+describe('normalizeQuickConnectCode', () => {
+  it('accepts 6 digits as typed, with spaces or a dash', () => {
+    expect(normalizeQuickConnectCode('123456')).toBe('123456');
+    expect(normalizeQuickConnectCode(' 123 456 ')).toBe('123456');
+    expect(normalizeQuickConnectCode('123-456')).toBe('123456');
+  });
+
+  it('refuses what Jellyfin never generates', () => {
+    for (const value of ['012345', '12345', '1234567', '12a456', '']) {
+      expect(normalizeQuickConnectCode(value)).toBeNull();
+    }
   });
 });

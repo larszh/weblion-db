@@ -5,8 +5,12 @@ import type {
   MediaAccountSecretDto,
   MediaAllowanceChangeResult,
   MediaAllowanceDto,
+  MediaConnectResultDto,
+  MediaDevicesDto,
   MediaInstanceDto,
   MediaLibraryRef,
+  MediaPasswordResultDto,
+  MediaSignOutResultDto,
   OrgMediaDto,
   UnmanagedMediaUserDto,
 } from '@weblion/shared';
@@ -27,6 +31,7 @@ export const mediaKeys = {
   libraries: (providerId: string) => ['media', 'admin', 'libraries', providerId] as const,
   unmanaged: (providerId: string) => ['media', 'admin', 'unmanaged', providerId] as const,
   resellerAllowance: (customerId: string) => ['media', 'reseller', customerId] as const,
+  devices: (accountId: string) => ['media', 'devices', accountId] as const,
 };
 
 /** Accounts, allowances and the organization data (an allowance can switch the module on). */
@@ -67,7 +72,7 @@ export const useCreateMediaAccount = (
     { success: options.success, invalidate: accountsChanged, onSuccess: options.onSuccess, gcTime: 0 },
   );
 
-/** Disables (signs out every device) or enables (also lifts a lock after failed sign-ins). */
+/** Disables (stops playback, signs out every device) or enables (also lifts a lock after failed sign-ins). */
 export const useUpdateMediaAccount = (options: {
   success: (account: MediaAccountDto, enabled: boolean) => string;
   onSuccess?: (account: MediaAccountDto) => void;
@@ -84,13 +89,14 @@ export const useUpdateMediaAccount = (options: {
 
 /**
  * A new password is set through a mutation, so a generated one never lands in the query cache.
- * Call reset() on the returned mutation to forget it again. Every device of the user is signed out.
+ * Call reset() on the returned mutation to forget it again. Every device of the user is signed out;
+ * the answer has the fresh device count (null when unknown).
  */
-export const useSetMediaPassword = (onDone: (result: { password: string | null }) => void) => {
+export const useSetMediaPassword = (onDone: (result: MediaPasswordResultDto) => void) => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, password }: { id: string; password?: string }) =>
-      api.post<{ password: string | null }>(`/media/accounts/${id}/password`, password ? { password } : {}),
+      api.post<MediaPasswordResultDto>(`/media/accounts/${id}/password`, password ? { password } : {}),
     gcTime: 0,
     onSuccess: (result) => {
       // The account has a password now ("no_password" is gone).
@@ -104,6 +110,44 @@ export const useSetMediaPassword = (onDone: (result: { password: string | null }
     },
   });
 };
+
+/** The count only; fetched when the sign-out dialog opens, never cached for long. */
+export const useMediaDevices = (accountId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: mediaKeys.devices(accountId),
+    queryFn: () => api.get<MediaDevicesDto>(`/media/accounts/${accountId}/devices`),
+    enabled,
+    gcTime: 0,
+    retry: false,
+  });
+
+/**
+ * Confirms the Quick Connect code a TV shows. gcTime 0 and no toast on error: the dialog shows
+ * the error code inline. The code is never kept (call reset() when the dialog closes).
+ */
+export const useConnectMediaDevice = (onDone: () => void) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, code }: { id: string; code: string }) =>
+      api.post<MediaConnectResultDto>(`/media/accounts/${id}/connect`, { code }),
+    gcTime: 0,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['media', 'devices'] });
+      onDone();
+    },
+  });
+};
+
+/** Stops playback and signs out every device of the account no other account is signed in on. */
+export const useSignOutMediaDevices = (options: {
+  success: (result: MediaSignOutResultDto) => string;
+  onSuccess: (result: MediaSignOutResultDto) => void;
+}) =>
+  useApiMutation((id: string) => api.post<MediaSignOutResultDto>(`/media/accounts/${id}/signout`, {}), {
+    success: options.success,
+    invalidate: [mediaKeys.all],
+    onSuccess: options.onSuccess,
+  });
 
 /** Deletes the user with its watch history at Jellyfin. `confirm` is the login name. */
 export const useDeleteMediaAccount = (success: (account: MediaAccountDto) => string, onSuccess: () => void) =>

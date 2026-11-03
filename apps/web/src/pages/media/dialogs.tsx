@@ -1,6 +1,17 @@
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Eye, EyeOff, KeyRound, MoreHorizontal, Power, PowerOff, Sparkles, Trash2 } from 'lucide-react';
+import {
+  Eye,
+  EyeOff,
+  KeyRound,
+  LogOut,
+  MoreHorizontal,
+  Power,
+  PowerOff,
+  Sparkles,
+  Trash2,
+  Tv,
+} from 'lucide-react';
 import {
   MEDIA_BITRATE_PRESETS_MBIT,
   MEDIA_GENERATED_PASSWORD_LENGTH,
@@ -17,13 +28,17 @@ import {
   type MediaLoginDto,
   type MediaPolicyApplyResult,
 } from '@weblion/shared';
+import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatNumber } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
 import {
+  useConnectMediaDevice,
   useCreateMediaAccount,
   useDeleteMediaAccount,
+  useMediaDevices,
   useSetMediaPassword,
+  useSignOutMediaDevices,
   useUpdateMediaAccount,
   type ResellerMediaAllowanceInput,
 } from '@/lib/api/media';
@@ -44,14 +59,20 @@ import {
 import { safePanelUrl } from '@/pages/hosting/bits';
 import {
   bitrateChoiceOf,
+  connectErrorKey,
   groupPassword,
   parseCount,
+  quickConnectField,
   readBitrate,
+  streamLimitOf,
   usernamePreview,
   type BitrateChoice,
 } from './bits';
 
-/** Dialogs of the streaming pages: create, password, enable/disable, delete, allowance fields. */
+/**
+ * Dialogs of the streaming pages: create, password, connect a TV, sign out devices,
+ * enable/disable, delete, allowance fields.
+ */
 
 // --- Password shown once -------------------------------------------------------------
 
@@ -60,6 +81,10 @@ export interface ShownMediaPassword {
   username: string;
   password: string;
   loginUrl: string | null;
+  /** After a new password: devices still signed in (Jellyfin signs out all), null when unknown. */
+  devices?: number | null;
+  /** Opens "Alle Geräte abmelden" for the account (when devices are left). */
+  onSignOut?: () => void;
 }
 
 /**
@@ -114,6 +139,21 @@ export function MediaPasswordDialog({
           </div>
           <p className="text-xs text-muted">{t('media.password.groups')}</p>
           <Notice tone="warning">{t('media.password.once')}</Notice>
+          {shown.devices === 0 && <Notice tone="success">{t('media.password.devicesDone')}</Notice>}
+          {!!shown.devices && shown.devices > 0 && (
+            <Notice tone="info">
+              <span className="block">{t('media.password.devicesLeft', { n: shown.devices })}</span>
+              {shown.onSignOut && (
+                <button
+                  type="button"
+                  className="mt-1.5 font-medium underline underline-offset-2"
+                  onClick={shown.onSignOut}
+                >
+                  {t('media.devices.action')}
+                </button>
+              )}
+            </Notice>
+          )}
         </div>
       )}
     </Dialog>
@@ -375,10 +415,13 @@ export function SetMediaPasswordDialog({
   account,
   onClose,
   onPassword,
+  onSignOut,
 }: {
   account: MediaAccountDto;
   onClose: () => void;
   onPassword: (shown: ShownMediaPassword) => void;
+  /** Opens the sign-out dialog for the account on the page (the password dialog offers it). */
+  onSignOut?: (account: MediaAccountDto) => void;
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState<PasswordMode>('generate');
@@ -391,9 +434,15 @@ export function SetMediaPasswordDialog({
         username: account.username,
         password: r.password,
         loginUrl: account.loginUrl,
+        devices: r.devices,
+        onSignOut: onSignOut ? () => onSignOut(account) : undefined,
       });
     } else {
-      toast.success(t('media.password.setToast', { username: account.username }));
+      toast.success(
+        r.devices === 0
+          ? t('media.password.setToastSignedOut', { username: account.username })
+          : t('media.password.setToast', { username: account.username }),
+      );
     }
   });
   const close = () => {
@@ -438,6 +487,207 @@ export function SetMediaPasswordDialog({
   );
 }
 
+// --- Connect a TV ---------------------------------------------------------------------
+
+/**
+ * "Fernseher verbinden": the code a TV shows after choosing Quick Connect. The code lives only
+ * in this component's state and the one request; refusals are shown inline by their code.
+ */
+export function ConnectTvDialog({
+  account,
+  onClose,
+  onSignOut,
+}: {
+  account: MediaAccountDto;
+  onClose: () => void;
+  /** Switches to "Alle Geräte abmelden" (offered when the stream limit is reached). */
+  onSignOut?: () => void;
+}) {
+  const { t } = useI18n();
+  const [value, setValue] = useState('');
+  const field = quickConnectField(value);
+  const connect = useConnectMediaDevice(() => {
+    toast.success(t('media.connect.done', { username: account.username }));
+    close();
+  });
+  function close() {
+    // Forget the request with the code together with the dialog.
+    connect.reset();
+    setValue('');
+    onClose();
+  }
+  const submit = () => {
+    if (!field.code || connect.isPending) return;
+    connect.mutate(
+      { id: account.id, code: field.code },
+      {
+        onError: (err) => {
+          // A code the server does not know is typed again from the TV's new one.
+          if (connectErrorKey(err) === 'media.connect.error.code') setValue('');
+        },
+      },
+    );
+  };
+  const error = connect.error;
+  const errorKey = error ? connectErrorKey(error) : null;
+  const limit = streamLimitOf(error);
+  const steps = [t('media.connect.step1'), t('media.connect.step2')];
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && close()}
+      title={t('media.connect.title', { username: account.username })}
+      description={t('media.connect.text')}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={!field.code} loading={connect.isPending} onClick={submit}>
+            {t('media.connect.submit')}
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <ol className="space-y-2 text-sm text-text">
+          {steps.map((step, i) => (
+            <li key={i} className="flex gap-2.5">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary-text">
+                {i + 1}
+              </span>
+              <span className="min-w-0">{step}</span>
+            </li>
+          ))}
+        </ol>
+        <Field
+          label={t('media.connect.code')}
+          htmlFor="mc-code"
+          hint={t('media.connect.codeHint')}
+          error={field.invalid ? t('media.connect.codeInvalid') : null}
+        >
+          <Input
+            id="mc-code"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              // A new code starts a new attempt: the last refusal no longer applies.
+              if (connect.isError) connect.reset();
+            }}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={7}
+            placeholder="123456"
+            className="w-44 font-mono text-lg tracking-[0.3em] tabular"
+            aria-invalid={field.invalid}
+            autoFocus
+          />
+        </Field>
+        {error && (
+          <Notice tone={errorKey === 'media.connect.error.failed' ? 'warning' : 'danger'}>
+            <span className="block">
+              {errorKey
+                ? errorKey === 'media.connect.error.limit'
+                  ? t(errorKey, { n: limit ?? '?' })
+                  : t(errorKey)
+                : errorMessage(error)}
+            </span>
+            {errorKey === 'media.connect.error.limit' && onSignOut && (
+              <button
+                type="button"
+                className="mt-1.5 font-medium underline underline-offset-2"
+                onClick={() => {
+                  connect.reset();
+                  setValue('');
+                  onSignOut();
+                }}
+              >
+                {t('media.devices.action')}
+              </button>
+            )}
+          </Notice>
+        )}
+        {/* Enter submits the form. */}
+        <button type="submit" className="sr-only" aria-hidden tabIndex={-1} />
+      </form>
+    </Dialog>
+  );
+}
+
+// --- Sign out all devices --------------------------------------------------------------
+
+/**
+ * "Alle Geräte abmelden": the number of signed-in devices (read when the dialog opens, never
+ * names), then playback is stopped and every device signed out that no other account shares.
+ */
+export function SignOutDevicesDialog({
+  account,
+  open,
+  onClose,
+}: {
+  account: MediaAccountDto;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const devices = useMediaDevices(account.id, open);
+  const signOut = useSignOutMediaDevices({
+    success: (r) => t('media.devices.done', { n: r.signedOut }),
+    onSuccess: (r) => {
+      if (r.skipped > 0) toast.warning(t('media.devices.skipped', { n: r.skipped }));
+      if (r.failed > 0) toast.error(t('media.devices.failed', { n: r.failed }));
+      onClose();
+    },
+  });
+  const count = devices.data?.count ?? null;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => !o && onClose()}
+      title={t('media.devices.title', { username: account.username })}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="danger"
+            disabled={devices.isPending || count === 0}
+            loading={signOut.isPending}
+            onClick={() => signOut.mutate(account.id)}
+          >
+            {t('media.devices.confirm')}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {devices.isPending ? (
+          <LoadingBlock rows={1} />
+        ) : devices.isError ? (
+          <ErrorState error={devices.error} onRetry={() => void devices.refetch()} />
+        ) : (
+          <p className="text-sm font-medium text-text">
+            {count ? t('media.devices.count', { n: count }) : t('media.devices.none')}
+          </p>
+        )}
+        <p className="text-sm text-muted">{t('media.devices.text')}</p>
+        <p className="text-xs text-muted">{t('media.devices.privacy')}</p>
+      </div>
+    </Dialog>
+  );
+}
+
 // --- Delete --------------------------------------------------------------------------
 
 /** Deleting removes watch history, favorites and playlists at Jellyfin: confirmed with the login name. */
@@ -477,23 +727,29 @@ export function DeleteMediaAccountDialog({
 
 // --- Row actions ---------------------------------------------------------------------
 
-type Pending = 'toggle' | 'password' | 'delete' | null;
+type Pending = 'toggle' | 'password' | 'connect' | 'signout' | 'delete' | null;
 
 /**
  * The actions menu of one account, with its dialogs. Only actions the user may perform on this
  * account (its `permissions`) are offered; an account gone at Jellyfin can only be deleted.
- * `before`: further menu items in front (the admin page's assign and repair).
+ * `before`: further menu items in front (the admin page's assign and repair). `quickConnect`:
+ * the instance's switch from the login card ("Fernseher verbinden" is hidden only when it is
+ * known to be off). `onSignOut`: opens the page's sign-out dialog from the password dialog.
  */
 export function MediaAccountActions({
   account,
   onPassword,
   allowPassword = true,
   before,
+  quickConnect,
+  onSignOut,
 }: {
   account: MediaAccountDto;
   onPassword: (shown: ShownMediaPassword) => void;
   allowPassword?: boolean;
   before?: ReactNode;
+  quickConnect?: boolean | null;
+  onSignOut?: (account: MediaAccountDto) => void;
 }) {
   const { t } = useI18n();
   const [pending, setPending] = useState<Pending>(null);
@@ -502,6 +758,9 @@ export function MediaAccountActions({
   const canWrite = account.permissions.includes('media:write');
   const canPassword = allowPassword && !missing && account.permissions.includes('media:password');
   const canToggle = canWrite && !missing;
+  // A confirmed code signs a device in like the password does: same permission, sessions only.
+  const canConnect = canPassword && account.enabled && quickConnect !== false;
+  const canSignOut = canWrite && !missing;
   const toggle = useUpdateMediaAccount({
     success: (a, enabled) =>
       enabled
@@ -522,6 +781,16 @@ export function MediaAccountActions({
         }
       >
         {before}
+        {canConnect && (
+          <MenuItem icon={<Tv />} onSelect={() => setPending('connect')}>
+            {t('media.connect.action')}
+          </MenuItem>
+        )}
+        {canSignOut && (
+          <MenuItem icon={<LogOut />} onSelect={() => setPending('signout')}>
+            {t('media.devices.action')}
+          </MenuItem>
+        )}
         {canPassword && (
           <MenuItem icon={<KeyRound />} onSelect={() => setPending('password')}>
             {t('media.password.action')}
@@ -551,8 +820,24 @@ export function MediaAccountActions({
       </Menu>
 
       {pending === 'password' && (
-        <SetMediaPasswordDialog account={account} onClose={close} onPassword={onPassword} />
+        <SetMediaPasswordDialog
+          account={account}
+          onClose={close}
+          onPassword={onPassword}
+          onSignOut={onSignOut}
+        />
       )}
+
+      {pending === 'connect' && (
+        <ConnectTvDialog
+          account={account}
+          onClose={close}
+          onSignOut={canSignOut ? () => setPending('signout') : undefined}
+        />
+      )}
+
+      {/* Mounted only while open: the count is read fresh every time and not kept afterwards. */}
+      {canSignOut && pending === 'signout' && <SignOutDevicesDialog account={account} open onClose={close} />}
 
       <ConfirmDialog
         open={pending === 'toggle'}

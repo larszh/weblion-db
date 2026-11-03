@@ -3,6 +3,7 @@ import {
   MEDIA_ACTIVE_WITHIN_SECONDS,
   expectedMediaPolicy,
   normalizeMediaId,
+  normalizeQuickConnectCode,
   type MediaAccess,
   type MediaLibraryRef,
   type MediaPolicyState,
@@ -13,9 +14,20 @@ import {
   assertJellyfinPassword,
   assertJellyfinUsername,
   jellyfinAdminRefused,
+  mediaAccountDisabled,
+  quickConnectOff,
+  quickConnectUnknownCode,
   sameJellyfinUsername,
+  streamLimit,
 } from '../jellyfin/rules';
-import type { MediaActivity, MediaServerInfo, MediaUserInput, RemoteMediaUser } from '../types';
+import type {
+  MediaActivity,
+  MediaPlaybackStop,
+  MediaServerInfo,
+  MediaSignOut,
+  MediaUserInput,
+  RemoteMediaUser,
+} from '../types';
 
 /**
  * Simulated Jellyfin media server for the demo provider: one instance per connection with
@@ -25,6 +37,8 @@ import type { MediaActivity, MediaServerInfo, MediaUserInput, RemoteMediaUser } 
  * administrators the console never manages, Jellyfin's own guards for the last administrator
  * and the last enabled user) with the same errors, so the dev stack and the route tests see the
  * behaviour of a real server. Passwords are kept only to mimic Jellyfin and never returned.
+ * Signed-in devices are simulated as ids with a playing flag (every device is one session);
+ * like the adapter, only counts leave the simulation.
  */
 
 export const DEMO_MEDIA_URL = 'https://media.demo.weblion.one';
@@ -53,6 +67,33 @@ export const DEMO_MEDIA_IDS = {
   gast: '40fa2c6d9b58e2b94320a04ea1ce7f3d',
   altkunde: 'e105e849dc773e5b1a8814f45bc8d0b6',
 } as const;
+
+/** A signed-in device of a demo user: one Jellyfin token row and its session. */
+export interface DemoMediaDevice {
+  deviceId: string;
+  playing: boolean;
+}
+
+/**
+ * Devices signed in at the start. anna-kemaro and the locked-out wohnzimmer-kemaro share the
+ * living-room TV (both signed in there), which shows the skip rule of "Alle Geräte abmelden".
+ * The lockout kept wohnzimmer-kemaro's row, as Jellyfin does.
+ */
+export const DEMO_MEDIA_DEVICES: Partial<Record<keyof typeof DEMO_MEDIA_IDS, DemoMediaDevice[]>> = {
+  'anna-kemaro': [
+    { deviceId: 'demo-tv-wohnzimmer', playing: true },
+    { deviceId: 'demo-phone-anna', playing: false },
+  ],
+  'wohnzimmer-kemaro': [{ deviceId: 'demo-tv-wohnzimmer', playing: false }],
+  'huber-bivane': [{ deviceId: 'demo-tv-huber', playing: false }],
+  'ben-kemaro': [{ deviceId: 'demo-tablet-ben', playing: false }],
+};
+
+/** The one Quick Connect code a demo TV "shows": any other valid code is unknown. */
+export const DEMO_QUICK_CONNECT_CODE = '246810';
+
+/** Test switches: the named step fails like an instance that does not answer. */
+export type DemoMediaFailure = 'stop' | 'signout' | 'devices' | 'connect';
 
 const library = (name: string): string => DEMO_MEDIA_LIBRARIES.find((l) => l.name === name)!.id;
 
@@ -99,13 +140,19 @@ export interface DemoMediaUserSeed {
 export interface DemoMediaUser extends RemoteMediaUser {
   password: string | null;
   invalidLogins: number;
+  /** Revocations by disable, password and delete (not "Alle Geräte abmelden"). */
   signOuts: number;
+  /** Signed-in devices; each one counts as a session for MaxActiveSessions. */
+  devices: DemoMediaDevice[];
 }
 
 export interface DemoMediaState {
   users: Map<string, DemoMediaUser>;
   libraries: MediaLibraryRef[];
   quickConnect: boolean;
+  /** Devices signed in with Quick Connect so far (their ids are demo-qc-<n>). */
+  quickConnects: number;
+  fail: Set<DemoMediaFailure>;
 }
 
 const STATE = new Map<string, DemoMediaState>();
@@ -238,12 +285,15 @@ function generate(now = Date.now()): DemoMediaState {
       password: null,
       invalidLogins: seed.lockedOut ? LOCKOUT_ATTEMPTS : 0,
       signOuts: 0,
+      devices: (DEMO_MEDIA_DEVICES[seed.name] ?? []).map((d) => ({ ...d })),
     });
   }
   return {
     users,
     libraries: DEMO_MEDIA_LIBRARIES.map((l) => ({ ...l })),
     quickConnect: true,
+    quickConnects: 0,
+    fail: new Set(),
   };
 }
 
@@ -307,8 +357,17 @@ export class DemoMedia {
     };
   }
 
+  /** RevokeUserTokens: the user's rows go (other users signed in on the same device keep theirs). */
   private signOut(user: DemoMediaUser): void {
     user.signOuts++;
+    user.devices = [];
+  }
+
+  /** The `fail` switch of a step: thrown like an instance that answers 503. */
+  private failing(step: DemoMediaFailure, method: string): void {
+    if (this.state.fail.has(step)) {
+      throw new ProviderError(JELLYFIN, `${method} failed: simulated (HTTP 503)`, 503);
+    }
   }
 
   /** Sorted by name, copies without password. Never throws (the demo overview counts it). */
@@ -347,6 +406,7 @@ export class DemoMedia {
       password,
       invalidLogins: 0,
       signOuts: 0,
+      devices: [],
     };
     this.state.users.set(externalId, user);
     return this.view(user);
@@ -455,6 +515,73 @@ export class DemoMedia {
 
   mediaLoginUrl(): string {
     return DEMO_MEDIA_URL;
+  }
+
+  /**
+   * The adapter's checks in its order (id, code format, user, administrator, disabled, Quick
+   * Connect, stream limit), then DEMO_QUICK_CONNECT_CODE signs in a new device demo-qc-<n>. Every
+   * other valid code is unknown, as an expired one would be.
+   */
+  authorizeMediaQuickConnect(userId: string, code: string): void {
+    userIdOf(userId);
+    const clean = normalizeQuickConnectCode(code);
+    if (!clean) throw badRequest('A Quick Connect code has 6 digits');
+    this.failing('connect', 'authorizeMediaQuickConnect');
+    const user = this.user(userId);
+    if (isAdministrator(user)) throw jellyfinAdminRefused();
+    // A lockout disables the user too.
+    if (!user.enabled || user.lockedOut) throw mediaAccountDisabled();
+    if (!this.state.quickConnect) throw quickConnectOff();
+    const max = user.policy.maxSessions;
+    if (max >= 1 && user.devices.length >= max) {
+      throw streamLimit({ maxStreams: max, sessions: user.devices.length });
+    }
+    if (clean !== DEMO_QUICK_CONNECT_CODE) throw quickConnectUnknownCode();
+    this.state.quickConnects++;
+    user.devices.push({ deviceId: `demo-qc-${this.state.quickConnects}`, playing: false });
+  }
+
+  countMediaUserDevices(userId: string): number {
+    const user = this.user(userId);
+    this.failing('devices', 'countMediaUserDevices');
+    return user.devices.length;
+  }
+
+  /**
+   * Devices other users are signed in on too are skipped, the rest signed out. Never fails per
+   * device. Administrators are refused, as by the adapter.
+   */
+  signOutMediaUserDevices(userId: string): MediaSignOut {
+    const user = this.user(userId);
+    this.failing('signout', 'signOutMediaUserDevices');
+    if (isAdministrator(user)) throw jellyfinAdminRefused();
+    const shared = new Set(
+      [...this.state.users.values()]
+        .filter((other) => other !== user)
+        .flatMap((other) => other.devices.map((d) => d.deviceId)),
+    );
+    const own = new Set(user.devices.map((d) => d.deviceId));
+    let signedOut = 0;
+    let skipped = 0;
+    for (const deviceId of own) {
+      if (shared.has(deviceId)) skipped++;
+      else signedOut++;
+    }
+    user.devices = user.devices.filter((d) => shared.has(d.deviceId));
+    return { signedOut, skipped, failed: 0, remaining: user.devices.length };
+  }
+
+  /** Every device is a session; the playing ones stop. Administrators are refused, as by the adapter. */
+  stopMediaUserPlayback(userId: string): MediaPlaybackStop {
+    const user = this.user(userId);
+    this.failing('stop', 'stopMediaUserPlayback');
+    if (isAdministrator(user)) throw jellyfinAdminRefused();
+    let stopped = 0;
+    for (const device of user.devices) {
+      if (device.playing) stopped++;
+      device.playing = false;
+    }
+    return { sessions: user.devices.length, stopped };
   }
 
   /** Test helper: how often the user's devices were signed out (also after the user was deleted). */

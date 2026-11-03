@@ -4272,20 +4272,71 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
 
 Die Antwort ist `{ "account": { ... }, "password": null }`.
 
-- **Deaktivieren:** Jellyfin meldet alle Geräte des Zugangs sofort ab, er kann sich nicht mehr
-  anmelden. Verlauf und Favoriten bleiben. **Aktivieren** hebt auch eine Sperre nach
-  fehlgeschlagenen Anmeldungen auf (die Console setzt den Zähler zurück, sonst sperrte der nächste
-  Fehlversuch wieder). Im Audit-Log steht `media.account_update`. Per API:
+- **Deaktivieren:** Die Console stoppt zuerst, was der Zugang gerade abspielt, dann meldet
+  Jellyfin alle seine Geräte ab, er kann sich nicht mehr anmelden. Verlauf und Favoriten bleiben.
+  War der Zugang nach Fehlversuchen gesperrt, hat Jellyfin seine Geräte nicht abgemeldet: Die
+  Console meldet ab, was danach noch angemeldet ist. Das Stoppen und dieses Abmelden sind
+  "best effort" (höchstens 5 Sekunden), sie halten das Deaktivieren nie auf. **Aktivieren** hebt
+  auch eine Sperre nach fehlgeschlagenen Anmeldungen auf (die Console setzt den Zähler zurück, sonst
+  sperrte der nächste Fehlversuch wieder). Im Audit-Log steht `media.account_update`, beim
+  Deaktivieren mit `ended` (`{ sessions, stopped }` oder `{ error }`) und `signedOut`. Per API:
   `PATCH /api/v1/media/accounts/<id>` mit `{"enabled": false}`.
 - **Passwort neu setzen** (`media:password`, nur mit Login, nie per API-Token): erzeugt oder eigen.
-  Jellyfin braucht dafür das alte Passwort nicht und meldet alle Geräte des Zugangs ab. Im Audit-Log
-  steht `media.password_reset`, das Passwort nicht. Per API nur mit Session:
-  `POST /api/v1/media/accounts/<id>/password` mit `{}` (erzeugt) oder `{"password": "..."}`.
-- **Löschen** verlangt den Login-Namen als Bestätigung. Jellyfin löscht den Benutzer mit
-  Wiedergabeverlauf, Favoriten und Playlists und meldet alle Geräte ab. Das lässt sich nicht
-  rückgängig machen. Gibt es den Benutzer in Jellyfin nicht mehr ("In Jellyfin nicht gefunden"),
-  entfernt Löschen nur den Eintrag in der Console. Im Audit-Log steht `media.account_delete`. Per
-  API: `DELETE /api/v1/media/accounts/<id>` mit `{"confirm": "<Login-Name>"}`.
+  Jellyfin braucht dafür das alte Passwort nicht und meldet alle Geräte des Zugangs ab. Die Antwort
+  ist `{ "password", "devices" }`: `devices` ist die Zahl der Geräte, die danach noch angemeldet
+  sind (normalerweise 0, `null`, wenn das Zählen scheiterte). Der Dialog sagt "Alle Geräte wurden
+  abgemeldet" oder bietet "Alle Geräte abmelden" an. Im Audit-Log steht `media.password_reset`, das
+  Passwort nicht. Per API nur mit Session: `POST /api/v1/media/accounts/<id>/password` mit `{}`
+  (erzeugt) oder `{"password": "..."}`.
+- **Löschen** verlangt den Login-Namen als Bestätigung. Die Console stoppt zuerst die Wiedergabe
+  (wie beim Deaktivieren), dann löscht Jellyfin den Benutzer mit Wiedergabeverlauf, Favoriten und
+  Playlists und meldet alle Geräte ab. Das lässt sich nicht rückgängig machen. Gibt es den Benutzer
+  in Jellyfin nicht mehr ("In Jellyfin nicht gefunden"), entfernt Löschen nur den Eintrag in der
+  Console. Im Audit-Log steht `media.account_delete` mit `ended`. Per API:
+  `DELETE /api/v1/media/accounts/<id>` mit `{"confirm": "<Login-Name>"}`.
+
+**Fernseher verbinden** (`media:password`, nur mit Login, nie per API-Token): Der Kunde wählt auf
+dem Fernseher "Quick Connect", der Fernseher zeigt einen Code mit 6 Ziffern, und der Kunde tippt
+ihn beim Zugang unter "Fernseher verbinden" ein. Jellyfin meldet den Fernseher dann mit diesem
+Zugang an, ohne dass jemand das Passwort mit der Fernbedienung eingibt. Das wirkt wie das Passwort
+weitergeben, deshalb dasselbe Recht wie "Passwort neu setzen".
+
+- Der Code ist ein Einmal-Geheimnis: Er steht nur im Body der Anfrage und in der Anfrage an
+  Jellyfin, nie in Logs, Fehlermeldungen, der Datenbank oder dem Audit-Log. Im Audit-Log steht
+  `media.device_connect` mit dem Login-Namen. Die Antwort trägt `Cache-Control: no-store`.
+- Höchstens 5 Versuche pro Zugang und Minute, falsche Codes eingeschlossen (sonst 429
+  `rate_limited` mit `Retry-After`). Mitgezählt werden nur Versuche von Personen, die den Zugang
+  verbinden dürfen. Die Codes gelten für den ganzen Server: Ein falsch getippter Code, der zufällig
+  zu einem anderen wartenden Gerät passt, meldet dieses Gerät mit dem eigenen Zugang an. Das
+  Limit hält das unwahrscheinlich.
+- Nur für aktive Zugänge: Jellyfin selbst prüft das nicht (es meldete auch einen deaktivierten
+  Benutzer an, dessen Token dann sofort abgelehnt würde), also prüft es die Console vorher.
+- Fehler: Code unbekannt oder abgelaufen (`quick_connect_code`), Quick Connect in Jellyfin aus
+  (`quick_connect_off`, einschalten unter Dashboard > Allgemein > Quick Connect), alle Streams des
+  Zugangs belegt (`stream_limit`, `details` mit `maxStreams` und `sessions`: erst Geräte abmelden),
+  Zugang deaktiviert (`account_disabled`), sonst `quick_connect_failed`.
+
+Per API nur mit Login (Session-Cookie): `POST /api/v1/media/accounts/<id>/connect` mit
+`{"code": "123456"}` (Leerzeichen und Bindestriche im Code sind erlaubt), die Antwort ist
+`{ "connected": true }`.
+
+**Alle Geräte abmelden** (`media:write`, auch per API-Token): stoppt die Wiedergabe und meldet jedes
+Gerät des Zugangs ab. Passwort, Verlauf und Favoriten bleiben, die Geräte brauchen danach das
+Passwort oder Quick Connect. Die Console zeigt nur die Zahl der angemeldeten Geräte, nie Namen,
+Apps, Adressen, Zeiten oder was läuft.
+
+- Jellyfin meldet ein Gerät für alle Benutzer zugleich ab. Ist auf einem Gerät (etwa dem
+  Familienfernseher) noch ein anderer Zugang angemeldet, lässt die Console es deshalb angemeldet und
+  meldet es als `skipped`. Ein neues Passwort meldet auch solche Geräte genau für diesen Zugang ab.
+- Im Audit-Log steht `media.device_signout` mit `stopped`, `signedOut`, `skipped` und `failed`.
+- Administratoren von Jellyfin sind ausgenommen (409), wie bei allen anderen Aktionen.
+
+```bash
+curl -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/media/accounts/<id>/devices
+# {"count":2}
+curl -X POST -H "Authorization: Bearer wlc_…" https://cp.weblion.cloud/api/v1/media/accounts/<id>/signout
+# {"stopped":1,"signedOut":1,"skipped":1,"failed":0,"remaining":1}
+```
 
 Eine E-Mail oder Einladung kennt Jellyfin nicht: Der Kunde gibt das Passwort selbst weiter. Wer es
 vergessen hat, bekommt ein neues. Administratoren von Jellyfin verwaltet die Console nie: Sie lassen
@@ -4472,18 +4523,21 @@ hält sie 5 Minuten im Speicher, die Server-Info 10 Minuten, die Zahlen der Sitz
 
 ### Was die Console nutzt
 
-| Funktion in der Console                    | Endpunkt                                                                    | Berechtigung                                    |
-| ------------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------- |
-| Verbindungstest, Server-Info               | `GET /System/Info`, `GET /QuickConnect/Enabled`                             | Admin-Bereich, `media:read` (Anmeldehilfe)      |
-| Sync, nicht verwaltete Benutzer, Instanzen | `GET /Users`                                                                | Sync-Job, `platform:provider:read`              |
-| Zugang lesen                               | `GET /Users/{id}`                                                           | `media:read`                                    |
-| Zugang anlegen                             | `POST /Users/New` mit `Name` und `Password`, dann `POST /Users/{id}/Policy` | `media:write`                                   |
-| Richtlinie, deaktivieren, aktivieren       | `GET /Users/{id}`, dann `POST /Users/{id}/Policy` mit der ganzen Richtlinie | `media:write`, `platform:media:write`, Sync-Job |
-| Passwort neu setzen                        | `POST /Users/Password?userId={id}` mit `NewPw` und `ResetPassword: false`   | `media:password`, nur mit Login                 |
-| Löschen                                    | `DELETE /Users/{id}`                                                        | `media:write`                                   |
-| Bibliotheken                               | `GET /Library/VirtualFolders`                                               | `platform:provider:read`, Sync-Job              |
-| Sitzungen zählen                           | `GET /Sessions?activeWithinSeconds=600` (nur zwei Zahlen)                   | `platform:provider:read`                        |
-| API Explorer                               | jeder Pfad ausser den gesperrten                                            | `platform:explorer`, nur mit Login              |
+| Funktion in der Console                              | Endpunkt                                                                                                           | Berechtigung                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| Verbindungstest, Server-Info                         | `GET /System/Info`, `GET /QuickConnect/Enabled`                                                                    | Admin-Bereich, `media:read` (Anmeldehilfe)      |
+| Sync, nicht verwaltete Benutzer, Instanzen           | `GET /Users`                                                                                                       | Sync-Job, `platform:provider:read`              |
+| Zugang lesen                                         | `GET /Users/{id}`                                                                                                  | `media:read`                                    |
+| Zugang anlegen                                       | `POST /Users/New` mit `Name` und `Password`, dann `POST /Users/{id}/Policy`                                        | `media:write`                                   |
+| Richtlinie, deaktivieren, aktivieren                 | `GET /Users/{id}`, dann `POST /Users/{id}/Policy` mit der ganzen Richtlinie                                        | `media:write`, `platform:media:write`, Sync-Job |
+| Passwort neu setzen                                  | `POST /Users/Password?userId={id}` mit `NewPw` und `ResetPassword: false`                                          | `media:password`, nur mit Login                 |
+| Löschen                                              | `DELETE /Users/{id}`                                                                                               | `media:write`                                   |
+| Fernseher verbinden                                  | `GET /Users/{id}`, `GET /QuickConnect/Enabled`, `GET /Sessions`, dann `POST /QuickConnect/Authorize?code=&userId=` | `media:password`, nur mit Login                 |
+| Geräte zählen und abmelden                           | `GET /Devices` (ohne `userId`, die Console filtert nach `LastUserId`), `DELETE /Devices?id=`                       | `media:write`                                   |
+| Wiedergabe stoppen (Abmelden, Deaktivieren, Löschen) | `GET /Sessions` (alle), `POST /Sessions/{id}/Playing/Stop`                                                         | `media:write`                                   |
+| Bibliotheken                                         | `GET /Library/VirtualFolders`                                                                                      | `platform:provider:read`, Sync-Job              |
+| Sitzungen zählen                                     | `GET /Sessions?activeWithinSeconds=600` (nur zwei Zahlen)                                                          | `platform:provider:read`                        |
+| API Explorer                                         | jeder Pfad ausser den gesperrten                                                                                   | `platform:explorer`, nur mit Login              |
 
 `ResetPassword: true` schickt die Console nie, und sie legt nie einen Benutzer ohne Passwort an:
 Beides hiesse in Jellyfin, dass man sich mit dem Namen allein anmeldet. Fehler von Jellyfin sagen
@@ -4495,19 +4549,25 @@ Namen, um "vergeben" von "ungültig" zu unterscheiden, und prüft Namen vorher s
 Fehler kommen wie überall in der API als `{ "error": { "code", "message", "details" } }`. Für
 Streaming:
 
-| HTTP | `code`               | Wann                                                                                                                                                                                               |
-| ---- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400  | `bad_request`        | Ungültige Eingabe (`details` nennt das Feld), API-Token ohne Passwort, falsche Bestätigung beim Löschen, unbekannte Bibliothek, ungültige Jellyfin-ID                                              |
-| 403  | `forbidden`          | Recht fehlt, Modul nicht aktiv, Kunde gesperrt (nur lesen), "Passwort neu setzen" oder Übernehmen mit Passwort per API-Token                                                                       |
-| 404  | `not_found`          | Zugang, Kunde oder Kontingent gibt es nicht, oder die Person sieht sie nicht                                                                                                                       |
-| 404  | `provider_error`     | Jellyfin kennt den Benutzer nicht (mehr)                                                                                                                                                           |
-| 409  | `no_allowance`       | Kein Kontingent (beim Anlegen, beim Übernehmen, Zuweisen oder Reparieren auf dieser Instanz, beim Weitergeben durch einen Reseller)                                                                |
-| 409  | `account_limit`      | Kontingent voll, Höchstzahl unter den bestehenden Zugängen, Anteil des Resellers aufgebraucht                                                                                                      |
-| 409  | `allowance_conflict` | Kundenkontingent gibt mehr als das des Resellers, oder das Kontingent eines Resellers wird enger als das seiner Kunden, `details.customers` mit den Konflikten                                     |
-| 409  | `no_password`        | Übernehmen eines Benutzers ohne Passwort, ohne ein neues zu setzen                                                                                                                                 |
-| 409  | `conflict`           | Name vergeben, Zugang schon verwaltet, Administrator, gesperrte Bibliotheken, Code vergeben oder nicht mehr änderbar, Instanz wechseln oder Kontingent entfernen mit Zugängen, Reseller ohne Modul |
-| 422  | `unsupported`        | Der Provider kann kein Streaming                                                                                                                                                                   |
-| 502  | `provider_error`     | Jellyfin hat abgelehnt oder war nicht erreichbar, `message` mit dem Grund, HTTP-Status und einem Hinweis (Schlüssel abgelehnt, Fernzugriff aus, Weiterleitung)                                     |
+| HTTP | `code`                 | Wann                                                                                                                                                                                               |
+| ---- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | `bad_request`          | Ungültige Eingabe (`details` nennt das Feld), API-Token ohne Passwort, falsche Bestätigung beim Löschen, unbekannte Bibliothek, ungültige Jellyfin-ID                                              |
+| 403  | `forbidden`            | Recht fehlt, Modul nicht aktiv, Kunde gesperrt (nur lesen), "Passwort neu setzen" oder Übernehmen mit Passwort per API-Token                                                                       |
+| 404  | `not_found`            | Zugang, Kunde oder Kontingent gibt es nicht, oder die Person sieht sie nicht                                                                                                                       |
+| 404  | `provider_error`       | Jellyfin kennt den Benutzer nicht (mehr)                                                                                                                                                           |
+| 409  | `no_allowance`         | Kein Kontingent (beim Anlegen, beim Übernehmen, Zuweisen oder Reparieren auf dieser Instanz, beim Weitergeben durch einen Reseller)                                                                |
+| 409  | `account_limit`        | Kontingent voll, Höchstzahl unter den bestehenden Zugängen, Anteil des Resellers aufgebraucht                                                                                                      |
+| 409  | `allowance_conflict`   | Kundenkontingent gibt mehr als das des Resellers, oder das Kontingent eines Resellers wird enger als das seiner Kunden, `details.customers` mit den Konflikten                                     |
+| 409  | `no_password`          | Übernehmen eines Benutzers ohne Passwort, ohne ein neues zu setzen                                                                                                                                 |
+| 409  | `quick_connect_code`   | Fernseher verbinden: Jellyfin kennt den Code nicht oder er ist abgelaufen                                                                                                                          |
+| 409  | `quick_connect_off`    | Fernseher verbinden: Quick Connect ist in Jellyfin aus                                                                                                                                             |
+| 409  | `stream_limit`         | Fernseher verbinden: alle Streams des Zugangs belegt, `details` mit `maxStreams` und `sessions`                                                                                                    |
+| 409  | `account_disabled`     | Fernseher verbinden: Zugang deaktiviert oder nach Fehlversuchen gesperrt                                                                                                                           |
+| 409  | `quick_connect_failed` | Fernseher verbinden: Jellyfin hat den Code ohne Grund abgelehnt (schon bestätigt, Gerät nicht erlaubt)                                                                                             |
+| 409  | `conflict`             | Name vergeben, Zugang schon verwaltet, Administrator, gesperrte Bibliotheken, Code vergeben oder nicht mehr änderbar, Instanz wechseln oder Kontingent entfernen mit Zugängen, Reseller ohne Modul |
+| 422  | `unsupported`          | Der Provider kann kein Streaming                                                                                                                                                                   |
+| 429  | `rate_limited`         | Fernseher verbinden: mehr als 5 Versuche pro Zugang und Minute, `Retry-After` nennt die Sekunden                                                                                                   |
+| 502  | `provider_error`       | Jellyfin hat abgelehnt oder war nicht erreichbar, `message` mit dem Grund, HTTP-Status und einem Hinweis (Schlüssel abgelehnt, Fernzugriff aus, Weiterleitung)                                     |
 
 Schlägt eine Änderung bei Jellyfin fehl, steht das mit `status: failure` und der Meldung im
 Audit-Log.
@@ -4550,8 +4610,16 @@ Für alles ohne eigenen Button: Admin > API Explorer, Provider Jellyfin wählen.
   Anfrage (vier gleichzeitig). Für Hunderte von Zugängen einer Organisation geht das, für Tausende
   wäre ein Hintergrund-Job nötig.
 - **Aus:** Live TV, Plugin-Kanäle und SyncPlay ("gemeinsam schauen") sind für alle Zugänge aus.
+- **Geräte auf einem gemeinsamen Fernseher:** "Alle Geräte abmelden" lässt ein Gerät angemeldet,
+  auf dem noch ein anderer Zugang angemeldet ist (Jellyfin meldete beide ab). Ein neues Passwort
+  meldet es für diesen Zugang trotzdem ab.
+- **Wiedergabe stoppen** erreicht nur Apps mit einer Websocket-Verbindung zu Jellyfin. Jellyfin
+  antwortet auch dann mit Erfolg, wenn die App den Befehl nie bekommt. Ein abgemeldetes Gerät kann
+  ohnehin nichts Neues mehr starten.
+- **Welches Gerät** ein Quick-Connect-Code meint, zeigt Jellyfin nicht (es gibt keine Liste der
+  wartenden Geräte): Die Console kann nur den Code bestätigen.
 - **Nicht in der Console**, das geht in Jellyfin: Bibliotheken und Inhalte, Servereinstellungen,
-  Plugins, Live TV, Kindersicherung, "alle Geräte abmelden" (ein neues Passwort tut das).
+  Plugins, Live TV, Kindersicherung, einzelne Geräte abmelden.
 - Den Inhalt der Bibliotheken liefert der Betreiber, die Console sieht ihn nicht.
 
 Ideen dazu in der [Roadmap](roadmap.md).
@@ -4581,10 +4649,22 @@ die ungeprüften Annahmen:
 9. Welche Zeichen die Bildschirmtastaturen von Fernsehern auf der ersten Seite zeigen (nur eine
    Frage der Bequemlichkeit für `-`)
 10. Die Liste der Apps und die Adresse `https://jellyfin.org/downloads` auf der Anmeldehilfe
-11. Ob Quick Connect in jedem Fernseh-Client geht
+11. Ob Quick Connect in jedem Fernseh-Client geht (Tizen, webOS, Roku, Swiftfin auf Apple TV,
+    Android TV, Kodi) und ob er die Bestätigung abholt, solange Jellyfin die Anfrage hält (laut Code
+    etwa 11 Minuten, laut Kommentar 1)
 12. Der Name des Container-Images `jellyfin/jellyfin:10.11.11` für den Test
 13. Ob das Dashboard `RemoteClientBitrateLimit` als Mbit/s mal 1 000 000 schreibt (die Console
     schreibt Bit pro Sekunde, das liest der Server, geprüft)
+14. Der genaue Body des 401 "Quick connect is disabled" (JSON-String oder Text). Die Console liest
+    beides.
+15. Ob ein Stopp-Befehl jede App erreicht und ob ein Stream, der direkt abgespielt wird, nach dem
+    Widerruf der Tokens sofort endet
+16. `DELETE /Devices` in der nächsten Version (10.12): mehrere `id` und 400 statt 404 für unbekannte.
+    Die Console zählt alles ausser 204 und 404 als gescheitert, das geht also weiter.
+
+Beim Test im Container dazu: Fernseher verbinden mit einem echten Code, mit Quick Connect aus und
+mit belegten Streams; "Alle Geräte abmelden" mit zwei Zugängen auf demselben Gerät; Deaktivieren
+während einer Wiedergabe.
 
 ### Demo
 
@@ -4603,6 +4683,11 @@ Prüfungen wie die echte Anbindung. Die Adresse `https://media.demo.weblion.one`
 - Nicht verwaltet und im Admin-Bereich zu übernehmen: `ben-kemaro`, `gast` (ohne Passwort, nur mit
   neuem Passwort) und `altkunde` (gesperrte Bibliotheken, nicht übernehmbar), dazu der Administrator
   `weblion-admin`.
+- Angemeldete Geräte: `anna-kemaro` auf dem Wohnzimmer-Fernseher (spielt gerade) und einem Telefon,
+  `wohnzimmer-kemaro` auf demselben Fernseher (zeigt, dass "Alle Geräte abmelden" ihn bei Anna
+  auslässt), `huber-bivane` und `ben-kemaro` auf je einem Gerät.
+- "Fernseher verbinden" nimmt den Code `246810` an und meldet ein neues Gerät an, jeder andere
+  gültige Code ist "unbekannt oder abgelaufen".
 
 ## Weitere Provider anbinden
 

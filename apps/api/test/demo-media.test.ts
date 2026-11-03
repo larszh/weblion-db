@@ -12,11 +12,13 @@ import { seedMediaDemo } from '../src/db/seed-media';
 import { AppError, ProviderError } from '../src/lib/errors';
 import { DemoAdapter } from '../src/providers/demo/adapter';
 import {
+  DEMO_MEDIA_DEVICES,
   DEMO_MEDIA_IDS,
   DEMO_MEDIA_LIBRARIES,
   DEMO_MEDIA_SERVER,
   DEMO_MEDIA_URL,
   DEMO_MEDIA_USERS,
+  DEMO_QUICK_CONNECT_CODE,
   DemoMedia,
   demoMediaState,
   jellyfinDefaultPolicy,
@@ -441,7 +443,7 @@ describe('Demo Jellyfin', () => {
       const text = JSON.stringify(answer);
       expect(text).not.toContain(PASSWORD);
       expect(text).not.toContain('Noch-ein-Passwort-7');
-      expect(keys(answer).filter((k) => /^(password|invalidLogins|signOuts)$/i.test(k))).toEqual([]);
+      expect(keys(answer).filter((k) => /^(password|invalidLogins|signOuts|devices)$/i.test(k))).toEqual([]);
     }
 
     // Reads are copies: changing an answer changes nothing at the instance.
@@ -469,6 +471,207 @@ describe('Demo Jellyfin', () => {
     // Quick Connect follows the instance.
     state().quickConnect = false;
     expect((await media().mediaServerInfo()).quickConnect).toBe(false);
+  });
+
+  it('starts with signed-in devices; anna and the locked-out wohnzimmer share the living-room TV', async () => {
+    const count = (name: keyof typeof ID) => media().countMediaUserDevices(ID[name]);
+    expect(await count('anna-kemaro')).toBe(2);
+    expect(await count('wohnzimmer-kemaro')).toBe(1);
+    expect(await count('huber-bivane')).toBe(1);
+    expect(await count('ben-kemaro')).toBe(1);
+    expect(await count('gast')).toBe(0);
+    expect(await count('weblion-admin')).toBe(0);
+    expect(stored(ID['anna-kemaro']).devices).toEqual([
+      { deviceId: 'demo-tv-wohnzimmer', playing: true },
+      { deviceId: 'demo-phone-anna', playing: false },
+    ]);
+    expect(stored(ID['wohnzimmer-kemaro']).devices.map((d) => d.deviceId)).toEqual(['demo-tv-wohnzimmer']);
+    // The state holds copies: the dataset stays as it is.
+    stored(ID['anna-kemaro']).devices[0]!.playing = false;
+    expect(DEMO_MEDIA_DEVICES['anna-kemaro']![0]!.playing).toBe(true);
+    expect(await media().countMediaUserDevices(dashed(ID['anna-kemaro']))).toBe(2);
+    await refused(media().countMediaUserDevices(UNKNOWN), 404, 'provider_error');
+    await refused(media().countMediaUserDevices('xyz'), 400, 'bad_request', 'Invalid Jellyfin user id');
+  });
+
+  it("connects a TV with the demo code, after the adapter's checks and with its errors", async () => {
+    const anna = ID['anna-kemaro'];
+    // anna is at her allowance's 2 streams: refused before the code is looked at.
+    const full = await refused(media().authorizeMediaQuickConnect(anna, '135799'), 409, 'stream_limit');
+    expect(full.details).toEqual({ maxStreams: 2, sessions: 2 });
+    expect(full.message).not.toContain('135799');
+
+    const lea = (await create('lea-kemaro')).externalId;
+    await refused(media().authorizeMediaQuickConnect(lea, '135799'), 409, 'quick_connect_code');
+    await media().authorizeMediaQuickConnect(
+      lea,
+      `${DEMO_QUICK_CONNECT_CODE.slice(0, 3)} ${DEMO_QUICK_CONNECT_CODE.slice(3)}`,
+    );
+    await media().authorizeMediaQuickConnect(dashed(lea), DEMO_QUICK_CONNECT_CODE);
+    expect(stored(lea).devices).toEqual([
+      { deviceId: 'demo-qc-1', playing: false },
+      { deviceId: 'demo-qc-2', playing: false },
+    ]);
+    const limit = await refused(
+      media().authorizeMediaQuickConnect(lea, DEMO_QUICK_CONNECT_CODE),
+      409,
+      'stream_limit',
+    );
+    expect(limit.details).toEqual({ maxStreams: 2, sessions: 2 });
+    // Unlimited streams (Jellyfin's default policy): no limit to hit.
+    const ben = ID['ben-kemaro'];
+    for (let i = 0; i < 3; i++) await media().authorizeMediaQuickConnect(ben, DEMO_QUICK_CONNECT_CODE);
+    expect(await media().countMediaUserDevices(ben)).toBe(4);
+
+    for (const bad of ['12345', '012345', '1234567', '12a456', '']) {
+      await refused(
+        media().authorizeMediaQuickConnect(lea, bad),
+        400,
+        'bad_request',
+        'A Quick Connect code has 6 digits',
+      );
+    }
+    await refused(
+      media().authorizeMediaQuickConnect('xyz', DEMO_QUICK_CONNECT_CODE),
+      400,
+      'bad_request',
+      'Invalid Jellyfin user id',
+    );
+    await refused(
+      media().authorizeMediaQuickConnect(UNKNOWN, DEMO_QUICK_CONNECT_CODE),
+      404,
+      'provider_error',
+    );
+    await refused(
+      media().authorizeMediaQuickConnect(ID['weblion-admin'], DEMO_QUICK_CONNECT_CODE),
+      409,
+      'conflict',
+      JELLYFIN_ADMIN_REFUSED,
+    );
+    // Locked out (and so disabled) or disabled: Jellyfin would confirm it, the console does not.
+    await refused(
+      media().authorizeMediaQuickConnect(ID['wohnzimmer-kemaro'], DEMO_QUICK_CONNECT_CODE),
+      409,
+      'account_disabled',
+    );
+    await media().setMediaUserEnabled(lea, false);
+    await refused(media().authorizeMediaQuickConnect(lea, DEMO_QUICK_CONNECT_CODE), 409, 'account_disabled');
+    state().quickConnect = false;
+    await refused(media().authorizeMediaQuickConnect(ben, DEMO_QUICK_CONNECT_CODE), 409, 'quick_connect_off');
+    expect(await media().countMediaUserDevices(ben)).toBe(4);
+  });
+
+  it('signs out the devices no other user is signed in on, and stops playback with counts only', async () => {
+    const anna = ID['anna-kemaro'];
+    const stop = await media().stopMediaUserPlayback(anna);
+    expect(stop).toEqual({ sessions: 2, stopped: 1 });
+    expect(Object.keys(stop).sort()).toEqual(['sessions', 'stopped']);
+    expect(stored(anna).devices.every((d) => !d.playing)).toBe(true);
+    expect(await media().stopMediaUserPlayback(anna)).toEqual({ sessions: 2, stopped: 0 });
+
+    // demo-tv-wohnzimmer is shared with wohnzimmer-kemaro: Jellyfin would sign out both.
+    const result = await media().signOutMediaUserDevices(anna);
+    expect(result).toEqual({ signedOut: 1, skipped: 1, failed: 0, remaining: 1 });
+    expect(JSON.stringify(result)).not.toContain('demo-');
+    expect(stored(anna).devices.map((d) => d.deviceId)).toEqual(['demo-tv-wohnzimmer']);
+    expect(stored(ID['wohnzimmer-kemaro']).devices.map((d) => d.deviceId)).toEqual(['demo-tv-wohnzimmer']);
+    // Not a revocation: password, history and the sign-out counter stay.
+    expect(signOuts(anna)).toBe(0);
+    expect(await media().signOutMediaUserDevices(anna)).toEqual({
+      signedOut: 0,
+      skipped: 1,
+      failed: 0,
+      remaining: 1,
+    });
+
+    expect(await media().signOutMediaUserDevices(ID['huber-bivane'])).toEqual({
+      signedOut: 1,
+      skipped: 0,
+      failed: 0,
+      remaining: 0,
+    });
+    expect(await media().stopMediaUserPlayback(ID.gast)).toEqual({ sessions: 0, stopped: 0 });
+    await refused(media().signOutMediaUserDevices(UNKNOWN), 404, 'provider_error');
+    await refused(media().stopMediaUserPlayback('xyz'), 400, 'bad_request');
+  });
+
+  it('never stops playback of an administrator or signs out its devices', async () => {
+    const admin = stored(ID['weblion-admin']);
+    admin.devices = [
+      { deviceId: 'demo-tv-admin', playing: true },
+      { deviceId: 'demo-phone-admin', playing: false },
+    ];
+    await refused(media().stopMediaUserPlayback(admin.externalId), 409, 'conflict', JELLYFIN_ADMIN_REFUSED);
+    await refused(media().signOutMediaUserDevices(admin.externalId), 409, 'conflict', JELLYFIN_ADMIN_REFUSED);
+    expect(admin.devices).toEqual([
+      { deviceId: 'demo-tv-admin', playing: true },
+      { deviceId: 'demo-phone-admin', playing: false },
+    ]);
+    // Counting stays possible: it changes nothing.
+    expect(await media().countMediaUserDevices(admin.externalId)).toBe(2);
+  });
+
+  it('clears the devices on disable, password and delete, but a lockout keeps them', async () => {
+    // The seeded lockout kept wohnzimmer's device; disabling a disabled user revokes nothing.
+    const wohnzimmer = ID['wohnzimmer-kemaro'];
+    await media().setMediaUserEnabled(wohnzimmer, false);
+    expect(await media().countMediaUserDevices(wohnzimmer)).toBe(1);
+    // Enabling keeps them, disabling an enabled user revokes them.
+    await media().setMediaUserEnabled(wohnzimmer, true);
+    expect(await media().countMediaUserDevices(wohnzimmer)).toBe(1);
+    await media().setMediaUserEnabled(wohnzimmer, false);
+    expect(await media().countMediaUserDevices(wohnzimmer)).toBe(0);
+    // Only the user's own rows: anna stays signed in on the shared TV.
+    expect(await media().countMediaUserDevices(ID['anna-kemaro'])).toBe(2);
+
+    await media().setMediaUserPassword(ID['anna-kemaro'], PASSWORD);
+    expect(await media().countMediaUserDevices(ID['anna-kemaro'])).toBe(0);
+    // Policy writes sign nobody out.
+    await media().setMediaUserPolicy(ID['huber-bivane'], expectedMediaPolicy(HUBER));
+    expect(await media().countMediaUserDevices(ID['huber-bivane'])).toBe(1);
+    await media().deleteMediaUser(ID['huber-bivane']);
+    expect(signOuts(ID['huber-bivane'])).toBe(1);
+
+    DemoAdapter.reset();
+    expect(await media().countMediaUserDevices(ID['anna-kemaro'])).toBe(2);
+    expect(await media().countMediaUserDevices(wohnzimmer)).toBe(1);
+  });
+
+  it('fails the named step when a test asks for it, like an instance that does not answer', async () => {
+    const anna = ID['anna-kemaro'];
+    const lea = (await create('lea-kemaro')).externalId;
+    const steps = {
+      stop: () => media().stopMediaUserPlayback(anna),
+      signout: () => media().signOutMediaUserDevices(anna),
+      devices: () => media().countMediaUserDevices(anna),
+      connect: () => media().authorizeMediaQuickConnect(lea, DEMO_QUICK_CONNECT_CODE),
+    };
+    const methods = {
+      stop: 'stopMediaUserPlayback',
+      signout: 'signOutMediaUserDevices',
+      devices: 'countMediaUserDevices',
+      connect: 'authorizeMediaQuickConnect',
+    };
+    for (const step of Object.keys(steps) as (keyof typeof steps)[]) {
+      state().fail.add(step);
+      const err = await refused(steps[step](), 502, 'provider_error');
+      expect(err).toBeInstanceOf(ProviderError);
+      expect((err as ProviderError).upstreamStatus).toBe(503);
+      expect(err.message).toBe(`Jellyfin: ${methods[step]} failed: simulated (HTTP 503)`);
+      // The other steps still work.
+      for (const other of Object.keys(steps) as (keyof typeof steps)[]) {
+        if (other !== step && other !== 'connect') await steps[other]();
+      }
+      state().fail.delete(step);
+    }
+    // Nothing changed while connect failed.
+    expect(stored(lea).devices).toEqual([]);
+    await steps.connect();
+    expect(stored(lea).devices).toHaveLength(1);
+    // A reset clears the switches.
+    state().fail.add('stop');
+    resetDemoMedia();
+    expect(await media().stopMediaUserPlayback(anna)).toEqual({ sessions: 2, stopped: 1 });
   });
 
   it('DemoAdapter.reset() restores the dataset', async () => {

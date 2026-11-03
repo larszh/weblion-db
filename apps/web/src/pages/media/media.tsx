@@ -24,6 +24,7 @@ import {
   CreateMediaAccountDialog,
   MediaAccountActions,
   MediaPasswordDialog,
+  SignOutDevicesDialog,
   type ShownMediaPassword,
 } from './dialogs';
 import { MediaLoginCard } from './login-card';
@@ -41,6 +42,8 @@ export function MediaPage() {
   const media = useOrgMedia(org.id, canRead);
   const [creating, setCreating] = useState(false);
   const [shown, setShown] = useState<ShownMediaPassword | null>(null);
+  // "Alle Geräte abmelden" opened from the password dialog (devices left after a new password).
+  const [signingOut, setSigningOut] = useState<MediaAccountDto | null>(null);
 
   const allowance = media.data?.allowance ?? null;
   const accounts = media.data?.accounts ?? [];
@@ -95,6 +98,8 @@ export function MediaPage() {
           accounts={accounts}
           onCreate={canCreate && !createBlocked ? () => setCreating(true) : undefined}
           onPassword={setShown}
+          quickConnect={login?.quickConnect ?? null}
+          onSignOut={setSigningOut}
         />
       </div>
     );
@@ -138,6 +143,7 @@ export function MediaPage() {
         />
       )}
       <MediaPasswordDialog shown={shown} onClose={() => setShown(null)} />
+      {signingOut && <SignOutDevicesDialog account={signingOut} open onClose={() => setSigningOut(null)} />}
     </>
   );
 }
@@ -158,10 +164,14 @@ function AccountsCard({
   accounts,
   onCreate,
   onPassword,
+  quickConnect,
+  onSignOut,
 }: {
   accounts: MediaAccountDto[];
   onCreate?: () => void;
   onPassword: (shown: ShownMediaPassword) => void;
+  quickConnect: boolean | null;
+  onSignOut: (account: MediaAccountDto) => void;
 }) {
   const { t, locale } = useI18n();
   const [q, setQ] = useState('');
@@ -252,7 +262,12 @@ function AccountsCard({
                 </TD>
                 {withActions && (
                   <TD className="w-12 text-right">
-                    <MediaAccountActions account={a} onPassword={onPassword} />
+                    <MediaAccountActions
+                      account={a}
+                      onPassword={onPassword}
+                      quickConnect={quickConnect}
+                      onSignOut={onSignOut}
+                    />
                   </TD>
                 )}
               </TR>

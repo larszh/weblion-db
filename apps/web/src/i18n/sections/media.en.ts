@@ -49,7 +49,7 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.login.codeHint': 'The login names of your organization end with',
   'media.login.tv': 'On the TV',
   'media.login.quickConnect':
-    'Choose Quick Connect in the app, open Jellyfin in the browser or on the phone where you are signed in, and enter the code from the TV under Settings > Quick Connect.',
+    'Choose Quick Connect in the app. Enter the code from the TV here in the console at the account under "Connect a TV". Or in Jellyfin under Settings > Quick Connect on a device that is already signed in.',
   'media.login.apps':
     'Apps exist for browsers, Windows, macOS, Linux (Jellyfin Media Player), Android, Android TV, Fire TV, iPhone and iPad, Apple TV (Swiftfin), LG webOS, Roku and Kodi.',
   'media.login.allApps': 'All apps',
@@ -119,16 +119,57 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.password.action': 'Set new password',
   'media.password.title': 'New password for {username}',
   'media.password.text':
-    'Every device signed in with this account is signed out at once. The previous password stops working.',
+    'Every device signed in with this account is signed out at once. The old password stops working. TVs are easiest to connect again with "Connect a TV".',
   'media.password.set': 'Set password',
   'media.password.setToast': 'New password set for {username}',
+  'media.password.setToastSignedOut': 'New password set for {username}, every device signed out',
+  'media.password.devicesDone': 'Every device was signed out.',
+  'media.password.devicesLeft': 'Devices still signed in: {n}',
+
+  // Connect a TV (Quick Connect)
+  'media.connect.action': 'Connect a TV',
+  'media.connect.title': 'Connect a TV to {username}',
+  'media.connect.text':
+    'A TV or another device signs in with this account without anyone typing the password.',
+  'media.connect.step1':
+    'Open the Jellyfin app on the TV, enter the server address and choose Quick Connect.',
+  'media.connect.step2': 'The app shows a code with 6 digits. Enter it here.',
+  'media.connect.code': 'Code from the TV',
+  'media.connect.codeHint': 'The code is valid for 10 minutes. The console does not store it.',
+  'media.connect.codeInvalid': 'The code has 6 digits.',
+  'media.connect.submit': 'Connect',
+  'media.connect.done': 'TV connected to {username}',
+  'media.connect.error.code':
+    'The server does not know this code, or it has expired. Start Quick Connect on the TV again and enter the new code.',
+  'media.connect.error.off':
+    'Quick Connect is off on this server. Sign in on the TV with the login name and password.',
+  'media.connect.error.limit':
+    'This account is already signed in on as many devices as the allowance permits ({n}). Sign out devices first.',
+  'media.connect.error.disabled': 'The account is disabled. Enable it before you connect a TV.',
+  'media.connect.error.failed':
+    'The server did not accept the code. If the TV shows that it is signed in, it is connected. Otherwise start Quick Connect again.',
+  'media.connect.error.tooMany': 'Too many attempts. Wait a minute.',
+
+  // Sign out all devices
+  'media.devices.action': 'Sign out all devices',
+  'media.devices.title': 'Sign out all devices of {username}?',
+  'media.devices.count': 'Signed-in devices: {n}',
+  'media.devices.none': 'No device is signed in with this account.',
+  'media.devices.text':
+    'Playback is stopped and every device is signed out at once. Password, history and favorites stay. Devices sign in again with the password or with Quick Connect.',
+  'media.devices.privacy': 'The console shows the number only, no device names.',
+  'media.devices.confirm': 'Sign out all',
+  'media.devices.done': 'Devices signed out: {n}',
+  'media.devices.skipped':
+    'Not signed out: {n}. Another account is signed in on these devices too. A new password signs them out as well.',
+  'media.devices.failed': 'Signing out failed for {n} devices. Try again.',
 
   // Enable, disable, delete
   'media.disable': 'Disable',
   'media.enable': 'Enable',
   'media.disableTitle': 'Disable {username}?',
   'media.disableText':
-    'Every device is signed out at once and the account can no longer sign in. History and favorites stay.',
+    'Playback is stopped, every device is signed out at once and the account can no longer sign in. History and favorites stay.',
   'media.enableTitle': 'Enable {username}?',
   'media.enableText': 'The account can sign in again. A lock after failed sign-ins is lifted as well.',
   'media.enableLockedHint': 'Lifts the lock',
@@ -138,7 +179,7 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.deleteConfirm': 'Delete permanently',
   'media.deleteWarningTitle': 'History and favorites are deleted',
   'media.deleteWarning':
-    'The account is deleted in Jellyfin with its watch history, favorites and playlists. Every device is signed out. This cannot be undone.',
+    'The account is deleted in Jellyfin, with watch history, favorites and playlists. Playback is stopped and every device is signed out. This cannot be undone.',
   'media.deleteMissing': 'The account no longer exists in Jellyfin. It is only removed from the console.',
   'media.deletedToast': '{username} deleted',
 

@@ -404,3 +404,67 @@ export interface MediaAccountLimitDetails {
 export interface MediaAllowanceConflictDetails {
   customers: { id: string; name: string; conflicts: (MediaAccessConflict | 'accounts')[] }[];
 }
+
+// --- Devices and Quick Connect -----------------------------------------------------------
+
+/**
+ * Quick Connect codes as Jellyfin makes them (QuickConnectManager.GenerateCode): 6 digits from
+ * 100000 to 999999, valid 10 minutes, kept in the server's memory.
+ */
+export const MEDIA_QUICK_CONNECT_CODE_PATTERN = /^[1-9]\d{5}$/;
+/** Attempts per account and minute, wrong codes included. */
+export const MEDIA_QUICK_CONNECT_ATTEMPTS_PER_MINUTE = 5;
+
+/** The code as typed ("123 456", "123-456"), or null when it cannot be one. */
+export function normalizeQuickConnectCode(value: string): string | null {
+  const digits = String(value ?? '').replace(/[\s-]/g, '');
+  return MEDIA_QUICK_CONNECT_CODE_PATTERN.test(digits) ? digits : null;
+}
+
+/** 409 codes of "Fernseher verbinden" (the web maps them to texts). */
+export const MEDIA_CONNECT_ERRORS = [
+  'quick_connect_off',
+  'quick_connect_code',
+  'quick_connect_failed',
+  'stream_limit',
+  'account_disabled',
+] as const;
+export type MediaConnectError = (typeof MEDIA_CONNECT_ERRORS)[number];
+
+/** `details` of a 409 "stream_limit". */
+export interface MediaStreamLimitDetails {
+  /** MaxActiveSessions of the account. */
+  maxStreams: number;
+  /** Sessions the instance holds for the account now. */
+  sessions: number;
+}
+
+/** GET /media/accounts/:id/devices: a number only, never names, apps, addresses or times. */
+export interface MediaDevicesDto {
+  /** Devices signed in with this account (Jellyfin access tokens). */
+  count: number;
+}
+
+/** POST /media/accounts/:id/signout */
+export interface MediaSignOutResultDto {
+  /** Playing sessions stopped first. */
+  stopped: number;
+  signedOut: number;
+  /** Left signed in: another account is signed in on the same device, Jellyfin would sign out both. */
+  skipped: number;
+  /** Refused or not answered by the instance; the action can be repeated. */
+  failed: number;
+  /** Devices still signed in afterwards; null when the fresh count failed. */
+  remaining: number | null;
+}
+
+/** POST /media/accounts/:id/connect */
+export interface MediaConnectResultDto {
+  connected: true;
+}
+
+/** POST /media/accounts/:id/password. devices: fresh count afterwards (Jellyfin signs out all), null when unknown. */
+export interface MediaPasswordResultDto {
+  password: string | null;
+  devices: number | null;
+}

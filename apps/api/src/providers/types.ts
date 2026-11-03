@@ -556,6 +556,22 @@ export interface MediaActivity {
   playing: number;
 }
 
+/** Sessions of one user and how many were playing and got a stop command. Counts only. */
+export interface MediaPlaybackStop {
+  sessions: number;
+  stopped: number;
+}
+
+/** Result of signing out a user's devices. Counts only, never device ids or names. */
+export interface MediaSignOut {
+  signedOut: number;
+  /** Device ids another user is signed in on too (Jellyfin signs out every user of a device id). */
+  skipped: number;
+  failed: number;
+  /** Fresh count afterwards; null when it could not be read. */
+  remaining: number | null;
+}
+
 /** A monitor as Uptime Kuma reports it. Never carries the monitor's secrets. */
 export interface RemoteMonitor {
   /** Kuma's numeric monitor id as text. */
@@ -868,6 +884,22 @@ export interface ProviderAdapter {
   mediaActivity?(): Promise<MediaActivity>;
   /** Where users sign in and what they enter in the apps, e.g. https://media.weblion.one. */
   mediaLoginUrl?(): string;
+  /**
+   * Confirms a Quick Connect code a device shows, for this user (an API key may do it for anyone).
+   * Refuses administrators, disabled users, Quick Connect off and a full MaxActiveSessions before
+   * anything is sent. The code is a one-time secret: never in messages. Errors: AppError 409 with
+   * the codes of MEDIA_CONNECT_ERRORS, ProviderError otherwise.
+   */
+  authorizeMediaQuickConnect?(userId: string, code: string): Promise<void>;
+  /** Devices signed in with the user (access tokens), read live. */
+  countMediaUserDevices?(userId: string): Promise<number>;
+  /** Signs out every device of the user that no other user is signed in on. Refuses administrators. */
+  signOutMediaUserDevices?(userId: string): Promise<MediaSignOut>;
+  /**
+   * Sends a stop to every playing session of the user. Best effort per session, counts only.
+   * Refuses administrators.
+   */
+  stopMediaUserPlayback?(userId: string): Promise<MediaPlaybackStop>;
 
   // Monitoring (module "monitoring", Uptime Kuma). Monitors by Kuma id (text). Missing monitors
   // throw a ProviderError with upstreamStatus 404.

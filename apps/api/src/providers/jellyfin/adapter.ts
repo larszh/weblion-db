@@ -1,16 +1,20 @@
 import {
   MEDIA_ACTIVE_WITHIN_SECONDS,
+  normalizeQuickConnectCode,
   type Capability,
   type MediaLibraryRef,
   type MediaPolicyState,
   type PowerAction,
 } from '@weblion/shared';
 import { ProviderError, badRequest, conflict } from '../../lib/errors';
+import { num } from '../http';
 import type {
   InfraOverview,
   JellyfinConfig,
   MediaActivity,
+  MediaPlaybackStop,
   MediaServerInfo,
+  MediaSignOut,
   MediaUserInput,
   ProviderAdapter,
   RawResponse,
@@ -27,20 +31,30 @@ import {
 } from './client';
 import {
   applyPolicyState,
+  describeJellyfinError,
   isObject,
+  isQuickConnectOff,
   jellyfinId,
   parseActivity,
+  parseDevices,
   parseJellyfinUser,
   parseLibraries,
   parseServerInfo,
+  parseSessions,
   redactJellyfin,
   versionAtLeast,
+  type JellyfinDeviceRef,
 } from './parse';
 import {
   assertJellyfinPassword,
   assertJellyfinUsername,
   jellyfinAdminRefused,
+  mediaAccountDisabled,
+  quickConnectFailed,
+  quickConnectOff,
+  quickConnectUnknownCode,
   sameJellyfinUsername,
+  streamLimit,
 } from './rules';
 
 /** Oldest Jellyfin the console manages (same user, policy and password endpoints as 10.11). */
@@ -393,6 +407,154 @@ export class JellyfinAdapter implements ProviderAdapter {
   }
 
   // ---------------------------------------------------------------------------
+  // Devices, sessions and Quick Connect. Read live, never cached; counts only leave the adapter.
+
+  /**
+   * POST /QuickConnect/Authorize with the API key for this user. Jellyfin itself does not check
+   * IsDisabled here (AuthenticateDirect skips it) and answers its refusals without a reason, so
+   * the user, Quick Connect and the stream limit are checked first and nothing is sent when one of
+   * them refuses. The code is a one-time secret: scrubbed from every message, sent only in the
+   * query of the one authorize call.
+   */
+  async authorizeMediaQuickConnect(userId: string, code: string): Promise<void> {
+    const id = userIdOf(userId);
+    const clean = normalizeQuickConnectCode(code);
+    if (!clean) throw badRequest('A Quick Connect code has 6 digits');
+    const secrets = [clean];
+    await this.exclusive(id, async () => {
+      const current = await this.readUser(id, secrets);
+      const policy = this.policyOf(current, id);
+      if (policy.IsAdministrator === true) throw jellyfinAdminRefused();
+      // AuthenticateDirect does not check IsDisabled: the token would be refused on first use.
+      if (policy.IsDisabled === true) throw mediaAccountDisabled();
+      if ((await this.quickConnectState()) === false) throw quickConnectOff();
+      const max = num(policy.MaxActiveSessions) ?? 0;
+      const sessions = max >= 1 ? await this.countSessions(id) : 0;
+      if (max >= 1 && sessions >= max) throw streamLimit({ maxStreams: max, sessions });
+      const action = `confirm Quick Connect for ${this.nameOf(current, id)}`;
+      const res = await this.client.raw('POST', '/QuickConnect/Authorize', {
+        query: { code: clean, userId: id },
+        action,
+        secrets,
+      });
+      if (res.status === 200 && (res.body === true || res.body === 'true')) return;
+      if (res.status === 200) throw quickConnectFailed();
+      if (res.status === 401 && isQuickConnectOff(res.body)) throw quickConnectOff();
+      // ResourceNotFoundException "Unable to find request": unknown or expired.
+      if (res.status === 404) throw quickConnectUnknownCode();
+      if (res.status === 403) {
+        // Without a limit only a device restriction (EnableAllDevices off) gives a 403.
+        if (max < 1) throw quickConnectFailed();
+        const now = await this.countSessions(id).catch(() => sessions);
+        throw streamLimit({ maxStreams: max, sessions: now });
+      }
+      // "Request is already authorized" and other exceptions without a status of their own.
+      if (res.status === 500) throw quickConnectFailed();
+      throw new ProviderError(
+        PROVIDER,
+        this.client.scrub(describeJellyfinError(res, action), secrets),
+        res.status,
+      );
+    });
+  }
+
+  async countMediaUserDevices(userId: string): Promise<number> {
+    const id = userIdOf(userId);
+    return (await this.readDevices()).filter((d) => d.userId === id).length;
+  }
+
+  /**
+   * DELETE /Devices?id= signs out every user of that device id, so a device another user is
+   * signed in on too is skipped (a new password signs out exactly this user's tokens). A device
+   * gone meanwhile (404) counts neither way; any other answer counts as failed. Administrators
+   * are refused before anything is sent.
+   */
+  async signOutMediaUserDevices(userId: string): Promise<MediaSignOut> {
+    const id = userIdOf(userId);
+    return this.exclusive(id, async () => {
+      await this.assertManageable(id);
+      const devices = await this.readDevices();
+      const own = new Set(devices.filter((d) => d.userId === id).map((d) => d.deviceId));
+      const shared = new Set(devices.filter((d) => d.userId !== id).map((d) => d.deviceId));
+      let signedOut = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (const deviceId of own) {
+        if (shared.has(deviceId)) {
+          skipped++;
+          continue;
+        }
+        // Every row with this device id is signed out and its sessions end.
+        const res = await this.client
+          .raw('DELETE', '/Devices', { query: { id: deviceId }, action: 'sign out a device' })
+          .catch(() => null);
+        if (res && res.status >= 200 && res.status < 300) signedOut++;
+        else if (res?.status !== 404) failed++;
+      }
+      const remaining = await this.readDevices().then(
+        (list) => list.filter((d) => d.userId === id).length,
+        () => null,
+      );
+      return { signedOut, skipped, failed, remaining };
+    });
+  }
+
+  /**
+   * A stop for every playing session of the user. Best effort: a client without a WebSocket
+   * never gets it, and Jellyfin answers 204 anyway. Counts only. Administrators are refused
+   * before anything is sent.
+   */
+  async stopMediaUserPlayback(userId: string): Promise<MediaPlaybackStop> {
+    const id = userIdOf(userId);
+    await this.assertManageable(id);
+    const sessions = (await this.readSessions()).filter((s) => s.userId === id);
+    let stopped = 0;
+    for (const session of sessions.filter((s) => s.playing)) {
+      // The id is 32 hex (checked by the parser): safe in the path.
+      const res = await this.client
+        .raw('POST', `/Sessions/${session.id}/Playing/Stop`, { action: 'stop playback' })
+        .catch(() => null);
+      if (res && res.status >= 200 && res.status < 300) stopped++;
+    }
+    return { sessions: sessions.length, stopped };
+  }
+
+  /** GET /QuickConnect/Enabled, uncached (anonymous). null when unreadable: the POST will tell. */
+  private async quickConnectState(): Promise<boolean | null> {
+    try {
+      const value = await this.client.request('GET', '/QuickConnect/Enabled', {
+        action: 'read Quick Connect',
+      });
+      return typeof value === 'boolean' ? value : value === 'true' ? true : value === 'false' ? false : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Every in-memory session (no activeWithinSeconds): what MaxActiveSessions counts. */
+  private async readSessions() {
+    const body = await this.client.request('GET', '/Sessions', { action: 'list sessions' });
+    if (!Array.isArray(body)) throw new ProviderError(PROVIDER, 'list sessions failed: unexpected answer');
+    return parseSessions(body);
+  }
+
+  private async countSessions(id: string): Promise<number> {
+    return (await this.readSessions()).filter((s) => s.userId === id).length;
+  }
+
+  /**
+   * Never with ?userId=: GetDevicesForUser filters by CanAccessDevice, which is true for every
+   * device while EnableAllDevices is on. Rows are matched by LastUserId instead.
+   */
+  private async readDevices(): Promise<JellyfinDeviceRef[]> {
+    const body = await this.client.request('GET', '/Devices', { action: 'list devices' });
+    if (!isObject(body) && !Array.isArray(body)) {
+      throw new ProviderError(PROVIDER, 'list devices failed: unexpected answer');
+    }
+    return parseDevices(body);
+  }
+
+  // ---------------------------------------------------------------------------
   // Libraries, server, activity
 
   async listMediaLibraries(fresh = false): Promise<MediaLibraryRef[]> {
@@ -472,6 +634,15 @@ export class JellyfinAdapter implements ProviderAdapter {
     const user = parseJellyfinUser(raw);
     if (!user) throw new ProviderError(PROVIDER, `read user ${id} failed: the answer has no id or name`);
     return user;
+  }
+
+  /**
+   * Refuses administrators, read live like in every write (a stored issue can be stale), before
+   * a step that writes nothing to the user but acts on its devices or sessions.
+   */
+  private async assertManageable(id: string): Promise<void> {
+    const current = await this.readUser(id);
+    if (this.policyOf(current, id).IsAdministrator === true) throw jellyfinAdminRefused();
   }
 
   /** The whole policy as read. Without it nothing can be written (Jellyfin resets missing fields). */

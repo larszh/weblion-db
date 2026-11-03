@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -6,7 +6,8 @@ import type { AddressInfo } from 'node:net';
 // A small Jellyfin (10.11, with switches for 10.10 and master behaviour), built after the
 // server source of v10.11.11: AuthorizationContext (token sources, legacy switch),
 // UserController (users, policy, password, delete), LibraryStructureController,
-// SessionController, ApiKeyController, QuickConnectController. PascalCase JSON, ids as 32 hex
+// SessionController, ApiKeyController, QuickConnectController (with QuickConnectManager),
+// DevicesController (with DeviceManager and SessionManager.Logout). PascalCase JSON, ids as 32 hex
 // without dashes, dates with 7 fractional digits and Z, null properties left out. Errors in
 // the shapes of the design (1.4): 401 empty, ProblemDetails for NotFound(), JSON strings for
 // NotFound("...") and StatusCode(403, "..."), text/plain "Error processing request." for
@@ -30,8 +31,32 @@ export interface MockJellyfinUser {
   policy: Record<string, unknown>;
   lastLoginDate?: string;
   lastActivityDate?: string;
-  /** Signed-in devices, set to 0 by token revocation. */
+  /**
+   * Signed-in devices, set to 0 by token revocation. Kept equal to the user's device rows by
+   * every change of them (a user created with a number and no rows keeps it until then).
+   */
   devices: number;
+}
+
+/** One access token row (Jellyfin's Device entity): per user and device id. */
+export interface MockDeviceRow {
+  Id: string;
+  UserId: string;
+  Name: string;
+  AppName: string;
+  AppVersion: string;
+  DateLastActivity: string;
+  /** The token, answered only with the option deviceTokens (10.10 and 10.11 never do). */
+  AccessToken: string;
+}
+
+/** A waiting Quick Connect request (QuickConnectManager._currentRequests). */
+export interface MockQuickConnectRequest {
+  deviceId: string;
+  deviceName: string;
+  app: string;
+  authenticated: boolean;
+  at: number;
 }
 
 export interface MockJellyfinLibrary {
@@ -53,6 +78,8 @@ export interface MockJellyfinOptions {
   users?: MockJellyfinUser[];
   /** Per request, for the concurrency tests. */
   delayMs?: number;
+  /** Fills AccessToken in GET /Devices (real 10.10 and 10.11 leave it out). */
+  deviceTokens?: boolean;
 }
 
 export interface MockJellyfinRequest {
@@ -85,6 +112,13 @@ export interface MockJellyfinState {
   delayMs: number;
   /** Most requests handled at the same time so far. */
   maxInFlight: number;
+  /** Token rows; each one has a session in `sessions` (Id = md5 of device and user id). */
+  deviceRows: MockDeviceRow[];
+  deviceTokens: boolean;
+  /** By code. */
+  quickConnectRequests: Map<string, MockQuickConnectRequest>;
+  /** Playstate commands received, in order. */
+  commands: { sessionId: string; command: string }[];
   /** Answers instead of the routes when it returns something (failures, odd answers). */
   override?: (req: MockJellyfinRequest) => MockJellyfinAnswer | undefined;
 }
@@ -96,6 +130,10 @@ export interface JellyfinMock {
   origin: string;
   requests: MockJellyfinRequest[];
   state: MockJellyfinState;
+  /** Signs the user in on a device (a token row and a session, an older token of the pair replaced). */
+  signIn(user: MockJellyfinUser, deviceId: string, options?: { playing?: boolean; name?: string }): void;
+  /** What a TV does on "Quick Connect": a waiting request, its 6-digit code returned. */
+  initiateQuickConnect(deviceId: string, deviceName?: string): string;
   close(): Promise<void>;
 }
 
@@ -381,7 +419,171 @@ export async function startJellyfinMock(options: MockJellyfinOptions = {}): Prom
     quickConnect: options.quickConnect ?? true,
     delayMs: options.delayMs ?? 0,
     maxInFlight: 0,
+    deviceRows: [],
+    deviceTokens: options.deviceTokens ?? false,
+    quickConnectRequests: new Map(),
+    commands: [],
   };
+
+  /** Session ids are MD5 "N" in Jellyfin; here of device and user, so shared devices stay apart. */
+  const sessionIdOf = (deviceId: string, userId: string) =>
+    createHash('md5').update(`${deviceId}\n${userId}`).digest('hex');
+  /** Device rows are written with increasing times, so "newest first" is well defined. */
+  let clock = Date.parse('2026-10-12T18:00:00.000Z');
+  let nextCode = 100000;
+
+  function countDevices(userId: string) {
+    const user = state.users.get(userId);
+    if (user) user.devices = state.deviceRows.filter((r) => r.UserId === userId).length;
+  }
+
+  /** GetAuthorizationToken: a new row and session for the pair, an older token of the pair logged out. */
+  function addDevice(user: MockJellyfinUser, deviceId: string, name: string, app: string, playing = false) {
+    removeRows((r) => r.Id === deviceId && r.UserId === user.id, false);
+    clock += 1000;
+    const at = jellyfinDate(new Date(clock));
+    state.deviceRows.push({
+      Id: deviceId,
+      UserId: user.id,
+      Name: name,
+      AppName: app,
+      AppVersion: '10.11.11',
+      DateLastActivity: at,
+      AccessToken: randomUUID().replace(/-/g, ''),
+    });
+    const session: Record<string, unknown> = {
+      PlayState: { CanSeek: true, IsPaused: false, IsMuted: false, RepeatMode: 'RepeatNone' },
+      RemoteEndPoint: '203.0.113.50',
+      Id: sessionIdOf(deviceId, user.id),
+      UserId: user.id,
+      UserName: user.name,
+      Client: app,
+      DeviceName: name,
+      DeviceId: deviceId,
+      LastActivityDate: at,
+      SupportsRemoteControl: true,
+      IsActive: true,
+    };
+    if (playing) {
+      session.NowPlayingItem = {
+        Name: MOCK_PLAYING_TITLE,
+        Id: '1c5d9e0f3a4b5c6d7e8f9a0b1c2d3e4f',
+        Type: 'Episode',
+      };
+    }
+    state.sessions.push(session);
+    countDevices(user.id);
+  }
+
+  /**
+   * SessionManager.Logout(device) for every matching row: the row goes, and with `endSessions`
+   * every session on that device id ends, whoever it belongs to.
+   */
+  function removeRows(match: (row: MockDeviceRow) => boolean, endSessions = true) {
+    const removed = state.deviceRows.filter(match);
+    state.deviceRows = state.deviceRows.filter((r) => !match(r));
+    const ids = new Set(removed.map((r) => r.Id));
+    if (endSessions) {
+      state.sessions = state.sessions.filter((s) => !ids.has(String(s.DeviceId)));
+    } else {
+      const pairs = new Set(removed.map((r) => sessionIdOf(r.Id, r.UserId)));
+      state.sessions = state.sessions.filter((s) => !pairs.has(String(s.Id)));
+    }
+    for (const userId of new Set(removed.map((r) => r.UserId))) countDevices(userId);
+  }
+
+  /** RevokeUserTokens(user): exactly the user's rows, each through Logout(device). */
+  function revoke(user: MockJellyfinUser) {
+    removeRows((r) => r.UserId === user.id);
+    user.devices = 0;
+  }
+
+  /** DeviceInfoDto as ToDeviceInfo writes it: no AccessToken (unless the option says so). */
+  function deviceDto(row: MockDeviceRow): Record<string, unknown> {
+    const dto: Record<string, unknown> = {
+      Name: row.Name,
+      Id: row.Id,
+      LastUserName: state.users.get(row.UserId)?.name ?? null,
+      AppName: row.AppName,
+      AppVersion: row.AppVersion,
+      LastUserId: row.UserId,
+      DateLastActivity: row.DateLastActivity,
+      Capabilities: {
+        PlayableMediaTypes: ['Video', 'Audio'],
+        SupportedCommands: [],
+        SupportsMediaControl: true,
+        SupportsPersistentIdentifier: true,
+      },
+    };
+    if (state.deviceTokens) dto.AccessToken = row.AccessToken;
+    return dto;
+  }
+
+  function devices(req: MockJellyfinRequest): MockJellyfinAnswer {
+    const userId = req.query.get('userId');
+    if (userId) {
+      const id = guidOf(userId);
+      if (!id) return validation('userId', `The value '${userId}' is not valid.`);
+      // GetDevicesForUser: ResourceNotFoundException for an unknown user.
+      if (!state.users.has(id)) return opaque(404);
+    }
+    // EnableAllDevices (and administrators): CanAccessDevice is true for every row, so userId
+    // filters nothing.
+    const items = [...state.deviceRows]
+      .sort((a, b) => b.DateLastActivity.localeCompare(a.DateLastActivity))
+      .map(deviceDto);
+    return json({ Items: items, TotalRecordCount: items.length, StartIndex: 0 });
+  }
+
+  function deleteDevice(req: MockJellyfinRequest): MockJellyfinAnswer {
+    const id = req.query.get('id');
+    if (!id) return validation('id', 'The id field is required.');
+    if (!state.deviceRows.some((r) => r.Id === id)) return problem(404, 'Not Found');
+    removeRows((r) => r.Id === id);
+    return { status: 204 };
+  }
+
+  /** QuickConnectController.AuthorizeQuickConnect with QuickConnectManager.AuthorizeRequest. */
+  function authorizeQuickConnect(req: MockJellyfinRequest): MockJellyfinAnswer {
+    const code = req.query.get('code');
+    if (!code) return validation('code', 'The code field is required.');
+    // AssertActive throws AuthenticationException, which the controller turns into Unauthorized(string).
+    if (!state.quickConnect) return json('Quick connect is disabled', 401);
+    const request = state.quickConnectRequests.get(code);
+    if (!request) return opaque(404);
+    if (request.authenticated) return opaque(500);
+    // An API key has no user: without userId Guid.Empty, GetUserByName(null) throws.
+    const userId = guidOf(req.query.get('userId') ?? '');
+    const user = userId ? state.users.get(userId) : undefined;
+    if (!user) return opaque(400);
+    // AuthenticateDirect: no IsDisabled check, only the session limit.
+    const max = Number(user.policy.MaxActiveSessions ?? 0);
+    const sessions = state.sessions.filter((s) => s.UserId === user.id).length;
+    if (max >= 1 && sessions >= max) return opaque(403);
+    addDevice(user, request.deviceId, request.deviceName, request.app);
+    request.authenticated = true;
+    return json(true);
+  }
+
+  /** SessionController.SendPlaystateCommand. GetSessionId touches a session for the caller first. */
+  function playstate(sessionId: string, command: string): MockJellyfinAnswer {
+    const keySession = 'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0';
+    if (!state.sessions.some((s) => s.Id === keySession)) {
+      state.sessions.push({
+        Id: keySession,
+        UserId: '00000000000000000000000000000000',
+        Client: 'weblion.one',
+        DeviceName: 'weblion.one',
+        DeviceId: 'api-key',
+        IsActive: true,
+      });
+    }
+    const session = state.sessions.find((s) => String(s.Id).toLowerCase() === sessionId.toLowerCase());
+    if (!session) return opaque(404);
+    state.commands.push({ sessionId, command });
+    if (command.toLowerCase() === 'stop') delete session.NowPlayingItem;
+    return { status: 204 };
+  }
 
   const findByName = (name: string) =>
     [...state.users.values()].find((u) => u.name.toUpperCase() === name.toUpperCase());
@@ -458,6 +660,15 @@ export async function startJellyfinMock(options: MockJellyfinOptions = {}): Prom
       );
     }
     if (method === 'GET' && p === '/sessions') return json(structuredClone(state.sessions));
+    if (method === 'GET' && p === '/devices') return devices(req);
+    if (method === 'DELETE' && p === '/devices') return deleteDevice(req);
+    if (method === 'POST' && p === '/quickconnect/authorize') return authorizeQuickConnect(req);
+    const playing = /^\/sessions\/([^/]+)\/playing\/([^/]+)$/.exec(p);
+    if (method === 'POST' && playing) {
+      // The path is matched in lower case; the command keeps its spelling from the request.
+      const command = /\/playing\/([^/]+)$/i.exec(path)![1]!;
+      return playstate(playing[1]!, command);
+    }
     if (method === 'GET' && p === '/auth/keys') {
       return json({
         Items: [
@@ -486,7 +697,7 @@ export async function startJellyfinMock(options: MockJellyfinOptions = {}): Prom
       if (!sub && method === 'DELETE') {
         if (!user) return problem(404, 'Not Found');
         if (isAdmin(user) && [...state.users.values()].filter(isAdmin).length === 1) return opaque(400);
-        user.devices = 0;
+        revoke(user);
         state.users.delete(id);
         return { status: 204 };
       }
@@ -540,7 +751,7 @@ export async function startJellyfinMock(options: MockJellyfinOptions = {}): Prom
       if ([...state.users.values()].filter((u) => !isDisabled(u)).length === 1) {
         return json('There must be at least one enabled user in the system.', 403);
       }
-      user.devices = 0;
+      revoke(user);
     }
     // UpdatePolicyAsync: -1 means none, 0 means 3; the blocked lists are never set from the body.
     const attempts = Number(next.LoginAttemptsBeforeLockout);
@@ -567,7 +778,7 @@ export async function startJellyfinMock(options: MockJellyfinOptions = {}): Prom
     const next = typeof body.NewPw === 'string' ? body.NewPw : '';
     if (next === '' && isAdmin(user)) return opaque(400);
     user.password = next === '' ? null : next;
-    user.devices = 0;
+    revoke(user);
     return { status: 204 };
   }
 
@@ -632,6 +843,19 @@ export async function startJellyfinMock(options: MockJellyfinOptions = {}): Prom
     origin,
     requests,
     state,
+    signIn: (user, deviceId, options = {}) =>
+      addDevice(user, deviceId, options.name ?? deviceId, 'Jellyfin Android TV', options.playing ?? false),
+    initiateQuickConnect: (deviceId, deviceName = 'Wohnzimmer TV') => {
+      const code = String(nextCode++);
+      state.quickConnectRequests.set(code, {
+        deviceId,
+        deviceName,
+        app: 'Jellyfin Android TV',
+        authenticated: false,
+        at: Date.now(),
+      });
+      return code;
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

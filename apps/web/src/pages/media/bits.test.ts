@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { MEDIA_BITRATE_PRESETS_MBIT, MEDIA_MAX_ACCOUNTS, type MediaAccountIssue } from '@weblion/shared';
+import { ApiError } from '@/lib/api';
 import type { TFunction } from '@/lib/i18n';
 import { isMediaProvider } from '@/pages/admin/media';
 import {
   activityDayKind,
   activityDayText,
   bitrateChoiceOf,
+  connectErrorKey,
   formatBitrate,
   formatMediaDay,
   groupPassword,
@@ -15,7 +17,9 @@ import {
   ownMediaAccounts,
   parseCount,
   previousDay,
+  quickConnectField,
   readBitrate,
+  streamLimitOf,
   usernamePreview,
 } from './bits';
 import { mediaAccessFormFrom, readMediaAccessForm, type MediaAccessLimits } from './dialogs';
@@ -281,5 +285,43 @@ describe('isMediaProvider', () => {
     expect(isMediaProvider({ type: 'demo', summary: {} })).toBe(true);
     expect(isMediaProvider({ type: 'demo', summary: { flavor: 'cloudflare' } })).toBe(false);
     expect(isMediaProvider({ type: 'nextcloud' })).toBe(false);
+  });
+});
+
+describe('connect a TV', () => {
+  it('sends 6 digits as typed and complains only about what cannot become a code', () => {
+    expect(quickConnectField('')).toEqual({ code: null, invalid: false });
+    // Still typing: no error yet.
+    expect(quickConnectField('123')).toEqual({ code: null, invalid: false });
+    expect(quickConnectField('123 45')).toEqual({ code: null, invalid: false });
+    expect(quickConnectField('123456')).toEqual({ code: '123456', invalid: false });
+    expect(quickConnectField('123 456')).toEqual({ code: '123456', invalid: false });
+    expect(quickConnectField('123-456')).toEqual({ code: '123456', invalid: false });
+    for (const value of ['012345', '1234567', '12a', 'abc']) {
+      expect(quickConnectField(value)).toEqual({ code: null, invalid: true });
+    }
+  });
+
+  it('maps every refusal of the API to its text', () => {
+    const refused = (code: string, status = 409, details?: unknown) =>
+      new ApiError(status, code, 'x', details);
+    expect(connectErrorKey(refused('quick_connect_code'))).toBe('media.connect.error.code');
+    expect(connectErrorKey(refused('quick_connect_off'))).toBe('media.connect.error.off');
+    expect(connectErrorKey(refused('quick_connect_failed'))).toBe('media.connect.error.failed');
+    expect(connectErrorKey(refused('stream_limit'))).toBe('media.connect.error.limit');
+    expect(connectErrorKey(refused('account_disabled'))).toBe('media.connect.error.disabled');
+    expect(connectErrorKey(refused('rate_limited', 429))).toBe('media.connect.error.tooMany');
+    // Errors with a message of their own (administrators, the instance failing, permissions).
+    expect(connectErrorKey(refused('conflict'))).toBeNull();
+    expect(connectErrorKey(refused('provider_error', 502))).toBeNull();
+    expect(connectErrorKey(refused('quick_connect_code', 400))).toBeNull();
+    expect(connectErrorKey(refused('forbidden', 403))).toBeNull();
+    expect(connectErrorKey(new Error('network'))).toBeNull();
+    expect(connectErrorKey(null)).toBeNull();
+
+    expect(streamLimitOf(refused('stream_limit', 409, { maxStreams: 2, sessions: 2 }))).toBe(2);
+    expect(streamLimitOf(refused('stream_limit', 409, {}))).toBeNull();
+    expect(streamLimitOf(refused('conflict', 409, { maxStreams: 2 }))).toBeNull();
+    expect(streamLimitOf(null)).toBeNull();
   });
 });

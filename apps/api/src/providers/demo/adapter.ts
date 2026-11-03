@@ -56,7 +56,9 @@ import type {
   MailboxInput,
   MailboxPatch,
   MediaActivity,
+  MediaPlaybackStop,
   MediaServerInfo,
+  MediaSignOut,
   MediaUserInput,
   MonitorInput,
   MonitorInventory,
@@ -1081,6 +1083,22 @@ export class DemoAdapter implements ProviderAdapter {
 
   mediaLoginUrl(): string {
     return this.media.mediaLoginUrl();
+  }
+
+  async authorizeMediaQuickConnect(userId: string, code: string): Promise<void> {
+    return this.media.authorizeMediaQuickConnect(userId, code);
+  }
+
+  async countMediaUserDevices(userId: string): Promise<number> {
+    return this.media.countMediaUserDevices(userId);
+  }
+
+  async signOutMediaUserDevices(userId: string): Promise<MediaSignOut> {
+    return this.media.signOutMediaUserDevices(userId);
+  }
+
+  async stopMediaUserPlayback(userId: string): Promise<MediaPlaybackStop> {
+    return this.media.stopMediaUserPlayback(userId);
   }
 
   // --- Monitoring (simulated Uptime Kuma, management always on) ---------------------

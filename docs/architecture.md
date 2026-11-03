@@ -139,7 +139,8 @@ wird.
 
 Einige Aktionen gehen nur mit Login, nie per API-Token: Auth-Codes und Plesk-Passwörter
 ansehen, Passwörter von Cloud-Konten, Postfächern, Websites und ihren Datenbanken und
-Streaming-Zugängen neu setzen, die Willkommens-E-Mail eines Telefonie-Benutzers erneut senden und
+Streaming-Zugängen neu setzen, einen Fernseher mit einem Streaming-Zugang verbinden (Quick Connect,
+`media:password`), die Willkommens-E-Mail eines Telefonie-Benutzers erneut senden und
 seine E-Mail-Adresse ändern (`phone:credentials`), Domains verlängern und die automatische
 Verlängerung schalten (kostet beim Registrar Geld, Berechtigung `platform:domain:write`), DNS zu
 Cloudflare umziehen (`platform:domain:move`), Websites im Admin-Bereich anlegen, übernehmen und
@@ -385,7 +386,18 @@ das Modul ihn dort wieder. Typen, Namen, Passwortregeln und das Modell der Richt
 - **Passwörter** erzeugt das Modul (`node:crypto`, 16 Zeichen) oder nimmt das gewählte, gibt sie
   einmal zurück (`Cache-Control: no-store`) und speichert sie nie.
 - **Datenschutz:** Von der letzten Aktivität gibt die API nur den Tag heraus (`mediaActivityDay()`,
-  Europe/Zurich), von den Sitzungen einer Instanz nur zwei Zahlen.
+  Europe/Zurich), von den Sitzungen einer Instanz nur zwei Zahlen, von den Geräten eines Zugangs nur
+  ihre Zahl. Die Parser behalten von Geräten und Sitzungen nur IDs und "spielt gerade", Gerätenamen,
+  Apps und Adressen verlassen den Adapter nie.
+- **Geräte und Quick Connect** (Adapter: `authorizeMediaQuickConnect`, `countMediaUserDevices`,
+  `signOutMediaUserDevices`, `stopMediaUserPlayback`): Der Quick-Connect-Code ist ein
+  Einmal-Geheimnis, er steht nur im Body der Anfrage und in der einen Anfrage an Jellyfin und wird
+  aus jeder Fehlermeldung entfernt. Der Adapter prüft vorher selbst, was Jellyfin nicht prüft
+  (deaktivierter Benutzer) oder nur ohne Grund ablehnt (Quick Connect aus, Streams belegt). Höchstens
+  5 Versuche pro Zugang und Minute, gezählt im Handler erst nach der Rechteprüfung, damit Fremde die
+  Versuche eines Zugangs nicht aufbrauchen. Vor Deaktivieren und Löschen stoppt die Route die
+  Wiedergabe "best effort" (5 Sekunden, im Audit als `ended`), die Geräte meldet Jellyfin im selben
+  Aufruf selbst ab.
 
 **Die Richtlinie** ist das Herz des Moduls. Die Console besitzt 17 Felder der Benutzer-Richtlinie
 von Jellyfin, alle anderen gehören dem Betreiber:

@@ -218,9 +218,9 @@ Willkommens-E-Mail), den Mitgliedern von Ringgruppen und den Leitungen zum Anseh
 
 Die Anbindung deckt heute Streaming-Kontingente pro Kunde und Reseller auf beliebig vielen
 Jellyfin-Instanzen ab (gemeinsam oder dediziert), Zugänge mit Login-Namen aus Name und Code,
-Passwörter (einmal angezeigt), Deaktivieren und Löschen, die verwaltete Richtlinie mit Reparatur
-durch den Sync, das Übernehmen bestehender Benutzer und eine Anmeldehilfe mit Quick Connect. Als
-Nächstes:
+Passwörter (einmal angezeigt), Deaktivieren und Löschen (mit Stopp der Wiedergabe), die verwaltete
+Richtlinie mit Reparatur durch den Sync, das Übernehmen bestehender Benutzer, eine Anmeldehilfe,
+"Fernseher verbinden" mit dem Quick-Connect-Code und "Alle Geräte abmelden". Als Nächstes:
 
 - **Abrechnung koppeln**: Ein Produkt mit Streaming-Kontingent ("Familie: 5 Zugänge, 2 Streams") als
   Dienst, das Kontingent folgt dem Dienst. Kündigen deaktiviert die Zugänge und löscht sie nach einer
@@ -234,8 +234,7 @@ Nächstes:
   gemeinsamen auf eine dedizierte Instanz zieht
 - **Schalter für dedizierte Instanzen**: SyncPlay ("gemeinsam schauen") und Live TV pro Kontingent,
   nur für weblion.one und nur auf Instanzen mit einem einzigen Kunden
-- **Mehr pro Zugang**: "Alle Geräte abmelden" als eigene Aktion, einzelne Zugänge mit mehr Streams
-  oder Downloads, die Zahl aktiver Geräte (ohne Details, Datenschutz abwägen)
+- **Mehr pro Zugang**: einzelne Zugänge mit mehr Streams oder Downloads
 - **Kleinere Lücken**: eine eigene öffentliche Adresse, wenn die Console Jellyfin intern erreicht
 
 ## Monitoring (Uptime Kuma)

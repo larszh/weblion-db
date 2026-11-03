@@ -85,6 +85,45 @@ export function requireMediaSupport(adapter: ProviderAdapter): void {
   if (!supportsMedia(adapter)) throw unsupported('This provider does not support streaming accounts');
 }
 
+/** Adapters that can do the device actions (Jellyfin, flavorless demo). */
+export const MEDIA_DEVICE_METHODS = [
+  'authorizeMediaQuickConnect',
+  'countMediaUserDevices',
+  'signOutMediaUserDevices',
+  'stopMediaUserPlayback',
+] as const satisfies readonly (keyof ProviderAdapter)[];
+
+/** 422 for adapters without Quick Connect, device sign-out and stopping playback. */
+export function requireMediaDevices(adapter: ProviderAdapter): void {
+  if (!MEDIA_DEVICE_METHODS.every((m) => typeof adapter[m] === 'function')) {
+    throw unsupported('This provider cannot connect or sign out devices');
+  }
+}
+
+/** Budget of the best-effort steps around disable and delete (stop playback, sign out). */
+export const BEST_EFFORT_MS = 5_000;
+
+export type BestEffort<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/**
+ * Never throws: the value, or the message of the failure (adapters scrub their messages) or
+ * "no answer in time". The call itself may go on after the budget; nobody waits for it.
+ */
+export async function bestEffort<T>(fn: () => Promise<T>, ms = BEST_EFFORT_MS): Promise<BestEffort<T>> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<BestEffort<T>>((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, error: 'no answer in time' }), ms);
+  });
+  const run = (async (): Promise<BestEffort<T>> => {
+    try {
+      return { ok: true, value: await fn() };
+    } catch (err) {
+      return { ok: false, error: errorMessage(err) };
+    }
+  })();
+  return Promise.race([run, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Accounts belong to their organization as a whole, like cloud accounts. Unassigned ones reach platform staff only. */
 export function mediaScope(orgId: string | null): Scope {
   return { orgId, resource: { path: 'org' } };

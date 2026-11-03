@@ -53,7 +53,7 @@ export const mediaDe = {
   'media.login.codeHint': 'Die Login-Namen Ihrer Organisation enden auf',
   'media.login.tv': 'Auf dem Fernseher',
   'media.login.quickConnect':
-    'Wählen Sie in der App Quick Connect, öffnen Sie Jellyfin im Browser oder auf dem Handy, wo Sie angemeldet sind, und geben Sie unter Einstellungen > Quick Connect den Code vom Fernseher ein.',
+    'Wählen Sie in der App Quick Connect. Geben Sie den Code vom Fernseher hier in der Console beim Zugang unter "Fernseher verbinden" ein. Oder in Jellyfin unter Einstellungen > Quick Connect auf einem Gerät, das schon angemeldet ist.',
   'media.login.apps':
     'Apps gibt es für Browser, Windows, macOS, Linux (Jellyfin Media Player), Android, Android TV, Fire TV, iPhone und iPad, Apple TV (Swiftfin), LG webOS, Roku und Kodi.',
   'media.login.allApps': 'Alle Apps',
@@ -126,16 +126,58 @@ export const mediaDe = {
   'media.password.action': 'Passwort neu setzen',
   'media.password.title': 'Neues Passwort für {username}',
   'media.password.text':
-    'Alle Geräte, die mit diesem Zugang angemeldet sind, werden sofort abgemeldet. Das bisherige Passwort funktioniert danach nicht mehr.',
+    'Alle Geräte, die mit diesem Zugang angemeldet sind, werden sofort abgemeldet. Das bisherige Passwort funktioniert danach nicht mehr. Fernseher verbinden Sie danach am einfachsten mit "Fernseher verbinden".',
   'media.password.set': 'Passwort setzen',
   'media.password.setToast': 'Neues Passwort für {username} gesetzt',
+  'media.password.setToastSignedOut': 'Neues Passwort für {username} gesetzt, alle Geräte abgemeldet',
+  'media.password.devicesDone': 'Alle Geräte wurden abgemeldet.',
+  'media.password.devicesLeft': 'Noch angemeldete Geräte: {n}',
+
+  // Connect a TV (Quick Connect)
+  'media.connect.action': 'Fernseher verbinden',
+  'media.connect.title': 'Fernseher mit {username} verbinden',
+  'media.connect.text':
+    'Ein Fernseher oder ein anderes Gerät meldet sich mit diesem Zugang an, ohne dass jemand das Passwort eintippt.',
+  'media.connect.step1':
+    'Öffnen Sie die Jellyfin-App auf dem Fernseher, geben Sie die Server-Adresse ein und wählen Sie Quick Connect.',
+  'media.connect.step2': 'Die App zeigt einen Code mit 6 Ziffern. Geben Sie ihn hier ein.',
+  'media.connect.code': 'Code vom Fernseher',
+  'media.connect.codeHint': 'Der Code gilt 10 Minuten. Die Console speichert ihn nicht.',
+  'media.connect.codeInvalid': 'Der Code hat 6 Ziffern.',
+  'media.connect.submit': 'Verbinden',
+  'media.connect.done': 'Fernseher mit {username} verbunden',
+  'media.connect.error.code':
+    'Diesen Code kennt der Server nicht, oder er ist abgelaufen. Starten Sie Quick Connect auf dem Fernseher neu und geben Sie den neuen Code ein.',
+  'media.connect.error.off':
+    'Quick Connect ist auf diesem Server ausgeschaltet. Melden Sie den Fernseher mit Login-Name und Passwort an.',
+  'media.connect.error.limit':
+    'Mit diesem Zugang sind schon so viele Geräte angemeldet, wie das Kontingent erlaubt ({n}). Melden Sie zuerst Geräte ab.',
+  'media.connect.error.disabled':
+    'Der Zugang ist deaktiviert. Aktivieren Sie ihn, bevor Sie einen Fernseher verbinden.',
+  'media.connect.error.failed':
+    'Der Server hat den Code nicht angenommen. Zeigt der Fernseher an, dass er angemeldet ist, ist er verbunden. Sonst starten Sie Quick Connect neu.',
+  'media.connect.error.tooMany': 'Zu viele Versuche. Warten Sie eine Minute.',
+
+  // Sign out all devices
+  'media.devices.action': 'Alle Geräte abmelden',
+  'media.devices.title': 'Alle Geräte von {username} abmelden?',
+  'media.devices.count': 'Angemeldete Geräte: {n}',
+  'media.devices.none': 'Mit diesem Zugang ist kein Gerät angemeldet.',
+  'media.devices.text':
+    'Laufende Wiedergaben werden gestoppt und alle Geräte sofort abgemeldet. Passwort, Verlauf und Favoriten bleiben. Die Geräte melden sich mit dem Passwort oder mit Quick Connect neu an.',
+  'media.devices.privacy': 'Die Console zeigt nur die Zahl, keine Gerätenamen.',
+  'media.devices.confirm': 'Alle abmelden',
+  'media.devices.done': 'Abgemeldete Geräte: {n}',
+  'media.devices.skipped':
+    'Nicht abgemeldet: {n}. Auf diesen Geräten ist auch ein anderer Zugang angemeldet. Ein neues Passwort meldet auch sie ab.',
+  'media.devices.failed': 'Bei {n} Geräten ist das Abmelden gescheitert. Versuchen Sie es erneut.',
 
   // Enable, disable, delete
   'media.disable': 'Deaktivieren',
   'media.enable': 'Aktivieren',
   'media.disableTitle': '{username} deaktivieren?',
   'media.disableText':
-    'Alle Geräte werden sofort abgemeldet und der Zugang kann sich nicht mehr anmelden. Verlauf und Favoriten bleiben erhalten.',
+    'Laufende Wiedergaben werden gestoppt, alle Geräte sofort abgemeldet, und der Zugang kann sich nicht mehr anmelden. Verlauf und Favoriten bleiben erhalten.',
   'media.enableTitle': '{username} aktivieren?',
   'media.enableText':
     'Der Zugang kann sich wieder anmelden. Eine Sperre nach fehlgeschlagenen Anmeldungen wird dabei aufgehoben.',
@@ -146,7 +188,7 @@ export const mediaDe = {
   'media.deleteConfirm': 'Endgültig löschen',
   'media.deleteWarningTitle': 'Verlauf und Favoriten werden gelöscht',
   'media.deleteWarning':
-    'Der Zugang wird in Jellyfin gelöscht, mit Wiedergabeverlauf, Favoriten und Playlists. Alle Geräte werden abgemeldet. Das lässt sich nicht rückgängig machen.',
+    'Der Zugang wird in Jellyfin gelöscht, mit Wiedergabeverlauf, Favoriten und Playlists. Laufende Wiedergaben werden gestoppt und alle Geräte abgemeldet. Das lässt sich nicht rückgängig machen.',
   'media.deleteMissing': 'Den Zugang gibt es in Jellyfin nicht mehr. Er wird nur aus der Console entfernt.',
   'media.deletedToast': '{username} gelöscht',
 

@@ -1,18 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, gt } from 'drizzle-orm';
 import {
   DEFAULT_CUSTOMER_BOUNDARY,
   DEFAULT_RESELLER_BOUNDARY,
   MEDIA_PASSWORD_ALPHABET,
+  MEDIA_QUICK_CONNECT_ATTEMPTS_PER_MINUTE,
   expectedMediaPolicy,
   type MediaAccess,
   type MediaAccountDto,
   type MediaAccountSecretDto,
   type MediaAllowanceChangeResult,
   type MediaAllowanceDto,
+  type MediaDevicesDto,
   type MediaInstanceDto,
   type MediaLibraryRef,
+  type MediaPasswordResultDto,
   type MediaPolicyState,
+  type MediaSignOutResultDto,
   type ModuleKey,
   type OrgKind,
   type OrgMediaDto,
@@ -35,13 +39,16 @@ import { configSummary, redactExplorerBody, redactExplorerPath } from '../src/mo
 import { generateMediaPassword } from '../src/modules/media/service';
 import { DemoAdapter } from '../src/providers/demo/adapter';
 import {
+  DEMO_MEDIA_DEVICES,
   DEMO_MEDIA_IDS,
   DEMO_MEDIA_LIBRARIES,
   DEMO_MEDIA_URL,
+  DEMO_QUICK_CONNECT_CODE,
   DemoMedia,
   demoMediaState,
   jellyfinDefaultPolicy,
 } from '../src/providers/demo/media';
+import { JELLYFIN_ADMIN_REFUSED } from '../src/providers/jellyfin/rules';
 import { ADMIN, Client, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
 
 let t: TestApp;
@@ -592,6 +599,397 @@ describe('sync failures', () => {
   });
 });
 
+describe('devices and Quick Connect', () => {
+  // The cases build on each other (devices, rate limits); the demo is never reset in here.
+  const WRONG_CODE = '135799';
+  let annaAccount: string;
+  let livingAccount: string;
+  let kitchenAccount: string;
+  let member: Client;
+  /** Audit rows written since this block started. */
+  let firstAudit = 0;
+
+  const connect = (client: Client, id: string, code: string) =>
+    client.post(`/media/accounts/${id}/connect`, { code });
+  const devicesOf = (client: Client, id: string) => client.get(`/media/accounts/${id}/devices`);
+  const signOut = (client: Client, id: string) => client.post(`/media/accounts/${id}/signout`, {});
+  const newAudits = () => t.db.select().from(auditLogs).where(gt(auditLogs.id, firstAudit));
+
+  beforeAll(async () => {
+    const [last] = await t.db
+      .select({ id: auditLogs.id })
+      .from(auditLogs)
+      .orderBy(desc(auditLogs.id))
+      .limit(1);
+    firstAudit = last?.id ?? 0;
+    annaAccount = await accountId('anna-kemaro');
+    livingAccount = await accountId('wohnzimmer-kemaro');
+    member = await newUser('tv-member@muster.example', { orgId: musterId, role: 'member' });
+    // The sync tests disabled anna once (Jellyfin revoked her devices): sign the seeded ones in again.
+    demoUser('anna-kemaro')!.devices = DEMO_MEDIA_DEVICES['anna-kemaro']!.map((d) => ({ ...d }));
+    expect(demoUser('wohnzimmer-kemaro')!.devices.map((d) => d.deviceId)).toEqual(['demo-tv-wohnzimmer']);
+  });
+
+  it('is for the organization only: tokens never connect, members do nothing', async () => {
+    const token = await connect(bot, annaAccount, DEMO_QUICK_CONNECT_CODE);
+    expect(token.statusCode).toBe(403);
+    expect(json(token).error.message).toMatch(/interactive login/);
+    expect(json<MediaDevicesDto>(await devicesOf(bot, annaAccount))).toEqual({ count: 2 });
+    expect((await connect(member, annaAccount, DEMO_QUICK_CONNECT_CODE)).statusCode).toBe(403);
+    expect((await devicesOf(member, annaAccount)).statusCode).toBe(403);
+    expect((await signOut(member, annaAccount)).statusCode).toBe(403);
+    expect((await devicesOf(carla, annaAccount)).statusCode).toBe(403);
+
+    // Refused before anything counts as an attempt of the account (see the rate limit below).
+    expect((await connect(dev, livingAccount, DEMO_QUICK_CONNECT_CODE)).statusCode).toBe(404);
+    expect((await devicesOf(dev, annaAccount)).statusCode).toBe(404);
+    expect((await signOut(dev, annaAccount)).statusCode).toBe(404);
+    expect((await devicesOf(hanna, annaAccount)).statusCode).toBe(404);
+    // Platform staff use the same routes from the admin page; support reads, but removes nothing.
+    expect(json(await devicesOf(admin, annaAccount))).toEqual({ count: 2 });
+    expect((await devicesOf(support, annaAccount)).statusCode).toBe(403);
+    expect((await signOut(support, annaAccount)).statusCode).toBe(403);
+
+    const modules = await modulesOf(musterId);
+    await setModules(
+      musterId,
+      modules.filter((m) => m !== 'media'),
+    );
+    try {
+      // Like every route of an account: hidden while the module is off.
+      expect((await connect(anna, livingAccount, DEMO_QUICK_CONNECT_CODE)).statusCode).toBe(404);
+      expect((await devicesOf(anna, annaAccount)).statusCode).toBe(404);
+      expect((await signOut(anna, annaAccount)).statusCode).toBe(404);
+    } finally {
+      await setModules(musterId, modules);
+    }
+
+    await t.db
+      .update(organizations)
+      .set({ status: 'suspended', suspendedBy: 'platform' })
+      .where(eq(organizations.id, musterId));
+    try {
+      expect((await connect(anna, livingAccount, DEMO_QUICK_CONNECT_CODE)).statusCode).toBe(403);
+      expect((await devicesOf(anna, annaAccount)).statusCode).toBe(403);
+      expect((await signOut(anna, annaAccount)).statusCode).toBe(403);
+    } finally {
+      await t.db
+        .update(organizations)
+        .set({ status: 'active', suspendedBy: null })
+        .where(eq(organizations.id, musterId));
+    }
+    // Nothing happened at the instance, nothing was audited.
+    expect(demoUser('anna-kemaro')!.devices).toHaveLength(2);
+    expect((await newAudits()).filter((a) => a.action.startsWith('media.device_'))).toEqual([]);
+  });
+
+  it('counts the devices of an account, a number only', async () => {
+    const res = await devicesOf(anna, annaAccount);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(json(res)).toEqual({ count: 2 });
+    expect(res.body).not.toContain('demo-');
+  });
+
+  it('signs out all devices, skipping the TV another account is signed in on', async () => {
+    const res = await signOut(anna, annaAccount);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(json<MediaSignOutResultDto>(res)).toEqual({
+      stopped: 1,
+      signedOut: 1,
+      skipped: 1,
+      failed: 0,
+      remaining: 1,
+    });
+    expect(demoUser('anna-kemaro')!.devices).toEqual([{ deviceId: 'demo-tv-wohnzimmer', playing: false }]);
+    expect(demoUser('wohnzimmer-kemaro')!.devices.map((d) => d.deviceId)).toEqual(['demo-tv-wohnzimmer']);
+    const entries = await auditEntries('media.device_signout', annaAccount);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ orgId: musterId, resourceType: 'media_account', status: 'success' });
+    expect(entries[0]!.details).toEqual({
+      username: 'anna-kemaro',
+      stopped: 1,
+      signedOut: 1,
+      skipped: 1,
+      failed: 0,
+    });
+  });
+
+  it('connects a TV with its Quick Connect code, never keeping the code', async () => {
+    const res = await connect(
+      anna,
+      annaAccount,
+      `${DEMO_QUICK_CONNECT_CODE.slice(0, 3)} ${DEMO_QUICK_CONNECT_CODE.slice(3)}`,
+    );
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(json(res)).toEqual({ connected: true });
+    expect(res.body).not.toContain(DEMO_QUICK_CONNECT_CODE);
+    const entries = await auditEntries('media.device_connect', annaAccount);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ orgId: musterId, status: 'success' });
+    expect(entries[0]!.details).toEqual({ username: 'anna-kemaro' });
+    expect(json(await devicesOf(anna, annaAccount))).toEqual({ count: 2 });
+    expect(demoUser('anna-kemaro')!.devices.map((d) => d.deviceId)).toEqual([
+      'demo-tv-wohnzimmer',
+      'demo-qc-1',
+    ]);
+  });
+
+  it('refuses a TV beyond the streams of the allowance', async () => {
+    const res = await connect(anna, annaAccount, DEMO_QUICK_CONNECT_CODE);
+    expect(res.statusCode).toBe(409);
+    expect(json(res).error).toMatchObject({ code: 'stream_limit', details: { maxStreams: 2, sessions: 2 } });
+    expect(demoUser('anna-kemaro')!.devices).toHaveLength(2);
+  });
+
+  it('answers wrong codes and disabled accounts with their own codes', async () => {
+    const kitchen = await created(anna, musterId, { name: 'kueche' });
+    kitchenAccount = kitchen.account.id;
+    const wrong = await connect(anna, kitchenAccount, WRONG_CODE);
+    expect(wrong.statusCode).toBe(409);
+    expect(json(wrong).error.code).toBe('quick_connect_code');
+    expect(wrong.body).not.toContain(WRONG_CODE);
+    const [failure] = await auditEntries('media.device_connect', kitchenAccount);
+    expect(failure).toMatchObject({
+      status: 'failure',
+      details: { username: 'kueche-kemaro', code: 'quick_connect_code' },
+    });
+    expect(JSON.stringify(failure)).not.toContain(WRONG_CODE);
+
+    // Locked out (disabled): refused before anything is sent, nothing to audit.
+    const locked = await connect(anna, livingAccount, DEMO_QUICK_CONNECT_CODE);
+    expect(locked.statusCode).toBe(409);
+    expect(json(locked).error.code).toBe('account_disabled');
+    expect(await auditEntries('media.device_connect', livingAccount)).toEqual([]);
+    expect(demoUser('wohnzimmer-kemaro')!.devices).toHaveLength(1);
+  });
+
+  it('allows 5 attempts per account and minute', async () => {
+    for (let i = 0; i < 4; i++) {
+      const res = await connect(anna, kitchenAccount, WRONG_CODE);
+      expect(json(res).error.code).toBe('quick_connect_code');
+    }
+    const limited = await connect(anna, kitchenAccount, WRONG_CODE);
+    expect(limited.statusCode).toBe(429);
+    expect(json(limited).error.code).toBe('rate_limited');
+    // Another account has its own attempts.
+    const other = await connect(anna, annaAccount, DEMO_QUICK_CONNECT_CODE);
+    expect(other.statusCode).toBe(409);
+    expect(json(other).error.code).toBe('stream_limit');
+  });
+
+  it('counts the id in any case as the same account, and only attempts of those who may connect it', async () => {
+    // Postgres finds the account for the id in upper or mixed case: no attempts of their own.
+    const mixed = kitchenAccount.replace(/[a-f]/g, (c, i: number) => (i % 2 ? c.toUpperCase() : c));
+    for (const id of [kitchenAccount.toUpperCase(), mixed]) {
+      const res = await connect(anna, id, WRONG_CODE);
+      expect(res.statusCode, id).toBe(429);
+      expect(json(res).error.code).toBe('rate_limited');
+      expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    }
+    expect(json(await anna.get(`/media/accounts/${kitchenAccount.toUpperCase()}`)).id).toBe(kitchenAccount);
+
+    // Tokens, members and other organizations never use up an account's attempts.
+    for (let i = 0; i < MEDIA_QUICK_CONNECT_ATTEMPTS_PER_MINUTE; i++) {
+      expect((await connect(bot, livingAccount, WRONG_CODE)).statusCode).toBe(403);
+      expect((await connect(member, livingAccount.toUpperCase(), WRONG_CODE)).statusCode).toBe(403);
+      expect((await connect(dev, livingAccount, WRONG_CODE)).statusCode).toBe(404);
+    }
+    const own = await connect(anna, livingAccount, DEMO_QUICK_CONNECT_CODE);
+    expect(own.statusCode).toBe(409);
+    expect(json(own).error.code).toBe('account_disabled');
+    // The limit per address of every other route applies here as well.
+    expect(String(own.headers['x-ratelimit-limit'])).toBe('600');
+  });
+
+  it('stops playback before disabling, and records it with the disable', async () => {
+    demoUser('anna-kemaro')!.devices.find((d) => d.deviceId === 'demo-qc-1')!.playing = true;
+    const res = await anna.patch(`/media/accounts/${annaAccount}`, { enabled: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(json<MediaAccountDto>(res).enabled).toBe(false);
+    // Jellyfin revoked every token with the disable: nothing was left to sign out.
+    expect(demoUser('anna-kemaro')!.devices).toEqual([]);
+    const [entry] = (await auditEntries('media.account_update', annaAccount)).slice(-1);
+    expect(entry!.details).toEqual({
+      username: 'anna-kemaro',
+      before: { enabled: true },
+      after: { enabled: false },
+      ended: { sessions: 2, stopped: 1 },
+      signedOut: 0,
+    });
+  });
+
+  it('disables even when stopping playback fails', async () => {
+    expect((await anna.patch(`/media/accounts/${annaAccount}`, { enabled: true })).statusCode).toBe(200);
+    const fail = demoMediaState(demo.id).fail;
+    fail.add('stop');
+    try {
+      const res = await anna.patch(`/media/accounts/${annaAccount}`, { enabled: false });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(demoUser('anna-kemaro')!.enabled).toBe(false);
+      const [entry] = (await auditEntries('media.account_update', annaAccount)).slice(-1);
+      expect(entry!.details).toMatchObject({
+        after: { enabled: false },
+        ended: { error: 'Jellyfin: stopMediaUserPlayback failed: simulated (HTTP 503)' },
+        signedOut: 0,
+      });
+    } finally {
+      fail.delete('stop');
+    }
+    expect((await anna.patch(`/media/accounts/${annaAccount}`, { enabled: true })).statusCode).toBe(200);
+  });
+
+  it('signs out what a lockout left behind after disabling', async () => {
+    // Disabled by Jellyfin (locked out) without revoking: the console's disable finds the rows.
+    const user = demoUser('kueche-kemaro')!;
+    user.devices = [{ deviceId: 'demo-tv-kueche', playing: false }];
+    user.enabled = false;
+    user.lockedOut = true;
+    const res = await anna.patch(`/media/accounts/${kitchenAccount}`, { enabled: false });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(user.devices).toEqual([]);
+    const [entry] = (await auditEntries('media.account_update', kitchenAccount)).slice(-1);
+    expect(entry!.details).toMatchObject({ ended: { sessions: 1, stopped: 0 }, signedOut: 1 });
+  });
+
+  it('stops playback before deleting, also when that fails', async () => {
+    const del = await remove(anna, kitchenAccount, 'kueche-kemaro');
+    expect(del.statusCode, del.body).toBe(200);
+    const [entry] = await auditEntries('media.account_delete', kitchenAccount);
+    expect(entry!.details).toEqual({ username: 'kueche-kemaro', ended: { sessions: 0, stopped: 0 } });
+
+    const hall = await created(anna, musterId, { name: 'flur' });
+    // Codes that cannot be one never reach the instance (5 attempts: within the limit).
+    for (const bad of ['12345', '012345', '12a456', '', '1'.repeat(21)]) {
+      const res = await connect(anna, hall.account.id, bad);
+      expect(res.statusCode, bad).toBe(400);
+    }
+    expect(demoUser('flur-kemaro')!.devices).toEqual([]);
+    const fail = demoMediaState(demo.id).fail;
+    fail.add('stop');
+    try {
+      const res = await remove(anna, hall.account.id, 'flur-kemaro');
+      expect(res.statusCode, res.body).toBe(200);
+      expect(demoUser('flur-kemaro')).toBeUndefined();
+      const [failed] = await auditEntries('media.account_delete', hall.account.id);
+      expect(failed!.details).toEqual({
+        username: 'flur-kemaro',
+        ended: { error: 'Jellyfin: stopMediaUserPlayback failed: simulated (HTTP 503)' },
+      });
+    } finally {
+      fail.delete('stop');
+    }
+  });
+
+  it('reports the device count after a new password (Jellyfin signs out every device)', async () => {
+    demoUser('anna-kemaro')!.devices = [{ deviceId: 'demo-tv-wohnzimmer', playing: false }];
+    const res = await anna.post(`/media/accounts/${annaAccount}/password`, {});
+    expect(res.statusCode, res.body).toBe(200);
+    const result = json<MediaPasswordResultDto>(res);
+    expect(result.devices).toBe(0);
+    expect(result.password).toMatch(GENERATED);
+    // Unknown when the count fails: the password is set anyway.
+    const fail = demoMediaState(demo.id).fail;
+    fail.add('devices');
+    try {
+      const unknown = await anna.post(`/media/accounts/${annaAccount}/password`, {
+        password: 'Wieder-ein-Passwort-9',
+      });
+      expect(json(unknown)).toEqual({ password: null, devices: null });
+      // And the sign-out answers a failure of the instance as one.
+      fail.add('signout');
+      const failed = await signOut(anna, annaAccount);
+      expect(failed.statusCode).toBe(502);
+      const [entry] = (await auditEntries('media.device_signout', annaAccount)).slice(-1);
+      expect(entry).toMatchObject({
+        status: 'failure',
+        details: {
+          username: 'anna-kemaro',
+          stopped: 0,
+          error: 'Jellyfin: signOutMediaUserDevices failed: simulated (HTTP 503)',
+          code: 'provider_error',
+        },
+      });
+    } finally {
+      fail.delete('devices');
+      fail.delete('signout');
+    }
+  });
+
+  it('never wrote a code into the audit log', async () => {
+    const text = JSON.stringify(await newAudits());
+    expect(text).toContain('media.device_connect');
+    for (const code of [DEMO_QUICK_CONNECT_CODE, WRONG_CODE]) expect(text).not.toContain(code);
+  });
+
+  it('answers a missing account with 0 devices and refuses to sign it out', async () => {
+    const gone = await created(anna, musterId, { name: 'gone' });
+    demoUsers().delete(demoUser('gone-kemaro')!.externalId);
+    await sync();
+    expect(json(await devicesOf(anna, gone.account.id))).toEqual({ count: 0 });
+    const res = await signOut(anna, gone.account.id);
+    expect(res.statusCode).toBe(409);
+    expect(json(res).error.message).toBe('This account no longer exists at Jellyfin');
+    const missing = await connect(anna, gone.account.id, DEMO_QUICK_CONNECT_CODE);
+    expect(json(missing).error.code).toBe('account_disabled');
+    expect((await remove(anna, gone.account.id, 'gone-kemaro')).statusCode).toBe(200);
+  });
+
+  it('stops nothing and signs out nothing of a Jellyfin administrator it refuses to disable or delete', async () => {
+    const user = demoUser('anna-kemaro')!;
+    const saved = { ...user };
+    // Made an administrator in Jellyfin's dashboard since the last sync: the row has no issue yet.
+    user.policy = { ...user.policy, administrator: true };
+    user.administrator = true;
+    const devices = () => [
+      { deviceId: 'demo-tv-wohnzimmer', playing: true },
+      { deviceId: 'demo-phone-anna', playing: true },
+    ];
+    user.devices = devices();
+    try {
+      expect((await stored('anna-kemaro'))!.enabled).toBe(true);
+      const [last] = await t.db
+        .select({ id: auditLogs.id })
+        .from(auditLogs)
+        .orderBy(desc(auditLogs.id))
+        .limit(1);
+      for (const res of [
+        await anna.patch(`/media/accounts/${annaAccount}`, { enabled: false }),
+        await remove(anna, annaAccount, 'anna-kemaro'),
+        await signOut(anna, annaAccount),
+      ]) {
+        expect(res.statusCode, res.body).toBe(409);
+        expect(json(res).error.message).toBe(JELLYFIN_ADMIN_REFUSED);
+      }
+      // Still playing on every device, still enabled, still there.
+      expect(user.devices).toEqual(devices());
+      expect(user.enabled).toBe(true);
+      expect(demoUser('anna-kemaro')).toBe(user);
+      // Each refusal is audited, the stop as refused too.
+      const refusals = await t.db
+        .select()
+        .from(auditLogs)
+        .where(gt(auditLogs.id, last!.id))
+        .orderBy(auditLogs.id);
+      expect(refusals.map((a) => [a.action, a.status, a.resourceId])).toEqual([
+        ['media.account_update', 'failure', annaAccount],
+        ['media.account_delete', 'failure', annaAccount],
+        ['media.device_signout', 'failure', annaAccount],
+      ]);
+      const refused = { error: JELLYFIN_ADMIN_REFUSED, code: 'conflict' };
+      expect(refusals[0]!.details).toMatchObject({ ended: { error: JELLYFIN_ADMIN_REFUSED }, ...refused });
+      expect(refusals[1]!.details).toMatchObject({ ended: { error: JELLYFIN_ADMIN_REFUSED }, ...refused });
+      expect(refusals[2]!.details).toMatchObject({
+        stopped: 0,
+        stopError: JELLYFIN_ADMIN_REFUSED,
+        ...refused,
+      });
+    } finally {
+      Object.assign(user, saved);
+    }
+  });
+});
+
 describe('accounts', () => {
   it('creates an account with a generated password shown once', async () => {
     const res = await create(anna, musterId, { name: 'lea' });
@@ -784,6 +1182,9 @@ describe('accounts', () => {
       username: 'lea-kemaro',
       before: { enabled: true },
       after: { enabled: false },
+      // Playback stopped first (none), devices left behind signed out after (none).
+      ended: { sessions: 0, stopped: 0 },
+      signedOut: 0,
     });
     expect((await anna.patch(`/media/accounts/${lea}`, { enabled: true })).statusCode).toBe(200);
     expect((await anna.patch(`/media/accounts/${lea}`, { enabled: 'yes' })).statusCode).toBe(400);
@@ -807,7 +1208,7 @@ describe('accounts', () => {
 
     const chosen = 'Selbst-gewaehlt-123';
     const own = await anna.post(`/media/accounts/${id}/password`, { password: chosen });
-    expect(json(own)).toEqual({ password: null });
+    expect(json(own)).toEqual({ password: null, devices: 0 });
     expect(demoUser('lea-kemaro')!.password).toBe(chosen);
     const short = await anna.post(`/media/accounts/${id}/password`, { password: 'kurz' });
     expect(short.statusCode).toBe(400);
@@ -845,7 +1246,7 @@ describe('accounts', () => {
     expect(await stored('max-kemaro')).toBeUndefined();
     const entries = await auditEntries('media.account_delete', id);
     expect(entries).toHaveLength(1);
-    expect(entries[0]!.details).toEqual({ username: 'max-kemaro' });
+    expect(entries[0]!.details).toEqual({ username: 'max-kemaro', ended: { sessions: 0, stopped: 0 } });
     expect((await remove(anna, id, 'max-kemaro')).statusCode).toBe(404);
 
     // Gone at the instance already: removed from the console only.

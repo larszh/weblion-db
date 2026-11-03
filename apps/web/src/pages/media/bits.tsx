@@ -3,6 +3,8 @@ import { ExternalLink } from 'lucide-react';
 import {
   MEDIA_MAX_BITRATE_MBIT,
   mediaActivityDay,
+  normalizeQuickConnectCode,
+  type MediaConnectError,
   type MediaAccess,
   type MediaAccountDto,
   type MediaAccountIssue,
@@ -10,6 +12,7 @@ import {
   type MediaLibraryRef,
 } from '@weblion/shared';
 import type { TranslationKey } from '@/i18n/de';
+import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatNumber, type Locale } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
@@ -186,6 +189,41 @@ export function LoginName({ username, className }: { username: string; className
       <CopyButton value={username} label={t('media.copyLogin')} />
     </span>
   );
+}
+
+// --- Connect a TV (Quick Connect) -----------------------------------------------------
+
+/**
+ * The code field of "Fernseher verbinden": the code to send (null while it is none) and whether
+ * to say so yet. Incomplete input is no error; letters, a 7th digit or a leading 0 are.
+ */
+export function quickConnectField(value: string): { code: string | null; invalid: boolean } {
+  const code = normalizeQuickConnectCode(value);
+  const digits = value.replace(/[\s-]/g, '');
+  return { code, invalid: code === null && (/\D/.test(digits) || digits.length >= 6) };
+}
+
+const CONNECT_ERROR: Record<MediaConnectError, TranslationKey> = {
+  quick_connect_code: 'media.connect.error.code',
+  quick_connect_off: 'media.connect.error.off',
+  quick_connect_failed: 'media.connect.error.failed',
+  stream_limit: 'media.connect.error.limit',
+  account_disabled: 'media.connect.error.disabled',
+};
+
+/** The text of a refused connection; null for errors that bring their own message. */
+export function connectErrorKey(err: unknown): TranslationKey | null {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status === 429) return 'media.connect.error.tooMany';
+  if (err.status !== 409) return null;
+  return (CONNECT_ERROR as Partial<Record<string, TranslationKey>>)[err.code] ?? null;
+}
+
+/** MaxActiveSessions from the details of a 409 "stream_limit", for the text; null otherwise. */
+export function streamLimitOf(err: unknown): number | null {
+  if (!(err instanceof ApiError) || err.code !== 'stream_limit') return null;
+  const max = (err.details as { maxStreams?: unknown } | undefined)?.maxStreams;
+  return typeof max === 'number' && Number.isFinite(max) ? max : null;
 }
 
 // --- Allowance -----------------------------------------------------------------------
