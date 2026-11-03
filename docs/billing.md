@@ -195,6 +195,22 @@ Reseller: weblion.one gibt dem Reseller Mail-Domains und das Modul "E-Mail", der
 unter Reseller > Meine Kunden > Kunde > Ressourcen an seine Kunden weiter. Die Limits ändert nur
 weblion.one.
 
+## Streaming: Anfragen als Option
+
+Streaming-Kontingente sind wie der Cloud-Speicher vom Dienst getrennt, und das gilt auch für ihr
+Add-on "Anfragen" (Seerr, siehe [providers.md](providers.md#anfragen-seerr)): Es folgt heute keinem
+Dienst und kostet nichts extra. Wer es verrechnet, legt ein eigenes Produkt an (z.B. "Anfragen für
+Filme und Serien", monatlich, Modul "Streaming"), legt den Dienst beim Kunden an und schaltet das
+Add-on von Hand unter Admin > Kunden > Kunde, Karte "Streaming". Später wird es eine Option des
+Streaming-Produkts, mit Typen und Grenzen pro Zugang und optional einem Preis pro Zugang mit
+Anfragen. Das Kontingent bleibt dabei die einzige Quelle: Aktiviert die Abrechnung den Dienst, setzt
+sie das Add-on über `setMediaRequests()` in `apps/api/src/modules/media/seerr.ts`, mit denselben
+Prüfungen wie die Route im Admin-Bereich (ein Seerr auf der Instanz, ein Reseller nie enger als seine
+Kunden) und demselben Audit-Eintrag `media.allowance_set` (ohne Benutzer mit dem Auslöser
+"Billing"). Kündigen schaltet es aus: Die Zugänge verlieren das Recht anzufragen, ihre
+Seerr-Benutzer und Anfragen bleiben in Seerr.
+Siehe [Roadmap](roadmap.md#streaming-jellyfin).
+
 ## Stripe (Karte und TWINT)
 
 1. Im Stripe-Dashboard unter Settings > Payment methods **TWINT aktivieren** (nur CHF).

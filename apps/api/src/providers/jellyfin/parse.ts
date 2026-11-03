@@ -218,6 +218,64 @@ export function parseActivity(raw: unknown): MediaActivity {
   return { activeSessions, playing };
 }
 
+// ---------------------------------------------------------------------------
+// Devices, sessions and Quick Connect (counts and ids only)
+
+/** A device row as the console needs it: never Name, AccessToken, AppName, LastUserName or times. */
+export interface JellyfinDeviceRef {
+  deviceId: string;
+  /** LastUserId, 32 hex: the user whose token this row is. */
+  userId: string;
+}
+
+/** Device ids are the clients' own strings: anything printable up to 256 characters. */
+const DEVICE_ID = /^[^\p{Cc}]{1,256}$/u;
+
+/**
+ * QueryResult<DeviceInfoDto> (or a plain array): rows with a usable Id and LastUserId. The id is
+ * kept verbatim (DeviceManager compares it case-sensitively); every other field is dropped here.
+ */
+export function parseDevices(raw: unknown): JellyfinDeviceRef[] {
+  const items = isObject(raw) && Array.isArray(raw.Items) ? raw.Items : Array.isArray(raw) ? raw : [];
+  const out: JellyfinDeviceRef[] = [];
+  for (const item of items) {
+    if (!isObject(item)) continue;
+    const deviceId = typeof item.Id === 'string' && DEVICE_ID.test(item.Id) ? item.Id : null;
+    const userId = jellyfinId(item.LastUserId);
+    if (deviceId && userId) out.push({ deviceId, userId });
+  }
+  return out;
+}
+
+/** A session as the console needs it: never names, addresses, items or titles. */
+export interface JellyfinSessionRef {
+  /** 32 hex (MD5 "N"). */
+  id: string;
+  userId: string;
+  /** NowPlayingItem present (its content is never read). */
+  playing: boolean;
+}
+
+const SESSION_ID = /^[0-9a-f]{32}$/i;
+
+/** SessionInfoDto[]: sessions with a 32 hex Id and a user (Guid.Empty skipped). */
+export function parseSessions(raw: unknown): JellyfinSessionRef[] {
+  const out: JellyfinSessionRef[] = [];
+  for (const session of Array.isArray(raw) ? raw : []) {
+    if (!isObject(session)) continue;
+    const id =
+      typeof session.Id === 'string' && SESSION_ID.test(session.Id) ? session.Id.toLowerCase() : null;
+    const userId = jellyfinId(session.UserId);
+    if (id && userId) out.push({ id, userId, playing: isObject(session.NowPlayingItem) });
+  }
+  return out;
+}
+
+/** The 401 of POST /QuickConnect/Authorize when Quick Connect is off (string body, JSON or text). */
+export function isQuickConnectOff(body: unknown): boolean {
+  return typeof body === 'string' && /quick connect is disabled/i.test(body);
+}
+
 /** "10.11.11" >= "10.10.0". Suffixes ("-rc1") are ignored; null and garbage are never enough. */
 export function versionAtLeast(version: string | null, minimum: string): boolean {
   const parts = (v: string | null) => {

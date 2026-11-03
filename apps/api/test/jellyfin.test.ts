@@ -1,17 +1,20 @@
 import { expectedMediaPolicy, type MediaPolicyState, type MediaSyncPlayAccess } from '@weblion/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError, ProviderError } from '../src/lib/errors';
 import { JellyfinAdapter } from '../src/providers/jellyfin/adapter';
 import { JellyfinClient, PROVIDER } from '../src/providers/jellyfin/client';
 import {
   applyPolicyState,
   describeJellyfinError,
+  isQuickConnectOff,
   parseActivity,
+  parseDevices,
   parseJellyfinDate,
   parseJellyfinUser,
   parseLibraries,
   parsePolicyState,
   parseServerInfo,
+  parseSessions,
   redactJellyfin,
   versionAtLeast,
 } from '../src/providers/jellyfin/parse';
@@ -1392,5 +1395,516 @@ describe('Jellyfin API explorer', () => {
 
   it('uses the provider name in every error', () => {
     expect(PROVIDER).toBe('Jellyfin');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Devices, sessions and Quick Connect
+
+describe('Jellyfin parse: devices, sessions, Quick Connect', () => {
+  const row = (Id: unknown, LastUserId: unknown, extra: object = {}) => ({
+    Name: 'Wohnzimmer TV',
+    AccessToken: 'device-token-0123456789abcdef',
+    Id,
+    LastUserName: 'anna-kemaro',
+    AppName: 'Jellyfin Android TV',
+    AppVersion: '0.18.11',
+    LastUserId,
+    DateLastActivity: '2026-10-11T20:01:12.1234567Z',
+    ...extra,
+  });
+
+  it('keeps device id and user of usable rows only, from a QueryResult or a plain array', () => {
+    const items = [
+      row('Tv-Wohnzimmer_01', dashed(ANNA_ID)),
+      row('phone-ben', BEN_ID.toUpperCase()),
+      row('no-user', null),
+      row('empty-user', '0'.repeat(32)),
+      row('', ANNA_ID),
+      row('x'.repeat(257), ANNA_ID),
+      row('bad\u0000id', ANNA_ID),
+      row(42, ANNA_ID),
+      'garbage',
+    ];
+    const expected = [
+      { deviceId: 'Tv-Wohnzimmer_01', userId: ANNA_ID },
+      { deviceId: 'phone-ben', userId: BEN_ID },
+    ];
+    expect(parseDevices({ Items: items, TotalRecordCount: items.length, StartIndex: 0 })).toEqual(expected);
+    expect(parseDevices(items)).toEqual(expected);
+    expect(parseDevices({ Items: 'nope' })).toEqual([]);
+    expect(parseDevices('garbage')).toEqual([]);
+    expect(parseDevices(null)).toEqual([]);
+    // Nothing but the two fields leaves the parser.
+    const json = JSON.stringify(parseDevices({ Items: items }));
+    for (const leak of ['Wohnzimmer TV', 'device-token', 'anna-kemaro', 'Android TV', '2026-10-11']) {
+      expect(json).not.toContain(leak);
+    }
+  });
+
+  it('keeps session id, user and whether something plays, never what', () => {
+    const sessions = parseSessions([
+      ...mock.state.sessions,
+      { Id: 'not-hex', UserId: ANNA_ID, NowPlayingItem: { Name: MOCK_PLAYING_TITLE } },
+      { Id: 'AB'.repeat(16), UserId: dashed(BEN_ID), NowPlayingItem: 'not an object' },
+      'garbage',
+    ]);
+    expect(sessions).toEqual([
+      { id: 'b9d1a8f6c2e34d0f8a7b6c5d4e3f2a1b', userId: ANNA_ID, playing: true },
+      { id: 'c0e2b9a7d3f45e1a9b8c7d6e5f4a3b2c', userId: '83b3b30ddff2dd3634a43687053b9fe9', playing: false },
+      { id: 'ab'.repeat(16), userId: BEN_ID, playing: false },
+    ]);
+    const json = JSON.stringify(sessions);
+    for (const leak of [MOCK_PLAYING_TITLE, 'anna-kemaro', 'Wohnzimmer TV', '203.0.113.7']) {
+      expect(json).not.toContain(leak);
+    }
+    expect(parseSessions({ Items: [] })).toEqual([]);
+  });
+
+  it('recognizes the 401 of Quick Connect being off, as JSON string or text', () => {
+    expect(isQuickConnectOff('Quick connect is disabled')).toBe(true);
+    expect(isQuickConnectOff('quick connect is disabled.')).toBe(true);
+    expect(isQuickConnectOff('Quick connect is not active on this server')).toBe(false);
+    expect(isQuickConnectOff('Error processing request.')).toBe(false);
+    expect(isQuickConnectOff('')).toBe(false);
+    expect(isQuickConnectOff(null)).toBe(false);
+    expect(isQuickConnectOff({ title: 'Quick connect is disabled' })).toBe(false);
+  });
+});
+
+describe('Jellyfin devices and Quick Connect', () => {
+  const AUTHORIZE = 'POST /QuickConnect/Authorize';
+
+  /** Every recorded request but the authorize calls, as one text: the code must not be in it. */
+  const outsideAuthorize = () =>
+    JSON.stringify(
+      mock.requests
+        .filter((r) => `${r.method} ${r.path}` !== AUTHORIZE)
+        .map((r) => [r.method, r.path, r.query.toString(), r.headers, r.body ?? null]),
+    );
+
+  async function refusedWith(promise: Promise<unknown>, status: number, code: string, secret: string) {
+    const err = await caught(promise);
+    expect({ status: err.statusCode, code: err.code }).toEqual({ status, code });
+    expect(err.message).not.toContain(secret);
+    expect(JSON.stringify(err.details ?? null)).not.toContain(secret);
+    return err;
+  }
+
+  it('confirms a code: the user read live, Quick Connect checked, one authorize call', async () => {
+    const ben = add(mockUser('ben-kemaro', { id: BEN_ID }));
+    const code = mock.initiateQuickConnect('tv-wohnzimmer');
+    const a = adapter();
+    mock.requests.length = 0;
+    // Typed with a space, the id with dashes: both normalized before anything is sent.
+    await a.authorizeMediaQuickConnect(dashed(BEN_ID), `${code.slice(0, 3)} ${code.slice(3)}`);
+    // MaxActiveSessions is 0: no session count needed.
+    expect(lines()).toEqual([`GET /Users/${BEN_ID}`, 'GET /QuickConnect/Enabled', AUTHORIZE]);
+    const post = mock.requests[2]!;
+    expect(post.query.toString()).toBe(`code=${code}&userId=${BEN_ID}`);
+    expect(post.body).toBeUndefined();
+    expect(post.headers.authorization).toBe(`MediaBrowser Token="${MOCK_API_KEY}"`);
+    expect(outsideAuthorize()).not.toContain(code);
+    expect(ben.devices).toBe(1);
+    expect(mock.state.quickConnectRequests.get(code)!.authenticated).toBe(true);
+    expect(await a.countMediaUserDevices(BEN_ID)).toBe(1);
+  });
+
+  it('maps every refusal to its code and never lets the code out', async () => {
+    add(mockUser('ben-kemaro', { id: BEN_ID }));
+    const a = adapter();
+    const code = mock.initiateQuickConnect('tv-kueche');
+
+    // Unknown (or expired) code: Jellyfin's 404.
+    const unknown = '999999';
+    await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, unknown), 409, 'quick_connect_code', unknown);
+
+    // The same code twice: "Request is already authorized" is a 500.
+    await a.authorizeMediaQuickConnect(BEN_ID, code);
+    await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, code), 409, 'quick_connect_failed', code);
+
+    // Quick Connect off: nothing is posted.
+    const waiting = mock.initiateQuickConnect('tv-schlafzimmer');
+    mock.state.quickConnect = false;
+    mock.requests.length = 0;
+    await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, waiting), 409, 'quick_connect_off', waiting);
+    expect(lines()).toEqual([`GET /Users/${BEN_ID}`, 'GET /QuickConnect/Enabled']);
+    mock.state.quickConnect = true;
+
+    // Switched off between the read and the POST: the 401 with a string body, JSON or text.
+    for (const answer of [
+      { status: 401, json: 'Quick connect is disabled' },
+      { status: 401, text: 'Quick connect is disabled' },
+    ]) {
+      mock.state.override = (r) => (r.path === '/QuickConnect/Authorize' ? answer : undefined);
+      await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, waiting), 409, 'quick_connect_off', waiting);
+    }
+    // A 401 without a body is the key being refused, as everywhere else.
+    mock.state.override = (r) => (r.path === '/QuickConnect/Authorize' ? { status: 401 } : undefined);
+    const key = await refusedWith(
+      a.authorizeMediaQuickConnect(BEN_ID, waiting),
+      502,
+      'provider_error',
+      waiting,
+    );
+    expect((key as ProviderError).upstreamStatus).toBe(401);
+    expect(key.message).toContain('The API key was rejected');
+    // Answers that echo the code are scrubbed.
+    mock.state.override = (r) =>
+      r.path === '/QuickConnect/Authorize'
+        ? { status: 502, text: `bad gateway for code ${waiting}` }
+        : undefined;
+    const echoed = await refusedWith(
+      a.authorizeMediaQuickConnect(BEN_ID, waiting),
+      502,
+      'provider_error',
+      waiting,
+    );
+    expect(echoed.message).toBe(
+      'Jellyfin: confirm Quick Connect for ben-kemaro failed: bad gateway for code [redacted] (HTTP 502)',
+    );
+    // A 200 that is not true did not confirm anything.
+    mock.state.override = (r) => (r.path === '/QuickConnect/Authorize' ? { json: false } : undefined);
+    await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, waiting), 409, 'quick_connect_failed', waiting);
+    // The user vanished between the read and the POST: GetUserByName(null) throws (400).
+    mock.state.override = (r) =>
+      r.path === '/QuickConnect/Authorize' ? { status: 400, text: 'Error processing request.' } : undefined;
+    const vanished = await refusedWith(
+      a.authorizeMediaQuickConnect(BEN_ID, waiting),
+      502,
+      'provider_error',
+      waiting,
+    );
+    expect((vanished as ProviderError).upstreamStatus).toBe(400);
+    // No answer at all.
+    mock.state.override = (r) => (r.path === '/QuickConnect/Authorize' ? { status: 504 } : undefined);
+    await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, waiting), 502, 'provider_error', waiting);
+    mock.state.override = undefined;
+
+    // The waiting request is still there and works once the cause is gone.
+    await a.authorizeMediaQuickConnect(BEN_ID, waiting);
+    expect(mock.state.users.get(BEN_ID)!.devices).toBe(2);
+    expect(outsideAuthorize()).not.toContain(code);
+    expect(outsideAuthorize()).not.toContain(waiting);
+    expect(outsideAuthorize()).not.toContain(unknown);
+  });
+
+  it('refuses a full stream limit before anything is sent, and reads the count again after a 403', async () => {
+    const ben = add(mockUser('ben-kemaro', { id: BEN_ID, policy: { MaxActiveSessions: 1 } }));
+    mock.signIn(ben, 'phone-ben');
+    const a = adapter();
+    const code = mock.initiateQuickConnect('tv-wohnzimmer');
+    mock.requests.length = 0;
+    const full = await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, code), 409, 'stream_limit', code);
+    expect(full.details).toEqual({ maxStreams: 1, sessions: 1 });
+    expect(lines()).toEqual([`GET /Users/${BEN_ID}`, 'GET /QuickConnect/Enabled', 'GET /Sessions']);
+    // GET /Sessions without activeWithinSeconds: every session counts, as for MaxActiveSessions.
+    expect(mock.requests[2]!.query.toString()).toBe('');
+
+    // Room for one more, but Jellyfin refuses (another device signed in meanwhile).
+    ben.policy.MaxActiveSessions = 2;
+    mock.state.override = (r) => {
+      if (r.path !== '/QuickConnect/Authorize') return undefined;
+      mock.signIn(ben, 'tablet-ben');
+      return { status: 403, text: 'Error processing request.' };
+    };
+    const raced = await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, code), 409, 'stream_limit', code);
+    expect(raced.details).toEqual({ maxStreams: 2, sessions: 2 });
+    // Without a limit a 403 is a device restriction: nothing to sign out.
+    ben.policy.MaxActiveSessions = 0;
+    mock.state.override = (r) =>
+      r.path === '/QuickConnect/Authorize' ? { status: 403, text: 'Error processing request.' } : undefined;
+    await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, code), 409, 'quick_connect_failed', code);
+    mock.state.override = undefined;
+
+    // The mock's own check, when the console's read saw room: the fresh count tells.
+    ben.policy.MaxActiveSessions = 2;
+    let read = 0;
+    mock.state.override = (r) => (r.path === '/Sessions' && read++ === 0 ? { json: [] } : undefined);
+    const own = await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, code), 409, 'stream_limit', code);
+    expect(own.details).toEqual({ maxStreams: 2, sessions: 2 });
+    expect(mock.state.quickConnectRequests.get(code)!.authenticated).toBe(false);
+    mock.state.override = undefined;
+  });
+
+  it('refuses disabled users, administrators, invalid codes and ids without sending the code', async () => {
+    // The mock confirms codes for disabled users, as Jellyfin does: the console must not.
+    add(mockUser('ben-kemaro', { id: BEN_ID, policy: { IsDisabled: true } }));
+    const a = adapter();
+    const code = mock.initiateQuickConnect('tv-wohnzimmer');
+    mock.requests.length = 0;
+    await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, code), 409, 'account_disabled', code);
+    expect(lines()).toEqual([`GET /Users/${BEN_ID}`]);
+
+    mock.requests.length = 0;
+    const admin = await refusedWith(a.authorizeMediaQuickConnect(ADMIN_ID, code), 409, 'conflict', code);
+    expect(admin.message).toBe(JELLYFIN_ADMIN_REFUSED);
+    expect(lines()).toEqual([`GET /Users/${ADMIN_ID}`]);
+
+    mock.requests.length = 0;
+    for (const bad of ['12345', '012345', '1234567', '12a456', '', `${code}0`]) {
+      await refusedWith(a.authorizeMediaQuickConnect(BEN_ID, bad), 400, 'bad_request', code);
+    }
+    for (const id of ['abc', '0'.repeat(32), '../Auth/Keys']) {
+      const err = await refusedWith(a.authorizeMediaQuickConnect(id, code), 400, 'bad_request', code);
+      expect(err.message).toBe('Invalid Jellyfin user id');
+    }
+    expect(mock.requests).toEqual([]);
+
+    const missing = await refusedWith(
+      a.authorizeMediaQuickConnect(UNKNOWN_ID, code),
+      404,
+      'provider_error',
+      code,
+    );
+    expect(missing.message).toBe(`Jellyfin: user ${UNKNOWN_ID} not found`);
+    expect(mock.state.quickConnectRequests.get(code)!.authenticated).toBe(false);
+    expect(mock.requests.some((r) => r.path === '/QuickConnect/Authorize')).toBe(false);
+  });
+
+  it('counts devices from the whole list, never with userId, and keeps nothing else', async () => {
+    await start({ deviceTokens: true });
+    const anna = add(mockUser('anna-kemaro', { id: ANNA_ID }));
+    const ben = add(mockUser('ben-kemaro', { id: BEN_ID }));
+    mock.signIn(anna, 'tv-wohnzimmer', { name: 'Wohnzimmer TV' });
+    mock.signIn(anna, 'phone-anna', { name: 'Annas Handy' });
+    mock.signIn(ben, 'tablet-ben', { name: 'Bens Tablet' });
+    const a = adapter();
+    expect(await a.countMediaUserDevices(dashed(ANNA_ID))).toBe(2);
+    expect(await a.countMediaUserDevices(BEN_ID)).toBe(1);
+    expect(await a.countMediaUserDevices(UNKNOWN_ID)).toBe(0);
+    expect(lines()).toEqual(['GET /Devices', 'GET /Devices', 'GET /Devices']);
+    expect(mock.requests.every((r) => r.query.toString() === '')).toBe(true);
+    // The mock answers tokens here (deviceTokens); the parser drops them with everything else.
+    const raw = await (
+      await fetch(`${mock.url}/Devices`, {
+        headers: { Authorization: `MediaBrowser Token="${MOCK_API_KEY}"` },
+      })
+    ).json();
+    expect(JSON.stringify(raw)).toContain('AccessToken');
+    const parsed = JSON.stringify(parseDevices(raw));
+    for (const row of mock.state.deviceRows) {
+      for (const value of [row.AccessToken, row.Name, row.AppName, 'anna-kemaro', row.DateLastActivity]) {
+        expect(parsed).not.toContain(value);
+      }
+    }
+    // ?userId= answers the full list while EnableAllDevices is on: that is why it is never sent.
+    const filtered = (await (
+      await fetch(`${mock.url}/Devices?userId=${BEN_ID}`, {
+        headers: { Authorization: `MediaBrowser Token="${MOCK_API_KEY}"` },
+      })
+    ).json()) as { TotalRecordCount: number };
+    expect(filtered.TotalRecordCount).toBe(3);
+
+    mock.state.override = (r) => (r.path === '/Devices' ? { json: 'nope' } : undefined);
+    expect((await caught(a.countMediaUserDevices(ANNA_ID))).message).toBe(
+      'Jellyfin: list devices failed: unexpected answer',
+    );
+    mock.state.override = (r) => (r.path === '/Devices' ? { status: 503 } : undefined);
+    expect((await caught(a.countMediaUserDevices(ANNA_ID))).statusCode).toBe(502);
+    mock.state.override = undefined;
+    expect((await caught(a.countMediaUserDevices('nope'))).statusCode).toBe(400);
+  });
+
+  it('signs out own devices, skips shared ones and counts what failed', async () => {
+    const anna = add(mockUser('anna-kemaro', { id: ANNA_ID }));
+    const ben = add(mockUser('ben-kemaro', { id: BEN_ID }));
+    mock.signIn(anna, 'tv-wohnzimmer');
+    mock.signIn(anna, 'phone-anna');
+    // The family TV: ben is signed in there too.
+    mock.signIn(ben, 'tv-wohnzimmer');
+    const a = adapter();
+    mock.requests.length = 0;
+    expect(await a.signOutMediaUserDevices(ANNA_ID)).toEqual({
+      signedOut: 1,
+      skipped: 1,
+      failed: 0,
+      remaining: 1,
+    });
+    // The user is read first: an administrator is refused before anything is deleted.
+    expect(lines()).toEqual([`GET /Users/${ANNA_ID}`, 'GET /Devices', 'DELETE /Devices', 'GET /Devices']);
+    expect(mock.requests[2]!.query.toString()).toBe('id=phone-anna');
+    expect(mock.state.deviceRows.map((r) => [r.Id, r.UserId])).toEqual([
+      ['tv-wohnzimmer', ANNA_ID],
+      ['tv-wohnzimmer', BEN_ID],
+    ]);
+    expect(anna.devices).toBe(1);
+    expect(ben.devices).toBe(1);
+
+    // Gone meanwhile (404): neither signed out nor failed.
+    mock.signIn(anna, 'laptop-anna');
+    mock.state.override = (r) =>
+      r.method === 'DELETE' ? { status: 404, json: { title: 'Not Found', status: 404 } } : undefined;
+    expect(await a.signOutMediaUserDevices(ANNA_ID)).toEqual({
+      signedOut: 0,
+      skipped: 1,
+      failed: 0,
+      remaining: 2,
+    });
+    // Refused or no answer: failed, the next call can try again.
+    mock.state.override = (r) => (r.method === 'DELETE' ? { status: 503 } : undefined);
+    expect(await a.signOutMediaUserDevices(ANNA_ID)).toMatchObject({ signedOut: 0, failed: 1, remaining: 2 });
+    mock.state.override = undefined;
+    const raw = a.client.raw.bind(a.client);
+    const spy = vi
+      .spyOn(a.client, 'raw')
+      .mockImplementation((method, path, options) =>
+        method === 'DELETE'
+          ? Promise.reject(new ProviderError(PROVIDER, 'sign out a device failed: socket hang up'))
+          : raw(method, path, options),
+      );
+    expect(await a.signOutMediaUserDevices(ANNA_ID)).toMatchObject({ signedOut: 0, failed: 1, remaining: 2 });
+    spy.mockRestore();
+    // The fresh count failing is no failure of the sign-out.
+    let listed = 0;
+    mock.state.override = (r) =>
+      r.path === '/Devices' && r.method === 'GET' && listed++ > 0 ? { status: 503 } : undefined;
+    expect(await a.signOutMediaUserDevices(ANNA_ID)).toEqual({
+      signedOut: 1,
+      skipped: 1,
+      failed: 0,
+      remaining: null,
+    });
+    mock.state.override = undefined;
+    // Without devices nothing is deleted.
+    const carl = add(mockUser('carl-kemaro'));
+    mock.requests.length = 0;
+    expect(await a.signOutMediaUserDevices(carl.id)).toEqual({
+      signedOut: 0,
+      skipped: 0,
+      failed: 0,
+      remaining: 0,
+    });
+    expect(lines()).toEqual([`GET /Users/${carl.id}`, 'GET /Devices', 'GET /Devices']);
+    // A user Jellyfin does not know is a 404, as in every other write, and nothing is deleted.
+    mock.requests.length = 0;
+    const missing = await caught(a.signOutMediaUserDevices(UNKNOWN_ID));
+    expect({ status: missing.statusCode, message: missing.message }).toEqual({
+      status: 404,
+      message: `Jellyfin: user ${UNKNOWN_ID} not found`,
+    });
+    expect(lines()).toEqual([`GET /Users/${UNKNOWN_ID}`]);
+  });
+
+  it('stops only playing sessions of the user and tells nothing but counts', async () => {
+    const anna = add(mockUser('anna-kemaro', { id: ANNA_ID }));
+    const ben = add(mockUser('ben-kemaro', { id: BEN_ID }));
+    mock.signIn(anna, 'tv-wohnzimmer', { playing: true });
+    mock.signIn(anna, 'phone-anna');
+    mock.signIn(ben, 'tablet-ben', { playing: true });
+    // A session the parser cannot address.
+    mock.state.sessions.push({ Id: 'not-a-session-id', UserId: ANNA_ID, NowPlayingItem: { Name: 'x' } });
+    const a = adapter();
+    const before = await a.mediaActivity();
+    mock.requests.length = 0;
+    const result = await a.stopMediaUserPlayback(dashed(ANNA_ID));
+    // The seeded session of anna plays too; the one without a valid id is not counted.
+    expect(result).toEqual({ sessions: 3, stopped: 2 });
+    expect(
+      lines()
+        .filter((l) => l.startsWith('POST'))
+        .sort(),
+    ).toEqual(
+      [
+        `POST /Sessions/b9d1a8f6c2e34d0f8a7b6c5d4e3f2a1b/Playing/Stop`,
+        `POST /Sessions/${String(mock.state.sessions.find((s) => s.DeviceId === 'tv-wohnzimmer')!.Id)}/Playing/Stop`,
+      ].sort(),
+    );
+    // The user is read first: an administrator is refused before anything is stopped.
+    expect(lines().slice(0, 2)).toEqual([`GET /Users/${ANNA_ID}`, 'GET /Sessions']);
+    expect(mock.requests[1]!.query.toString()).toBe('');
+    expect(mock.state.commands.map((c) => c.command)).toEqual(['Stop', 'Stop']);
+    // Ben still plays; the key's own session (no user) changes no count.
+    expect(mock.state.sessions.filter((s) => s.NowPlayingItem).map((s) => s.UserId)).toEqual([
+      BEN_ID,
+      ANNA_ID,
+    ]);
+    expect(JSON.stringify(result)).not.toContain(MOCK_PLAYING_TITLE);
+    const after = await adapter().mediaActivity();
+    expect(mock.state.sessions.some((s) => s.Client === 'weblion.one')).toBe(true);
+    expect(after.activeSessions).toBe(before.activeSessions);
+    expect(after.playing).toBe(before.playing - 2);
+
+    // A refused stop is not counted; a failed list fails the call.
+    mock.state.override = (r) =>
+      r.method === 'POST' ? { status: 404, text: 'Error processing request.' } : undefined;
+    expect(await a.stopMediaUserPlayback(BEN_ID)).toEqual({ sessions: 1, stopped: 0 });
+    mock.state.override = (r) => (r.path === '/Sessions' ? { json: { Items: [] } } : undefined);
+    expect((await caught(a.stopMediaUserPlayback(BEN_ID))).message).toBe(
+      'Jellyfin: list sessions failed: unexpected answer',
+    );
+    mock.state.override = undefined;
+    // Without sessions nothing is stopped; a user Jellyfin does not know is a 404.
+    expect(await a.stopMediaUserPlayback(add(mockUser('carl-kemaro')).id)).toEqual({
+      sessions: 0,
+      stopped: 0,
+    });
+    mock.requests.length = 0;
+    const missing = await caught(a.stopMediaUserPlayback(UNKNOWN_ID));
+    expect({ status: missing.statusCode, message: missing.message }).toEqual({
+      status: 404,
+      message: `Jellyfin: user ${UNKNOWN_ID} not found`,
+    });
+    expect(lines()).toEqual([`GET /Users/${UNKNOWN_ID}`]);
+  });
+
+  it('never stops playback of an administrator or signs out its devices', async () => {
+    const admin = mock.state.users.get(ADMIN_ID)!;
+    mock.signIn(admin, 'tv-admin', { playing: true });
+    mock.signIn(admin, 'phone-admin');
+    const a = adapter();
+    mock.requests.length = 0;
+    for (const call of [
+      () => a.stopMediaUserPlayback(ADMIN_ID),
+      () => a.signOutMediaUserDevices(dashed(ADMIN_ID)),
+    ]) {
+      const err = await caught(call());
+      expect({ status: err.statusCode, message: err.message }).toEqual({
+        status: 409,
+        message: JELLYFIN_ADMIN_REFUSED,
+      });
+    }
+    // The user read live, nothing else: no session list, no stop, no DELETE /Devices.
+    expect(lines()).toEqual([`GET /Users/${ADMIN_ID}`, `GET /Users/${ADMIN_ID}`]);
+    expect(mock.state.commands).toEqual([]);
+    expect(mock.state.deviceRows.filter((r) => r.UserId === ADMIN_ID)).toHaveLength(2);
+    expect(mock.state.sessions.some((s) => s.UserId === ADMIN_ID && s.NowPlayingItem)).toBe(true);
+  });
+
+  it('signs out exactly the user on disable, password and delete, ending the sessions of those devices', async () => {
+    const anna = add(mockUser('anna-kemaro', { id: ANNA_ID }));
+    const ben = add(mockUser('ben-kemaro', { id: BEN_ID }));
+    mock.signIn(anna, 'tv-wohnzimmer', { playing: true });
+    mock.signIn(ben, 'tv-wohnzimmer');
+    mock.signIn(ben, 'tablet-ben');
+    const a = adapter();
+    await a.setMediaUserEnabled(ANNA_ID, false);
+    expect(await a.countMediaUserDevices(ANNA_ID)).toBe(0);
+    // Ben keeps his token rows; the session on the shared device ended (Logout(device)).
+    expect(await a.countMediaUserDevices(BEN_ID)).toBe(2);
+    expect(mock.state.sessions.filter((s) => s.DeviceId === 'tv-wohnzimmer')).toEqual([]);
+    await a.setMediaUserPassword(BEN_ID, PASSWORD);
+    expect(ben.devices).toBe(0);
+    expect(await a.countMediaUserDevices(BEN_ID)).toBe(0);
+    mock.signIn(ben, 'tablet-ben');
+    await a.deleteMediaUser(BEN_ID);
+    expect(mock.state.deviceRows).toEqual([]);
+  });
+
+  it('never runs a confirmation and a password change of one user at the same time', async () => {
+    await start({ delayMs: 30 });
+    add(mockUser('ben-kemaro', { id: BEN_ID }));
+    const a = adapter();
+    const code = mock.initiateQuickConnect('tv-wohnzimmer');
+    await Promise.all([a.authorizeMediaQuickConnect(BEN_ID, code), a.setMediaUserPassword(BEN_ID, PASSWORD)]);
+    expect(lines()).toEqual([
+      `GET /Users/${BEN_ID}`,
+      'GET /QuickConnect/Enabled',
+      AUTHORIZE,
+      `GET /Users/${BEN_ID}`,
+      'POST /Users/Password',
+    ]);
+    // The new password signed out the TV that was just connected.
+    expect(mock.state.users.get(BEN_ID)!.devices).toBe(0);
   });
 });

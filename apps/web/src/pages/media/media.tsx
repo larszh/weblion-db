@@ -24,14 +24,16 @@ import {
   CreateMediaAccountDialog,
   MediaAccountActions,
   MediaPasswordDialog,
+  SignOutDevicesDialog,
   type ShownMediaPassword,
 } from './dialogs';
 import { MediaLoginCard } from './login-card';
+import { MediaRequestsCard } from './requests-card';
 
 /**
- * Streaming accounts of the organization (/o/:slug/media): allowance, login card and the
- * accounts on the organization's Jellyfin instance. Shows the calendar day of the last activity
- * only, never what anyone watches.
+ * Streaming accounts of the organization (/o/:slug/media): allowance, login card, the requests
+ * card (only with the add-on) and the accounts on the organization's Jellyfin instance. Shows the
+ * calendar day of the last activity only, never what anyone watches.
  */
 export function MediaPage() {
   const { t } = useI18n();
@@ -41,10 +43,14 @@ export function MediaPage() {
   const media = useOrgMedia(org.id, canRead);
   const [creating, setCreating] = useState(false);
   const [shown, setShown] = useState<ShownMediaPassword | null>(null);
+  // "Alle Geräte abmelden" opened from the password dialog (devices left after a new password).
+  const [signingOut, setSigningOut] = useState<MediaAccountDto | null>(null);
 
   const allowance = media.data?.allowance ?? null;
   const accounts = media.data?.accounts ?? [];
   const login = media.data?.login ?? null;
+  // Only with the requests add-on on an instance whose Seerr is active; absent otherwise.
+  const requests = media.data?.requests;
   const openUrl = safePanelUrl(login?.url ?? allowance?.provider?.url);
   const canCreate = can('media:write') && !!allowance;
   const createBlocked = allowance && mediaAllowanceFull(allowance) ? t('media.limit.accounts') : null;
@@ -91,10 +97,13 @@ export function MediaPage() {
           <Notice tone="warning">{t('media.noAllowanceAccounts')}</Notice>
         )}
         {allowance && can('media:write') && createBlocked && <Notice tone="info">{createBlocked}</Notice>}
+        {requests && <MediaRequestsCard requests={requests} accounts={accounts} />}
         <AccountsCard
           accounts={accounts}
           onCreate={canCreate && !createBlocked ? () => setCreating(true) : undefined}
           onPassword={setShown}
+          quickConnect={login?.quickConnect ?? null}
+          onSignOut={setSigningOut}
         />
       </div>
     );
@@ -138,6 +147,7 @@ export function MediaPage() {
         />
       )}
       <MediaPasswordDialog shown={shown} onClose={() => setShown(null)} />
+      {signingOut && <SignOutDevicesDialog account={signingOut} open onClose={() => setSigningOut(null)} />}
     </>
   );
 }
@@ -158,10 +168,14 @@ function AccountsCard({
   accounts,
   onCreate,
   onPassword,
+  quickConnect,
+  onSignOut,
 }: {
   accounts: MediaAccountDto[];
   onCreate?: () => void;
   onPassword: (shown: ShownMediaPassword) => void;
+  quickConnect: boolean | null;
+  onSignOut: (account: MediaAccountDto) => void;
 }) {
   const { t, locale } = useI18n();
   const [q, setQ] = useState('');
@@ -252,7 +266,12 @@ function AccountsCard({
                 </TD>
                 {withActions && (
                   <TD className="w-12 text-right">
-                    <MediaAccountActions account={a} onPassword={onPassword} />
+                    <MediaAccountActions
+                      account={a}
+                      onPassword={onPassword}
+                      quickConnect={quickConnect}
+                      onSignOut={onSignOut}
+                    />
                   </TD>
                 )}
               </TR>

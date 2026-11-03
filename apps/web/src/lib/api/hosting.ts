@@ -48,6 +48,8 @@ export interface ProviderSyncResult {
   phoneSystems?: { seen: number; missing: number };
   /** Jellyfin: accounts the console manages; repaired: policies written. */
   mediaAccounts?: { seen: number; missing: number; repaired: number; repairFailed: number };
+  /** Jellyfin with a Seerr configured: the requests add-on (zeros while it is switched off). */
+  seerr?: { imported: number; repaired: number; revoked: number; failed: number; counted: number };
   /** Uptime Kuma: monitors of the instance; managementError when the management session failed. */
   monitors?: { seen: number; missing: number; managementError: string | null };
   /** Scopes the access token lacks (24fire): those lists were skipped, nothing marked missing. */

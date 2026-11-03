@@ -23,6 +23,7 @@ import {
   mailDomains,
   mediaAccounts,
   mediaAllowances,
+  mediaSeerr,
   memberships,
   monitorAllowances,
   monitorStatusPages,
@@ -44,6 +45,7 @@ import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
+import { dropMediaRequestsOf, forgetSeerrUsers, pendingSeerrRevocations } from '../media/seerr';
 import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
 import {
   HOST_KEY_FINGERPRINT_PATTERN,
@@ -56,6 +58,7 @@ import {
   fire24TokenKind,
   fire24TokenSummary,
 } from '../../providers/fire24/config';
+import { SEERR_API_KEY } from '../../providers/seerr/rules';
 import type {
   CloudflareConfig,
   CloudPanelConfig,
@@ -233,9 +236,9 @@ const threecxConfigSchema = z.object({
     .regex(/^[A-Za-z0-9._-]{1,64}$/, 'letters, digits, dot, dash, underscore'),
   clientSecret: z.string().trim().min(8).max(500),
 });
-/** http(s), a path for Jellyfin's base URL is fine; no query or credentials: the key goes to this host. */
-const jellyfinConfigSchema = z.object({
-  baseUrl: z
+/** http(s) with an optional path, no query, hash or credentials: a key goes to this host. */
+const httpAddress = (message: string) =>
+  z
     .url()
     .refine((v) => {
       // zod runs the refinement after a failed url check too.
@@ -248,14 +251,32 @@ const jellyfinConfigSchema = z.object({
         !u.username &&
         !u.password
       );
-    }, 'http(s)://<host>[:port][/base path] without query or credentials')
-    .transform((v) => v.replace(/\/+$/, '')),
-  apiKey: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[0-9a-f]{32}$/, 'the 32 character API key from the Jellyfin dashboard (API Keys)'),
-});
+    }, message)
+    .transform((v) => v.replace(/\/+$/, ''));
+/**
+ * http(s), a path for Jellyfin's base URL is fine; no query or credentials: the key goes to this
+ * host. The optional Seerr (requests add-on) of the instance: address and key together; the key
+ * is Seerr's owner, so it is stored encrypted like the Jellyfin key and never shown.
+ */
+const jellyfinConfigSchema = z
+  .object({
+    baseUrl: httpAddress('http(s)://<host>[:port][/base path] without query or credentials'),
+    apiKey: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{32}$/, 'the 32 character API key from the Jellyfin dashboard (API Keys)'),
+    seerrUrl: httpAddress('http(s)://<Seerr address> without query or credentials').optional(),
+    seerrApiKey: z
+      .string()
+      .trim()
+      .regex(SEERR_API_KEY, 'the API key from Seerr > Settings > General')
+      .optional(),
+  })
+  .refine((c) => !c.seerrUrl === !c.seerrApiKey, {
+    message: 'seerrUrl and seerrApiKey go together',
+    path: ['seerrApiKey'],
+  });
 /** https or http, no path, no credentials in the URL: the API key goes to this host. */
 const uptimeKumaConfigSchema = z.object({
   baseUrl: z
@@ -409,8 +430,12 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
     }
     case 'jellyfin': {
       const c = config as JellyfinConfig;
-      // The key is a full Jellyfin administrator: not even a part of it leaves.
-      return { baseUrl: c.baseUrl, apiKey: '••••••' };
+      // The key is a full Jellyfin administrator, Seerr's key Seerr's owner: not even a part leaves.
+      return {
+        baseUrl: c.baseUrl,
+        apiKey: '••••••',
+        ...(c.seerrUrl ? { seerrUrl: c.seerrUrl, seerrApiKey: '••••••' } : {}),
+      };
     }
     case 'uptimekuma': {
       const c = config as UptimeKumaConfig;
@@ -650,7 +675,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.patch('/admin/providers/:id', async (req) => {
-    requireSession(req);
+    const auth = requireSession(req);
     await can(req, 'platform:provider:write');
     const { id } = parse(idParams, req.params);
     const connection = await loadConnection(id);
@@ -667,6 +692,11 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       throw conflict('Credentials of this provider come from environment variables. Change them there.');
     }
     let configEnc: string | undefined;
+    /** How the Seerr address of a Jellyfin connection changed (the key alone may rotate freely). */
+    let seerrAddress: 'added' | 'changed' | 'removed' | undefined;
+    /** What the change dropped, for the audit entry: add-ons of the instance, revocations left. */
+    let requestsOff: string[] = [];
+    let revocationsLeft = 0;
     if (body.config) {
       // Empty secret fields keep the stored value so the UI never needs to know it; null
       // removes it (e.g. a Joker API key when switching to username and password).
@@ -686,24 +716,63 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         const kuma = next as UptimeKumaConfig;
         if (kuma.baseUrl !== current.baseUrl) delete kuma.sessionToken;
       }
+      if (connection.type === 'jellyfin') {
+        const before = typeof current.seerrUrl === 'string' ? current.seerrUrl : undefined;
+        const after = (next as JellyfinConfig).seerrUrl;
+        if (before !== after) seerrAddress = !before ? 'added' : !after ? 'removed' : 'changed';
+      }
       configEnc = box.encryptJson(next);
     }
-    const [updated] = await db
-      .update(providerConnections)
-      .set({
-        ...(body.name ? { name: body.name } : {}),
-        ...(body.location ? { location: body.location } : {}),
-        ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-        ...(configEnc ? { configEnc, status: 'unknown' as const, lastError: null } : {}),
-      })
-      .where(eq(providerConnections.id, id))
-      .returning();
+    const [updated] = await db.transaction(async (tx) => {
+      if (seerrAddress) {
+        // Customers would see another (or no) Seerr while their accounts keep their rights in the
+        // old one. The lock on the connection row orders this against switching requests on.
+        await tx
+          .select({ id: providerConnections.id })
+          .from(providerConnections)
+          .where(eq(providerConnections.id, id))
+          .for('update');
+        const seerr = await tx.query.mediaSeerr.findFirst({ where: eq(mediaSeerr.providerConnectionId, id) });
+        if (seerr?.enabled) {
+          throw conflict(
+            'Switch requests off for this instance before you change or remove its Seerr address',
+          );
+        }
+        // The last check was of the old Seerr, and so are the Seerr ids of the accounts. Rights a
+        // switch-off could not take there yet are left to Seerr itself (named in the audit entry).
+        await tx
+          .update(mediaSeerr)
+          .set({ status: 'unknown', lastCheck: null, checkedAt: null, lastError: null })
+          .where(eq(mediaSeerr.providerConnectionId, id));
+        revocationsLeft = await pendingSeerrRevocations(tx, id);
+        await forgetSeerrUsers(tx, id);
+        // Without a Seerr the instance offers no add-on.
+        if (seerrAddress === 'removed') requestsOff = await dropMediaRequestsOf(tx, id, auth.user.id);
+      }
+      return tx
+        .update(providerConnections)
+        .set({
+          ...(body.name ? { name: body.name } : {}),
+          ...(body.location ? { location: body.location } : {}),
+          ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+          ...(configEnc ? { configEnc, status: 'unknown' as const, lastError: null } : {}),
+        })
+        .where(eq(providerConnections.id, id))
+        .returning();
+    });
     providers.invalidate(id);
     await audit.record(req, {
       action: 'provider.update',
       resourceType: 'provider',
       resourceId: id,
-      details: { name: body.name, enabled: body.enabled, credentialsChanged: !!configEnc },
+      details: {
+        name: body.name,
+        enabled: body.enabled,
+        credentialsChanged: !!configEnc,
+        ...(seerrAddress ? { seerr: seerrAddress } : {}),
+        ...(requestsOff.length > 0 ? { requestsOff } : {}),
+        ...(revocationsLeft > 0 ? { seerrRevocationsLeft: revocationsLeft } : {}),
+      },
     });
     return toProviderDto(updated!);
   });

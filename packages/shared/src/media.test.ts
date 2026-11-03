@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MEDIA_REQUESTS_DEFAULT,
+  MEDIA_SEERR_FIXABLE,
+  MEDIA_SEERR_PROBLEMS,
   expectedMediaPolicy,
   isMediaAccountCode,
   isMediaAccountName,
@@ -7,9 +10,14 @@ import {
   mediaActivityDay,
   mediaPasswordIssues,
   mediaPolicyDrift,
+  mediaRequestsExceed,
   mediaUsername,
   normalizeMediaId,
+  normalizeMediaRequests,
+  normalizeQuickConnectCode,
+  sameMediaRequests,
   type MediaAccess,
+  type MediaRequestsAccess,
 } from './media';
 
 const FILME = '847f61bc736e6f8ef0f5542f43496822';
@@ -191,5 +199,142 @@ describe('mediaActivityDay', () => {
     expect(mediaActivityDay(undefined)).toBeNull();
     expect(mediaActivityDay('')).toBeNull();
     expect(mediaActivityDay('yesterday')).toBeNull();
+  });
+});
+
+describe('normalizeQuickConnectCode', () => {
+  it('accepts 6 digits as typed, with spaces or a dash', () => {
+    expect(normalizeQuickConnectCode('123456')).toBe('123456');
+    expect(normalizeQuickConnectCode(' 123 456 ')).toBe('123456');
+    expect(normalizeQuickConnectCode('123-456')).toBe('123456');
+  });
+
+  it('refuses what Jellyfin never generates', () => {
+    for (const value of ['012345', '12345', '1234567', '12a456', '']) {
+      expect(normalizeQuickConnectCode(value)).toBeNull();
+    }
+  });
+});
+
+/** A reseller's requests add-on: movies 5 in 30 days, 3 seasons in 30 days; tests change fields. */
+const requests = (patch: Partial<MediaRequestsAccess> = {}): MediaRequestsAccess => ({
+  movies: true,
+  tv: true,
+  movieQuota: { limit: 5, days: 30 },
+  tvQuota: { limit: 3, days: 30 },
+  ...patch,
+});
+
+describe('mediaRequestsExceed', () => {
+  it('is empty within the parent and for a child without the add-on', () => {
+    expect(mediaRequestsExceed(requests(), requests())).toEqual([]);
+    expect(
+      mediaRequestsExceed(
+        requests({ tv: false, movieQuota: { limit: 2, days: 30 }, tvQuota: null }),
+        requests(),
+      ),
+    ).toEqual([]);
+    expect(mediaRequestsExceed(null, requests())).toEqual([]);
+    expect(mediaRequestsExceed(null, null)).toEqual([]);
+  });
+
+  it('reports types the parent lacks, also without a parent add-on', () => {
+    expect(mediaRequestsExceed(requests(), requests({ tv: false, tvQuota: null }))).toEqual(['requestsTv']);
+    expect(mediaRequestsExceed(requests(), requests({ movies: false, movieQuota: null }))).toEqual([
+      'requestsMovies',
+    ]);
+    expect(mediaRequestsExceed(requests(), null)).toEqual(['requestsMovies', 'requestsTv']);
+    expect(mediaRequestsExceed(requests({ tv: false }), null)).toEqual(['requestsMovies']);
+  });
+
+  it('compares quotas in both directions', () => {
+    // A higher limit or a shorter window allows more per window.
+    expect(mediaRequestsExceed(requests({ movieQuota: { limit: 6, days: 30 } }), requests())).toEqual([
+      'movieQuota',
+    ]);
+    expect(mediaRequestsExceed(requests({ movieQuota: { limit: 5, days: 7 } }), requests())).toEqual([
+      'movieQuota',
+    ]);
+    expect(mediaRequestsExceed(requests({ tvQuota: { limit: 4, days: 30 } }), requests())).toEqual([
+      'tvQuota',
+    ]);
+    // A lower limit or a longer window allows less.
+    expect(mediaRequestsExceed(requests({ movieQuota: { limit: 4, days: 30 } }), requests())).toEqual([]);
+    expect(mediaRequestsExceed(requests({ movieQuota: { limit: 5, days: 60 } }), requests())).toEqual([]);
+    expect(mediaRequestsExceed(requests({ tvQuota: { limit: 3, days: 365 } }), requests())).toEqual([]);
+  });
+
+  it('treats no limit as unlimited', () => {
+    expect(mediaRequestsExceed(requests({ movieQuota: null }), requests())).toEqual(['movieQuota']);
+    expect(mediaRequestsExceed(requests({ tvQuota: null }), requests())).toEqual(['tvQuota']);
+    const unlimited = requests({ movieQuota: null, tvQuota: null });
+    expect(mediaRequestsExceed(requests(), unlimited)).toEqual([]);
+    expect(mediaRequestsExceed(unlimited, unlimited)).toEqual([]);
+  });
+
+  it('ignores the quota of a type the child does not have', () => {
+    expect(mediaRequestsExceed(requests({ tv: false, tvQuota: { limit: 99, days: 1 } }), requests())).toEqual(
+      [],
+    );
+  });
+});
+
+describe('normalizeMediaRequests', () => {
+  it('drops the quotas of types that are off', () => {
+    expect(normalizeMediaRequests(requests({ tv: false }))).toEqual({
+      movies: true,
+      tv: false,
+      movieQuota: { limit: 5, days: 30 },
+      tvQuota: null,
+    });
+    expect(normalizeMediaRequests(requests({ movies: false }))).toEqual({
+      movies: false,
+      tv: true,
+      movieQuota: null,
+      tvQuota: { limit: 3, days: 30 },
+    });
+  });
+
+  it('turns both types off into null, and copies', () => {
+    expect(normalizeMediaRequests(requests({ movies: false, tv: false }))).toBeNull();
+    expect(normalizeMediaRequests(null)).toBeNull();
+    const value = requests();
+    const copy = normalizeMediaRequests(value)!;
+    expect(copy).toEqual(value);
+    expect(copy.movieQuota).not.toBe(value.movieQuota);
+  });
+
+  it('keeps the suggested default as it is', () => {
+    expect(normalizeMediaRequests(MEDIA_REQUESTS_DEFAULT)).toEqual(requests());
+  });
+});
+
+describe('sameMediaRequests', () => {
+  it('compares types and quotas', () => {
+    expect(sameMediaRequests(requests(), requests())).toBe(true);
+    expect(sameMediaRequests(null, null)).toBe(true);
+    expect(sameMediaRequests(requests(), null)).toBe(false);
+    expect(sameMediaRequests(null, requests())).toBe(false);
+    expect(sameMediaRequests(requests(), requests({ tv: false }))).toBe(false);
+    expect(sameMediaRequests(requests(), requests({ movieQuota: { limit: 5, days: 31 } }))).toBe(false);
+    expect(sameMediaRequests(requests(), requests({ tvQuota: null }))).toBe(false);
+  });
+
+  it('ignores quotas of types that are off, and treats all off as null', () => {
+    expect(
+      sameMediaRequests(
+        requests({ tv: false, tvQuota: null }),
+        requests({ tv: false, tvQuota: { limit: 9, days: 9 } }),
+      ),
+    ).toBe(true);
+    expect(sameMediaRequests(requests({ movies: false, tv: false }), null)).toBe(true);
+  });
+});
+
+describe('Seerr problems', () => {
+  it('lists only known problems as fixable', () => {
+    expect(MEDIA_SEERR_FIXABLE.every((p) => MEDIA_SEERR_PROBLEMS.includes(p))).toBe(true);
+    expect(MEDIA_SEERR_FIXABLE).not.toContain('csrf');
+    expect(MEDIA_SEERR_FIXABLE).not.toContain('other_server');
   });
 });

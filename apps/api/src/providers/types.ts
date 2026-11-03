@@ -25,6 +25,7 @@ import type {
   MailboxState,
   MediaLibraryRef,
   MediaPolicyState,
+  MediaSeerrProblem,
   MetricRange,
   MetricsResult,
   MonitorConfig,
@@ -556,6 +557,71 @@ export interface MediaActivity {
   playing: number;
 }
 
+/** Sessions of one user and how many were playing and got a stop command. Counts only. */
+export interface MediaPlaybackStop {
+  sessions: number;
+  stopped: number;
+}
+
+/** Result of signing out a user's devices. Counts only, never device ids or names. */
+export interface MediaSignOut {
+  signedOut: number;
+  /** Device ids another user is signed in on too (Jellyfin signs out every user of a device id). */
+  skipped: number;
+  failed: number;
+  /** Fresh count afterwards; null when it could not be read. */
+  remaining: number | null;
+}
+
+/**
+ * A Seerr user as the console keeps it: ids, rights and quotas only. Email, names, avatar and
+ * any token are dropped by the parser.
+ */
+export interface RemoteSeerrUser {
+  id: number;
+  /** 32 hex; null for local or Plex users. */
+  jellyfinUserId: string | null;
+  permissions: number;
+  movieQuotaLimit: number | null;
+  movieQuotaDays: number | null;
+  tvQuotaLimit: number | null;
+  tvQuotaDays: number | null;
+}
+
+/** What the console writes to a Seerr user. Quota 0 = no limit (Seerr). */
+export interface SeerrUserAccess {
+  permissions: number;
+  movieQuotaLimit: number;
+  movieQuotaDays: number;
+  tvQuotaLimit: number;
+  tvQuotaDays: number;
+}
+
+/** A live check of a Seerr: settings values only, never keys or passwords. */
+export interface SeerrCheckResult {
+  version: string | null;
+  sameServer: boolean | null;
+  newSignIns: boolean | null;
+  defaultPermissions: number | null;
+  mediaServerLogin: boolean | null;
+  localLogin: boolean | null;
+  csrfProtection: boolean | null;
+  problems: MediaSeerrProblem[];
+  /**
+   * Why the check stopped at `unreachable` or `key` (the network's or Seerr's reason), for the
+   * stored last error. Never contains the key; not part of the stored check.
+   */
+  error?: string;
+}
+
+/** Requests per Seerr user, counts only: never titles, TMDB ids, dates or request ids. */
+export interface SeerrRequestCounts {
+  /** Seerr user id to counts. */
+  byUser: Map<number, { pending: number; approved: number; available: number }>;
+  /** false when more pages were left than SEERR_REQUEST_PAGES_MAX. */
+  complete: boolean;
+}
+
 /** A monitor as Uptime Kuma reports it. Never carries the monitor's secrets. */
 export interface RemoteMonitor {
   /** Kuma's numeric monitor id as text. */
@@ -868,6 +934,53 @@ export interface ProviderAdapter {
   mediaActivity?(): Promise<MediaActivity>;
   /** Where users sign in and what they enter in the apps, e.g. https://media.weblion.one. */
   mediaLoginUrl?(): string;
+  /**
+   * Confirms a Quick Connect code a device shows, for this user (an API key may do it for anyone).
+   * Refuses administrators, disabled users, Quick Connect off and a full MaxActiveSessions before
+   * anything is sent. The code is a one-time secret: never in messages. Errors: AppError 409 with
+   * the codes of MEDIA_CONNECT_ERRORS, ProviderError otherwise.
+   */
+  authorizeMediaQuickConnect?(userId: string, code: string): Promise<void>;
+  /** Devices signed in with the user (access tokens), read live. */
+  countMediaUserDevices?(userId: string): Promise<number>;
+  /** Signs out every device of the user that no other user is signed in on. Refuses administrators. */
+  signOutMediaUserDevices?(userId: string): Promise<MediaSignOut>;
+  /**
+   * Sends a stop to every playing session of the user. Best effort per session, counts only.
+   * Refuses administrators.
+   */
+  stopMediaUserPlayback?(userId: string): Promise<MediaPlaybackStop>;
+
+  // Requests add-on (Seerr) of a Jellyfin connection. Present on adapters that can talk to a
+  // Seerr; seerrConfigured() says whether this connection has one (no network). Seerr ids are
+  // integers, Jellyfin ids 32 hex. Every method except seerrConfigured and seerrUrl talks to
+  // Seerr and throws a ProviderError (name SEERR) when it fails; the Seerr key is in no message.
+  seerrConfigured?(): boolean;
+  /** Where customers open Seerr; null when not configured. */
+  seerrUrl?(): string | null;
+  /** Live check of section 19.3 against this connection's Jellyfin server id. */
+  seerrCheck?(): Promise<SeerrCheckResult>;
+  /** Writes SEERR_SAFE_SETTINGS (exactly those fields), then checks again. */
+  seerrApplySafeSettings?(): Promise<SeerrCheckResult>;
+  /** Every Seerr user (all pages), deduplicated by id. */
+  listSeerrUsers?(): Promise<RemoteSeerrUser[]>;
+  /**
+   * One Seerr user by id (404 when Seerr has none): confirms that a stored id still belongs to the
+   * account's Jellyfin user before anything is written to it, where no list is at hand.
+   */
+  getSeerrUser?(seerrUserId: number): Promise<RemoteSeerrUser>;
+  /** Imports the Jellyfin user (or finds it when Seerr knows it). */
+  importSeerrUser?(jellyfinUserId: string): Promise<RemoteSeerrUser>;
+  /** Never for SEERR_OWNER_ID. Returns the user as read back; a difference left throws. */
+  setSeerrUserAccess?(
+    seerrUserId: number,
+    access: SeerrUserAccess,
+    current: RemoteSeerrUser,
+  ): Promise<RemoteSeerrUser>;
+  /** Removes the user with its requests. A user Seerr does not know counts as deleted. */
+  deleteSeerrUser?(seerrUserId: number): Promise<void>;
+  seerrRequestCounts?(): Promise<SeerrRequestCounts>;
+  seerrQuotaUsage?(seerrUserId: number): Promise<{ movieUsed: number; tvUsed: number }>;
 
   // Monitoring (module "monitoring", Uptime Kuma). Monitors by Kuma id (text). Missing monitors
   // throw a ProviderError with upstreamStatus 404.
@@ -1032,6 +1145,13 @@ export interface JellyfinConfig {
   baseUrl: string;
   /** API key from Dashboard > API Keys: 32 lower-case hex characters, full administrator rights. */
   apiKey: string;
+  /**
+   * Seerr of this instance, optional; both or neither. The address customers open, without a
+   * trailing slash (the client adds /api/v1).
+   */
+  seerrUrl?: string;
+  /** Seerr > Settings > General > API key. The key is Seerr's owner: full rights. */
+  seerrApiKey?: string;
 }
 
 /** Uptime Kuma 2.x. API key for /metrics; session token only when signed in for management. */

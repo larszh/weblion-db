@@ -2,14 +2,26 @@ import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import {
   MEDIA_MAX_BITRATE_MBIT,
+  MEDIA_REQUESTS_DEFAULT,
+  MEDIA_REQUEST_QUOTA_DAYS_MAX,
+  MEDIA_REQUEST_QUOTA_MAX,
   mediaActivityDay,
+  mediaRequestsExceed,
+  normalizeMediaRequests,
+  normalizeQuickConnectCode,
+  type MediaConnectError,
   type MediaAccess,
   type MediaAccountDto,
   type MediaAccountIssue,
+  type MediaAccountRequestsDto,
   type MediaAllowanceDto,
   type MediaLibraryRef,
+  type MediaRequestQuota,
+  type MediaRequestsAccess,
+  type MediaRequestsConflict,
 } from '@weblion/shared';
 import type { TranslationKey } from '@/i18n/de';
+import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatNumber, type Locale } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
@@ -89,6 +101,12 @@ const ISSUE: Record<
   no_password: { label: 'media.issue.no_password', text: 'media.issue.no_password.text', tone: 'danger' },
   locked_out: { label: 'media.issue.locked_out', text: 'media.issue.locked_out.text', tone: 'warning' },
   no_allowance: { label: 'media.issue.no_allowance', text: 'media.issue.no_allowance.text', tone: 'warning' },
+  seerr_missing: {
+    label: 'media.issue.seerr_missing',
+    text: 'media.issue.seerr_missing.text',
+    tone: 'warning',
+  },
+  seerr_drift: { label: 'media.issue.seerr_drift', text: 'media.issue.seerr_drift.text', tone: 'warning' },
 };
 
 /** Problems the sync found, each with its explanation as tooltip. */
@@ -188,6 +206,41 @@ export function LoginName({ username, className }: { username: string; className
   );
 }
 
+// --- Connect a TV (Quick Connect) -----------------------------------------------------
+
+/**
+ * The code field of "Fernseher verbinden": the code to send (null while it is none) and whether
+ * to say so yet. Incomplete input is no error; letters, a 7th digit or a leading 0 are.
+ */
+export function quickConnectField(value: string): { code: string | null; invalid: boolean } {
+  const code = normalizeQuickConnectCode(value);
+  const digits = value.replace(/[\s-]/g, '');
+  return { code, invalid: code === null && (/\D/.test(digits) || digits.length >= 6) };
+}
+
+const CONNECT_ERROR: Record<MediaConnectError, TranslationKey> = {
+  quick_connect_code: 'media.connect.error.code',
+  quick_connect_off: 'media.connect.error.off',
+  quick_connect_failed: 'media.connect.error.failed',
+  stream_limit: 'media.connect.error.limit',
+  account_disabled: 'media.connect.error.disabled',
+};
+
+/** The text of a refused connection; null for errors that bring their own message. */
+export function connectErrorKey(err: unknown): TranslationKey | null {
+  if (!(err instanceof ApiError)) return null;
+  if (err.status === 429) return 'media.connect.error.tooMany';
+  if (err.status !== 409) return null;
+  return (CONNECT_ERROR as Partial<Record<string, TranslationKey>>)[err.code] ?? null;
+}
+
+/** MaxActiveSessions from the details of a 409 "stream_limit", for the text; null otherwise. */
+export function streamLimitOf(err: unknown): number | null {
+  if (!(err instanceof ApiError) || err.code !== 'stream_limit') return null;
+  const max = (err.details as { maxStreams?: unknown } | undefined)?.maxStreams;
+  return typeof max === 'number' && Number.isFinite(max) ? max : null;
+}
+
 // --- Allowance -----------------------------------------------------------------------
 
 /** "8 Mbit/s"; null is the server's own setting. */
@@ -249,6 +302,171 @@ export function readBitrate(
   return { value, issue: null };
 }
 
+// --- Requests (Seerr add-on) ------------------------------------------------------------
+
+export type MediaRequestType = 'movies' | 'tv';
+export const REQUEST_TYPES: readonly MediaRequestType[] = ['movies', 'tv'];
+
+const quotaOf = (access: MediaRequestsAccess, type: MediaRequestType): MediaRequestQuota | null =>
+  type === 'movies' ? access.movieQuota : access.tvQuota;
+
+/** What one type of the add-on allows: "bis 5 Filme in 30 Tagen pro Zugang", "ohne Grenze" or "nicht enthalten". */
+export function requestTypeText(
+  t: TFunction,
+  type: MediaRequestType,
+  access: MediaRequestsAccess | null,
+): string {
+  if (!access?.[type]) return t('media.requests.notIncluded');
+  const quota = quotaOf(access, type);
+  if (!quota) return t('media.requests.unlimited');
+  return t(type === 'movies' ? 'media.requests.movieQuota' : 'media.requests.tvQuota', {
+    limit: quota.limit,
+    days: quota.days,
+  });
+}
+
+/** The types of the add-on in one phrase: "Filme und Serien", "Filme" or "Serien". */
+export function requestTypesText(t: TFunction, access: MediaRequestsAccess): string {
+  if (access.movies && access.tv) return t('media.requests.figureBoth');
+  return access.movies ? t('media.requests.movies') : t('media.requests.tv');
+}
+
+/**
+ * Quota used by one account, one line per type with a limit ("Filme: 2 von 5"). Empty when no
+ * included type has a limit. A number the sync has not read yet shows as "–".
+ */
+export function requestQuotaUsage(
+  t: TFunction,
+  access: MediaRequestsAccess,
+  counts: MediaAccountRequestsDto | null,
+): string[] {
+  const lines: string[] = [];
+  if (access.movies && access.movieQuota) {
+    lines.push(
+      t('media.requests.quotaMovies', { used: counts?.movieUsed ?? '–', limit: access.movieQuota.limit }),
+    );
+  }
+  if (access.tv && access.tvQuota) {
+    lines.push(
+      t('media.requests.quotaSeasons', { used: counts?.tvUsed ?? '–', limit: access.tvQuota.limit }),
+    );
+  }
+  return lines;
+}
+
+/** The add-on as the allowance dialogs edit it: a limit per type or none, as typed. */
+export interface MediaRequestsForm {
+  on: boolean;
+  movies: boolean;
+  tv: boolean;
+  movieLimited: boolean;
+  movieLimit: string;
+  movieDays: string;
+  tvLimited: boolean;
+  tvLimit: string;
+  tvDays: string;
+}
+
+/**
+ * The form for an add-on (null: off). Types that are off, and the add-on while it is off, start
+ * from `defaults`: the standard suggestion for staff, the reseller's own add-on for a reseller.
+ */
+export function mediaRequestsFormFrom(
+  value: MediaRequestsAccess | null,
+  defaults: MediaRequestsAccess = MEDIA_REQUESTS_DEFAULT,
+): MediaRequestsForm {
+  const start = (type: MediaRequestType) => {
+    const quota = value?.[type] ? quotaOf(value, type) : quotaOf(defaults, type);
+    // Without a limit the inputs still hold a sensible number for when a limit is chosen.
+    const shown = quota ?? quotaOf(defaults, type) ?? quotaOf(MEDIA_REQUESTS_DEFAULT, type)!;
+    return { limited: quota !== null, limit: String(shown.limit), days: String(shown.days) };
+  };
+  const movie = start('movies');
+  const tv = start('tv');
+  return {
+    on: value !== null,
+    movies: value ? value.movies : defaults.movies,
+    tv: value ? value.tv : defaults.tv,
+    movieLimited: movie.limited,
+    movieLimit: movie.limit,
+    movieDays: movie.days,
+    tvLimited: tv.limited,
+    tvLimit: tv.limit,
+    tvDays: tv.days,
+  };
+}
+
+export type MediaRequestsErrors = Record<
+  'types' | 'movies' | 'movieLimit' | 'movieDays' | 'tv' | 'tvLimit' | 'tvDays',
+  string | null
+>;
+
+const NO_REQUEST_ERRORS: MediaRequestsErrors = {
+  types: null,
+  movies: null,
+  movieLimit: null,
+  movieDays: null,
+  tv: null,
+  tvLimit: null,
+  tvDays: null,
+};
+
+/** A whole number from 1 to max, or null. */
+const readRange = (value: string, max: number): number | null => {
+  const n = parseCount(value);
+  return n !== null && n <= max ? n : null;
+};
+
+/**
+ * The add-on to send (null: off) and the error of each field; `valid` false while something is
+ * wrong. "No requests" is the add-on off, never a limit of 0 (Seerr reads 0 as no limit).
+ * `cap`: a reseller's own add-on, which a customer cannot exceed (null: the reseller has none);
+ * undefined for staff.
+ */
+export function readMediaRequestsForm(
+  t: TFunction,
+  form: MediaRequestsForm,
+  cap?: MediaRequestsAccess | null,
+): {
+  value: MediaRequestsAccess | null;
+  valid: boolean;
+  errors: MediaRequestsErrors;
+  conflicts: MediaRequestsConflict[];
+} {
+  if (!form.on) return { value: null, valid: true, errors: NO_REQUEST_ERRORS, conflicts: [] };
+  const errors: MediaRequestsErrors = { ...NO_REQUEST_ERRORS };
+  if (!form.movies && !form.tv) errors.types = t('media.requests.typeRequired');
+  const readQuota = (type: MediaRequestType): MediaRequestQuota | null => {
+    const movies = type === 'movies';
+    if (!form[type] || !(movies ? form.movieLimited : form.tvLimited)) return null;
+    const limit = readRange(movies ? form.movieLimit : form.tvLimit, MEDIA_REQUEST_QUOTA_MAX);
+    const days = readRange(movies ? form.movieDays : form.tvDays, MEDIA_REQUEST_QUOTA_DAYS_MAX);
+    if (limit === null) {
+      errors[movies ? 'movieLimit' : 'tvLimit'] = t('media.requests.quotaInvalid', {
+        max: MEDIA_REQUEST_QUOTA_MAX,
+      });
+    }
+    if (days === null) {
+      errors[movies ? 'movieDays' : 'tvDays'] = t('media.requests.daysInvalid', {
+        max: MEDIA_REQUEST_QUOTA_DAYS_MAX,
+      });
+    }
+    return limit !== null && days !== null ? { limit, days } : null;
+  };
+  const movieQuota = readQuota('movies');
+  const tvQuota = readQuota('tv');
+  const typed = Object.values(errors).every((e) => e === null);
+  const value = typed
+    ? normalizeMediaRequests({ movies: form.movies, tv: form.tv, movieQuota, tvQuota })
+    : null;
+  const conflicts = value && cap !== undefined ? mediaRequestsExceed(value, cap) : [];
+  const capped = t('media.reseller.requestsCap');
+  if (conflicts.includes('requestsMovies') || conflicts.includes('movieQuota')) errors.movies = capped;
+  if (conflicts.includes('requestsTv') || conflicts.includes('tvQuota')) errors.tv = capped;
+  const valid = typed && conflicts.length === 0;
+  return { value: valid ? value : null, valid, errors, conflicts };
+}
+
 /** Library names as small chips; libraries gone from the instance are struck through. */
 export function LibraryChips({ libraries, className }: { libraries: MediaLibraryRef[]; className?: string }) {
   const { t } = useI18n();
@@ -285,8 +503,9 @@ function Figure({ label, value }: { label: string; value: ReactNode }) {
 
 /**
  * Key figures of an allowance: accounts, streams, downloads, bitrate outside the server's
- * network, the libraries and the instance. Used on the customer page and in the admin and
- * reseller cards.
+ * network, the requests add-on (where the caller sees it and it is on, with the totals in the
+ * admin and reseller views), the libraries and the instance. Used on the customer page and in
+ * the admin and reseller cards.
  */
 export function MediaAllowanceFigures({
   allowance,
@@ -301,6 +520,9 @@ export function MediaAllowanceFigures({
 }) {
   const { t, locale } = useI18n();
   const url = safePanelUrl(allowance.provider?.url);
+  const requests = allowance.requests ?? null;
+  // Totals belong to the admin and reseller views, and only while the add-on is on.
+  const totals = requests ? allowance.requestTotals : undefined;
   return (
     <div className="space-y-4">
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
@@ -324,6 +546,32 @@ export function MediaAllowanceFigures({
               : t('media.figure.bitrateUpTo', { rate: formatBitrate(allowance.remoteBitrateMbit, locale, t) })
           }
         />
+        {/* Only where the caller sees the add-on and it is on (absent or null: nothing of it). */}
+        {requests && (
+          <div className="col-span-2 min-w-0">
+            <dt className="truncate text-xs text-muted">{t('media.requests.figure')}</dt>
+            <dd className="mt-0.5 text-lg leading-snug font-semibold break-words text-text">
+              {requestTypesText(t, requests)}
+            </dd>
+            <dd className="mt-0.5 space-y-0.5 text-xs text-muted">
+              {REQUEST_TYPES.filter((type) => requests[type]).map((type) => (
+                <p key={type}>
+                  {t(type === 'movies' ? 'media.requests.movies' : 'media.requests.tv')}:{' '}
+                  {requestTypeText(t, type, requests)}
+                </p>
+              ))}
+              {totals && (
+                <p>
+                  {t('media.requests.totals', {
+                    pending: formatNumber(totals.pending, locale),
+                    approved: formatNumber(totals.approved, locale),
+                    available: formatNumber(totals.available, locale),
+                  })}
+                </p>
+              )}
+            </dd>
+          </div>
+        )}
       </dl>
       <div>
         <p className="mb-1.5 text-xs text-muted">{t('media.figure.libraries')}</p>

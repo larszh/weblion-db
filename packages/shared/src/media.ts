@@ -246,6 +246,9 @@ export function mediaPolicyDrift(actual: MediaPolicyState, expected: MediaPolicy
  * no_password: anyone who knows the name signs in without a password.
  * locked_out: disabled by Jellyfin after failed sign-ins.
  * no_allowance: the organization has no allowance on this instance, the policy is not managed.
+ * seerr_missing: a Seerr user is expected but missing (import pending or failed).
+ * seerr_drift: rights or quotas in Seerr differ from the allowance.
+ * The two seerr issues only appear while Seerr is active for the account's instance.
  */
 export const MEDIA_ACCOUNT_ISSUES = [
   'policy',
@@ -254,6 +257,8 @@ export const MEDIA_ACCOUNT_ISSUES = [
   'no_password',
   'locked_out',
   'no_allowance',
+  'seerr_missing',
+  'seerr_drift',
 ] as const;
 export type MediaAccountIssue = (typeof MEDIA_ACCOUNT_ISSUES)[number];
 
@@ -291,6 +296,13 @@ export interface MediaAllowanceDto {
   customers: number;
   /** Sum of those customers' maxAccounts. */
   customerAccounts: number;
+  /**
+   * The requests add-on (Seerr). Absent: not shown to this caller (no Seerr on the instance, or a
+   * customer or reseller without it); null: off.
+   */
+  requests?: MediaRequestsAccess | null;
+  /** Admin and reseller views while the instance's Seerr is active. */
+  requestTotals?: MediaRequestTotals;
   updatedAt: string | null;
 }
 
@@ -313,6 +325,8 @@ export interface MediaAccountDto {
   lastSyncedAt: string | null;
   missingSince: string | null;
   createdAt: string;
+  /** Only where requests are visible to the caller (add-on on, Seerr active); absent otherwise. */
+  requests?: MediaAccountRequestsView;
 }
 
 /** How users sign in on the organization's instance. */
@@ -332,6 +346,8 @@ export interface OrgMediaDto {
   accounts: MediaAccountDto[];
   /** null without an allowance. */
   login: MediaLoginDto | null;
+  /** Only with the requests add-on on an instance whose Seerr is active; absent otherwise. */
+  requests?: MediaRequestsInfoDto;
 }
 
 /** Creating an account, setting a password or importing with a new one: the password is shown once. */
@@ -351,6 +367,8 @@ export interface MediaPolicyApplyResult {
 export interface MediaAllowanceChangeResult {
   allowance: MediaAllowanceDto;
   policy: MediaPolicyApplyResult;
+  /** Seerr writes the change caused (the add-on changed while Seerr is active). */
+  seerr?: MediaPolicyApplyResult;
 }
 
 /** A user at an instance the console does not manage (created in Jellyfin directly). */
@@ -392,6 +410,13 @@ export interface MediaInstanceDto {
     quickConnect: boolean | null;
   } | null;
   error: string | null;
+  /** The requests add-on, from the stored state (no live call); null: Seerr not configured. */
+  seerr: {
+    url: string;
+    enabled: boolean;
+    status: MediaSeerrStatus;
+    organizationsWithRequests: number;
+  } | null;
 }
 
 /** `details` of a 409 "account_limit". */
@@ -402,5 +427,270 @@ export interface MediaAccountLimitDetails {
 
 /** `details` of a 409 "allowance_conflict": customer allowances a change would leave outside. */
 export interface MediaAllowanceConflictDetails {
-  customers: { id: string; name: string; conflicts: (MediaAccessConflict | 'accounts')[] }[];
+  customers: {
+    id: string;
+    name: string;
+    conflicts: (MediaAccessConflict | MediaRequestsConflict | 'accounts')[];
+  }[];
+}
+
+// --- Devices and Quick Connect -----------------------------------------------------------
+
+/**
+ * Quick Connect codes as Jellyfin makes them (QuickConnectManager.GenerateCode): 6 digits from
+ * 100000 to 999999, valid 10 minutes, kept in the server's memory.
+ */
+export const MEDIA_QUICK_CONNECT_CODE_PATTERN = /^[1-9]\d{5}$/;
+/** Attempts per account and minute, wrong codes included. */
+export const MEDIA_QUICK_CONNECT_ATTEMPTS_PER_MINUTE = 5;
+
+/** The code as typed ("123 456", "123-456"), or null when it cannot be one. */
+export function normalizeQuickConnectCode(value: string): string | null {
+  const digits = String(value ?? '').replace(/[\s-]/g, '');
+  return MEDIA_QUICK_CONNECT_CODE_PATTERN.test(digits) ? digits : null;
+}
+
+/** 409 codes of "Fernseher verbinden" (the web maps them to texts). */
+export const MEDIA_CONNECT_ERRORS = [
+  'quick_connect_off',
+  'quick_connect_code',
+  'quick_connect_failed',
+  'stream_limit',
+  'account_disabled',
+] as const;
+export type MediaConnectError = (typeof MEDIA_CONNECT_ERRORS)[number];
+
+/** `details` of a 409 "stream_limit". */
+export interface MediaStreamLimitDetails {
+  /** MaxActiveSessions of the account. */
+  maxStreams: number;
+  /** Sessions the instance holds for the account now. */
+  sessions: number;
+}
+
+/** GET /media/accounts/:id/devices: a number only, never names, apps, addresses or times. */
+export interface MediaDevicesDto {
+  /** Devices signed in with this account (Jellyfin access tokens). */
+  count: number;
+}
+
+/** POST /media/accounts/:id/signout */
+export interface MediaSignOutResultDto {
+  /** Playing sessions stopped first. */
+  stopped: number;
+  signedOut: number;
+  /** Left signed in: another account is signed in on the same device, Jellyfin would sign out both. */
+  skipped: number;
+  /** Refused or not answered by the instance; the action can be repeated. */
+  failed: number;
+  /** Devices still signed in afterwards; null when the fresh count failed. */
+  remaining: number | null;
+}
+
+/** POST /media/accounts/:id/connect */
+export interface MediaConnectResultDto {
+  connected: true;
+}
+
+/** POST /media/accounts/:id/password. devices: fresh count afterwards (Jellyfin signs out all), null when unknown. */
+export interface MediaPasswordResultDto {
+  password: string | null;
+  devices: number | null;
+}
+
+// --- Requests (Seerr add-on) -------------------------------------------------------------
+
+/**
+ * Seerr (the request site of a Jellyfin instance) is optional per instance: staff enter its
+ * address and API key on the Jellyfin connection and switch it on. "Anfragen" is an add-on of an
+ * organization's allowance: which types its accounts may request and how many per window. The
+ * console imports the accounts into Seerr and sets their rights and quotas; approval stays in
+ * Seerr. Customers and resellers see numbers only, never titles or TMDB ids.
+ */
+
+/** Per account and window. TV counts seasons (Seerr). */
+export const MEDIA_REQUEST_QUOTA_MAX = 100;
+export const MEDIA_REQUEST_QUOTA_DAYS_MAX = 365;
+
+export interface MediaRequestQuota {
+  limit: number;
+  days: number;
+}
+
+/** The requests add-on of an allowance. At least one type is on; off is null, never all false. */
+export interface MediaRequestsAccess {
+  movies: boolean;
+  tv: boolean;
+  /** null = no limit. Ignored while movies is off. */
+  movieQuota: MediaRequestQuota | null;
+  /** Seasons. null = no limit. Ignored while tv is off. */
+  tvQuota: MediaRequestQuota | null;
+}
+
+/** What the allowance dialogs suggest when staff switch the add-on on: 5 movies and 3 seasons in 30 days. */
+export const MEDIA_REQUESTS_DEFAULT: MediaRequestsAccess = {
+  movies: true,
+  tv: true,
+  movieQuota: { limit: 5, days: 30 },
+  tvQuota: { limit: 3, days: 30 },
+};
+
+export type MediaRequestsConflict = 'requestsMovies' | 'requestsTv' | 'movieQuota' | 'tvQuota';
+
+/** A child quota fits when it allows no more per window: lower or equal limit, equal or longer window. */
+function quotaExceeds(child: MediaRequestQuota | null, parent: MediaRequestQuota | null): boolean {
+  if (!parent) return false;
+  if (!child) return true;
+  return child.limit > parent.limit || child.days < parent.days;
+}
+
+/** What `child` grants beyond `parent` (null = add-on off). Empty = within. */
+export function mediaRequestsExceed(
+  child: MediaRequestsAccess | null,
+  parent: MediaRequestsAccess | null,
+): MediaRequestsConflict[] {
+  if (!child) return [];
+  const out: MediaRequestsConflict[] = [];
+  if (child.movies && !parent?.movies) out.push('requestsMovies');
+  if (child.tv && !parent?.tv) out.push('requestsTv');
+  if (child.movies && parent?.movies && quotaExceeds(child.movieQuota, parent.movieQuota)) {
+    out.push('movieQuota');
+  }
+  if (child.tv && parent?.tv && quotaExceeds(child.tvQuota, parent.tvQuota)) out.push('tvQuota');
+  return out;
+}
+
+/** Quotas of types that are off dropped; both types off becomes null. Returns a copy. */
+export function normalizeMediaRequests(value: MediaRequestsAccess | null): MediaRequestsAccess | null {
+  if (!value || (!value.movies && !value.tv)) return null;
+  const copy = (quota: MediaRequestQuota | null) => (quota ? { limit: quota.limit, days: quota.days } : null);
+  return {
+    movies: value.movies,
+    tv: value.tv,
+    movieQuota: value.movies ? copy(value.movieQuota) : null,
+    tvQuota: value.tv ? copy(value.tvQuota) : null,
+  };
+}
+
+const sameQuota = (a: MediaRequestQuota | null, b: MediaRequestQuota | null): boolean =>
+  a === null || b === null ? a === b : a.limit === b.limit && a.days === b.days;
+
+/** Same types and quotas (quotas of types that are off do not count). */
+export function sameMediaRequests(a: MediaRequestsAccess | null, b: MediaRequestsAccess | null): boolean {
+  const left = normalizeMediaRequests(a);
+  const right = normalizeMediaRequests(b);
+  if (!left || !right) return left === right;
+  return (
+    left.movies === right.movies &&
+    left.tv === right.tv &&
+    sameQuota(left.movieQuota, right.movieQuota) &&
+    sameQuota(left.tvQuota, right.tvQuota)
+  );
+}
+
+/** Numbers of one account, read by the sync. Never titles. */
+export interface MediaAccountRequestsDto {
+  pending: number;
+  approved: number;
+  available: number;
+  /** Used in the quota window; null without a quota for that type. */
+  movieUsed: number | null;
+  tvUsed: number | null;
+}
+
+/** On a MediaAccountDto only where requests are visible to the caller. */
+export interface MediaAccountRequestsView {
+  /** false: not set up in Seerr yet (or set to no rights while disabled). */
+  ready: boolean;
+  counts: MediaAccountRequestsDto | null;
+}
+
+/** On OrgMediaDto only where requests are visible (add-on on, Seerr active). */
+export interface MediaRequestsInfoDto {
+  /** Where the accounts sign in with their Jellyfin login. */
+  url: string;
+  access: MediaRequestsAccess;
+  /** When the numbers were last read. */
+  syncedAt: string | null;
+}
+
+/** Sums over an organization's accounts, for the admin and reseller cards. */
+export interface MediaRequestTotals {
+  accounts: number;
+  pending: number;
+  approved: number;
+  available: number;
+}
+
+export const MEDIA_SEERR_STATUSES = ['ok', 'unsafe', 'error', 'unknown'] as const;
+export type MediaSeerrStatus = (typeof MEDIA_SEERR_STATUSES)[number];
+
+/**
+ * unreachable, key: no usable answer. other_server: Seerr serves another Jellyfin server.
+ * not_jellyfin: Seerr is set up for Plex or Emby. new_signins, default_permissions,
+ * media_server_login: fixable with the recommended settings. csrf: CSRF protection on (staff).
+ */
+export const MEDIA_SEERR_PROBLEMS = [
+  'unreachable',
+  'key',
+  'not_jellyfin',
+  'other_server',
+  'csrf',
+  'new_signins',
+  'default_permissions',
+  'media_server_login',
+] as const;
+export type MediaSeerrProblem = (typeof MEDIA_SEERR_PROBLEMS)[number];
+/** Problems "Empfohlene Einstellungen anwenden" fixes. */
+export const MEDIA_SEERR_FIXABLE: readonly MediaSeerrProblem[] = [
+  'new_signins',
+  'default_permissions',
+  'media_server_login',
+];
+
+/** Result of a check; settings values only, never keys. */
+export interface MediaSeerrCheck {
+  version: string | null;
+  sameServer: boolean | null;
+  newSignIns: boolean | null;
+  defaultPermissions: number | null;
+  mediaServerLogin: boolean | null;
+  localLogin: boolean | null;
+  csrfProtection: boolean | null;
+  /** Seerr users with request rights the console does not manage (owner and staff excluded). */
+  unmanagedRequesters: number | null;
+  /** Seerr users whose Jellyfin user is gone (for staff to delete in Seerr). */
+  orphans: number | null;
+  problems: MediaSeerrProblem[];
+}
+
+/** Admin: the add-on of one instance. */
+export interface MediaSeerrDto {
+  url: string;
+  enabled: boolean;
+  status: MediaSeerrStatus;
+  check: MediaSeerrCheck | null;
+  checkedAt: string | null;
+  lastError: string | null;
+  /** Organizations with an allowance on the instance, and of them with the add-on. */
+  organizations: number;
+  organizationsWithRequests: number;
+  /** Managed accounts with a Seerr user. */
+  accountsInSeerr: number;
+}
+
+/** PUT /admin/providers/:id/media/seerr */
+export interface MediaSeerrChangeResult {
+  seerr: MediaSeerrDto;
+  applied: MediaPolicyApplyResult;
+}
+
+/** `details` of a 409 "seerr_unsafe". */
+export interface MediaSeerrUnsafeDetails {
+  problems: MediaSeerrProblem[];
+}
+
+/** `details` of a 409 "seerr_shared". */
+export interface MediaSeerrSharedDetails {
+  organizations: number;
 }

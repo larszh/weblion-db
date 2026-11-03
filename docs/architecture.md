@@ -16,7 +16,8 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
                                        │                       ├─> CloudPanel-Server per SSH
                                        │                       │   (Root-Wrapper weblion-clp, Websites)
                                        │                       ├─> 3CX XAPI (Telefonie)
-                                       │                       ├─> Jellyfin API (Streaming)
+                                       │                       ├─> Jellyfin API (Streaming), dazu
+                                       │                       │   optional Seerr (Anfragen)
                                        │                       └─> Uptime Kuma: /metrics, Statusseiten,
                                        │                           Socket.IO zum Verwalten (Monitoring)
                                        │    ├─ Abrechnung ──> Stripe (Karte, TWINT), Zoho Books
@@ -83,11 +84,20 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
   gefunden". Benutzer, Ringgruppen und Leitungen stehen nie in der Datenbank
 - `media_allowances`: Streaming-Kontingent pro Organisation auf genau einer Jellyfin-Instanz (der
   Provider lässt sich nicht löschen, solange ein Kontingent auf ihn zeigt), mit Kontingent-Code
-  (eindeutig), Zugängen höchstens, den Bibliotheken (ID, Name, Typ), Streams, Downloads und Bitrate
+  (eindeutig), Zugängen höchstens, den Bibliotheken (ID, Name, Typ), Streams, Downloads und Bitrate,
+  dazu das Add-on "Anfragen": `requests_movies`, `requests_tv` (beide aus heisst aus) und die Grenzen
+  pro Zugang `movie_quota_limit`/`_days` und `tv_quota_limit`/`_days` (Serien in Staffeln, leer
+  heisst ohne Grenze)
 - `media_accounts`: Jellyfin-Benutzer, die die Console verwaltet (`external_id` = Jellyfin-ID, die
   beim Umbenennen bleibt), mit Login-Name, aktiv, Passwort gesetzt, letzter Aktivität und Hinweisen
-  (`issues`). `org_id` leer heisst "nicht zugewiesen". Passwörter, Richtlinien, Sitzungen und
-  Verlauf stehen nie in der Datenbank
+  (`issues`). `org_id` leer heisst "nicht zugewiesen". Für Anfragen dazu die ID des Seerr-Benutzers
+  (`seerr_user_id`), die Zahlen aus dem Sync (`seerr_requests`: offen, genehmigt, verfügbar,
+  genutztes Kontingent) und wann er sie las. Passwörter, Richtlinien, Sitzungen, Verlauf und Titel
+  von Anfragen stehen nie in der Datenbank
+- `media_seerr`: Anfragen (Seerr) einer Jellyfin-Verbindung, eine Zeile pro Verbindung (verschwindet
+  mit ihr): Schalter (`enabled`), Status (`ok`, `unsafe`, `error`, `unknown`), letzter Fehler und
+  letzte Prüfung (Werte der Einstellungen, nie Schlüssel). Adresse und Schlüssel von Seerr stehen
+  verschlüsselt in der Konfiguration der Verbindung
 - `monitors`: Monitore der Uptime-Kuma-Instanzen (`external_id` = ID in Uptime Kuma, eindeutig pro
   Verbindung) mit Herkunft (`kuma` oder `console`), Typ, Ziel, `target_host` (für die Server- und
   Domain-Seiten), Status, aktiv, Intervall und den letzten Zahlen in `facts`. `org_id` leer heisst
@@ -139,10 +149,12 @@ wird.
 
 Einige Aktionen gehen nur mit Login, nie per API-Token: Auth-Codes und Plesk-Passwörter
 ansehen, Passwörter von Cloud-Konten, Postfächern, Websites und ihren Datenbanken und
-Streaming-Zugängen neu setzen, die Willkommens-E-Mail eines Telefonie-Benutzers erneut senden und
-seine E-Mail-Adresse ändern (`phone:credentials`), Domains verlängern und die automatische
-Verlängerung schalten (kostet beim Registrar Geld, Berechtigung `platform:domain:write`), DNS zu
-Cloudflare umziehen (`platform:domain:move`), Websites im Admin-Bereich anlegen, übernehmen und
+Streaming-Zugängen neu setzen, einen Fernseher mit einem Streaming-Zugang verbinden (Quick Connect,
+`media:password`), Anfragen (Seerr) einer Streaming-Instanz ein- und ausschalten und die empfohlenen
+Einstellungen anwenden (`platform:media:write`), die Willkommens-E-Mail eines Telefonie-Benutzers
+erneut senden und seine E-Mail-Adresse ändern (`phone:credentials`), Domains verlängern und die
+automatische Verlängerung schalten (kostet beim Registrar Geld, Berechtigung `platform:domain:write`),
+DNS zu Cloudflare umziehen (`platform:domain:move`), Websites im Admin-Bereich anlegen, übernehmen und
 entfernen (`platform:website:write`), Uptime Kuma für die Verwaltung an- und abmelden und der API
 Explorer. Cloud-Konten legt ein API-Token nur mit Einladung per E-Mail an, Telefonie-Benutzer mit
 der Willkommens-E-Mail an die Adresse, die es selbst angibt, Postfächer, Websites, Datenbanken und
@@ -173,7 +185,7 @@ Angebundene Provider:
 | Mailcow       | `providers/mailcow`    | keine             | E-Mail: Mail-Domains mit Limits, Postfächer, Weiterleitungen, DKIM, Passwortrichtlinie einer eigenen Instanz                                         |
 | CloudPanel    | `providers/cloudpanel` | keine             | Websites über SSH und den Root-Wrapper `weblion-clp`: anlegen, Passwörter, Datenbanken, Let's Encrypt, löschen                                       |
 | 3CX           | `providers/threecx`    | keine             | Telefonie: eine Telefonanlage pro Verbindung über die XAPI (OAuth2), Benutzer, Willkommens-E-Mail, Ringgruppen, Leitungen (lesend)                   |
-| Jellyfin      | `providers/jellyfin`   | keine             | Streaming: Benutzer einer eigenen Instanz mit verwalteter Richtlinie (Bibliotheken, Streams, Downloads, Bitrate), Passwörter, Bibliotheken           |
+| Jellyfin      | `providers/jellyfin`   | keine             | Streaming: Benutzer einer Instanz mit verwalteter Richtlinie (Bibliotheken, Streams, Downloads, Bitrate), Passwörter, optional Seerr für Anfragen    |
 | Uptime Kuma   | `providers/uptimekuma` | keine             | Monitoring: `/metrics` und Statusseiten zum Lesen, Socket.IO der Weboberfläche zum Verwalten (nur wenn angemeldet)                                   |
 | Demo          | `providers/demo`       | simuliert         | Für Entwicklung und Tests, inkl. Server-Typen, Standorten, Domain-Funktionen, Nextcloud, Mailcow, Cloudflare, CloudPanel, 3CX, Jellyfin, Uptime Kuma |
 
@@ -385,7 +397,18 @@ das Modul ihn dort wieder. Typen, Namen, Passwortregeln und das Modell der Richt
 - **Passwörter** erzeugt das Modul (`node:crypto`, 16 Zeichen) oder nimmt das gewählte, gibt sie
   einmal zurück (`Cache-Control: no-store`) und speichert sie nie.
 - **Datenschutz:** Von der letzten Aktivität gibt die API nur den Tag heraus (`mediaActivityDay()`,
-  Europe/Zurich), von den Sitzungen einer Instanz nur zwei Zahlen.
+  Europe/Zurich), von den Sitzungen einer Instanz nur zwei Zahlen, von den Geräten eines Zugangs nur
+  ihre Zahl. Die Parser behalten von Geräten und Sitzungen nur IDs und "spielt gerade", Gerätenamen,
+  Apps und Adressen verlassen den Adapter nie.
+- **Geräte und Quick Connect** (Adapter: `authorizeMediaQuickConnect`, `countMediaUserDevices`,
+  `signOutMediaUserDevices`, `stopMediaUserPlayback`): Der Quick-Connect-Code ist ein
+  Einmal-Geheimnis, er steht nur im Body der Anfrage und in der einen Anfrage an Jellyfin und wird
+  aus jeder Fehlermeldung entfernt. Der Adapter prüft vorher selbst, was Jellyfin nicht prüft
+  (deaktivierter Benutzer) oder nur ohne Grund ablehnt (Quick Connect aus, Streams belegt). Höchstens
+  5 Versuche pro Zugang und Minute, gezählt im Handler erst nach der Rechteprüfung, damit Fremde die
+  Versuche eines Zugangs nicht aufbrauchen. Vor Deaktivieren und Löschen stoppt die Route die
+  Wiedergabe "best effort" (5 Sekunden, im Audit als `ended`), die Geräte meldet Jellyfin im selben
+  Aufruf selbst ab.
 
 **Die Richtlinie** ist das Herz des Moduls. Die Console besitzt 17 Felder der Benutzer-Richtlinie
 von Jellyfin, alle anderen gehören dem Betreiber:
@@ -411,6 +434,62 @@ Zugänge der Organisation (nach dem Commit, vier gleichzeitig) und beim Sync. Au
 entstehen die Hinweise eines Zugangs (`mediaAccountIssues()`: `policy`, `administrator`,
 `blocked_folders`, `no_password`, `locked_out`, `no_allowance`). Details in
 [providers.md](providers.md#jellyfin-streaming).
+
+**Anfragen (Seerr)** sind ein Add-on der Jellyfin-Verbindung, kein eigener Provider-Typ: Ein Seerr
+bedient genau einen Jellyfin-Server. Adresse und Schlüssel (`seerrUrl`, `seerrApiKey`) stehen deshalb
+verschlüsselt in der `JellyfinConfig`, nur Schalter und Prüfung liegen in `media_seerr`. So lässt ein
+Ausfall von Seerr die Jellyfin-Verbindung nie als fehlerhaft gelten, und weblion.one schaltet auch
+Verbindungen aus der `.env` ein und aus.
+
+- `providers/seerr`: `client.ts` (`SeerrClient`: Schlüssel nur im Header `X-Api-Key`, höchstens vier
+  Anfragen gleichzeitig, 15 Sekunden, keine Wiederholung, keine Weiterleitung, jede Antwort durch
+  `redactSeerr()`), `parse.ts` (behält von Benutzern IDs, Rechte und Grenzen, von Anfragen ID, Status
+  und wer angefragt hat), `seerr.ts` (`SeerrApi`: Prüfung, Benutzer, Rechte, Zahlen) und `rules.ts`
+  (Bits, sichere Einstellungen, `seerrAccessDrift()`, `assertSeerrAccess()`, gemeinsame Ablehnungen).
+- `JellyfinAdapter` baut eine `SeerrApi` nur mit Adresse und Schlüssel und reicht die Methoden des
+  Vertrags durch: `seerrConfigured`, `seerrUrl`, `seerrCheck`, `seerrApplySafeSettings`,
+  `listSeerrUsers`, `importSeerrUser`, `setSeerrUserAccess`, `deleteSeerrUser`, `seerrRequestCounts`,
+  `seerrQuotaUsage`. Keine Aktion für Jellyfin ruft Seerr. Der Demo-Provider hat dieselben Methoden
+  mit einem Seerr im Speicher (`providers/demo/seerr.ts`) und denselben Ablehnungen.
+- `modules/media/seerr.ts`: Zustand einer Verbindung (eingetragen, eingeschaltet, aktiv heisst
+  beides), das Soll eines Zugangs, die Schritte nach Aktionen und für ganze Organisationen und
+  Instanzen, die Prüfung, die Sichtbarkeit in den DTOs und `setMediaRequests()` für die Abrechnung.
+  Der Sync steht in `jobs/sync-seerr.ts`.
+
+```
+media_allowances ──mediaRequestsOf()──> MediaRequestsAccess (Filme, Serien, Grenzen) oder null
+                 ──expectedSeerrAccess(aktiv, nicht fehlend, Add-on auf dieser Instanz)──>
+                   SeerrUserAccess (Soll): REQUEST_MOVIE | REQUEST_TV mit Grenzen (0 = ohne), sonst 0
+
+Schreiben (reconcileSeerr, nach dem Jellyfin-Schritt, ohne offene Transaktion):
+  Rechte erwartet, kein Seerr-Benutzer ──> POST /user/import-from-jellyfin
+  setSeerrUserAccess: Rechte weg zuerst ──> Grenzen (Einstellungen zuerst als der Benutzer selbst,
+                      dann als Owner) ──> Rechte zuletzt ──> GET /user/{id}, seerrAccessDrift() leer?
+  danach unter pg_advisory_xact_lock('media-seerr:<id>'): Soll unverändert? ID und Hinweise speichern
+                                                         : neue Runde (höchstens 3), Rechte wieder weg
+
+Vergleichen (Sync):
+  GET /user ──nach Jellyfin-ID──> seerrAccessDrift(Ist, Soll) ──> höchstens 25 Änderungen pro Lauf,
+            Audit media.seerr_repair von "Sync", sonst Hinweis seerr_missing oder seerr_drift
+  nicht verwaltet, mit Rechten zum Anfragen ──> Rechte weg (media.seerr_revoke)
+  GET /request, GET /user/{id}/quota ──> media_accounts.seerr_requests (nur Zahlen)
+```
+
+- Jeder Schritt in Seerr läuft "best effort" nach dem in Jellyfin (höchstens 10 Sekunden) und steht
+  als `seerr` im Audit-Eintrag der Aktion. Die Hinweise `seerr_missing` und `seerr_drift` setzen nur
+  die Schritte für Seerr: Schreibt die Jellyfin-Seite die Hinweise eines Zugangs neu, behält sie diese
+  beiden (`keepSeerrIssues()`).
+- Sichtbarkeit: `requestsVisibleToCustomer()` (Seerr aktiv auf der Instanz des Kontingents, Add-on
+  an). Wo das nicht gilt, fehlen `requests` und `requestTotals` in den DTOs ganz, ebenso die Hinweise
+  von Seerr an den Zugängen. Audit-Einträge, die eine Organisation oder ein Reseller liest, nennen das
+  Add-on nur nach derselben Regel.
+- Reseller geben das Add-on nach `mediaRequestsExceed()` in `packages/shared/src/media.ts` weiter,
+  wie den Zugriff nach `mediaAccessExceeds()`.
+- Einschalten und eine Änderung der Seerr-Adresse im Admin-Bereich sperren dieselbe Zeile in
+  `provider_connections` (`for update`): Anfragen gehen nie für eine Adresse an, die gerade jemand
+  ändert.
+
+Details in [providers.md](providers.md#anfragen-seerr).
 
 ### Monitoring (Uptime Kuma)
 
@@ -489,7 +568,11 @@ Bei 3CX liest er pro Verbindung den Systemstatus (die Parameter alle 10 Minuten)
 Fakten und Zustand der Anlage. Benutzer, Ringgruppen und Leitungen synchronisiert er nicht. Bei
 Jellyfin liest er pro Instanz einmal alle Benutzer, aktualisiert nur die verwalteten Zugänge,
 markiert fehlende, repariert abweichende Richtlinien (höchstens 25 pro Lauf) und aktualisiert die
-Namen der Bibliotheken in den Kontingenten. Unbekannte Benutzer legt er nicht an. Bei Uptime Kuma
+Namen der Bibliotheken in den Kontingenten. Unbekannte Benutzer legt er nicht an. Mit eingeschaltetem
+Seerr prüft er danach Seerr, setzt die empfohlenen Einstellungen wieder, richtet fehlende Zugänge ein,
+repariert abweichende Rechte und Grenzen, nimmt nicht verwalteten Benutzern die Rechte zum Anfragen
+(zusammen höchstens 25 Änderungen pro Lauf) und liest die Zahlen. Ein Fehler von Seerr lässt den
+Sync der Verbindung nicht scheitern. Bei Uptime Kuma
 liest er `/metrics` und, wenn die Instanz angemeldet ist, höchstens alle 10 Minuten die
 vollständige Liste über den Socket. Neue Monitore kommen als nicht zugewiesen dazu, fehlende werden
 markiert. Ohne vollständige Liste bleibt ein zuletzt pausierter Monitor pausiert, weil Uptime Kuma
@@ -521,7 +604,7 @@ API-Instanzen nur einmal.
   Geheimnis nur einmal herausgeben (Root-Passwort, SSH-Schlüssel erzeugen, Plesk-Link), sperrt der
   Explorer
 - Vom Cloudflare-Token zeigt der Admin-Bereich nur Anfang und Ende, vom Mailcow-API-Key und den
-  Schlüsseln für 3CX und Jellyfin gar nichts, vom API-Schlüssel für Uptime Kuma nur die Nummer und
+  Schlüsseln für 3CX, Jellyfin und Seerr gar nichts, vom API-Schlüssel für Uptime Kuma nur die Nummer und
   vom Sitzungstoken nur, ob es gesetzt ist. Clients folgen keinen Weiterleitungen, damit
   Zugangsdaten nie an einen anderen Host gehen
 - 3CX: Jede Leseanfrage nennt ihre Felder (`$select`), SIP-Passwörter, PINs und der
@@ -529,6 +612,12 @@ API-Instanzen nur einmal.
 - Jellyfin: Jeder API-Schlüssel ist ein voller Administrator. Der Explorer sperrt `/Auth/Keys` und
   die Anmelde-Endpunkte, die Console legt nie einen Benutzer ohne Passwort an und verwaltet keine
   Administratoren
+- Seerr: Der API-Schlüssel ist der Owner von Seerr. Er steht nur im Header `X-Api-Key`, nie in
+  Adressen oder Meldungen, und aus jeder Antwort entfernt der Client Schlüssel und Passwörter (den
+  eigenen, den Jellyfin-Schlüssel von Seerr, das Passwort des Proxys). Die Console vergibt nur
+  "Request Movies" und "Request Series", nie Rechte von Personal, und ändert den Owner nie.
+  Einschalten lässt sich nur ein Seerr, das denselben Jellyfin-Server bedient. Einen Explorer für
+  Seerr gibt es nicht
 - Uptime Kuma: Das Sitzungstoken ist ein Generalschlüssel der Instanz und verlässt die
   verschlüsselte Konfiguration nur zum Socket. Nur eine feste Liste von Events geht hinaus,
   Geheimnisse der Monitore werden nie gespeichert oder gezeigt, und Kunden können keine privaten

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  AlertTriangle,
   Clapperboard,
   CloudDownload,
+  Inbox,
   Link2,
   Pencil,
   Plus,
@@ -19,12 +21,15 @@ import {
   MODULE_DEFS,
   isMediaAccountCode,
   mediaAccessExceeds,
+  mediaRequestsExceed,
   type AdminOrgDto,
   type MediaAccessConflict,
   type MediaAccountDto,
+  type MediaAllowanceChangeResult,
   type MediaAllowanceDto,
   type MediaInstanceDto,
   type MediaPolicyApplyResult,
+  type MediaRequestsConflict,
   type Permission,
   type ProviderConnectionDto,
   type UnmanagedMediaUserDto,
@@ -65,6 +70,7 @@ import {
   Select,
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
+import { Tooltip } from '@/components/ui/menu';
 import { Flag, ProviderBadge } from '@/components/server-bits';
 import { safePanelUrl } from '@/pages/hosting/bits';
 import {
@@ -75,17 +81,21 @@ import {
   MediaStatusBadge,
   mediaAccessOfDto,
   mediaAllowanceFull,
+  mediaRequestsFormFrom,
   ownMediaAccounts,
+  readMediaRequestsForm,
 } from '@/pages/media/bits';
 import {
   MediaAccessFields,
   MediaAccountActions,
   MediaPasswordDialog,
+  MediaRequestsFields,
   PolicyFailures,
   mediaAccessFormFrom,
   readMediaAccessForm,
   type ShownMediaPassword,
 } from '@/pages/media/dialogs';
+import { SeerrDialog, seerrBadge } from './media-seerr';
 
 /**
  * Streaming on every Jellyfin connection (/admin/media, ?provider=<id> preselects the
@@ -109,15 +119,21 @@ function usePlatformCan() {
   return (permission: Permission) => perms.includes(permission);
 }
 
-const CONFLICT_KEY: Record<MediaAccessConflict | 'accounts', TranslationKey> = {
+type AllowanceConflict = MediaAccessConflict | MediaRequestsConflict | 'accounts';
+
+const CONFLICT_KEY: Record<AllowanceConflict, TranslationKey> = {
   libraries: 'media.conflict.libraries',
   streams: 'media.conflict.streams',
   downloads: 'media.conflict.downloads',
   bitrate: 'media.conflict.bitrate',
   accounts: 'media.conflict.accounts',
+  requestsMovies: 'media.conflict.requestsMovies',
+  requestsTv: 'media.conflict.requestsTv',
+  movieQuota: 'media.conflict.movieQuota',
+  tvQuota: 'media.conflict.tvQuota',
 };
 
-const conflictList = (t: TFunction, conflicts: (MediaAccessConflict | 'accounts')[]) =>
+const conflictList = (t: TFunction, conflicts: AllowanceConflict[]) =>
   conflicts.map((c) => t(CONFLICT_KEY[c])).join(', ');
 
 // --- Page ----------------------------------------------------------------------------
@@ -264,7 +280,10 @@ export function AdminMediaPage() {
               </THead>
               <TBody>
                 {list.map((a) => {
-                  const repairable = a.issues.includes('policy') || a.issues.includes('administrator');
+                  // The repair writes the policy and brings the account's Seerr user in line too.
+                  const repairable = (
+                    ['policy', 'administrator', 'seerr_missing', 'seerr_drift'] as const
+                  ).some((issue) => a.issues.includes(issue));
                   return (
                     <TR key={a.id} onClick={a.org ? () => navigate(`/o/${a.org!.slug}/media`) : undefined}>
                       <TD className="max-w-[280px]">
@@ -322,7 +341,10 @@ export function AdminMediaPage() {
                                     icon={<ShieldCheck />}
                                     onSelect={() => repair.mutate(a)}
                                     disabled={repair.isPending}
-                                    hint={t('media.admin.repairHint')}
+                                    hint={t(
+                                      // Seerr active on the instance: the repair sets the request rights too.
+                                      a.requests ? 'media.admin.repairHintSeerr' : 'media.admin.repairHint',
+                                    )}
                                   >
                                     {t('media.admin.repair')}
                                   </MenuItem>
@@ -375,7 +397,10 @@ function usageOf(
 
 function InstancesCard() {
   const { t } = useI18n();
+  const can = usePlatformCan();
   const instances = useMediaInstances();
+  // Requests (Seerr) of one instance; the dialog reads the check live when it opens.
+  const [managing, setManaging] = useState<string | null>(null);
   const sync = useProviderSync((r) => {
     const counts = r.mediaAccounts;
     const synced = t('media.admin.synced', {
@@ -388,6 +413,7 @@ function InstancesCard() {
       : synced;
   });
   const list = instances.data ?? [];
+  const managed = managing ? list.find((i) => i.provider.id === managing) : undefined;
 
   return (
     <Card>
@@ -414,6 +440,7 @@ function InstancesCard() {
               <TH>{t('media.admin.col.accounts')}</TH>
               <TH className="hidden lg:table-cell">{t('media.admin.col.active')}</TH>
               <TH className="hidden xl:table-cell">{t('media.admin.col.quickConnect')}</TH>
+              <TH className="hidden 2xl:table-cell">{t('media.seerr.column')}</TH>
               <TH />
             </tr>
           </THead>
@@ -424,12 +451,43 @@ function InstancesCard() {
                 instance={instance}
                 syncing={sync.isPending && sync.variables === instance.provider.id}
                 onSync={() => sync.mutate(instance.provider.id)}
+                onSeerr={can('platform:provider:read') ? () => setManaging(instance.provider.id) : undefined}
               />
             ))}
           </TBody>
         </Table>
       )}
+      {managed && (
+        <SeerrDialog
+          key={managed.provider.id}
+          instance={managed}
+          canWrite={can('platform:media:write')}
+          onClose={() => setManaging(null)}
+        />
+      )}
     </Card>
+  );
+}
+
+/** The requests column: no Seerr, off, or the check state; a warning while several organizations use it. */
+function SeerrCell({ seerr }: { seerr: MediaInstanceDto['seerr'] }) {
+  const { t } = useI18n();
+  const badge = seerrBadge(seerr);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {seerr ? (
+        <Badge tone={badge.tone}>{t(badge.key)}</Badge>
+      ) : (
+        <span className="text-sm text-subtle">{t(badge.key)}</span>
+      )}
+      {seerr?.enabled && seerr.organizationsWithRequests > 1 && (
+        <Tooltip content={t('media.seerr.shared', { n: seerr.organizationsWithRequests })}>
+          <span className="inline-flex text-warning" aria-label={t('media.admin.usage.shared')}>
+            <AlertTriangle className="size-4" aria-hidden />
+          </span>
+        </Tooltip>
+      )}
+    </span>
   );
 }
 
@@ -437,10 +495,13 @@ function InstanceRow({
   instance,
   syncing,
   onSync,
+  onSeerr,
 }: {
   instance: MediaInstanceDto;
   syncing: boolean;
   onSync: () => void;
+  /** Opens "Anfragen…" (staff who may read the provider). */
+  onSeerr?: () => void;
 }) {
   const { t } = useI18n();
   const { provider, live } = instance;
@@ -473,9 +534,16 @@ function InstanceRow({
             : null}
         </div>
         {instance.error && <p className="mt-1 text-xs break-words text-danger">{instance.error}</p>}
-        <div className="mt-1 md:hidden">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 md:hidden">
           <Badge tone={usage.tone}>{usage.label}</Badge>
         </div>
+        {/* The requests column only fits on wide screens: below, the state goes here, labelled. */}
+        {instance.seerr && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 2xl:hidden">
+            <span className="text-xs text-muted">{t('media.seerr.column')}:</span>
+            <SeerrCell seerr={instance.seerr} />
+          </div>
+        )}
       </TD>
       <TD className="hidden md:table-cell">
         <Badge tone={usage.tone}>{usage.label}</Badge>
@@ -511,8 +579,23 @@ function InstanceRow({
           <Badge tone="warning">{t('media.admin.quickConnect.off')}</Badge>
         )}
       </TD>
+      <TD className="hidden 2xl:table-cell">
+        <SeerrCell seerr={instance.seerr} />
+      </TD>
       <TD className="text-right">
         <div className="inline-flex items-center gap-1">
+          {onSeerr && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<Inbox className="size-3.5" />}
+              onClick={onSeerr}
+              title={t('media.seerr.manage')}
+              aria-label={t('media.seerr.manage')}
+            >
+              <span className="hidden 2xl:inline">{t('media.seerr.manage')}</span>
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -992,6 +1075,8 @@ export function MediaAllowanceAdminCard({
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [failed, setFailed] = useState<MediaPolicyApplyResult['failed']>([]);
+  // Accounts whose request rights in Seerr could not be set after the add-on changed.
+  const [seerrFailed, setSeerrFailed] = useState<MediaPolicyApplyResult['failed']>([]);
   const remove = useDeleteAdminMediaAllowance(org.id, t('media.allowance.removed'), () => setRemoving(false));
   const data = allowance.data ?? null;
   const pool = parent ? (parentAllowance.data ?? null) : null;
@@ -1014,7 +1099,14 @@ export function MediaAllowanceAdminCard({
       : data.customers > 0
         ? t('media.allowance.removeBlockedCustomers', { n: data.customers })
         : null;
-  const beyondParent = data && pool ? mediaAccessExceeds(mediaAccessOfDto(data), mediaAccessOfDto(pool)) : [];
+  const beyondParent: AllowanceConflict[] =
+    data && pool
+      ? [
+          ...mediaAccessExceeds(mediaAccessOfDto(data), mediaAccessOfDto(pool)),
+          // Absent (no Seerr on the instance) counts as off on both sides.
+          ...mediaRequestsExceed(data.requests ?? null, pool.requests ?? null),
+        ]
+      : [];
 
   return (
     <Card>
@@ -1043,7 +1135,15 @@ export function MediaAllowanceAdminCard({
         </div>
       ) : data ? (
         <CardBody className="space-y-4">
-          <MediaAllowanceFigures allowance={data} showCode />
+          <MediaAllowanceFigures
+            allowance={data}
+            showCode
+            extra={
+              // The add-on is set but Seerr is off on the instance (the totals come only while it is on).
+              data.requests &&
+              !data.requestTotals && <p className="text-xs text-warning">{t('media.requests.inactive')}</p>
+            }
+          />
           {beyondParent.length > 0 && parent && (
             <Notice tone="warning">
               {t('media.allowance.beyondParent', {
@@ -1053,6 +1153,13 @@ export function MediaAllowanceAdminCard({
             </Notice>
           )}
           {failed.length > 0 && <PolicyFailures failed={failed} onDismiss={() => setFailed([])} />}
+          {seerrFailed.length > 0 && (
+            <PolicyFailures
+              failed={seerrFailed}
+              title={t('media.requests.applyFailed')}
+              onDismiss={() => setSeerrFailed([])}
+            />
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to={`/admin/media?org=${org.id}`}
@@ -1091,7 +1198,10 @@ export function MediaAllowanceAdminCard({
           parentAllowance={pool}
           current={data}
           onClose={() => setEditing(false)}
-          onFailed={setFailed}
+          onResult={(r) => {
+            setFailed(r.policy.failed);
+            setSeerrFailed(r.seerr?.failed ?? []);
+          }}
         />
       )}
       <ConfirmDialog
@@ -1113,14 +1223,15 @@ function MediaAllowanceDialog({
   parentAllowance,
   current,
   onClose,
-  onFailed,
+  onResult,
 }: {
   org: AdminOrgDto;
   parent: AdminOrgDto | undefined;
   parentAllowance: MediaAllowanceDto | null;
   current: MediaAllowanceDto | null;
   onClose: () => void;
-  onFailed: (failed: MediaPolicyApplyResult['failed']) => void;
+  /** The policy and Seerr writes the change caused (failed accounts are shown on the card). */
+  onResult: (result: MediaAllowanceChangeResult) => void;
 }) {
   const { t, locale } = useI18n();
   const providers = useMediaProviders();
@@ -1133,15 +1244,22 @@ function MediaAllowanceDialog({
     mediaAccessFormFrom(current, { maxAccounts: 5, maxStreams: 2, remoteBitrateMbit: null }),
   );
   const [enableModule, setEnableModule] = useState(true);
+  // The add-on starts as stored; switched on it suggests 5 movies and 3 seasons in 30 days.
+  const [requestsForm, setRequestsForm] = useState(() => mediaRequestsFormFrom(current?.requests ?? null));
   const libraries = useMediaLibraries(selected);
+  const instances = useMediaInstances();
   const save = useSetAdminMediaAllowance(
     org.id,
     (r) =>
-      r.policy.applied > 0
-        ? `${t('media.allowance.saved')}. ${t('media.allowance.applied', { n: r.policy.applied })}`
-        : t('media.allowance.saved'),
+      [
+        t('media.allowance.saved'),
+        r.policy.applied > 0 ? t('media.allowance.applied', { n: r.policy.applied }) : null,
+        r.seerr && r.seerr.applied > 0 ? t('media.seerr.applyResult', { n: r.seerr.applied }) : null,
+      ]
+        .filter(Boolean)
+        .join('. '),
     (r) => {
-      onFailed(r.policy.failed);
+      onResult(r);
       onClose();
     },
   );
@@ -1155,6 +1273,20 @@ function MediaAllowanceDialog({
   const instanceLocked = !!current && (current.accounts > 0 || current.customers > 0);
   const codeLocked = !!current && ownMediaAccounts(current) > 0;
   const sameInstance = !!current && selected === currentProvider;
+  // Seerr of the chosen instance: the overview knows every instance; while it loads, the stored
+  // allowance tells for its own instance (requests are in it exactly when Seerr is configured).
+  const instance = instances.data?.find((i) => i.provider.id === selected);
+  const seerrConfigured: boolean | null = instance
+    ? instance.seerr !== null
+    : sameInstance
+      ? current.requests !== undefined
+      : null;
+  const seerrActive = instance
+    ? !!instance.seerr?.enabled
+    : sameInstance && current.requestTotals !== undefined;
+  // Organizations besides this one with an allowance on the chosen instance.
+  const otherOrgs = instance ? instance.organizations - (sameInstance ? 1 : 0) : 0;
+  const requestsRead = readMediaRequestsForm(t, requestsForm);
   // Granted libraries the instance no longer has: shown, and dropped on saving.
   const gone =
     sameInstance && libraries.isSuccess
@@ -1179,20 +1311,41 @@ function MediaAllowanceDialog({
         : undefined,
     [live, parentAllowance],
   );
-  const beyond =
+  const beyond: AllowanceConflict[] =
     body && parentAllowance
-      ? mediaAccessExceeds(
-          {
-            libraryIds: body.libraryIds,
-            maxStreams: body.maxStreams,
-            downloads: body.downloads,
-            remoteBitrateMbit: body.remoteBitrateMbit,
-          },
-          mediaAccessOfDto(parentAllowance),
-        )
+      ? [
+          ...mediaAccessExceeds(
+            {
+              libraryIds: body.libraryIds,
+              maxStreams: body.maxStreams,
+              downloads: body.downloads,
+              remoteBitrateMbit: body.remoteBitrateMbit,
+            },
+            mediaAccessOfDto(parentAllowance),
+          ),
+          ...(seerrConfigured && requestsRead.valid
+            ? mediaRequestsExceed(requestsRead.value, parentAllowance.requests ?? null)
+            : []),
+        ]
       : [];
+  // With Seerr the form's add-on; without, off (an add-on cannot stay on an instance without
+  // Seerr, the API refuses); unknown (the overview failed, another instance): left as it is.
+  const requests =
+    seerrConfigured === true
+      ? { requests: requestsRead.value }
+      : seerrConfigured === false
+        ? { requests: null }
+        : {};
   const blocked =
-    !selected || !body || !!codeError || libraries.isPending || (!hasModule && enableModule && resellerLacks);
+    !selected ||
+    !body ||
+    !!codeError ||
+    libraries.isPending ||
+    (seerrConfigured === true && !requestsRead.valid) ||
+    // Whether the chosen instance has Seerr decides what is sent for the add-on.
+    (seerrConfigured === null && instances.isPending) ||
+    (!hasModule && enableModule && resellerLacks);
+  const oneStream = body?.maxStreams === 1;
 
   const pickInstance = (next: string) => {
     setProviderId(next);
@@ -1229,6 +1382,7 @@ function MediaAllowanceDialog({
                 providerId: selected,
                 ...(sendCode ? { accountCode: codeValue } : {}),
                 ...body,
+                ...requests,
                 enableModule: enableModule && !hasModule,
               })
             }
@@ -1317,6 +1471,28 @@ function MediaAllowanceDialog({
                 : t('media.allowance.maxAccountsHint')
             }
           />
+        )}
+
+        {selected && seerrConfigured && (
+          <MediaRequestsFields
+            id="mal-requests"
+            form={requestsForm}
+            onChange={setRequestsForm}
+            errors={requestsRead.errors}
+            warnings={
+              <>
+                {otherOrgs > 0 && <Notice tone="warning">{t('media.requests.sharedWarning')}</Notice>}
+                {!seerrActive && <Notice tone="info">{t('media.requests.inactive')}</Notice>}
+                {oneStream && <Notice tone="info">{t('media.requests.streamsWarning')}</Notice>}
+              </>
+            }
+          />
+        )}
+        {/* Moving an allowance with requests to an instance without Seerr switches them off. */}
+        {seerrConfigured === false && !!current?.requests && (
+          <Notice tone="warning">
+            {t('media.requests.unavailable')} {t('media.requests.offOnSave')}
+          </Notice>
         )}
 
         {parent && !parentAllowance && (

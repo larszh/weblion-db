@@ -56,7 +56,9 @@ import type {
   MailboxInput,
   MailboxPatch,
   MediaActivity,
+  MediaPlaybackStop,
   MediaServerInfo,
+  MediaSignOut,
   MediaUserInput,
   MonitorInput,
   MonitorInventory,
@@ -73,8 +75,12 @@ import type {
   RemoteMediaUser,
   RemoteMonitor,
   RemotePhoneSystem,
+  RemoteSeerrUser,
   RemoteServer,
   RemoteWebspace,
+  SeerrCheckResult,
+  SeerrRequestCounts,
+  SeerrUserAccess,
   ServerRef,
 } from '../types';
 import { DemoCloud, demoCloudState, resetDemoCloud } from './cloud';
@@ -84,6 +90,7 @@ import { DemoMail, demoMailState, resetDemoMail } from './mail';
 import { DemoMedia, demoMediaState, resetDemoMedia } from './media';
 import { DemoMonitoring, demoMonitoringState, resetDemoMonitoring } from './monitoring';
 import { DemoPhone, demoPhoneState, resetDemoPhone } from './phone';
+import { DemoSeerr, demoSeerrState, resetDemoSeerr } from './seerr';
 
 /**
  * Simulated provider for local development, UI work and automated tests.
@@ -184,6 +191,7 @@ export class DemoAdapter implements ProviderAdapter {
   private readonly mail: DemoMail;
   private readonly phone: DemoPhone;
   private readonly media: DemoMedia;
+  private readonly seerr: DemoSeerr;
   private readonly monitoring: DemoMonitoring;
 
   constructor(
@@ -201,6 +209,7 @@ export class DemoAdapter implements ProviderAdapter {
     this.mail = new DemoMail(demoMailState(connectionId));
     this.phone = new DemoPhone(demoPhoneState(connectionId));
     this.media = new DemoMedia(demoMediaState(connectionId));
+    this.seerr = new DemoSeerr(demoSeerrState(connectionId));
     this.monitoring = new DemoMonitoring(
       demoMonitoringState(connectionId),
       (externalId) => this.servers.get(externalId)?.ips.map((ip) => ip.address) ?? [],
@@ -216,6 +225,7 @@ export class DemoAdapter implements ProviderAdapter {
     resetDemoMail();
     resetDemoPhone();
     resetDemoMedia();
+    resetDemoSeerr();
     resetDemoMonitoring();
   }
 
@@ -1081,6 +1091,73 @@ export class DemoAdapter implements ProviderAdapter {
 
   mediaLoginUrl(): string {
     return this.media.mediaLoginUrl();
+  }
+
+  async authorizeMediaQuickConnect(userId: string, code: string): Promise<void> {
+    return this.media.authorizeMediaQuickConnect(userId, code);
+  }
+
+  async countMediaUserDevices(userId: string): Promise<number> {
+    return this.media.countMediaUserDevices(userId);
+  }
+
+  async signOutMediaUserDevices(userId: string): Promise<MediaSignOut> {
+    return this.media.signOutMediaUserDevices(userId);
+  }
+
+  async stopMediaUserPlayback(userId: string): Promise<MediaPlaybackStop> {
+    return this.media.stopMediaUserPlayback(userId);
+  }
+
+  // --- Requests (simulated Seerr of the demo Jellyfin) -------------------------------
+
+  /** Every flavorless demo connection has a Seerr (switched on per instance by staff). */
+  seerrConfigured(): boolean {
+    return this.seerr.seerrConfigured();
+  }
+
+  seerrUrl(): string {
+    return this.seerr.seerrUrl();
+  }
+
+  async seerrCheck(): Promise<SeerrCheckResult> {
+    return this.seerr.seerrCheck();
+  }
+
+  async seerrApplySafeSettings(): Promise<SeerrCheckResult> {
+    return this.seerr.seerrApplySafeSettings();
+  }
+
+  async listSeerrUsers(): Promise<RemoteSeerrUser[]> {
+    return this.seerr.listSeerrUsers();
+  }
+
+  async getSeerrUser(seerrUserId: number): Promise<RemoteSeerrUser> {
+    return this.seerr.getSeerrUser(seerrUserId);
+  }
+
+  async importSeerrUser(jellyfinUserId: string): Promise<RemoteSeerrUser> {
+    return this.seerr.importSeerrUser(jellyfinUserId);
+  }
+
+  async setSeerrUserAccess(
+    seerrUserId: number,
+    access: SeerrUserAccess,
+    current: RemoteSeerrUser,
+  ): Promise<RemoteSeerrUser> {
+    return this.seerr.setSeerrUserAccess(seerrUserId, access, current);
+  }
+
+  async deleteSeerrUser(seerrUserId: number): Promise<void> {
+    this.seerr.deleteSeerrUser(seerrUserId);
+  }
+
+  async seerrRequestCounts(): Promise<SeerrRequestCounts> {
+    return this.seerr.seerrRequestCounts();
+  }
+
+  async seerrQuotaUsage(seerrUserId: number): Promise<{ movieUsed: number; tvUsed: number }> {
+    return this.seerr.seerrQuotaUsage(seerrUserId);
   }
 
   // --- Monitoring (simulated Uptime Kuma, management always on) ---------------------

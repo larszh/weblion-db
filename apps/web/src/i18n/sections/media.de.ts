@@ -53,7 +53,7 @@ export const mediaDe = {
   'media.login.codeHint': 'Die Login-Namen Ihrer Organisation enden auf',
   'media.login.tv': 'Auf dem Fernseher',
   'media.login.quickConnect':
-    'Wählen Sie in der App Quick Connect, öffnen Sie Jellyfin im Browser oder auf dem Handy, wo Sie angemeldet sind, und geben Sie unter Einstellungen > Quick Connect den Code vom Fernseher ein.',
+    'Wählen Sie in der App Quick Connect. Geben Sie den Code vom Fernseher hier in der Console beim Zugang unter "Fernseher verbinden" ein. Oder in Jellyfin unter Einstellungen > Quick Connect auf einem Gerät, das schon angemeldet ist.',
   'media.login.apps':
     'Apps gibt es für Browser, Windows, macOS, Linux (Jellyfin Media Player), Android, Android TV, Fire TV, iPhone und iPad, Apple TV (Swiftfin), LG webOS, Roku und Kodi.',
   'media.login.allApps': 'Alle Apps',
@@ -126,16 +126,58 @@ export const mediaDe = {
   'media.password.action': 'Passwort neu setzen',
   'media.password.title': 'Neues Passwort für {username}',
   'media.password.text':
-    'Alle Geräte, die mit diesem Zugang angemeldet sind, werden sofort abgemeldet. Das bisherige Passwort funktioniert danach nicht mehr.',
+    'Alle Geräte, die mit diesem Zugang angemeldet sind, werden sofort abgemeldet. Das bisherige Passwort funktioniert danach nicht mehr. Fernseher verbinden Sie danach am einfachsten mit "Fernseher verbinden".',
   'media.password.set': 'Passwort setzen',
   'media.password.setToast': 'Neues Passwort für {username} gesetzt',
+  'media.password.setToastSignedOut': 'Neues Passwort für {username} gesetzt, alle Geräte abgemeldet',
+  'media.password.devicesDone': 'Alle Geräte wurden abgemeldet.',
+  'media.password.devicesLeft': 'Noch angemeldete Geräte: {n}',
+
+  // Connect a TV (Quick Connect)
+  'media.connect.action': 'Fernseher verbinden',
+  'media.connect.title': 'Fernseher mit {username} verbinden',
+  'media.connect.text':
+    'Ein Fernseher oder ein anderes Gerät meldet sich mit diesem Zugang an, ohne dass jemand das Passwort eintippt.',
+  'media.connect.step1':
+    'Öffnen Sie die Jellyfin-App auf dem Fernseher, geben Sie die Server-Adresse ein und wählen Sie Quick Connect.',
+  'media.connect.step2': 'Die App zeigt einen Code mit 6 Ziffern. Geben Sie ihn hier ein.',
+  'media.connect.code': 'Code vom Fernseher',
+  'media.connect.codeHint': 'Der Code gilt 10 Minuten. Die Console speichert ihn nicht.',
+  'media.connect.codeInvalid': 'Der Code hat 6 Ziffern.',
+  'media.connect.submit': 'Verbinden',
+  'media.connect.done': 'Fernseher mit {username} verbunden',
+  'media.connect.error.code':
+    'Diesen Code kennt der Server nicht, oder er ist abgelaufen. Starten Sie Quick Connect auf dem Fernseher neu und geben Sie den neuen Code ein.',
+  'media.connect.error.off':
+    'Quick Connect ist auf diesem Server ausgeschaltet. Melden Sie den Fernseher mit Login-Name und Passwort an.',
+  'media.connect.error.limit':
+    'Mit diesem Zugang sind schon so viele Geräte angemeldet, wie das Kontingent erlaubt ({n}). Melden Sie zuerst Geräte ab.',
+  'media.connect.error.disabled':
+    'Der Zugang ist deaktiviert. Aktivieren Sie ihn, bevor Sie einen Fernseher verbinden.',
+  'media.connect.error.failed':
+    'Der Server hat den Code nicht angenommen. Zeigt der Fernseher an, dass er angemeldet ist, ist er verbunden. Sonst starten Sie Quick Connect neu.',
+  'media.connect.error.tooMany': 'Zu viele Versuche. Warten Sie eine Minute.',
+
+  // Sign out all devices
+  'media.devices.action': 'Alle Geräte abmelden',
+  'media.devices.title': 'Alle Geräte von {username} abmelden?',
+  'media.devices.count': 'Angemeldete Geräte: {n}',
+  'media.devices.none': 'Mit diesem Zugang ist kein Gerät angemeldet.',
+  'media.devices.text':
+    'Laufende Wiedergaben werden gestoppt und alle Geräte sofort abgemeldet. Passwort, Verlauf und Favoriten bleiben. Die Geräte melden sich mit dem Passwort oder mit Quick Connect neu an.',
+  'media.devices.privacy': 'Die Console zeigt nur die Zahl, keine Gerätenamen.',
+  'media.devices.confirm': 'Alle abmelden',
+  'media.devices.done': 'Abgemeldete Geräte: {n}',
+  'media.devices.skipped':
+    'Nicht abgemeldet: {n}. Auf diesen Geräten ist auch ein anderer Zugang angemeldet. Ein neues Passwort meldet auch sie ab.',
+  'media.devices.failed': 'Bei {n} Geräten ist das Abmelden gescheitert. Versuchen Sie es erneut.',
 
   // Enable, disable, delete
   'media.disable': 'Deaktivieren',
   'media.enable': 'Aktivieren',
   'media.disableTitle': '{username} deaktivieren?',
   'media.disableText':
-    'Alle Geräte werden sofort abgemeldet und der Zugang kann sich nicht mehr anmelden. Verlauf und Favoriten bleiben erhalten.',
+    'Laufende Wiedergaben werden gestoppt, alle Geräte sofort abgemeldet, und der Zugang kann sich nicht mehr anmelden. Verlauf und Favoriten bleiben erhalten.',
   'media.enableTitle': '{username} aktivieren?',
   'media.enableText':
     'Der Zugang kann sich wieder anmelden. Eine Sperre nach fehlgeschlagenen Anmeldungen wird dabei aufgehoben.',
@@ -146,7 +188,7 @@ export const mediaDe = {
   'media.deleteConfirm': 'Endgültig löschen',
   'media.deleteWarningTitle': 'Verlauf und Favoriten werden gelöscht',
   'media.deleteWarning':
-    'Der Zugang wird in Jellyfin gelöscht, mit Wiedergabeverlauf, Favoriten und Playlists. Alle Geräte werden abgemeldet. Das lässt sich nicht rückgängig machen.',
+    'Der Zugang wird in Jellyfin gelöscht, mit Wiedergabeverlauf, Favoriten und Playlists. Laufende Wiedergaben werden gestoppt und alle Geräte abgemeldet. Das lässt sich nicht rückgängig machen.',
   'media.deleteMissing': 'Den Zugang gibt es in Jellyfin nicht mehr. Er wird nur aus der Console entfernt.',
   'media.deletedToast': '{username} gelöscht',
 
@@ -168,6 +210,12 @@ export const mediaDe = {
   'media.issue.no_allowance': 'Kein Kontingent',
   'media.issue.no_allowance.text':
     'Die Organisation hat kein Kontingent auf dieser Instanz. Die Rechte des Zugangs werden nicht verwaltet.',
+  'media.issue.seerr_missing': 'Nicht in Anfragen',
+  'media.issue.seerr_missing.text':
+    'Der Zugang ist in Seerr noch nicht angelegt. Die Synchronisierung versucht es erneut.',
+  'media.issue.seerr_drift': 'Anfragen weichen ab',
+  'media.issue.seerr_drift.text':
+    'Rechte oder Grenzen in Seerr weichen vom Kontingent ab. Die Synchronisierung passt sie an.',
 
   // Allowances (admin and reseller)
   'media.allowance.setUp': 'Einrichten',
@@ -286,6 +334,8 @@ export const mediaDe = {
   'media.admin.reassign': 'Anders zuweisen…',
   'media.admin.repair': 'Richtlinie anwenden',
   'media.admin.repairHint': 'Schreibt den Zugriff des Kontingents jetzt nach Jellyfin',
+  'media.admin.repairHintSeerr':
+    'Schreibt den Zugriff des Kontingents jetzt nach Jellyfin und die Rechte für Anfragen nach Seerr',
   'media.admin.repaired': 'Richtlinie von {username} angewendet',
   'media.admin.assignText':
     'Der Zugang liegt auf {instance}. Der Kunde verwaltet ihn danach in seiner Console.',
@@ -362,6 +412,130 @@ export const mediaDe = {
     'Der Kunde kann danach keine Streaming-Zugänge mehr erstellen. Die Zugänge gehen in Ihr Kontingent zurück.',
   'media.reseller.removeBlocked': 'Nur ohne Zugänge möglich. Der Kunde muss seine Zugänge zuerst löschen.',
 
+  // Requests (Seerr add-on): customer card, allowance fields, admin instances
+  'media.requests.title': 'Anfragen',
+  'media.requests.text':
+    'Mit Anfragen wünschen sich Ihre Zugänge Filme und Serien, die es auf dem Server noch nicht gibt. weblion.one prüft jede Anfrage und stellt genehmigte Titel bereit.',
+  'media.requests.open': 'Anfragen öffnen',
+  'media.requests.address': 'Adresse von Anfragen',
+  'media.requests.copyAddress': 'Adresse kopieren',
+  'media.requests.signIn': 'Melden Sie sich dort mit dem Login-Namen und dem Passwort des Zugangs an.',
+  'media.requests.included': 'Enthalten',
+  'media.requests.movies': 'Filme',
+  'media.requests.tv': 'Serien',
+  'media.requests.movieQuota': 'bis {limit} Filme in {days} Tagen pro Zugang',
+  'media.requests.tvQuota': 'bis {limit} Staffeln in {days} Tagen pro Zugang',
+  'media.requests.unlimited': 'ohne Grenze',
+  'media.requests.notIncluded': 'nicht enthalten',
+  'media.requests.devicesHint': 'Die Anmeldung bei Anfragen zählt in Jellyfin als ein angemeldetes Gerät.',
+  'media.requests.sessionHint':
+    'Eine Anmeldung bei Anfragen gilt bis zu 30 Tage, auch nach einem neuen Passwort oder dem Abmelden aller Geräte: Bis dahin kann dort weiter angefragt werden. Deaktivieren nimmt das Recht anzufragen, erst Löschen beendet die Anmeldung.',
+  'media.requests.col.pending': 'Offen',
+  'media.requests.col.approved': 'Genehmigt',
+  'media.requests.col.available': 'Verfügbar',
+  'media.requests.col.quota': 'Kontingent genutzt',
+  'media.requests.quotaMovies': 'Filme: {used} von {limit}',
+  'media.requests.quotaSeasons': 'Staffeln: {used} von {limit}',
+  'media.requests.notReady': 'Wird eingerichtet',
+  'media.requests.notReadyHint':
+    'Der Zugang wird in Anfragen eingerichtet. Das dauert höchstens ein paar Minuten.',
+  'media.requests.disabled': 'Deaktivierte Zugänge können nicht anfragen.',
+  'media.requests.syncedAt': 'Stand {when}',
+  'media.requests.privacy':
+    'Die Console zeigt nur Zahlen, nie die angefragten Titel. In Anfragen selbst sehen alle Zugänge auf diesem Server die Login-Namen der anderen und wer einen Titel angefragt hat.',
+  'media.requests.figure': 'Anfragen',
+  'media.requests.figureBoth': 'Filme und Serien',
+  'media.requests.totals': 'Offen {pending}, genehmigt {approved}, verfügbar {available}',
+  'media.requests.field': 'Anfragen (Seerr)',
+  'media.requests.fieldHint':
+    'Die Zugänge dürfen Filme oder Serien anfragen. Genehmigt wird in Seerr durch weblion.one.',
+  'media.requests.fieldMovies': 'Filme anfragen',
+  'media.requests.fieldTv': 'Serien anfragen',
+  'media.requests.limitNone': 'Ohne Grenze',
+  'media.requests.quotaLimit': 'Anzahl',
+  'media.requests.quotaDays': 'in Tagen',
+  'media.requests.seasonsHint':
+    'Bei Serien zählt Seerr Staffeln, nicht Serien. "Keine Anfragen" heisst: Anfragen ausschalten.',
+  'media.requests.typeRequired': 'Wählen Sie Filme, Serien oder beides.',
+  'media.requests.quotaInvalid': 'Eine ganze Zahl von 1 bis {max}.',
+  'media.requests.daysInvalid': 'Eine ganze Zahl von 1 bis {max} Tagen.',
+  'media.requests.sharedWarning':
+    'Auf dieser Instanz haben mehrere Organisationen ein Kontingent. In Anfragen sehen alle Zugänge die Login-Namen der anderen und wer einen Titel angefragt hat.',
+  'media.requests.inactive':
+    'Seerr ist auf dieser Instanz ausgeschaltet. Kunden sehen Anfragen erst, wenn Sie es einschalten.',
+  'media.requests.streamsWarning':
+    'Mit 1 Stream kann sich ein Zugang nicht bei Anfragen anmelden, solange ein anderes Gerät angemeldet ist.',
+  'media.requests.unavailable': 'Auf dieser Instanz ist kein Seerr eingetragen.',
+  'media.requests.offOnSave': 'Anfragen werden beim Speichern ausgeschaltet.',
+  'media.requests.applyFailed':
+    'Bei diesen Zugängen liessen sich die Rechte in Anfragen nicht setzen. Die Synchronisierung versucht es erneut.',
+  'media.reseller.requestsCap': 'Höchstens, was Ihr Kontingent erlaubt.',
+  'media.reseller.requestsYours': 'Ihr Kontingent: {value}',
+  'media.conflict.requestsMovies': 'Filme anfragen',
+  'media.conflict.requestsTv': 'Serien anfragen',
+  'media.conflict.movieQuota': 'Grenze Filme',
+  'media.conflict.tvQuota': 'Grenze Staffeln',
+  'media.seerr.column': 'Anfragen',
+  'media.seerr.none': 'Kein Seerr',
+  'media.seerr.status.off': 'Aus',
+  'media.seerr.status.ok': 'An',
+  'media.seerr.status.unsafe': 'Unsicher',
+  'media.seerr.status.error': 'Fehler',
+  'media.seerr.status.unknown': 'Ungeprüft',
+  'media.seerr.shared':
+    'Gemeinsam: {n} Organisationen mit Anfragen sehen in Seerr die Login-Namen und Wünsche der anderen.',
+  'media.seerr.manage': 'Anfragen…',
+  'media.seerr.title': 'Anfragen auf {instance}',
+  'media.seerr.text':
+    'Seerr ist die Anfrage-Seite dieser Jellyfin-Instanz. Die Console legt dort die Zugänge von Kunden mit Anfragen an und setzt ihre Rechte und Grenzen. Anfragen genehmigen Sie in Seerr.',
+  'media.seerr.version': 'Version {version}',
+  'media.seerr.checkedAt': 'Geprüft {when}',
+  'media.seerr.recheck': 'Erneut prüfen',
+  'media.seerr.check.reachable': 'Erreichbar',
+  'media.seerr.check.key': 'API-Schlüssel angenommen',
+  'media.seerr.check.sameServer': 'Mit dieser Jellyfin-Instanz verbunden',
+  'media.seerr.check.newSignIns': 'Neue Anmeldungen über Jellyfin aus',
+  'media.seerr.check.defaultPermissions': 'Neue Benutzer ohne Rechte',
+  'media.seerr.check.mediaServerLogin': 'Anmeldung mit Jellyfin an',
+  'media.seerr.check.csrf': 'CSRF-Schutz aus',
+  'media.seerr.problem.unreachable': 'Seerr ist nicht erreichbar.',
+  'media.seerr.problem.key': 'Seerr hat den API-Schlüssel abgelehnt.',
+  'media.seerr.problem.not_jellyfin': 'Seerr ist nicht für Jellyfin eingerichtet.',
+  'media.seerr.problem.other_server': 'Seerr ist mit einem anderen Jellyfin-Server verbunden.',
+  'media.seerr.problem.csrf':
+    'Der CSRF-Schutz von Seerr ist an, die Console kann so nichts ändern. Schalten Sie ihn in Seerr unter Einstellungen > Netzwerk aus.',
+  'media.seerr.problem.new_signins':
+    'Neue Anmeldungen über Jellyfin sind an: Jeder Benutzer des Servers könnte anfragen.',
+  'media.seerr.problem.default_permissions': 'Neue Benutzer bekommen Rechte. Empfohlen: keine.',
+  'media.seerr.problem.media_server_login':
+    'Die Anmeldung mit Jellyfin ist aus: Kunden könnten sich nicht anmelden.',
+  'media.seerr.unmanaged':
+    'Benutzer in Seerr, die die Console nicht verwaltet und anfragen dürfen: {n}. Die Synchronisierung entzieht ihnen dieses Recht.',
+  'media.seerr.orphans': 'Benutzer in Seerr ohne Jellyfin-Benutzer: {n}. Löschen Sie sie in Seerr.',
+  'media.seerr.localLogin':
+    'Die lokale Anmeldung ist in Seerr an. Benutzer, die Seerr bei einer Jellyfin-Anmeldung angelegt hat, bevor die empfohlenen Einstellungen galten, melden sich damit weiter mit ihrem damaligen Passwort an, auch nach einem neuen Passwort. Schalten Sie sie in Seerr unter Einstellungen > Benutzer aus, wenn niemand sie braucht.',
+  'media.seerr.apply': 'Empfohlene Einstellungen anwenden',
+  'media.seerr.applyText':
+    'Setzt in Seerr: neue Anmeldungen über Jellyfin aus, neue Benutzer ohne Rechte, Anmeldung mit Jellyfin an. Andere Einstellungen bleiben.',
+  'media.seerr.applied': 'Empfohlene Einstellungen in Seerr gesetzt',
+  'media.seerr.enable': 'Anfragen für Kunden anbieten',
+  'media.seerr.enableHint': 'Erst möglich, wenn alle Prüfungen bestanden sind.',
+  'media.seerr.enabled': 'Anfragen auf {instance} eingeschaltet',
+  'media.seerr.disabled': 'Anfragen auf {instance} ausgeschaltet',
+  'media.seerr.disableTitle': 'Anfragen auf {instance} ausschalten?',
+  'media.seerr.disableText':
+    'Kunden sehen Anfragen nicht mehr. Die Console entzieht allen Zugängen in Seerr das Recht anzufragen. Benutzer und Anfragen bleiben in Seerr erhalten.',
+  'media.seerr.disableConfirm': 'Ausschalten',
+  'media.seerr.sharedTitle': 'Mehrere Organisationen auf dieser Instanz',
+  'media.seerr.sharedText':
+    '{n} Organisationen haben ein Kontingent auf {instance}. In Seerr sieht jeder angemeldete Zugang die Benutzerliste und bei jedem Titel, wer ihn angefragt hat. Kunden mit Anfragen sehen so Login-Namen und Wünsche anderer Kunden.',
+  'media.seerr.sharedConfirm': 'Ich habe das geprüft und schalte Anfragen trotzdem ein.',
+  'media.seerr.enableConfirm': 'Einschalten',
+  'media.seerr.notConfigured':
+    'Für diese Instanz ist kein Seerr eingetragen. Tragen Sie Adresse und API-Schlüssel beim Provider ein.',
+  'media.seerr.toProvider': 'Zum Provider',
+  'media.seerr.applyResult': 'Rechte in Anfragen gesetzt: {n}',
+
   // Admin, dashboard
   'media.admin.synced':
     '{seen} Streaming-Zugänge abgeglichen, {missing} nicht mehr gefunden, {repaired} Richtlinien angepasst',
@@ -384,6 +558,19 @@ export const mediaDe = {
   'providers.jellyfin.accountsText':
     'Streaming-Zugänge dieser Instanz, Kontingente der Kunden und Übernahme von Benutzern, die direkt in Jellyfin angelegt wurden.',
   'providers.jellyfin.toAccounts': 'Zu den Streaming-Zugängen',
+  'providers.jellyfin.seerr': 'Anfragen (Seerr, optional)',
+  'providers.jellyfin.seerrHelp':
+    'Eine Seerr-Instanz, die mit genau dieser Jellyfin-Instanz verbunden ist. Für Kunden einschalten unter Admin > Streaming.',
+  'providers.jellyfin.seerrUrl': 'Seerr-Adresse',
+  'providers.jellyfin.seerrUrlHint':
+    'Die Adresse, unter der Ihre Kunden Seerr öffnen, z. B. https://anfragen.weblion.one.',
+  'providers.jellyfin.seerrUrlInvalid': 'Eine http- oder https-Adresse ohne Abfrage und ohne Zugangsdaten.',
+  'providers.jellyfin.seerrApiKey': 'Seerr-API-Schlüssel',
+  'providers.jellyfin.seerrApiKeyHint':
+    'Seerr > Einstellungen > Allgemein > API-Schlüssel. Der Schlüssel hat volle Rechte in Seerr. Wird verschlüsselt gespeichert und nie mehr angezeigt.',
+  'providers.jellyfin.seerrApiKeyInvalid': 'Den Schlüssel bitte so einfügen, wie Seerr ihn anzeigt.',
+  'providers.jellyfin.seerrBoth': 'Adresse und Schlüssel gehören zusammen.',
+  'providers.jellyfin.seerrRemove': 'Seerr entfernen',
 
   // Reseller overview, delete blockers
   'admin.resources.mediaAccounts': 'Streaming-Zugänge',

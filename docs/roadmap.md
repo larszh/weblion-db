@@ -12,7 +12,8 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
   IDs und das Rate-Limit), bei Joker.com zuerst im Testsystem (OT&E), bei Cloudflare mit einem
   Test-Konto und einer Test-Zone, bei Nextcloud und Mailcow mit eigenen Test-Instanzen, bei
   CloudPanel mit einem Test-Server und dem Agent `weblion-clp`, bei 3CX mit einer V20 mit
-  Enterprise-Testlizenz, bei Jellyfin mit 10.10 und 10.11 im Container, bei Uptime Kuma mit einer
+  Enterprise-Testlizenz, bei Jellyfin mit 10.10 und 10.11 im Container (dazu Seerr 3.5 für
+  Anfragen nach der [Checkliste](providers.md#anfragen-seerr)), bei Uptime Kuma mit einer
   Test-Instanz 2.x (echte Antworten als Fixtures ablegen). Offene Detailfragen stehen in
   docs/providers.md unter "Offene Punkte"
 - **Cloud-Speicher, E-Mail, Websites, Telefonie, Streaming und Monitoring an Sperre und Abrechnung
@@ -218,13 +219,22 @@ Willkommens-E-Mail), den Mitgliedern von Ringgruppen und den Leitungen zum Anseh
 
 Die Anbindung deckt heute Streaming-Kontingente pro Kunde und Reseller auf beliebig vielen
 Jellyfin-Instanzen ab (gemeinsam oder dediziert), Zugänge mit Login-Namen aus Name und Code,
-Passwörter (einmal angezeigt), Deaktivieren und Löschen, die verwaltete Richtlinie mit Reparatur
-durch den Sync, das Übernehmen bestehender Benutzer und eine Anmeldehilfe mit Quick Connect. Als
-Nächstes:
+Passwörter (einmal angezeigt), Deaktivieren und Löschen (mit Stopp der Wiedergabe), die verwaltete
+Richtlinie mit Reparatur durch den Sync, das Übernehmen bestehender Benutzer, eine Anmeldehilfe,
+"Fernseher verbinden" mit dem Quick-Connect-Code, "Alle Geräte abmelden" und das Add-on "Anfragen"
+über Seerr (pro Instanz geprüft und eingeschaltet, pro Kunde mit Filmen, Serien und Grenzen, nur
+Zahlen für Kunden). Als Nächstes:
 
 - **Abrechnung koppeln**: Ein Produkt mit Streaming-Kontingent ("Familie: 5 Zugänge, 2 Streams") als
   Dienst, das Kontingent folgt dem Dienst. Kündigen deaktiviert die Zugänge und löscht sie nach einer
   Frist. Optional pro Zugang abrechnen (Zugänge als Rechnungszeilen)
+- **Anfragen an Abrechnung koppeln**: "Anfragen" als Option des Streaming-Produkts, mit Typen und
+  Grenzen und optional einem Preis pro Zugang mit Anfragen. Der Dienst setzt das Add-on über
+  `setMediaRequests()` (gleiche Prüfungen und gleicher Audit-Eintrag wie im Admin-Bereich), Kündigen
+  schaltet es aus. Siehe [billing.md](billing.md#streaming-anfragen-als-option)
+- **Verwaiste Seerr-Benutzer löschen**: Seerr-Benutzer ohne Jellyfin-Benutzer zählt die Prüfung heute
+  nur, gelöscht werden sie von Hand in Seerr. Ein Knopf im Dialog "Anfragen…" (mit Bestätigung, weil
+  Seerr ihre Anfragen mit löscht) oder ein Schritt im Sync
 - **Sperre koppeln**: Zugänge gesperrter Kunden deaktivieren und beim Entsperren wieder aktivieren.
   Ebenso auf Wunsch beim Lösen eines Zugangs von seiner Organisation
 - **Grosse Änderungen im Hintergrund**: Die Richtlinie aller Zugänge nach einer Änderung am
@@ -234,8 +244,7 @@ Nächstes:
   gemeinsamen auf eine dedizierte Instanz zieht
 - **Schalter für dedizierte Instanzen**: SyncPlay ("gemeinsam schauen") und Live TV pro Kontingent,
   nur für weblion.one und nur auf Instanzen mit einem einzigen Kunden
-- **Mehr pro Zugang**: "Alle Geräte abmelden" als eigene Aktion, einzelne Zugänge mit mehr Streams
-  oder Downloads, die Zahl aktiver Geräte (ohne Details, Datenschutz abwägen)
+- **Mehr pro Zugang**: einzelne Zugänge mit mehr Streams oder Downloads
 - **Kleinere Lücken**: eine eigene öffentliche Adresse, wenn die Console Jellyfin intern erreicht
 
 ## Monitoring (Uptime Kuma)

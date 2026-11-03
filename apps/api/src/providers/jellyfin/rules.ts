@@ -1,4 +1,5 @@
-import { badRequest, conflict } from '../../lib/errors';
+import type { MediaStreamLimitDetails } from '@weblion/shared';
+import { AppError, badRequest, conflict } from '../../lib/errors';
 
 /** Name in errors of the adapter and the demo. */
 export const JELLYFIN = 'Jellyfin';
@@ -40,3 +41,30 @@ export function assertJellyfinPassword(password: string): string {
 }
 
 export const jellyfinAdminRefused = () => conflict(JELLYFIN_ADMIN_REFUSED);
+
+// Refusals of "Fernseher verbinden" (Quick Connect), shared by the adapter and the demo. The
+// messages never carry the code: it is a one-time secret.
+
+export const quickConnectOff = () =>
+  new AppError(409, 'quick_connect_off', 'Quick Connect is off on this Jellyfin instance');
+export const quickConnectUnknownCode = () =>
+  new AppError(
+    409,
+    'quick_connect_code',
+    'Jellyfin does not know this code or it has expired: start Quick Connect on the device again',
+  );
+export const quickConnectFailed = () =>
+  new AppError(
+    409,
+    'quick_connect_failed',
+    'Jellyfin did not accept the code. If the device shows that it is signed in, it is connected; otherwise start Quick Connect again',
+  );
+export const streamLimit = (details: MediaStreamLimitDetails) =>
+  new AppError(
+    409,
+    'stream_limit',
+    `This account is signed in on ${details.sessions} devices and may use ${details.maxStreams}: sign out devices first`,
+    details,
+  );
+export const mediaAccountDisabled = () =>
+  new AppError(409, 'account_disabled', 'This account is disabled: enable it first');

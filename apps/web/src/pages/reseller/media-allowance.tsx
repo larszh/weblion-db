@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { Clapperboard, Pencil, Plus, Trash2 } from 'lucide-react';
-import type { MediaAllowanceDto, MediaPolicyApplyResult, ResellerCustomerDto } from '@weblion/shared';
+import type {
+  MediaAllowanceChangeResult,
+  MediaAllowanceDto,
+  MediaPolicyApplyResult,
+  ResellerCustomerDto,
+} from '@weblion/shared';
 import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import {
@@ -20,9 +25,10 @@ import {
   LoadingBlock,
   Notice,
 } from '@/components/ui/primitives';
-import { MediaAllowanceFigures } from '@/pages/media/bits';
+import { MediaAllowanceFigures, mediaRequestsFormFrom, readMediaRequestsForm } from '@/pages/media/bits';
 import {
   MediaAccessFields,
+  MediaRequestsFields,
   PolicyFailures,
   mediaAccessFormFrom,
   readMediaAccessForm,
@@ -30,9 +36,10 @@ import {
 
 /**
  * The customer's share of the reseller's streaming allowance (accounts, libraries, streams,
- * downloads, bitrate), on the customer's resources tab while the reseller has the "media"
- * module. Always on the reseller's instance and within its access; saving activates the module
- * for the customer and applies the access to the customer's accounts.
+ * downloads, bitrate and, while the reseller has it, the requests add-on), on the customer's
+ * resources tab while the reseller has the "media" module. Always on the reseller's instance and
+ * within its access; saving activates the module for the customer and applies the access to the
+ * customer's accounts.
  */
 export function ResellerMediaAllowanceCard({ customer }: { customer: ResellerCustomerDto }) {
   const { t } = useI18n();
@@ -43,6 +50,8 @@ export function ResellerMediaAllowanceCard({ customer }: { customer: ResellerCus
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [failed, setFailed] = useState<MediaPolicyApplyResult['failed']>([]);
+  // Accounts whose request rights in Seerr could not be set after the add-on changed.
+  const [seerrFailed, setSeerrFailed] = useState<MediaPolicyApplyResult['failed']>([]);
   const remove = useDeleteResellerMediaAllowance(customer.id, t('media.allowance.removed'), () =>
     setRemoving(false),
   );
@@ -81,6 +90,13 @@ export function ResellerMediaAllowanceCard({ customer }: { customer: ResellerCus
             <CardBody className="space-y-4">
               <MediaAllowanceFigures allowance={data} showInstance={false} />
               {failed.length > 0 && <PolicyFailures failed={failed} onDismiss={() => setFailed([])} />}
+              {seerrFailed.length > 0 && (
+                <PolicyFailures
+                  failed={seerrFailed}
+                  title={t('media.requests.applyFailed')}
+                  onDismiss={() => setSeerrFailed([])}
+                />
+              )}
               {/* Gives the accounts back, e.g. before the customer is deleted. Only without accounts. */}
               {canWrite && (
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -128,7 +144,10 @@ export function ResellerMediaAllowanceCard({ customer }: { customer: ResellerCus
           current={data}
           pool={pool}
           onClose={() => setEditing(false)}
-          onFailed={setFailed}
+          onResult={(r) => {
+            setFailed(r.policy.failed);
+            setSeerrFailed(r.seerr?.failed ?? []);
+          }}
         />
       )}
       <ConfirmDialog
@@ -149,13 +168,14 @@ function ResellerMediaAllowanceDialog({
   current,
   pool,
   onClose,
-  onFailed,
+  onResult,
 }: {
   customer: ResellerCustomerDto;
   current: MediaAllowanceDto | null;
   pool: MediaAllowanceDto;
   onClose: () => void;
-  onFailed: (failed: MediaPolicyApplyResult['failed']) => void;
+  /** The policy and Seerr writes the change caused (failed accounts are shown on the card). */
+  onResult: (result: MediaAllowanceChangeResult) => void;
 }) {
   const { t } = useI18n();
   // What the reseller has left, plus what this customer holds already (it can be moved around).
@@ -167,14 +187,25 @@ function ResellerMediaAllowanceDialog({
       remoteBitrateMbit: pool.remoteBitrateMbit,
     }),
   );
+  // The reseller's own add-on: only there while it has one on an instance whose Seerr is active.
+  // Without it the reseller sees nothing of requests and sends nothing (the customer's stays).
+  const cap = pool.requests ?? null;
+  // Switched on, the customer starts with what the reseller has itself.
+  const [requestsForm, setRequestsForm] = useState(() =>
+    mediaRequestsFormFrom(current?.requests ?? null, cap ?? undefined),
+  );
   const save = useSetResellerMediaAllowance(
     customer.id,
     (r) =>
-      r.policy.applied > 0
-        ? `${t('media.allowance.saved')}. ${t('media.allowance.applied', { n: r.policy.applied })}`
-        : t('media.allowance.saved'),
+      [
+        t('media.allowance.saved'),
+        r.policy.applied > 0 ? t('media.allowance.applied', { n: r.policy.applied }) : null,
+        r.seerr && r.seerr.applied > 0 ? t('media.seerr.applyResult', { n: r.seerr.applied }) : null,
+      ]
+        .filter(Boolean)
+        .join('. '),
     (r) => {
-      onFailed(r.policy.failed);
+      onResult(r);
       onClose();
     },
   );
@@ -187,6 +218,12 @@ function ResellerMediaAllowanceDialog({
     bitrateCap: pool.remoteBitrateMbit,
   };
   const { body, errors } = readMediaAccessForm(t, form, limits);
+  const requestsRead = readMediaRequestsForm(t, requestsForm, cap);
+  const blocked = !body || (!!cap && !requestsRead.valid);
+  const send = () => {
+    if (!body || blocked) return;
+    save.mutate({ ...body, ...(cap ? { requests: requestsRead.value } : {}) });
+  };
 
   return (
     <Dialog
@@ -204,12 +241,7 @@ function ResellerMediaAllowanceDialog({
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button
-            variant="primary"
-            disabled={!body}
-            loading={save.isPending}
-            onClick={() => body && save.mutate(body)}
-          >
+          <Button variant="primary" disabled={blocked} loading={save.isPending} onClick={send}>
             {t('common.save')}
           </Button>
         </>
@@ -225,6 +257,22 @@ function ResellerMediaAllowanceDialog({
           libraries={pool.libraries}
           accountsHint={t('media.reseller.accountsLeft', { n: accountsLeft })}
         />
+        {cap && (
+          <MediaRequestsFields
+            id="rma-requests"
+            form={requestsForm}
+            onChange={setRequestsForm}
+            errors={requestsRead.errors}
+            cap={cap}
+            warnings={
+              <>
+                {/* The reseller and its customer share the instance at least. */}
+                <Notice tone="warning">{t('media.requests.sharedWarning')}</Notice>
+                {body?.maxStreams === 1 && <Notice tone="info">{t('media.requests.streamsWarning')}</Notice>}
+              </>
+            }
+          />
+        )}
         {!customer.modules.includes('media') && (
           <Notice tone="info">{t('media.reseller.enablesModule')}</Notice>
         )}

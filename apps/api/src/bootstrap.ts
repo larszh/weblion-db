@@ -3,15 +3,17 @@ import { count, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { DEFAULT_INTERNAL_BOUNDARY, type Location, type ProviderType } from '@weblion/shared';
 import type { Env } from './config/env';
-import type { Database } from './db/client';
-import { memberships, organizations, projects, providerConnections, users } from './db/schema';
+import type { Database, DbOrTx } from './db/client';
+import { mediaSeerr, memberships, organizations, projects, providerConnections, users } from './db/schema';
 import { hashPassword, type SecretBox } from './lib/crypto';
+import { dropMediaRequestsOf, forgetSeerrUsers } from './modules/media/seerr';
 import {
   FIRE24_DEFAULT_BASE_URL,
   fire24BaseUrl,
   fire24TokenKind,
   isLegacyFire24Host,
 } from './providers/fire24/config';
+import { SEERR_API_KEY } from './providers/seerr/rules';
 import type {
   CloudflareConfig,
   CloudPanelConfig,
@@ -81,6 +83,39 @@ function cloudPanelPrivateKey(env: Env, log: FastifyBaseLogger): string | null {
     );
     return null;
   }
+}
+
+/**
+ * The optional Seerr of the Jellyfin connection from the environment: both values or none. A
+ * half or invalid pair is skipped with a warning (never logging the key), so a typo cannot stop
+ * the boot and requests simply stay unavailable.
+ */
+function jellyfinSeerr(env: Env, log: FastifyBaseLogger): Pick<JellyfinConfig, 'seerrUrl' | 'seerrApiKey'> {
+  const url = env.JELLYFIN_SEERR_URL?.trim().replace(/\/+$/, '');
+  const key = env.JELLYFIN_SEERR_API_KEY?.trim();
+  if (!url && !key) return {};
+  if (!url || !key) {
+    log.warn('Set both JELLYFIN_SEERR_URL and JELLYFIN_SEERR_API_KEY, or neither: Seerr is skipped');
+    return {};
+  }
+  if (!isSeerrUrl(url)) {
+    log.warn('JELLYFIN_SEERR_URL is not an http(s) address without query and credentials: Seerr is skipped');
+    return {};
+  }
+  if (!SEERR_API_KEY.test(key)) {
+    log.warn('JELLYFIN_SEERR_API_KEY does not look like a Seerr API key: Seerr is skipped');
+    return {};
+  }
+  return { seerrUrl: url, seerrApiKey: key };
+}
+
+/** The rule of the provider form: http(s), no query, hash or credentials (the key goes there). */
+function isSeerrUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const u = new URL(value);
+  return (
+    (u.protocol === 'https:' || u.protocol === 'http:') && !u.search && !u.hash && !u.username && !u.password
+  );
 }
 
 function envProviders(env: Env, log: FastifyBaseLogger): EnvProvider[] {
@@ -207,6 +242,7 @@ function envProviders(env: Env, log: FastifyBaseLogger): EnvProvider[] {
       config: {
         baseUrl: env.JELLYFIN_URL.trim().replace(/\/+$/, ''),
         apiKey: env.JELLYFIN_API_KEY.trim().toLowerCase(),
+        ...jellyfinSeerr(env, log),
       } satisfies JellyfinConfig,
     });
   }
@@ -313,8 +349,10 @@ export async function syncEnvProviders(
       continue;
     }
     let changed = true;
+    let previous: unknown;
     try {
-      changed = JSON.stringify(box.decryptJson(existing.configEnc)) !== JSON.stringify(p.config);
+      previous = box.decryptJson(existing.configEnc);
+      changed = JSON.stringify(previous) !== JSON.stringify(p.config);
     } catch {
       log.warn(
         { provider: p.name },
@@ -322,11 +360,72 @@ export async function syncEnvProviders(
       );
     }
     if (changed || existing.type !== p.type) {
-      await db
-        .update(providerConnections)
-        .set({ type: p.type, configEnc: box.encryptJson(p.config), status: 'unknown', lastError: null })
-        .where(eq(providerConnections.id, existing.id));
+      // One transaction, so the accounts never keep Seerr ids of an old Seerr under a new address.
+      const warning = await db.transaction(async (tx) => {
+        const moved =
+          changed && p.type === 'jellyfin'
+            ? await seerrAddressChanged(tx, existing.id, previous, p.config as JellyfinConfig)
+            : null;
+        await tx
+          .update(providerConnections)
+          .set({ type: p.type, configEnc: box.encryptJson(p.config), status: 'unknown', lastError: null })
+          .where(eq(providerConnections.id, existing.id));
+        return moved;
+      });
+      if (warning) log.warn({ provider: p.name }, warning);
       log.info({ provider: p.name }, 'updated provider credentials from environment');
     }
   }
+}
+
+/**
+ * The admin form refuses to change or remove the Seerr address while requests are on; the
+ * environment cannot be refused, so a new, removed or added address switches requests off and
+ * the boot says so loudly (the warning is returned, logged after the commit). Like the form, it
+ * forgets the check of the old Seerr and the accounts' Seerr ids, numbers and Seerr issues (ids
+ * of the old Seerr would name other users in the new one). Staff switch requests on again
+ * through the check (same server, safe settings, the shared confirmation), so another Seerr is
+ * never active unchecked. The old Seerr keeps its users and their rights. A removed Seerr also
+ * takes the add-on of every allowance on the instance (as the form does), which is logged.
+ */
+async function seerrAddressChanged(
+  tx: DbOrTx,
+  connectionId: string,
+  previous: unknown,
+  next: JellyfinConfig,
+): Promise<string | null> {
+  const before = (previous as Partial<JellyfinConfig> | undefined)?.seerrUrl;
+  if (before === next.seerrUrl) return null;
+  // The same lock as the admin form and switching requests on, taken first.
+  await tx
+    .select({ id: providerConnections.id })
+    .from(providerConnections)
+    .where(eq(providerConnections.id, connectionId))
+    .for('update');
+  await forgetSeerrUsers(tx, connectionId);
+  const requestsOff = next.seerrUrl ? [] : await dropMediaRequestsOf(tx, connectionId, null);
+  const dropped =
+    requestsOff.length > 0
+      ? `the Seerr of this Jellyfin connection was removed from the environment: the requests add-on of ${requestsOff.length} organizations is switched off`
+      : null;
+  const [row] = await tx
+    .select({ enabled: mediaSeerr.enabled })
+    .from(mediaSeerr)
+    .where(eq(mediaSeerr.providerConnectionId, connectionId));
+  if (!row) return dropped;
+  await tx
+    .update(mediaSeerr)
+    .set({
+      enabled: false,
+      status: 'unknown',
+      lastCheck: null,
+      checkedAt: null,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(mediaSeerr.providerConnectionId, connectionId));
+  if (!row.enabled) return dropped;
+  return next.seerrUrl
+    ? 'the Seerr address of this Jellyfin connection changed in the environment while requests were on: they are switched off until staff check the Seerr and switch them on again under Admin > Streaming'
+    : `the Seerr of this Jellyfin connection was removed from the environment while requests were on: they are switched off, the old Seerr keeps its users and their rights${requestsOff.length > 0 ? `, and the requests add-on of ${requestsOff.length} organizations is switched off` : ''}`;
 }

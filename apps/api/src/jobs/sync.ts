@@ -30,6 +30,7 @@ import { syncMailDomains } from './sync-mail';
 import { syncMediaAccounts, type MediaSyncCounts } from './sync-media';
 import { syncMonitors, type MonitorSyncCounts } from './sync-monitoring';
 import { syncPhoneSystems } from './sync-phone';
+import { syncSeerr, type SeerrSyncCounts } from './sync-seerr';
 import { syncWebsites } from './sync-websites';
 
 export interface SyncCounts {
@@ -55,6 +56,8 @@ export interface SyncResult extends SyncCounts {
   phoneSystems?: SyncCounts;
   /** Jellyfin: accounts the console manages; repaired: policies written. */
   mediaAccounts?: MediaSyncCounts;
+  /** Jellyfin with a Seerr configured: the requests add-on (zeros while it is switched off). */
+  seerr?: SeerrSyncCounts;
   /** Uptime Kuma: monitors of the instance; managementError when the management session failed. */
   monitors?: MonitorSyncCounts;
   /**
@@ -691,6 +694,15 @@ export class SyncService {
         result.phoneSystems = await syncPhoneSystems(this.db, connection, adapter);
       if (adapter.listMediaUsers)
         result.mediaAccounts = await syncMediaAccounts(this.db, connection, adapter, this.audit, this.log);
+      if (adapter.listMediaUsers && adapter.seerrConfigured?.()) {
+        // A Seerr failure never marks the Jellyfin connection: syncSeerr records Seerr's own
+        // problems in media_seerr, anything else is logged and the next run tries again.
+        try {
+          result.seerr = await syncSeerr(this.db, connection, adapter, this.audit, this.log);
+        } catch (err) {
+          this.log.warn({ err, provider: connection.name }, 'seerr sync failed');
+        }
+      }
       if (adapter.listMonitors) {
         result.monitors = await syncMonitors(this.db, connection, adapter);
         // The monitors came from /metrics anyway; the connection stays "ok".
