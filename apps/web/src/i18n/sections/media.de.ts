@@ -428,6 +428,8 @@ export const mediaDe = {
   'media.requests.unlimited': 'ohne Grenze',
   'media.requests.notIncluded': 'nicht enthalten',
   'media.requests.devicesHint': 'Die Anmeldung bei Anfragen zählt in Jellyfin als ein angemeldetes Gerät.',
+  'media.requests.sessionHint':
+    'Eine Anmeldung bei Anfragen gilt bis zu 30 Tage, auch nach einem neuen Passwort oder dem Abmelden aller Geräte: Bis dahin kann dort weiter angefragt werden. Deaktivieren nimmt das Recht anzufragen, erst Löschen beendet die Anmeldung.',
   'media.requests.col.pending': 'Offen',
   'media.requests.col.approved': 'Genehmigt',
   'media.requests.col.available': 'Verfügbar',
@@ -510,6 +512,8 @@ export const mediaDe = {
   'media.seerr.unmanaged':
     'Benutzer in Seerr, die die Console nicht verwaltet und anfragen dürfen: {n}. Die Synchronisierung entzieht ihnen dieses Recht.',
   'media.seerr.orphans': 'Benutzer in Seerr ohne Jellyfin-Benutzer: {n}. Löschen Sie sie in Seerr.',
+  'media.seerr.localLogin':
+    'Die lokale Anmeldung ist in Seerr an. Benutzer, die Seerr bei einer Jellyfin-Anmeldung angelegt hat, bevor die empfohlenen Einstellungen galten, melden sich damit weiter mit ihrem damaligen Passwort an, auch nach einem neuen Passwort. Schalten Sie sie in Seerr unter Einstellungen > Benutzer aus, wenn niemand sie braucht.',
   'media.seerr.apply': 'Empfohlene Einstellungen anwenden',
   'media.seerr.applyText':
     'Setzt in Seerr: neue Anmeldungen über Jellyfin aus, neue Benutzer ohne Rechte, Anmeldung mit Jellyfin an. Andere Einstellungen bleiben.',

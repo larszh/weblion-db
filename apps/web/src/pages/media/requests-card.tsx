@@ -61,6 +61,7 @@ export function MediaRequestsCard({
             )}
             <p className="mt-1.5 text-sm text-text">{t('media.requests.signIn')}</p>
             <p className="mt-1 text-xs text-muted">{t('media.requests.devicesHint')}</p>
+            <p className="mt-1 text-xs text-muted">{t('media.requests.sessionHint')}</p>
           </div>
           <div className="min-w-0">
             <p className="text-xs text-muted">{t('media.requests.included')}</p>
@@ -97,11 +98,14 @@ export function MediaRequestsCard({
               const quotaCell = quota.length > 0 ? quota : [t('media.requests.unlimited')];
               // A disabled account has no request rights: its quota means nothing.
               const showQuota = view.ready && a.enabled;
+              // Only an account that gets rights is set up in Seerr: a disabled or missing one waits
+              // for nothing (the console never creates a Seerr user just to give it no rights).
+              const settingUp = !view.ready && a.enabled && !a.missingSince;
               return (
                 <TR key={a.id}>
                   <TD className="max-w-[260px]">
                     <Mono className="block truncate font-medium text-text">{a.username}</Mono>
-                    {!view.ready && (
+                    {settingUp && (
                       <Tooltip content={t('media.requests.notReadyHint')}>
                         <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted">
                           <Info className="size-3.5" aria-hidden /> {t('media.requests.notReady')}

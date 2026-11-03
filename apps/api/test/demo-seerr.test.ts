@@ -175,6 +175,7 @@ describe('start', () => {
     expect(adapter.seerrConfigured()).toBe(true);
     expect(adapter.seerrUrl()).toBe(DEMO_SEERR_URL);
     expect((await adapter.listSeerrUsers()).map((u) => u.id)).toEqual([1, 2, 3, 4]);
+    expect(await adapter.getSeerrUser(2)).toEqual(seerr.listSeerrUsers()[1]);
     expect(await adapter.seerrQuotaUsage(2)).toEqual({ movieUsed: 2, tvUsed: 2 });
     await adapter.deleteSeerrUser(4);
     expect(state().users.has(4)).toBe(false);
@@ -237,8 +238,11 @@ describe('check and settings', () => {
     expect(state().users.has(4)).toBe(true);
     // Reads still work.
     expect(seerr.listSeerrUsers()).toHaveLength(4);
+    expect(seerr.getSeerrUser(3).jellyfinUserId).toBe(DEMO_MEDIA_IDS['wohnzimmer-kemaro']);
+    expect(refused(() => seerr.getSeerrUser(99)).statusCode).toBe(404);
     state().keyRejected = true;
     expect(refused(() => seerr.listSeerrUsers()).message).toContain('The API key was rejected');
+    expect(refused(() => seerr.getSeerrUser(3)).message).toContain('The API key was rejected');
     expect(refused(() => seerr.seerrRequestCounts()).message).toContain('HTTP 403');
   });
 });
@@ -400,6 +404,7 @@ describe('fail switches', () => {
     const calls: Record<Exclude<DemoSeerrMethod, 'seerrCheck'>, () => unknown> = {
       seerrApplySafeSettings: () => seerr.seerrApplySafeSettings(),
       listSeerrUsers: () => seerr.listSeerrUsers(),
+      getSeerrUser: () => seerr.getSeerrUser(2),
       importSeerrUser: () => seerr.importSeerrUser(jellyfinUser()),
       setSeerrUserAccess: () => seerr.setSeerrUserAccess(3, grant, user),
       deleteSeerrUser: () => seerr.deleteSeerrUser(3),

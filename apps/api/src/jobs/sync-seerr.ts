@@ -1,4 +1,4 @@
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, sql, type SQL } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import {
   MEDIA_SEERR_FIXABLE,
@@ -8,7 +8,7 @@ import {
 } from '@weblion/shared';
 import type { AuditService } from '../audit';
 import type { Database } from '../db/client';
-import { mediaAccounts, mediaAllowances, mediaSeerr, type ProviderConnection } from '../db/schema';
+import { auditLogs, mediaAccounts, mediaAllowances, mediaSeerr, type ProviderConnection } from '../db/schema';
 import { runStart } from '../lib/clock';
 import {
   expectedSeerrAccess,
@@ -18,13 +18,16 @@ import {
   seerrSettingsOf,
   seerrStatusOf,
   seerrSyncEnv,
+  revokeSeerrAccount,
   storeSeerrCheck,
-  stripSeerrIssuesOf,
+  stripSeerrMissingOf,
+  type SeerrAccessDriftField,
   type SeerrOutcome,
+  type SeerrRevocation,
 } from '../modules/media/seerr';
 import { errorMessage, mediaRequestsOf, replaceSeerrIssues, type SeerrIssue } from '../modules/media/service';
 import { SEERR_OWNER_ID, SEERR_REQUEST_BITS } from '../providers/seerr/rules';
-import type { ProviderAdapter, RemoteSeerrUser, SeerrCheckResult } from '../providers/types';
+import type { ProviderAdapter, RemoteSeerrUser, SeerrCheckResult, SeerrUserAccess } from '../providers/types';
 
 /** Counts of a Seerr sync run (requests add-on of a Jellyfin connection). */
 export interface SeerrSyncCounts {
@@ -71,12 +74,12 @@ export async function syncSeerr(
     .from(mediaSeerr)
     .where(eq(mediaSeerr.providerConnectionId, connection.id))
     .limit(1);
-  // 0. Switched off: the Seerr issues mean nothing any more.
+  const entry = { resourceType: 'provider', resourceId: connection.id, actorName: SYNC } as const;
+  // 0. Switched off: only what the switch-off could not finish.
   if (!row?.enabled) {
-    await stripSeerrIssuesOf(db, connection.id);
+    await finishRevocations(db, connection, adapter, audit, entry, counts, started, log);
     return counts;
   }
-  const entry = { resourceType: 'provider', resourceId: connection.id, actorName: SYNC } as const;
   const previous = {
     unmanagedRequesters: row.lastCheck?.unmanagedRequesters ?? null,
     orphans: row.lastCheck?.orphans ?? null,
@@ -179,6 +182,53 @@ export async function syncSeerr(
   const env = seerrSyncEnv(db, adapter, log);
   let writes = 0;
 
+  /** Nothing to write (or no budget left): the stored id and issues follow what Seerr has. */
+  const follow = async (planned: Planned) => {
+    const { account, user, needsImport, fields } = planned;
+    const issues: SeerrIssue[] = needsImport ? ['seerr_missing'] : fields.length > 0 ? ['seerr_drift'] : [];
+    const seerrUserId = user?.id ?? null;
+    if (seerrUserId === account.seerrUserId && sameIssues(storedSeerrIssues(account.issues), issues)) return;
+    await db
+      .update(mediaAccounts)
+      .set({ seerrUserId, issues: replaceSeerrIssues(issues) })
+      .where(and(eq(mediaAccounts.id, account.id), lt(mediaAccounts.updatedAt, started)));
+  };
+  const repair = async (planned: Planned) => {
+    if (writes >= MAX_SEERR_WRITES_PER_RUN) return follow(planned);
+    writes++;
+    const { account, user, needsImport, fields, requests } = planned;
+    const audited = {
+      ...entry,
+      action: 'media.seerr_repair',
+      orgId: requests ? account.orgId : null,
+      resourceType: 'media_account',
+      resourceId: account.id,
+    };
+    const what = needsImport ? { imported: true } : { fields };
+    const result = await reconcileSeerr(env, account.id, user).catch((err: unknown) => ({
+      outcome: { error: errorMessage(err) } as SeerrOutcome,
+      wrote: 'none' as const,
+    }));
+    if (typeof result.outcome === 'object') {
+      counts.failed++;
+      const error = result.outcome.error;
+      // The same failure as the last entry of this account (a Seerr that refuses every run) is
+      // not entered again: the issue stays and says so.
+      if (!(await sameFailure(db, 'media.seerr_repair', { type: 'media_account', id: account.id }, error))) {
+        await audit.record(null, {
+          ...audited,
+          status: 'failure',
+          details: { username: account.username, ...what, error },
+        });
+      }
+    } else if (result.outcome === 'ok' && result.wrote !== 'none') {
+      if (result.wrote === 'import') counts.imported++;
+      else counts.repaired++;
+      await audit.record(null, { ...audited, details: { username: account.username, ...what } });
+    }
+  };
+
+  const planned: Planned[] = [];
   for (const account of accounts) {
     const allowance = account.orgId ? byOrg.get(account.orgId) : undefined;
     // A route changed the account or its allowance during the run: it ran its own Seerr step.
@@ -192,49 +242,20 @@ export async function syncSeerr(
     const user = byJellyfin.get(account.externalId) ?? null;
     const fields = user ? seerrAccessDrift(user, expected) : [];
     const needsImport = expected.permissions > 0 && !user;
+    const plan: Planned = { account, user, requests, expected, fields, needsImport };
     // Seerr's owner is never changed; its drift stays visible.
-    const needsWrite = needsImport || (fields.length > 0 && user!.id !== SEERR_OWNER_ID);
-    const orgId = requests ? account.orgId : null;
-    const audited = {
-      ...entry,
-      action: 'media.seerr_repair',
-      orgId,
-      resourceType: 'media_account',
-      resourceId: account.id,
-    };
-    if (needsWrite && writes < MAX_SEERR_WRITES_PER_RUN) {
-      writes++;
-      const what = needsImport ? { imported: true } : { fields };
-      const result = await reconcileSeerr(env, account.id, user).catch((err: unknown) => ({
-        outcome: { error: errorMessage(err) } as SeerrOutcome,
-        wrote: 'none' as const,
-      }));
-      if (typeof result.outcome === 'object') {
-        counts.failed++;
-        await audit.record(null, {
-          ...audited,
-          status: 'failure',
-          details: { username: account.username, ...what, error: result.outcome.error },
-        });
-      } else if (result.outcome === 'ok' && result.wrote !== 'none') {
-        if (result.wrote === 'import') counts.imported++;
-        else counts.repaired++;
-        await audit.record(null, { ...audited, details: { username: account.username, ...what } });
-      }
-      continue;
-    }
-    // Nothing to write (or no budget left): the stored id and issues follow what Seerr has.
-    const issues: SeerrIssue[] = needsImport ? ['seerr_missing'] : fields.length > 0 ? ['seerr_drift'] : [];
-    const seerrUserId = user?.id ?? null;
-    const storedIssues = account.issues.filter(
-      (i): i is SeerrIssue => i === 'seerr_missing' || i === 'seerr_drift',
-    );
-    if (seerrUserId === account.seerrUserId && sameIssues(storedIssues, issues)) continue;
-    await db
-      .update(mediaAccounts)
-      .set({ seerrUserId, issues: replaceSeerrIssues(issues) })
-      .where(and(eq(mediaAccounts.id, account.id), lt(mediaAccounts.updatedAt, started)));
+    if (needsImport || (fields.length > 0 && user!.id !== SEERR_OWNER_ID)) planned.push(plan);
+    else await follow(plan);
   }
+
+  // The budget goes to taking rights first: managed accounts with rights they should not have
+  // (disabled, deleted in Jellyfin, add-on off, extra bits), then users the console does not manage.
+  // Then to grants: those that did not fail before, and last, from a random start, those that did,
+  // so imports Seerr refuses every run never starve the accounts behind them.
+  const takesRights = (p: Planned) => !!p.user && (p.user.permissions & ~p.expected.permissions) !== 0;
+  const failedBefore = (p: Planned) =>
+    storedSeerrIssues(p.account.issues).includes(p.needsImport ? 'seerr_missing' : 'seerr_drift');
+  for (const p of planned.filter(takesRights)) await repair(p);
 
   // 4. Request rights of Seerr users the console does not manage (owner and staff excluded).
   let unmanaged = 0;
@@ -264,17 +285,25 @@ export async function syncSeerr(
       await audit.record(null, audited);
     } catch (err) {
       counts.failed++;
-      await audit.record(null, {
-        ...audited,
-        status: 'failure',
-        details: { ...audited.details, error: errorMessage(err) },
-      });
+      const error = errorMessage(err);
+      const of = sql`${auditLogs.details} ->> 'seerrUserId' = ${String(user.id)}`;
+      if (
+        !(await sameFailure(db, 'media.seerr_revoke', { type: 'provider', id: connection.id, of }, error))
+      ) {
+        await audit.record(null, { ...audited, status: 'failure', details: { ...audited.details, error } });
+      }
     }
   }
 
+  const grants = planned.filter((p) => !takesRights(p));
+  for (const p of grants.filter((p) => !failedBefore(p))) await repair(p);
+  for (const p of rotated(grants.filter(failedBefore))) await repair(p);
+
   // 5. and 6. The numbers: requests per account, quota usage of the entitled accounts.
   try {
-    lastError = (await refreshNumbers(db, connection.id, adapter, requestsOf, counts, log)) ?? lastError;
+    lastError =
+      (await refreshNumbers(db, connection.id, adapter, { users, byJellyfin }, requestsOf, counts, log)) ??
+      lastError;
   } catch (err) {
     lastError = errorMessage(err).slice(0, 300);
     log?.warn({ err, provider: connection.name }, 'seerr numbers not refreshed');
@@ -290,25 +319,172 @@ export async function syncSeerr(
   return counts;
 }
 
+/**
+ * Step 0, while Seerr is switched off: seerr_missing means nothing any more and goes; seerr_drift
+ * marks accounts whose request rights the switch-off could not take back (Seerr did not answer,
+ * which is often why it was switched off). Those are taken now, confirmed against Seerr's list
+ * like the switch-off does, at most MAX_SEERR_WRITES_PER_RUN writes, each audited as a repair
+ * (orgId null: no organization sees requests while they are off). Done, the mark goes, unless the
+ * account changed during the run or Seerr was switched on meanwhile; a failure keeps it for the
+ * next run without another audit entry (the switch-off recorded it).
+ */
+async function finishRevocations(
+  db: Database,
+  connection: ProviderConnection,
+  adapter: ProviderAdapter,
+  audit: AuditService,
+  entry: { resourceType: 'provider'; resourceId: string; actorName: string },
+  counts: SeerrSyncCounts,
+  started: Date,
+  log?: Pick<FastifyBaseLogger, 'warn'>,
+): Promise<void> {
+  await stripSeerrMissingOf(db, connection.id);
+  const pending = await db
+    .select({
+      id: mediaAccounts.id,
+      username: mediaAccounts.username,
+      externalId: mediaAccounts.externalId,
+      seerrUserId: mediaAccounts.seerrUserId,
+    })
+    .from(mediaAccounts)
+    .where(
+      and(
+        eq(mediaAccounts.providerConnectionId, connection.id),
+        sql`${mediaAccounts.issues} ? 'seerr_drift'`,
+      ),
+    )
+    .orderBy(mediaAccounts.username);
+  if (pending.length === 0) return;
+  let users: RemoteSeerrUser[];
+  try {
+    users = await adapter.listSeerrUsers!();
+  } catch (err) {
+    log?.warn({ err, provider: connection.name }, 'seerr revocations not retried');
+    counts.failed += pending.length;
+    return;
+  }
+  let writes = 0;
+  for (const account of pending) {
+    let done: SeerrRevocation;
+    try {
+      done = await revokeSeerrAccount(adapter, account, users, {
+        withRightsOnly: true,
+        mayWrite: () => writes++ < MAX_SEERR_WRITES_PER_RUN,
+      });
+    } catch {
+      counts.failed++;
+      continue;
+    }
+    if (done.outcome === 'deferred') continue;
+    if (done.outcome === 'revoked') {
+      counts.revoked++;
+      await audit.record(null, {
+        ...entry,
+        action: 'media.seerr_repair',
+        orgId: null,
+        resourceType: 'media_account',
+        resourceId: account.id,
+        details: { username: account.username, fields: ['permissions'] },
+      });
+    }
+    // Nothing left to take (the owner included, whom nobody changes): the mark goes.
+    await db
+      .update(mediaAccounts)
+      .set({
+        ...(done.stale ? { seerrUserId: done.stale.to } : {}),
+        issues: replaceSeerrIssues([]),
+      })
+      .where(
+        and(
+          eq(mediaAccounts.id, account.id),
+          lt(mediaAccounts.updatedAt, started),
+          done.stale ? eq(mediaAccounts.seerrUserId, done.stale.from) : undefined,
+          sql`not exists (select 1 from media_seerr s where s.provider_connection_id = ${connection.id} and s.enabled)`,
+        ),
+      );
+  }
+}
+
 const sameIssues = (a: SeerrIssue[], b: SeerrIssue[]) =>
   a.length === b.length && a.every((i) => b.includes(i));
+
+const storedSeerrIssues = (issues: readonly string[]) =>
+  issues.filter((i): i is SeerrIssue => i === 'seerr_missing' || i === 'seerr_drift');
+
+/** A managed account of step 3 with what its Seerr user should have. */
+interface Planned {
+  account: {
+    id: string;
+    externalId: string;
+    username: string;
+    orgId: string | null;
+    issues: string[];
+    seerrUserId: number | null;
+  };
+  /** Its Seerr user in the list of step 2. */
+  user: RemoteSeerrUser | null;
+  requests: MediaRequestsAccess | null;
+  expected: SeerrUserAccess;
+  fields: SeerrAccessDriftField[];
+  needsImport: boolean;
+}
+
+/** `items` starting at a random one: every account gets its turn over the runs. */
+function rotated<T>(items: T[]): T[] {
+  const start = Math.floor(Math.random() * items.length);
+  return [...items.slice(start), ...items.slice(0, start)];
+}
+
+/**
+ * Whether the last entry of `action` for the resource (and `of`, e.g. one Seerr user of a
+ * connection) is a failure with the same error.
+ */
+async function sameFailure(
+  db: Database,
+  action: 'media.seerr_repair' | 'media.seerr_revoke',
+  resource: { type: string; id: string; of?: SQL },
+  error: string,
+): Promise<boolean> {
+  const [last] = await db
+    .select({ status: auditLogs.status, details: auditLogs.details })
+    .from(auditLogs)
+    .where(
+      and(
+        eq(auditLogs.resourceType, resource.type),
+        eq(auditLogs.resourceId, resource.id),
+        eq(auditLogs.action, action),
+        resource.of,
+      ),
+    )
+    .orderBy(desc(auditLogs.id))
+    .limit(1);
+  return last?.status === 'failure' && last.details?.error === error;
+}
 
 /**
  * Steps 5 and 6. Numbers are not a change of the account: the rows keep their updatedAt. Returns
  * a note for last_error when the numbers could not all be refreshed.
+ *
+ * Stored ids are checked against the list of step 2 first (no extra request): an id that Seerr
+ * lists with another Jellyfin id (an account a route changed during the run, so step 3 left it)
+ * is stale and replaced by the account's user found by its Jellyfin id, so no account ever shows
+ * or reads the numbers of someone else. Ids the list does not have are kept: step 3 or a route
+ * may have imported them after the list was read.
  */
 async function refreshNumbers(
   db: Database,
   connectionId: string,
   adapter: ProviderAdapter,
+  seerr: { users: readonly RemoteSeerrUser[]; byJellyfin: ReadonlyMap<string, RemoteSeerrUser> },
   requestsOf: (orgId: string | null) => MediaRequestsAccess | null,
   counts: { counted: number },
   log?: Pick<FastifyBaseLogger, 'warn'>,
 ): Promise<string | null> {
   // Read again: step 3 imported some.
-  const rows = await db
+  const read = await db
     .select({
       id: mediaAccounts.id,
+      externalId: mediaAccounts.externalId,
       orgId: mediaAccounts.orgId,
       enabled: mediaAccounts.enabled,
       missingSince: mediaAccounts.missingSince,
@@ -319,6 +495,23 @@ async function refreshNumbers(
     .from(mediaAccounts)
     .where(eq(mediaAccounts.providerConnectionId, connectionId));
   const keepDate = { updatedAt: sql`${mediaAccounts.updatedAt}` };
+  const listed = new Map(seerr.users.map((user) => [user.id, user]));
+  const rows: typeof read = [];
+  for (const row of read) {
+    const user = row.seerrUserId === null ? undefined : listed.get(row.seerrUserId);
+    if (!user || user.jellyfinUserId === row.externalId) {
+      rows.push(row);
+      continue;
+    }
+    const seerrUserId = seerr.byJellyfin.get(row.externalId)?.id ?? null;
+    // Only while the row still has the stale id (a route may store a confirmed one meanwhile).
+    const [updated] = await db
+      .update(mediaAccounts)
+      .set({ seerrUserId, seerrRequests: null, seerrSyncedAt: null, ...keepDate })
+      .where(and(eq(mediaAccounts.id, row.id), eq(mediaAccounts.seerrUserId, row.seerrUserId!)))
+      .returning({ seerrUserId: mediaAccounts.seerrUserId });
+    if (updated) rows.push({ ...row, seerrUserId, seerrRequests: null, seerrSyncedAt: null });
+  }
   let note: string | null = null;
 
   const requestCounts = await adapter.seerrRequestCounts!();

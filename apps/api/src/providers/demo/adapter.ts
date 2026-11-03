@@ -1132,6 +1132,10 @@ export class DemoAdapter implements ProviderAdapter {
     return this.seerr.listSeerrUsers();
   }
 
+  async getSeerrUser(seerrUserId: number): Promise<RemoteSeerrUser> {
+    return this.seerr.getSeerrUser(seerrUserId);
+  }
+
   async importSeerrUser(jellyfinUserId: string): Promise<RemoteSeerrUser> {
     return this.seerr.importSeerrUser(jellyfinUserId);
   }

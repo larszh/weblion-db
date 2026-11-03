@@ -1192,6 +1192,7 @@ describe('Jellyfin adapter with Seerr', () => {
       without.seerrCheck(),
       without.seerrApplySafeSettings(),
       without.listSeerrUsers(),
+      without.getSeerrUser(2),
       without.importSeerrUser(ANNA_JF),
       without.setSeerrUserAccess(2, MUSTER, { ...remote(seerr.state.users.get(1)!), id: 2 }),
       without.deleteSeerrUser(2),
@@ -1241,6 +1242,7 @@ describe('Jellyfin adapter with Seerr', () => {
     const set = await a.setSeerrUserAccess(fresh.id, MUSTER, fresh);
     expect(set).toMatchObject({ permissions: MUSTER.permissions, movieQuotaLimit: 5, tvQuotaLimit: 3 });
     expect((await a.listSeerrUsers()).map((u) => u.id)).toEqual([1, fresh.id]);
+    expect(await a.getSeerrUser(fresh.id)).toEqual(set);
     seerr.addRequest({ requestedBy: fresh.id, type: 'movie', status: 1, tmdbId: 603, title: 'The Matrix' });
     expect((await a.seerrRequestCounts()).byUser.get(fresh.id)).toEqual({
       pending: 1,

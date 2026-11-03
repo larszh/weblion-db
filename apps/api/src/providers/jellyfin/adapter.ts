@@ -824,6 +824,10 @@ export class JellyfinAdapter implements ProviderAdapter {
     return this.seerrApi().listUsers();
   }
 
+  async getSeerrUser(seerrUserId: number): Promise<RemoteSeerrUser> {
+    return this.seerrApi().getUser(seerrUserId);
+  }
+
   async importSeerrUser(jellyfinUserId: string): Promise<RemoteSeerrUser> {
     return this.seerrApi().importUser(jellyfinUserId);
   }

@@ -1157,6 +1157,21 @@ describe('resellers', () => {
       const entry = (await lastAudit('media.allowance_set', huberId))!;
       expect(entry.orgId).toBe(alpenId);
       expect(keysOf(entry.details).has('requests')).toBe(false);
+      // A sent null keeps it too (it never switches off what the reseller cannot see), and
+      // neither the answer nor the audit entry tells the reseller that there was one.
+      expect(seerrUserOf('huber-bivane')!.permissions).toBe(BOTH);
+      const cleared = await put(reto, huberUrl(), { ...huberBody(null), maxStreams: 1 });
+      expect(cleared.statusCode, cleared.body).toBe(200);
+      expect(keysOf(json(cleared)).has('requests')).toBe(false);
+      expect(keysOf(json(cleared)).has('seerr')).toBe(false);
+      expect(
+        await t.db.query.mediaAllowances.findFirst({ where: eq(mediaAllowances.orgId, huberId) }),
+      ).toMatchObject({ requestsMovies: true, requestsTv: true, movieQuotaLimit: 5 });
+      expect(seerrUserOf('huber-bivane')!.permissions).toBe(BOTH);
+      const clearedEntry = (await lastAudit('media.allowance_set', huberId))!;
+      expect(clearedEntry.id).not.toBe(entry.id);
+      expect(keysOf(clearedEntry.details).has('requests')).toBe(false);
+      expect(keysOf(clearedEntry.details).has('seerr')).toBe(false);
       // Handing it on is still refused.
       const refused = await put(reto, huberUrl(), huberBody(MUSTER_REQUESTS));
       expect(refused.statusCode).toBe(409);
@@ -1529,6 +1544,78 @@ describe('switching per instance', () => {
     await sync();
     expect((await stored('anna-kemaro'))!.seerrRequests).not.toBeNull();
   });
+
+  it('finishes a switch-off that Seerr did not answer, also for accounts disabled or deleted meanwhile', async () => {
+    const lena = await createAccount(anna, musterId, 'lena');
+    const mira = await createAccount(anna, musterId, 'mira');
+    const miraUser = seerrUserOf('mira-kemaro')!;
+    expect(seerrUserOf('lena-kemaro')!.permissions).toBe(BOTH);
+    const issuesOf = async (username: string) => (await stored(username))!.issues;
+    seerr().fail.add('setSeerrUserAccess');
+    try {
+      const off = await put(admin, url(), { enabled: false });
+      expect(off.statusCode, off.body).toBe(200);
+      const result = json<MediaSeerrChangeResult>(off);
+      expect(result.seerr.enabled).toBe(false);
+      expect(result.applied.applied).toBe(0);
+      expect(result.applied.failed.map((f) => f.username)).toEqual(
+        expect.arrayContaining(['anna-kemaro', 'lena-kemaro', 'mira-kemaro']),
+      );
+      // The revocations still to do are marked, for staff only.
+      for (const username of ['anna-kemaro', 'lena-kemaro', 'mira-kemaro']) {
+        expect(await issuesOf(username)).toContain('seerr_drift');
+      }
+      const listed = json<MediaAccountDto[]>(await admin.get('/admin/media/accounts?q=lena-kemaro'));
+      expect(listed[0]!.issues).toContain('seerr_drift');
+      expect(keysOf(listed[0]).has('requests')).toBe(false);
+      const customer = await orgMedia(anna, musterId);
+      expect(customer.accounts.flatMap((a) => a.issues)).not.toContain('seerr_drift');
+
+      // Switching off again retries at once, audited; the sync retries while Seerr is off.
+      const again = await put(admin, url(), { enabled: false });
+      expect(again.statusCode, again.body).toBe(200);
+      expect(json<MediaSeerrChangeResult>(again).applied.failed.length).toBeGreaterThan(0);
+      expect((await lastAudit('media.seerr_disable', demo.id))!.details).toMatchObject({
+        retry: true,
+        applied: 0,
+      });
+      expect(await sync()).toMatchObject({ revoked: 0 });
+      expect(await issuesOf('lena-kemaro')).toContain('seerr_drift');
+
+      // Disabled while Seerr is off: the mark stays. Deleted: the Seerr user goes with the account.
+      expect((await anna.patch(`/media/accounts/${lena.id}`, { enabled: false })).statusCode).toBe(200);
+      expect(await issuesOf('lena-kemaro')).toContain('seerr_drift');
+      expect((await remove(anna, mira.id, 'mira-kemaro')).statusCode).toBe(200);
+      expect(seerr().users.has(miraUser.id)).toBe(false);
+    } finally {
+      seerr().fail.delete('setSeerrUserAccess');
+    }
+
+    // Seerr answers again: the sync takes the rights and the marks go.
+    expect(await sync()).toMatchObject({ revoked: 2, failed: 0 });
+    expect(seerrUserOf('lena-kemaro')!.permissions).toBe(0);
+    expect(seerr().users.get(2)!.permissions).toBe(0);
+    for (const username of ['anna-kemaro', 'lena-kemaro', 'wohnzimmer-kemaro']) {
+      expect(await issuesOf(username)).not.toContain('seerr_drift');
+    }
+    expect((await lastAudit('media.seerr_repair', lena.id))!).toMatchObject({
+      actorName: 'Sync',
+      orgId: null,
+      details: { username: 'lena-kemaro', fields: ['permissions'] },
+    });
+    expect(await sync()).toMatchObject({ revoked: 0, failed: 0 });
+    // Nothing left: switching off again changes nothing.
+    expect(json<MediaSeerrChangeResult>(await put(admin, url(), { enabled: false })).applied).toEqual({
+      applied: 0,
+      failed: [],
+    });
+
+    const on = await put(admin, url(), { enabled: true, confirmShared: true });
+    expect(on.statusCode, on.body).toBe(200);
+    expect((await remove(anna, lena.id, 'lena-kemaro')).statusCode).toBe(200);
+    await sync();
+    expect(rightsOf(seerr().users.get(2))).toEqual(MUSTER_SEERR);
+  });
 });
 
 describe('sync', () => {
@@ -1560,6 +1647,53 @@ describe('sync', () => {
     expect(await sync()).toMatchObject({ repaired: 0, revoked: 6 });
     expect(added.every((u) => seerr().users.get(u.id)!.permissions === 0)).toBe(true);
     for (const u of added) seerr().users.delete(u.id);
+  });
+
+  it('takes rights before it grants, and imports Seerr refuses every run neither starve the rest nor flood the audit log', async () => {
+    const allowanceUrl = `/admin/orgs/${musterId}/media-allowance`;
+    expect((await put(admin, allowanceUrl, { ...musterBody(), maxAccounts: 40 })).statusCode).toBe(200);
+    // Disabled while Seerr did not take the write: it keeps its rights, with the drift as an issue.
+    const zz = await createAccount(anna, musterId, 'zz');
+    seerr().fail.add('setSeerrUserAccess');
+    try {
+      expect((await anna.patch(`/media/accounts/${zz.id}`, { enabled: false })).statusCode).toBe(200);
+    } finally {
+      seerr().fail.delete('setSeerrUserAccess');
+    }
+    expect(seerrUserOf('zz-kemaro')!.permissions).toBe(BOTH);
+    const local = addDemoSeerrUser(seerr(), { permissions: P.REQUEST });
+    // Seerr's own link to Jellyfin broke: every import fails, writes of rights still work.
+    seerr().fail.add('importSeerrUser');
+    const waiting: MediaAccountDto[] = [];
+    try {
+      for (let i = 0; i < 26; i++)
+        waiting.push(await createAccount(anna, musterId, `a${String(i).padStart(2, '0')}`));
+      const ids = new Set(waiting.map((a) => a.id));
+      const failures = async () =>
+        (await auditEntries('media.seerr_repair')).filter(
+          (e) => e.status === 'failure' && ids.has(e.resourceId!),
+        );
+
+      expect(await sync()).toMatchObject({ repaired: 1, revoked: 1, failed: 23 });
+      expect(seerrUserOf('zz-kemaro')!.permissions).toBe(0);
+      expect(seerr().users.get(local.id)!.permissions).toBe(0);
+      expect(await failures()).toHaveLength(23);
+      for (let run = 0; run < 3; run++) expect(await sync()).toMatchObject({ failed: 25, revoked: 0 });
+      // Each refused import is entered once, not on every run.
+      const entered = (await failures()).map((e) => e.resourceId);
+      expect(new Set(entered).size).toBe(entered.length);
+      for (const account of waiting)
+        expect((await stored(account.username))!.issues).toEqual(['seerr_missing']);
+    } finally {
+      seerr().fail.delete('importSeerrUser');
+      seerr().users.delete(local.id);
+    }
+    expect(await sync()).toMatchObject({ imported: 25, failed: 0 });
+    for (const account of [...waiting, zz]) {
+      expect((await remove(anna, account.id, account.username)).statusCode).toBe(200);
+    }
+    expect((await put(admin, allowanceUrl, musterBody())).statusCode).toBe(200);
+    expect(await sync()).toMatchObject({ failed: 0 });
   });
 
   it('re-applies drifted safe settings as "Sync" and stops at anything it cannot fix', async () => {

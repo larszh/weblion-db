@@ -45,6 +45,7 @@ import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
+import { dropMediaRequestsOf, forgetSeerrUsers, pendingSeerrRevocations } from '../media/seerr';
 import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
 import {
   HOST_KEY_FINGERPRINT_PATTERN,
@@ -674,7 +675,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.patch('/admin/providers/:id', async (req) => {
-    requireSession(req);
+    const auth = requireSession(req);
     await can(req, 'platform:provider:write');
     const { id } = parse(idParams, req.params);
     const connection = await loadConnection(id);
@@ -693,6 +694,9 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
     let configEnc: string | undefined;
     /** How the Seerr address of a Jellyfin connection changed (the key alone may rotate freely). */
     let seerrAddress: 'added' | 'changed' | 'removed' | undefined;
+    /** What the change dropped, for the audit entry: add-ons of the instance, revocations left. */
+    let requestsOff: string[] = [];
+    let revocationsLeft = 0;
     if (body.config) {
       // Empty secret fields keep the stored value so the UI never needs to know it; null
       // removes it (e.g. a Joker API key when switching to username and password).
@@ -734,11 +738,16 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
             'Switch requests off for this instance before you change or remove its Seerr address',
           );
         }
-        // The last check was of the old Seerr.
+        // The last check was of the old Seerr, and so are the Seerr ids of the accounts. Rights a
+        // switch-off could not take there yet are left to Seerr itself (named in the audit entry).
         await tx
           .update(mediaSeerr)
           .set({ status: 'unknown', lastCheck: null, checkedAt: null, lastError: null })
           .where(eq(mediaSeerr.providerConnectionId, id));
+        revocationsLeft = await pendingSeerrRevocations(tx, id);
+        await forgetSeerrUsers(tx, id);
+        // Without a Seerr the instance offers no add-on.
+        if (seerrAddress === 'removed') requestsOff = await dropMediaRequestsOf(tx, id, auth.user.id);
       }
       return tx
         .update(providerConnections)
@@ -761,6 +770,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         enabled: body.enabled,
         credentialsChanged: !!configEnc,
         ...(seerrAddress ? { seerr: seerrAddress } : {}),
+        ...(requestsOff.length > 0 ? { requestsOff } : {}),
+        ...(revocationsLeft > 0 ? { seerrRevocationsLeft: revocationsLeft } : {}),
       },
     });
     return toProviderDto(updated!);

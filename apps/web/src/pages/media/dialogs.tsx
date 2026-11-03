@@ -488,6 +488,8 @@ export function SetMediaPasswordDialog({
         }}
       >
         <PasswordChoice id="mp" mode={mode} onMode={setMode} password={password} onPassword={setPassword} />
+        {/* Only where the organization sees requests: Seerr keeps its own sign-in. */}
+        {account.requests && <p className="text-xs text-muted">{t('media.requests.sessionHint')}</p>}
         <button type="submit" className="sr-only" aria-hidden tabIndex={-1} />
       </form>
     </Dialog>
@@ -689,6 +691,7 @@ export function SignOutDevicesDialog({
           </p>
         )}
         <p className="text-sm text-muted">{t('media.devices.text')}</p>
+        {account.requests && <p className="text-xs text-muted">{t('media.requests.sessionHint')}</p>}
         <p className="text-xs text-muted">{t('media.devices.privacy')}</p>
       </div>
     </Dialog>

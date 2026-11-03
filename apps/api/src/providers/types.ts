@@ -964,6 +964,11 @@ export interface ProviderAdapter {
   seerrApplySafeSettings?(): Promise<SeerrCheckResult>;
   /** Every Seerr user (all pages), deduplicated by id. */
   listSeerrUsers?(): Promise<RemoteSeerrUser[]>;
+  /**
+   * One Seerr user by id (404 when Seerr has none): confirms that a stored id still belongs to the
+   * account's Jellyfin user before anything is written to it, where no list is at hand.
+   */
+  getSeerrUser?(seerrUserId: number): Promise<RemoteSeerrUser>;
   /** Imports the Jellyfin user (or finds it when Seerr knows it). */
   importSeerrUser?(jellyfinUserId: string): Promise<RemoteSeerrUser>;
   /** Never for SEERR_OWNER_ID. Returns the user as read back; a difference left throws. */

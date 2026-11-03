@@ -79,6 +79,7 @@ import {
   mediaRequestsInfo,
   mediaRequestsOf,
   organizationsWithRequests,
+  pendingSeerrRevocations,
   requestsUnavailable,
   revokeSeerrConnection,
   seerrAccountStep,
@@ -939,8 +940,12 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
     // The Seerr user goes with its requests; a failure leaves it to the sync, which takes the
     // request rights of users without a managed account.
     const seerr = await bestEffort(() => deleteSeerrAccount(ctx, current), SEERR_STEP_MS);
-    if (seerrVisible)
-      details.seerr = seerr.ok ? seerr.value : ({ error: seerr.error } satisfies SeerrOutcome);
+    const seerrOutcome: SeerrOutcome = seerr.ok ? seerr.value : { error: seerr.error };
+    if (seerrVisible) details.seerr = seerrOutcome;
+    else if (typeof seerrOutcome === 'object') {
+      // Not in the organization's audit log, which shows nothing of requests here.
+      req.log.warn({ mediaAccountId: current.id, error: seerrOutcome.error }, 'seerr user not deleted');
+    }
     await succeeded(req, entry);
     return { ok: true };
   });
@@ -1296,7 +1301,25 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
       seerr: await storedSeerrDto(ctx, connection),
       applied: { applied: 0, failed: [] },
     });
-    if (body.enabled === state.enabled) return unchanged();
+    if (body.enabled === state.enabled) {
+      // Off again: what an earlier switch-off could not take back (Seerr did not answer) is
+      // retried now, as the sync would.
+      if (body.enabled || (await pendingSeerrRevocations(db, connection.id)) === 0) return unchanged();
+      const applied = await revokeSeerrConnection(ctx, connection);
+      const seerr = await storedSeerrDto(ctx, connection);
+      await audit.record(req, {
+        action: 'media.seerr_disable',
+        resourceType: 'provider',
+        resourceId: connection.id,
+        details: {
+          organizations: seerr.organizations,
+          shared: seerr.organizations > 1,
+          retry: true,
+          ...seerrApplyDetails(applied),
+        },
+      });
+      return { seerr, applied };
+    }
 
     let organizations = 0;
     if (body.enabled) {
@@ -1648,8 +1671,13 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
         // A reseller hands on only the add-on it has itself, and only while Seerr is active there.
         const seerrActive = (await seerrState(ctx, connection, tx)).active;
         const resellerRequests = seerrActive ? mediaRequestsOf(resellerAllowance) : null;
+        // A reseller changes the add-on only where it sees it (its own add-on, Seerr active).
+        // Elsewhere a sent null keeps the customer's add-on as it is, like an absent one: switching
+        // off an add-on staff gave, or a refusal, would tell the reseller that there is one. One
+        // sent on is refused below whatever the customer has.
+        const ownRequests = requested === null && resellerRequests === null ? undefined : requested;
         const nextRequests: MediaRequestsAccess | null =
-          requested !== undefined ? requested : current ? mediaRequestsOf(current) : null;
+          ownRequests !== undefined ? ownRequests : current ? mediaRequestsOf(current) : null;
 
         const conflicts: (MediaAccessConflict | MediaRequestsConflict)[] = [
           ...mediaAccessExceeds(next, mediaAccessOf(resellerAllowance)),
@@ -1657,7 +1685,7 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
           // (its own add-on, Seerr active) and so can narrow it. An add-on staff gave a customer of
           // a reseller without one stays as it is: the reseller sees nothing of it and could never
           // save otherwise. While Seerr is off an add-on has no effect and is left alone.
-          ...(requested !== undefined || resellerRequests !== null
+          ...(ownRequests !== undefined || resellerRequests !== null
             ? mediaRequestsExceed(nextRequests, resellerRequests)
             : []),
         ];
@@ -1730,13 +1758,14 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
         previous: previous ? allowanceDetails(previous, requestsShown) : null,
         moduleEnabled: moduleEnabled ? MEDIA_MODULE : null,
         policy: policyDetails(policy),
-        ...(seerr ? { seerr: seerrApplyDetails(seerr) } : {}),
+        ...(seerr && requestsShown ? { seerr: seerrApplyDetails(seerr) } : {}),
       },
     });
     return {
       allowance: (await mediaAllowanceDtoFor(ctx, customer, { reseller }))!,
       policy,
-      ...(seerr ? { seerr } : {}),
+      // Like the add-on itself: only for a reseller that sees it.
+      ...(seerr && requestsShown ? { seerr } : {}),
     };
   });
 

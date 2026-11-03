@@ -100,6 +100,7 @@ export type DemoSeerrMethod =
   | 'seerrCheck'
   | 'seerrApplySafeSettings'
   | 'listSeerrUsers'
+  | 'getSeerrUser'
   | 'importSeerrUser'
   | 'setSeerrUserAccess'
   | 'deleteSeerrUser'
@@ -431,6 +432,14 @@ export class DemoSeerr {
     this.failing('listSeerrUsers');
     this.keyAccepted('list the users');
     return [...this.state.users.values()].sort((a, b) => a.id - b.id).map((u) => this.view(u));
+  }
+
+  /** GET /user/{id}: 404 for a user Seerr does not have. */
+  getSeerrUser(seerrUserId: number): RemoteSeerrUser {
+    this.failing('getSeerrUser');
+    const action = `read user ${seerrUserId}`;
+    this.keyAccepted(action);
+    return this.view(this.user(seerrUserId, action));
   }
 
   /**

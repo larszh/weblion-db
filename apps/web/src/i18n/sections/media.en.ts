@@ -408,6 +408,8 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.requests.unlimited': 'no limit',
   'media.requests.notIncluded': 'not included',
   'media.requests.devicesHint': 'Signing in to requests counts as one signed-in device in Jellyfin.',
+  'media.requests.sessionHint':
+    'A sign-in to requests stays valid for up to 30 days, also after a new password or signing out every device: until then, requests can still be made there. Disabling takes the right to request, only deleting ends the sign-in.',
   'media.requests.col.pending': 'Open',
   'media.requests.col.approved': 'Approved',
   'media.requests.col.available': 'Available',
@@ -488,6 +490,8 @@ export const mediaEn: Record<keyof typeof mediaDe, string> = {
   'media.seerr.unmanaged':
     'Seerr users the console does not manage that may request: {n}. The sync takes this right away.',
   'media.seerr.orphans': 'Seerr users without a Jellyfin user: {n}. Delete them in Seerr.',
+  'media.seerr.localLogin':
+    'Local sign-in is on in Seerr. Users Seerr created at a Jellyfin sign-in before the recommended settings applied still sign in there with their password of that time, also after a new password. Switch it off in Seerr under Settings > Users if nobody needs it.',
   'media.seerr.apply': 'Apply the recommended settings',
   'media.seerr.applyText':
     'Sets in Seerr: new sign-ins through Jellyfin off, new users without rights, sign-in with Jellyfin on. Other settings stay.',

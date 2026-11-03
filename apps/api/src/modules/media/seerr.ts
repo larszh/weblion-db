@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNotNull, isNull, max, or, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNotNull, isNull, max, or, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import {
   mediaRequestsExceed,
@@ -236,9 +236,9 @@ export function isUnmanagedRequester(
 }
 
 /**
- * Stands in for a Seerr user whose rights were not read (a revocation outside the sync): any
- * rights, so the adapter writes the permissions first (design 19.4 step 1); quotas are not
- * touched for a revocation.
+ * Stands in for a Seerr user whose rights were not read again (taking back a grant this call
+ * wrote to the user it imported or confirmed): any rights, so the adapter writes the permissions
+ * first (design 19.4 step 1); quotas are not touched for a revocation.
  */
 const rightsUnknown = (id: number, jellyfinUserId: string): RemoteSeerrUser => ({
   id,
@@ -251,6 +251,66 @@ const rightsUnknown = (id: number, jellyfinUserId: string): RemoteSeerrUser => (
 });
 
 const gone = (err: unknown) => err instanceof AppError && err.statusCode === 404;
+
+/** The Seerr user of a Jellyfin user in Seerr's list: the lowest id should Seerr have two (like the sync). */
+export function seerrUserByJellyfinId(
+  users: readonly RemoteSeerrUser[],
+  jellyfinUserId: string,
+): RemoteSeerrUser | null {
+  let found: RemoteSeerrUser | null = null;
+  for (const user of users) {
+    if (user.jellyfinUserId === jellyfinUserId && (!found || user.id < found.id)) found = user;
+  }
+  return found;
+}
+
+/** The account's Seerr user behind its stored id, and whether that id has to be replaced. */
+interface ConfirmedSeerrUser {
+  /** The Seerr user with the account's Jellyfin id; null when Seerr has none. */
+  user: RemoteSeerrUser | null;
+  /** The stored id belongs to another Jellyfin user or to nobody: store `user?.id ?? null` instead. */
+  stale: boolean;
+}
+
+/**
+ * Confirms a stored Seerr id before anything is written to it: the Seerr user with that id must
+ * have the account's Jellyfin id, from `users` when the caller has Seerr's list, otherwise read
+ * alone. Stored ids of another Seerr (the address changed) or of a deleted user would otherwise
+ * reach someone else, even Seerr staff. A stale id is never written to: the account's user is
+ * looked up by its Jellyfin id instead (in the list, which is read only then). Throws for Seerr
+ * failures, a 404 of the one user excepted.
+ */
+async function confirmSeerrUser(
+  adapter: ProviderAdapter,
+  seerrUserId: number,
+  jellyfinUserId: string,
+  users?: readonly RemoteSeerrUser[],
+): Promise<ConfirmedSeerrUser> {
+  let user: RemoteSeerrUser | null;
+  if (users) {
+    user = users.find((u) => u.id === seerrUserId) ?? null;
+  } else {
+    try {
+      user = await adapter.getSeerrUser!(seerrUserId);
+    } catch (err) {
+      if (!gone(err)) throw err;
+      user = null;
+    }
+  }
+  if (user && user.jellyfinUserId === jellyfinUserId) return { user, stale: false };
+  const list = users ?? (await adapter.listSeerrUsers!());
+  return { user: seerrUserByJellyfinId(list, jellyfinUserId), stale: true };
+}
+
+/**
+ * A Seerr user found by its Jellyfin id only (no confirmed stored id) whose request rights a
+ * switch-off takes: not the owner, no Seerr staff (they were not set up by the console), and
+ * with a request right at all.
+ */
+const revocableByJellyfinId = (user: RemoteSeerrUser) =>
+  user.id !== SEERR_OWNER_ID &&
+  (user.permissions & SEERR_REQUEST_BITS) !== 0 &&
+  (user.permissions & SEERR_STAFF_BITS) === 0;
 
 /** Seerr writes as audited: never more than the names of the accounts that failed. */
 export const seerrApplyDetails = (result: MediaPolicyApplyResult) => ({
@@ -339,8 +399,10 @@ interface SeerrStep {
 /**
  * Brings the Seerr user of one account to `expected`. `known`: the Seerr user the sync's list has
  * for the account (null: none); undefined outside the sync, then a grant imports (which finds a
- * user Seerr knows) and a revocation writes to `account.seerrUserId` without reading it first.
- * Never creates a Seerr user just to give it no rights. Never throws.
+ * user Seerr knows by its Jellyfin id) and a revocation first reads the user of
+ * `account.seerrUserId` and writes to it only while it has the account's Jellyfin id (otherwise
+ * to the account's user found by its Jellyfin id, or to nobody). Never creates a Seerr user just
+ * to give it no rights. Never throws.
  */
 async function stepInSeerr(
   adapter: ProviderAdapter,
@@ -375,23 +437,32 @@ async function stepInSeerr(
         fields,
       };
     }
-    const id = known === undefined ? account.seerrUserId : (known?.id ?? null);
-    if (id === null) {
+    // Outside the sync the stored id is confirmed first: one of another Seerr or another
+    // Jellyfin user is never written to.
+    let user: RemoteSeerrUser | null = known ?? null;
+    let stale = false;
+    if (known === undefined && account.seerrUserId !== null) {
+      const confirmed = await confirmSeerrUser(adapter, account.seerrUserId, account.externalId);
+      user = confirmed.user;
+      stale = confirmed.stale;
+    }
+    if (!user) {
       // Nobody in Seerr to take rights from.
       return {
         outcome: 'skipped',
-        seerrUserId: known === null ? null : undefined,
+        seerrUserId: known === null || stale ? null : undefined,
         issues: [],
         wrote: 'none',
         fields: [],
       };
     }
+    const id = user.id;
     if (id === SEERR_OWNER_ID) return owner(id);
     target = id;
-    const fields: SeerrAccessDriftField[] = known ? seerrAccessDrift(known, expected) : ['permissions'];
+    const fields = seerrAccessDrift(user, expected);
     if (fields.length === 0) return { outcome: 'ok', seerrUserId: id, issues: [], wrote: 'none', fields };
     try {
-      await adapter.setSeerrUserAccess!(id, expected, known ?? rightsUnknown(id, account.externalId));
+      await adapter.setSeerrUserAccess!(id, expected, user);
     } catch (err) {
       // Deleted in Seerr meanwhile: nothing is left that could request.
       if (gone(err)) return { outcome: 'ok', seerrUserId: null, issues: [], wrote: 'none', fields: [] };
@@ -402,7 +473,8 @@ async function stepInSeerr(
     const missing = expected.permissions > 0 && !current;
     return {
       outcome: { error: errorMessage(err) },
-      seerrUserId: target ?? undefined,
+      // The sync's list has no user for the account: a stored id is someone else's or gone.
+      seerrUserId: target ?? (known === null ? null : undefined),
       issues: [missing ? 'seerr_missing' : 'seerr_drift'],
       wrote: 'none',
       fields: [],
@@ -444,13 +516,15 @@ export async function reconcileSeerr(
   };
   /** Seerr user that may hold rights written in this call, with the adapter that wrote them. */
   let granted: { id: number; adapter: ProviderAdapter; externalId: string } | null = null;
-  const takeBack = async () => {
-    if (!granted || granted.id === SEERR_OWNER_ID) return;
+  /** False when a grant of this call is left in Seerr. */
+  const takeBack = async (): Promise<boolean> => {
+    if (!granted || granted.id === SEERR_OWNER_ID) return true;
     const { id, adapter, externalId } = granted;
     const revoked = await bestEffort(() =>
       adapter.setSeerrUserAccess!(id, NO_RIGHTS, rightsUnknown(id, externalId)),
     );
     if (!revoked.ok) env.log.warn({ accountId, error: revoked.error }, 'seerr grant not taken back');
+    return revoked.ok;
   };
   for (let attempt = 0; attempt < RECONCILE_ATTEMPTS; attempt++) {
     const plan = await loadPlan(env, env.db, accountId);
@@ -459,8 +533,9 @@ export async function reconcileSeerr(
       return { ...result, outcome: 'skipped', visible: false };
     }
     if (!plan.active) {
-      await takeBack();
-      await stripSeerrIssues(env.db, accountId);
+      // Switched off meanwhile: a grant left in Seerr is a revocation still to do (seerr_drift).
+      const left = !(await takeBack());
+      await stripSeerrMissing(env.db, accountId, left);
       return { outcome: 'skipped', visible: false, wrote: 'none', fields: [], account: plan.account };
     }
     const planned = plan.expected;
@@ -505,29 +580,105 @@ export async function reconcileSeerr(
   return result;
 }
 
-async function stripSeerrIssues(db: DbOrTx, accountId: string): Promise<void> {
+/**
+ * While Seerr is not active the Seerr issues mean one thing only: seerr_drift marks request rights
+ * a switch-off (or a grant it raced) could not take back yet, which the sync and the next
+ * switch-off retry (see revokeSeerrConnection). seerr_missing means nothing then and goes; with
+ * `revocationLeft` the account gets the mark.
+ */
+async function stripSeerrMissing(db: DbOrTx, accountId: string, revocationLeft: boolean): Promise<void> {
   await db
     .update(mediaAccounts)
-    .set({ issues: replaceSeerrIssues([]) })
+    .set({
+      issues: revocationLeft
+        ? replaceSeerrIssues(['seerr_drift'])
+        : sql`${mediaAccounts.issues} - 'seerr_missing'::text`,
+    })
     .where(
       and(
         eq(mediaAccounts.id, accountId),
-        sql`(${mediaAccounts.issues} ? 'seerr_missing' or ${mediaAccounts.issues} ? 'seerr_drift')`,
+        revocationLeft ? undefined : sql`${mediaAccounts.issues} ? 'seerr_missing'`,
       ),
     );
 }
 
-/** Strips the Seerr issues of every account of a connection that has one (Seerr not active). */
-export async function stripSeerrIssuesOf(db: DbOrTx, connectionId: string): Promise<void> {
+/**
+ * Strips seerr_missing from every account of a connection whose Seerr is not active. The rows
+ * keep their updatedAt: that is no change of the account. seerr_drift stays (see
+ * stripSeerrMissing).
+ */
+export async function stripSeerrMissingOf(db: DbOrTx, connectionId: string): Promise<void> {
   await db
     .update(mediaAccounts)
-    .set({ issues: replaceSeerrIssues([]) })
+    .set({
+      issues: sql`${mediaAccounts.issues} - 'seerr_missing'::text`,
+      updatedAt: sql`${mediaAccounts.updatedAt}`,
+    })
     .where(
       and(
         eq(mediaAccounts.providerConnectionId, connectionId),
-        sql`(${mediaAccounts.issues} ? 'seerr_missing' or ${mediaAccounts.issues} ? 'seerr_drift')`,
+        sql`${mediaAccounts.issues} ? 'seerr_missing'`,
       ),
     );
+}
+
+/** Accounts of a connection whose request rights a switch-off could not take back yet. */
+export async function pendingSeerrRevocations(db: DbOrTx, connectionId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(mediaAccounts)
+    .where(
+      and(eq(mediaAccounts.providerConnectionId, connectionId), sql`${mediaAccounts.issues} ? 'seerr_drift'`),
+    );
+  return row?.n ?? 0;
+}
+
+/**
+ * After the Seerr address of a connection changed or was removed, in the transaction of that
+ * change: Seerr ids of the old Seerr mean nothing in the new one (they would name other users
+ * there), so every account of the connection forgets its Seerr id, numbers and Seerr issues. The
+ * next switch-on or sync finds the users again by their Jellyfin ids.
+ */
+export async function forgetSeerrUsers(db: DbOrTx, connectionId: string): Promise<void> {
+  await db
+    .update(mediaAccounts)
+    .set({ seerrUserId: null, seerrRequests: null, seerrSyncedAt: null, issues: replaceSeerrIssues([]) })
+    .where(
+      and(
+        eq(mediaAccounts.providerConnectionId, connectionId),
+        or(
+          isNotNull(mediaAccounts.seerrUserId),
+          isNotNull(mediaAccounts.seerrRequests),
+          isNotNull(mediaAccounts.seerrSyncedAt),
+          sql`(${mediaAccounts.issues} ? 'seerr_missing' or ${mediaAccounts.issues} ? 'seerr_drift')`,
+        ),
+      ),
+    );
+}
+
+/**
+ * After the Seerr address of a connection was removed, in the transaction of that change: an
+ * add-on needs a Seerr on its instance (requests_unavailable), so every allowance there loses it.
+ * Kept, it would be an add-on nobody sees or changes any more (the staff dialog shows the add-on
+ * only where Seerr is set up) that still refuses a reseller's allowance whose customers' add-ons
+ * no longer fit. Returns the organizations whose add-on went, for the audit entry of the change.
+ */
+export async function dropMediaRequestsOf(
+  db: DbOrTx,
+  connectionId: string,
+  updatedBy: string | null,
+): Promise<string[]> {
+  const rows = await db
+    .update(mediaAllowances)
+    .set({ ...mediaRequestsColumns(null), updatedBy })
+    .where(
+      and(
+        eq(mediaAllowances.providerConnectionId, connectionId),
+        or(eq(mediaAllowances.requestsMovies, true), eq(mediaAllowances.requestsTv, true)),
+      ),
+    )
+    .returning({ orgId: mediaAllowances.orgId });
+  return rows.map((r) => r.orgId).sort();
 }
 
 /**
@@ -570,11 +721,13 @@ export async function seerrAccountStep(
  * After the Jellyfin delete: deletes the Seerr user (best effort), after checking that it is
  * still the one of this Jellyfin user (never another customer's). Without a stored id the user is
  * looked up by its Jellyfin id: a first import running alongside may have created it after the
- * row was read (one that creates it later takes its rights back itself). Never throws.
+ * row was read (one that creates it later takes its rights back itself). While Seerr is switched
+ * off, only the Seerr user of an account whose request rights the switch-off could not take back
+ * yet (seerr_drift) is deleted: that mark goes with the row. Never throws.
  */
 export async function deleteSeerrAccount(
   ctx: AppContext,
-  row: Pick<MediaAccount, 'providerConnectionId' | 'seerrUserId' | 'externalId'>,
+  row: Pick<MediaAccount, 'providerConnectionId' | 'seerrUserId' | 'externalId' | 'issues'>,
 ): Promise<SeerrOutcome> {
   try {
     const connection = await ctx.db.query.providerConnections.findFirst({
@@ -582,7 +735,8 @@ export async function deleteSeerrAccount(
     });
     if (!connection) return 'skipped';
     const state = await seerrState(ctx, connection);
-    if (!state.active) return 'skipped';
+    const revocationLeft = state.configured && row.issues.includes('seerr_drift');
+    if (!state.active && !revocationLeft) return 'skipped';
     if (row.seerrUserId === SEERR_OWNER_ID) return { error: seerrOwnerRefused().message };
     const users = await state.adapter.listSeerrUsers!();
     if (row.seerrUserId === null) {
@@ -648,9 +802,68 @@ export async function applySeerrOrg(
   return result;
 }
 
+/** A stored Seerr id that named someone else or nobody, and the one found by the Jellyfin id. */
+export interface StaleSeerrId {
+  from: number;
+  to: number | null;
+}
+
+/** What revokeSeerrAccount did; `owner`: the account's Seerr user is the owner, never changed. */
+export interface SeerrRevocation {
+  outcome: 'revoked' | 'nothing' | 'deferred' | 'owner';
+  /** Store `to` instead of the account's id (only while the row still has `from`). */
+  stale?: StaleSeerrId;
+}
+
+/**
+ * Takes one account's request rights while Seerr is switched off (the switch-off and the retries
+ * of what it could not finish): permissions 0 for the user of its stored id once confirmed (from
+ * `listed`, Seerr's list, otherwise read alone), else for the user Seerr has for its Jellyfin id,
+ * but never for the owner or Seerr staff found that way (the console did not set them up). Without
+ * `listed` an account without a stored id is not reached ('nothing'). `withRightsOnly` leaves a
+ * user without any permission alone; `mayWrite` is asked right before the write ('deferred' when
+ * it says no). Throws for Seerr failures, a user gone meanwhile is 'nothing'.
+ */
+export async function revokeSeerrAccount(
+  adapter: ProviderAdapter,
+  row: Pick<MediaAccount, 'externalId' | 'seerrUserId'>,
+  listed: readonly RemoteSeerrUser[] | undefined,
+  options: { withRightsOnly?: boolean; mayWrite?: () => boolean } = {},
+): Promise<SeerrRevocation> {
+  let user: RemoteSeerrUser | null;
+  let stale: StaleSeerrId | undefined;
+  if (row.seerrUserId !== null) {
+    const confirmed = await confirmSeerrUser(adapter, row.seerrUserId, row.externalId, listed);
+    user = confirmed.user;
+    if (confirmed.stale) {
+      stale = { from: row.seerrUserId, to: user?.id ?? null };
+      if (user && !revocableByJellyfinId(user)) return { outcome: 'nothing', stale };
+    }
+  } else {
+    user = listed ? seerrUserByJellyfinId(listed, row.externalId) : null;
+    if (user && !revocableByJellyfinId(user)) return { outcome: 'nothing' };
+  }
+  if (!user || (options.withRightsOnly && user.permissions === 0)) return { outcome: 'nothing', stale };
+  if (user.id === SEERR_OWNER_ID) return { outcome: 'owner', stale };
+  if (options.mayWrite && !options.mayWrite()) return { outcome: 'deferred', stale };
+  try {
+    await adapter.setSeerrUserAccess!(user.id, NO_RIGHTS, user);
+  } catch (err) {
+    if (gone(err)) return { outcome: 'nothing', stale };
+    throw err;
+  }
+  return { outcome: 'revoked', stale };
+}
+
 /**
  * Switching Seerr off: permissions 0 for every account of the connection with a Seerr user,
  * issues and counts cleared. Never throws. Does nothing while Seerr is switched on again.
+ *
+ * Seerr is often switched off because it does not answer. An account whose rights could not be
+ * taken (or, without Seerr's list, not be checked) keeps seerr_drift as the mark of a revocation
+ * still to do: the sync retries it while Seerr is off, so does the next switch-off, and deleting
+ * the account deletes its Seerr user. Only an account linked to the owner is not marked (nobody
+ * ever changes the owner).
  */
 export async function revokeSeerrConnection(
   ctx: AppContext,
@@ -673,45 +886,58 @@ export async function revokeSeerrConnection(
           .where(eq(mediaAccounts.providerConnectionId, connection.id))
           .orderBy(mediaAccounts.username)
       : [];
-    // An account without a stored id may still have a Seerr user with request rights (a grant
-    // whose id was never stored): found by its Jellyfin id. Without the list only stored ids are
-    // reached. Owner and staff found this way were not set up by the console and stay as they are.
-    const listed: RemoteSeerrUser[] = accounts.some((a) => a.seerrUserId === null)
-      ? await state.adapter.listSeerrUsers!().catch((err: unknown) => {
-          ctx.log.warn({ err, providerId: connection.id }, 'seerr revoke: users could not be listed');
-          return [];
-        })
-      : [];
-    const rows = accounts.flatMap((row) => {
-      if (row.seerrUserId !== null) {
-        return [{ ...row, seerr: rightsUnknown(row.seerrUserId, row.externalId) }];
-      }
-      const user = listed.find((u) => u.jellyfinUserId === row.externalId);
-      if (
-        !user ||
-        user.id === SEERR_OWNER_ID ||
-        (user.permissions & SEERR_REQUEST_BITS) === 0 ||
-        (user.permissions & SEERR_STAFF_BITS) !== 0
-      ) {
-        return [];
-      }
-      return [{ ...row, seerr: user }];
-    });
-    await mapLimit(rows, SEERR_PARALLEL, async (row) => {
-      const id = row.seerr.id;
+    // One list for every account: it confirms the stored ids (a stored id is written to only while
+    // its Seerr user has the account's Jellyfin id) and finds the Seerr users of accounts without
+    // one (a grant whose id was never stored). Owner and staff found by the Jellyfin id only were
+    // not set up by the console and stay as they are. Without the list each stored id is read
+    // alone, and accounts without one count as failed: whether they have rights is unknown.
+    let listError = 'Seerr users could not be listed';
+    const listed =
+      accounts.length > 0
+        ? await state.adapter.listSeerrUsers!().catch((err: unknown) => {
+            ctx.log.warn({ err, providerId: connection.id }, 'seerr revoke: users could not be listed');
+            listError = errorMessage(err);
+            return undefined;
+          })
+        : undefined;
+    /** Accounts whose stored id was stale, with the id found by their Jellyfin id. */
+    const replaced: (StaleSeerrId & { id: string })[] = [];
+    /** Accounts whose revocation is still to do. */
+    const left: string[] = [];
+    await mapLimit(accounts, SEERR_PARALLEL, async (row) => {
+      const fail = (error: string, retry: boolean) => {
+        result.failed.push({ accountId: row.id, username: row.username, error });
+        if (retry) left.push(row.id);
+      };
+      if (row.seerrUserId === null && !listed) return fail(listError, true);
       try {
-        if (id === SEERR_OWNER_ID) throw seerrOwnerRefused();
-        await state.adapter.setSeerrUserAccess!(id, NO_RIGHTS, row.seerr);
-        result.applied++;
+        const done = await revokeSeerrAccount(state.adapter, row, listed);
+        if (done.stale) replaced.push({ id: row.id, ...done.stale });
+        if (done.outcome === 'owner') fail(seerrOwnerRefused().message, false);
+        else if (done.outcome === 'revoked') result.applied++;
       } catch (err) {
         if (gone(err)) return;
-        result.failed.push({ accountId: row.id, username: row.username, error: errorMessage(err) });
+        fail(errorMessage(err), true);
       }
     });
-    await ctx.db
-      .update(mediaAccounts)
-      .set({ issues: replaceSeerrIssues([]), seerrRequests: null, seerrSyncedAt: null })
-      .where(eq(mediaAccounts.providerConnectionId, connection.id));
+    await ctx.db.transaction(async (tx) => {
+      for (const stale of replaced) {
+        await tx
+          .update(mediaAccounts)
+          .set({ seerrUserId: stale.to })
+          .where(and(eq(mediaAccounts.id, stale.id), eq(mediaAccounts.seerrUserId, stale.from)));
+      }
+      await tx
+        .update(mediaAccounts)
+        .set({ issues: replaceSeerrIssues([]), seerrRequests: null, seerrSyncedAt: null })
+        .where(eq(mediaAccounts.providerConnectionId, connection.id));
+      if (left.length > 0) {
+        await tx
+          .update(mediaAccounts)
+          .set({ issues: replaceSeerrIssues(['seerr_drift']) })
+          .where(inArray(mediaAccounts.id, left));
+      }
+    });
   } catch (err) {
     ctx.log.error({ err, providerId: connection.id }, 'seerr revoke: accounts could not be updated');
   }
@@ -1003,7 +1229,8 @@ export function accountRequestsView(
 /**
  * toMediaAccountDto with the requests part: staff ('admin') see it wherever Seerr is active,
  * everyone else only where the account's organization has the add-on there. Where it is not
- * visible, the key is absent and the Seerr issues are left out too.
+ * visible, the key is absent and the Seerr issues are left out too, except that staff see
+ * seerr_drift while Seerr is switched off: request rights the switch-off could not take yet.
  */
 export async function toMediaAccountDtoFor(
   ctx: AppContext,
@@ -1013,12 +1240,15 @@ export async function toMediaAccountDtoFor(
   viewer: 'admin' | 'customer',
 ): Promise<MediaAccountDto> {
   const dto = await toMediaAccountDto(ctx, req, row);
-  const visible =
-    viewer === 'admin'
-      ? (await lookup.state(row.connection)).active
-      : await lookup.visibleToCustomer(row.account.orgId, row.connection);
-  if (!visible)
-    return { ...dto, issues: dto.issues.filter((i) => i !== 'seerr_missing' && i !== 'seerr_drift') };
+  const state = viewer === 'admin' ? await lookup.state(row.connection) : null;
+  const visible = state ? state.active : await lookup.visibleToCustomer(row.account.orgId, row.connection);
+  if (!visible) {
+    const revocationLeft = !!state?.configured;
+    return {
+      ...dto,
+      issues: dto.issues.filter((i) => i !== 'seerr_missing' && (i !== 'seerr_drift' || revocationLeft)),
+    };
+  }
   return { ...dto, requests: accountRequestsView(row.account) };
 }
 

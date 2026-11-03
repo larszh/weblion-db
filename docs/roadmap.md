@@ -235,10 +235,6 @@ Zahlen für Kunden). Als Nächstes:
 - **Verwaiste Seerr-Benutzer löschen**: Seerr-Benutzer ohne Jellyfin-Benutzer zählt die Prüfung heute
   nur, gelöscht werden sie von Hand in Seerr. Ein Knopf im Dialog "Anfragen…" (mit Bestätigung, weil
   Seerr ihre Anfragen mit löscht) oder ein Schritt im Sync
-- **Seerr wechseln**: Die gespeicherten Seerr-IDs der Zugänge verwerfen, wenn sich die Seerr-Adresse
-  einer Instanz ändert, und beim Entziehen von Rechten prüfen, dass der Seerr-Benutzer zur
-  Jellyfin-ID des Zugangs gehört (heute nur beim Löschen). Bis dahin siehe
-  [Grenzen der Anfragen](providers.md#anfragen-seerr)
 - **Sperre koppeln**: Zugänge gesperrter Kunden deaktivieren und beim Entsperren wieder aktivieren.
   Ebenso auf Wunsch beim Lösen eines Zugangs von seiner Organisation
 - **Grosse Änderungen im Hintergrund**: Die Richtlinie aller Zugänge nach einer Änderung am

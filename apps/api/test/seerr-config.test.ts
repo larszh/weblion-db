@@ -1,9 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
+import { DEFAULT_CUSTOMER_BOUNDARY } from '@weblion/shared';
 import { syncEnvProviders } from '../src/bootstrap';
 import type { Env } from '../src/config/env';
-import { auditLogs, mediaSeerr, providerConnections, type MediaAllowance } from '../src/db/schema';
+import {
+  auditLogs,
+  mediaAccounts,
+  mediaAllowances,
+  mediaSeerr,
+  organizations,
+  providerConnections,
+  type MediaAllowance,
+} from '../src/db/schema';
 import { configSummary } from '../src/modules/admin/routes';
 import {
   expectedSeerrAccess,
@@ -45,6 +54,68 @@ beforeAll(async () => {
 afterAll(async () => {
   await t?.close();
 });
+
+/** Seerr fields of two accounts of a connection, as an old Seerr left them. */
+const NUMBERS = { pending: 1, approved: 2, available: 3, movieUsed: 1, tvUsed: null };
+async function seedSeerrAccounts(connectionId: string): Promise<void> {
+  const fields = (seerrUserId: number) => ({
+    seerrUserId,
+    seerrRequests: NUMBERS,
+    seerrSyncedAt: new Date(),
+    issues: ['policy' as const, 'seerr_drift' as const],
+  });
+  await t.db
+    .insert(mediaAccounts)
+    .values([
+      {
+        providerConnectionId: connectionId,
+        externalId: 'aa000000000000000000000000000001',
+        username: 'eins-test',
+        ...fields(7),
+      },
+      {
+        providerConnectionId: connectionId,
+        externalId: 'aa000000000000000000000000000002',
+        username: 'zwei-test',
+        ...fields(8),
+      },
+    ])
+    .onConflictDoUpdate({
+      target: [mediaAccounts.providerConnectionId, mediaAccounts.externalId],
+      set: fields(7),
+    });
+}
+
+async function seerrFieldsOf(connectionId: string) {
+  return t.db
+    .select({
+      seerrUserId: mediaAccounts.seerrUserId,
+      seerrRequests: mediaAccounts.seerrRequests,
+      seerrSyncedAt: mediaAccounts.seerrSyncedAt,
+      issues: mediaAccounts.issues,
+    })
+    .from(mediaAccounts)
+    .where(eq(mediaAccounts.providerConnectionId, connectionId))
+    .orderBy(mediaAccounts.username);
+}
+
+/** Every account of the connection forgot its Seerr id, numbers and Seerr issues; Jellyfin's stay. */
+async function expectForgotten(connectionId: string) {
+  const rows = await seerrFieldsOf(connectionId);
+  expect(rows).toHaveLength(2);
+  for (const row of rows) {
+    expect(row).toEqual({ seerrUserId: null, seerrRequests: null, seerrSyncedAt: null, issues: ['policy'] });
+  }
+}
+
+async function expectKept(connectionId: string) {
+  const rows = await seerrFieldsOf(connectionId);
+  expect(rows).toHaveLength(2);
+  for (const row of rows) {
+    expect(row).toMatchObject({ seerrRequests: NUMBERS, issues: ['policy', 'seerr_drift'] });
+    expect(row.seerrUserId).not.toBeNull();
+  }
+}
 
 async function storedConfig(id: string): Promise<JellyfinConfig> {
   const row = await t.db.query.providerConnections.findFirst({ where: eq(providerConnections.id, id) });
@@ -209,7 +280,140 @@ describe('provider form', () => {
       await t.db.query.mediaSeerr.findFirst({ where: eq(mediaSeerr.providerConnectionId, id) }),
     ).toBeUndefined();
   });
+
+  it('forgets the Seerr ids, numbers and Seerr issues of the accounts when the address changes', async () => {
+    const res = await createJellyfin({ seerrUrl: 'https://requests.example.test', seerrApiKey: SEERR_KEY });
+    expect(res.statusCode, res.body).toBe(200);
+    const id = json<{ id: string }>(res).id;
+    const patch = (config: Record<string, unknown>) => admin.patch(`/admin/providers/${id}`, { config });
+    const demoBefore = await seerrFieldsOf(demoId);
+    try {
+      await seedSeerrAccounts(id);
+      // The same Seerr with a new key: its ids still name the same users.
+      expect((await patch({ seerrApiKey: SEERR_KEY_2 })).statusCode).toBe(200);
+      await expectKept(id);
+      // Refused while requests are on: nothing changes.
+      await t.db.insert(mediaSeerr).values({ providerConnectionId: id, enabled: true, status: 'ok' });
+      expect((await patch({ seerrUrl: 'https://other.example.test' })).statusCode).toBe(409);
+      await expectKept(id);
+      await t.db.update(mediaSeerr).set({ enabled: false }).where(eq(mediaSeerr.providerConnectionId, id));
+
+      // Ids of the old Seerr would name other users in the new one.
+      expect((await patch({ seerrUrl: 'https://other.example.test' })).statusCode).toBe(200);
+      await expectForgotten(id);
+      await seedSeerrAccounts(id);
+      expect((await patch({ seerrUrl: null, seerrApiKey: null })).statusCode).toBe(200);
+      await expectForgotten(id);
+      await seedSeerrAccounts(id);
+      expect(
+        (await patch({ seerrUrl: 'https://requests.example.test', seerrApiKey: SEERR_KEY })).statusCode,
+      ).toBe(200);
+      await expectForgotten(id);
+      // Accounts of other instances keep theirs.
+      expect(await seerrFieldsOf(demoId)).toEqual(demoBefore);
+    } finally {
+      expect((await admin.del(`/admin/providers/${id}`)).statusCode).toBe(200);
+    }
+  });
+
+  it('switches the add-on of every allowance on the instance off when its Seerr is removed', async () => {
+    const res = await createJellyfin({ seerrUrl: 'https://requests.example.test', seerrApiKey: SEERR_KEY });
+    expect(res.statusCode, res.body).toBe(200);
+    const id = json<{ id: string }>(res).id;
+    const patch = (config: Record<string, unknown>) => admin.patch(`/admin/providers/${id}`, { config });
+    const [reseller, customer] = await addOrgsWithRequests(id, 'entfernt');
+    const demoBefore = await requestsOn(demoId);
+    try {
+      // Another Seerr: the add-ons stay (they still mean something there).
+      expect((await patch({ seerrUrl: 'https://other.example.test' })).statusCode).toBe(200);
+      expect(await requestsOn(id)).toEqual([reseller, customer].sort());
+      // A switch-off that could not take an account's rights: named in the audit entry.
+      await seedSeerrAccounts(id);
+      expect((await patch({ seerrUrl: null, seerrApiKey: null })).statusCode).toBe(200);
+      expect(await requestsOn(id)).toEqual([]);
+      const allowance = await t.db.query.mediaAllowances.findFirst({
+        where: eq(mediaAllowances.orgId, customer),
+      });
+      expect(allowance).toMatchObject({
+        requestsMovies: false,
+        requestsTv: false,
+        movieQuotaLimit: null,
+        movieQuotaDays: null,
+        maxAccounts: 1,
+      });
+      const [entry] = await t.db
+        .select()
+        .from(auditLogs)
+        .where(and(eq(auditLogs.resourceId, id), eq(auditLogs.action, 'provider.update')))
+        .orderBy(desc(auditLogs.id))
+        .limit(1);
+      expect(entry!.details).toMatchObject({
+        seerr: 'removed',
+        requestsOff: [reseller, customer].sort(),
+        seerrRevocationsLeft: 2,
+      });
+      // Other instances keep theirs.
+      expect(await requestsOn(demoId)).toEqual(demoBefore);
+    } finally {
+      await t.db.delete(organizations).where(inArray(organizations.id, [customer, reseller]));
+      expect((await admin.del(`/admin/providers/${id}`)).statusCode).toBe(200);
+    }
+  });
 });
+
+/** Organizations with the add-on on an instance. */
+async function requestsOn(connectionId: string): Promise<string[]> {
+  const rows = await t.db
+    .select({ orgId: mediaAllowances.orgId })
+    .from(mediaAllowances)
+    .where(
+      and(eq(mediaAllowances.providerConnectionId, connectionId), eq(mediaAllowances.requestsMovies, true)),
+    )
+    .orderBy(mediaAllowances.orgId);
+  return rows.map((r) => r.orgId);
+}
+
+/** A reseller and its customer, both with the add-on on the instance (as stored). */
+async function addOrgsWithRequests(connectionId: string, code: string): Promise<[string, string]> {
+  const [reseller] = await t.db
+    .insert(organizations)
+    .values({
+      name: `Reseller ${code}`,
+      slug: `reseller-${code}`,
+      kind: 'reseller',
+      boundary: DEFAULT_CUSTOMER_BOUNDARY,
+      modules: ['media'],
+    })
+    .returning();
+  const [customer] = await t.db
+    .insert(organizations)
+    .values({
+      name: `Kunde ${code}`,
+      slug: `kunde-${code}`,
+      kind: 'customer',
+      boundary: DEFAULT_CUSTOMER_BOUNDARY,
+      modules: ['media'],
+      parentOrgId: reseller!.id,
+    })
+    .returning();
+  const allowance = (orgId: string, accountCode: string, maxAccounts: number) => ({
+    orgId,
+    providerConnectionId: connectionId,
+    accountCode,
+    maxAccounts,
+    maxStreams: 2,
+    ...mediaRequestsColumns({
+      movies: true,
+      tv: false,
+      movieQuota: { limit: 3, days: 30 },
+      tvQuota: null,
+    }),
+  });
+  await t.db
+    .insert(mediaAllowances)
+    .values([allowance(reseller!.id, `r${code}`, 5), allowance(customer!.id, `k${code}`, 1)]);
+  return [reseller!.id, customer!.id];
+}
 
 describe('environment', () => {
   it('adds the Seerr pair to the env connection and warns about half pairs and moves', async () => {
@@ -301,6 +505,58 @@ describe('environment', () => {
       );
       expect(await row()).toMatchObject({ enabled: true });
       expect((await storedConfig(id)).seerrApiKey).toBe(SEERR_KEY_2);
+    } finally {
+      await t.db.delete(providerConnections).where(eq(providerConnections.envKey, 'jellyfin'));
+    }
+  });
+});
+
+describe('environment, Seerr ids', () => {
+  it('forgets the Seerr ids of the accounts when the address in the .env changes', async () => {
+    const warnings: string[] = [];
+    const log = {
+      warn: (...args: unknown[]) => warnings.push(args.map((a) => JSON.stringify(a)).join(' ')),
+      info: () => undefined,
+      error: () => undefined,
+    } as unknown as FastifyBaseLogger;
+    const base = {
+      ...t.ctx.env,
+      JELLYFIN_URL: 'https://media.example.test/',
+      JELLYFIN_API_KEY: JELLYFIN_KEY,
+      JELLYFIN_SEERR_URL: 'https://requests.example.test',
+      JELLYFIN_SEERR_API_KEY: SEERR_KEY,
+    } as Env;
+    const sync = (env: Partial<Env> = {}) => syncEnvProviders(t.db, t.ctx.box, { ...base, ...env }, log);
+    try {
+      await sync();
+      const id = (await t.db.query.providerConnections.findFirst({
+        where: eq(providerConnections.envKey, 'jellyfin'),
+      }))!.id;
+      await seedSeerrAccounts(id);
+      // A new key alone keeps them, as does a boot without changes.
+      await sync({ JELLYFIN_SEERR_API_KEY: SEERR_KEY_2 });
+      await sync({ JELLYFIN_SEERR_API_KEY: SEERR_KEY_2 });
+      await expectKept(id);
+
+      await sync({ JELLYFIN_SEERR_URL: 'https://other.example.test' });
+      await expectForgotten(id);
+      // Also without a media_seerr row, and when the address goes or comes.
+      await seedSeerrAccounts(id);
+      await sync({ JELLYFIN_SEERR_URL: undefined, JELLYFIN_SEERR_API_KEY: undefined });
+      await expectForgotten(id);
+      await seedSeerrAccounts(id);
+      await sync();
+      await expectForgotten(id);
+
+      // A removed Seerr also takes the add-on of the allowances there, and says so in the log.
+      const [reseller, customer] = await addOrgsWithRequests(id, 'env');
+      await sync({ JELLYFIN_SEERR_URL: 'https://other.example.test' });
+      expect(await requestsOn(id)).toEqual([reseller, customer].sort());
+      warnings.length = 0;
+      await sync({ JELLYFIN_SEERR_URL: undefined, JELLYFIN_SEERR_API_KEY: undefined });
+      expect(await requestsOn(id)).toEqual([]);
+      expect(warnings.join('\n')).toMatch(/requests add-on of 2 organizations is switched off/);
+      await t.db.delete(organizations).where(inArray(organizations.id, [customer, reseller]));
     } finally {
       await t.db.delete(providerConnections).where(eq(providerConnections.envKey, 'jellyfin'));
     }

@@ -131,6 +131,7 @@ describe('requests card', () => {
             counts: { pending: 1, approved: 4, available: 2, movieUsed: 2, tvUsed: 1 },
           }),
           account('wohnzimmer-kemaro', false, { ready: false, counts: null }),
+          account('neu-kemaro', true, { ready: false, counts: null }),
           // Gone at Jellyfin: no requests view, no row.
           account('gone-kemaro', true),
         ]}
@@ -142,10 +143,34 @@ describe('requests card', () => {
     expect(shown).toContain('Movies: 2 of 5');
     expect(shown).toContain('Seasons: 1 of 3');
     expect(shown).toContain('wohnzimmer-kemaro');
-    expect(shown).toContain('Being set up');
     expect(shown).toContain('Disabled accounts cannot request.');
+    expect(shown.match(/Being set up/g)).toHaveLength(1);
     expect(shown).not.toContain('gone-kemaro');
     expect(shown).toContain('The console shows numbers only');
+    // A sign-in there outlives a new password: the card says so.
+    expect(shown).toContain('A sign-in to requests stays valid for up to 30 days');
+  });
+
+  it('never shows a disabled or missing account as being set up', () => {
+    const rowOf = (shown: string, username: string) =>
+      shown.split('<tr').find((row) => row.includes(username))!;
+    const missing = {
+      ...account('weg-kemaro', true, { ready: false, counts: null }),
+      missingSince: '2026-10-20T00:00:00.000Z',
+    };
+    const shown = html(
+      <MediaRequestsCard
+        requests={info}
+        accounts={[
+          account('wohnzimmer-kemaro', false, { ready: false, counts: null }),
+          missing,
+          account('neu-kemaro', true, { ready: false, counts: null }),
+        ]}
+      />,
+    );
+    expect(rowOf(shown, 'wohnzimmer-kemaro')).not.toContain('Being set up');
+    expect(rowOf(shown, 'weg-kemaro')).not.toContain('Being set up');
+    expect(rowOf(shown, 'neu-kemaro')).toContain('Being set up');
   });
 
   it('repeats the numbers below the login name for narrow screens, and shows no quota of a disabled account', () => {

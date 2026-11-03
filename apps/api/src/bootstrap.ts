@@ -3,9 +3,10 @@ import { count, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { DEFAULT_INTERNAL_BOUNDARY, type Location, type ProviderType } from '@weblion/shared';
 import type { Env } from './config/env';
-import type { Database } from './db/client';
+import type { Database, DbOrTx } from './db/client';
 import { mediaSeerr, memberships, organizations, projects, providerConnections, users } from './db/schema';
 import { hashPassword, type SecretBox } from './lib/crypto';
+import { dropMediaRequestsOf, forgetSeerrUsers } from './modules/media/seerr';
 import {
   FIRE24_DEFAULT_BASE_URL,
   fire24BaseUrl,
@@ -358,14 +359,20 @@ export async function syncEnvProviders(
         'stored provider credentials could not be decrypted, replacing them from environment',
       );
     }
-    if (changed && p.type === 'jellyfin') {
-      await seerrAddressChanged(db, existing.id, previous, p.config as JellyfinConfig, p.name, log);
-    }
     if (changed || existing.type !== p.type) {
-      await db
-        .update(providerConnections)
-        .set({ type: p.type, configEnc: box.encryptJson(p.config), status: 'unknown', lastError: null })
-        .where(eq(providerConnections.id, existing.id));
+      // One transaction, so the accounts never keep Seerr ids of an old Seerr under a new address.
+      const warning = await db.transaction(async (tx) => {
+        const moved =
+          changed && p.type === 'jellyfin'
+            ? await seerrAddressChanged(tx, existing.id, previous, p.config as JellyfinConfig)
+            : null;
+        await tx
+          .update(providerConnections)
+          .set({ type: p.type, configEnc: box.encryptJson(p.config), status: 'unknown', lastError: null })
+          .where(eq(providerConnections.id, existing.id));
+        return moved;
+      });
+      if (warning) log.warn({ provider: p.name }, warning);
       log.info({ provider: p.name }, 'updated provider credentials from environment');
     }
   }
@@ -374,26 +381,39 @@ export async function syncEnvProviders(
 /**
  * The admin form refuses to change or remove the Seerr address while requests are on; the
  * environment cannot be refused, so a new, removed or added address switches requests off and
- * the boot says so loudly. Like the form, it forgets the check of the old Seerr. Staff switch
- * requests on again through the check (same server, safe settings, the shared confirmation),
- * so another Seerr is never active unchecked. The old Seerr keeps its users and their rights.
+ * the boot says so loudly (the warning is returned, logged after the commit). Like the form, it
+ * forgets the check of the old Seerr and the accounts' Seerr ids, numbers and Seerr issues (ids
+ * of the old Seerr would name other users in the new one). Staff switch requests on again
+ * through the check (same server, safe settings, the shared confirmation), so another Seerr is
+ * never active unchecked. The old Seerr keeps its users and their rights. A removed Seerr also
+ * takes the add-on of every allowance on the instance (as the form does), which is logged.
  */
 async function seerrAddressChanged(
-  db: Database,
+  tx: DbOrTx,
   connectionId: string,
   previous: unknown,
   next: JellyfinConfig,
-  name: string,
-  log: FastifyBaseLogger,
-): Promise<void> {
+): Promise<string | null> {
   const before = (previous as Partial<JellyfinConfig> | undefined)?.seerrUrl;
-  if (before === next.seerrUrl) return;
-  const [row] = await db
+  if (before === next.seerrUrl) return null;
+  // The same lock as the admin form and switching requests on, taken first.
+  await tx
+    .select({ id: providerConnections.id })
+    .from(providerConnections)
+    .where(eq(providerConnections.id, connectionId))
+    .for('update');
+  await forgetSeerrUsers(tx, connectionId);
+  const requestsOff = next.seerrUrl ? [] : await dropMediaRequestsOf(tx, connectionId, null);
+  const dropped =
+    requestsOff.length > 0
+      ? `the Seerr of this Jellyfin connection was removed from the environment: the requests add-on of ${requestsOff.length} organizations is switched off`
+      : null;
+  const [row] = await tx
     .select({ enabled: mediaSeerr.enabled })
     .from(mediaSeerr)
     .where(eq(mediaSeerr.providerConnectionId, connectionId));
-  if (!row) return;
-  await db
+  if (!row) return dropped;
+  await tx
     .update(mediaSeerr)
     .set({
       enabled: false,
@@ -404,11 +424,8 @@ async function seerrAddressChanged(
       updatedAt: new Date(),
     })
     .where(eq(mediaSeerr.providerConnectionId, connectionId));
-  if (!row.enabled) return;
-  log.warn(
-    { provider: name },
-    next.seerrUrl
-      ? 'the Seerr address of this Jellyfin connection changed in the environment while requests were on: they are switched off until staff check the Seerr and switch them on again under Admin > Streaming'
-      : 'the Seerr of this Jellyfin connection was removed from the environment while requests were on: they are switched off, the old Seerr keeps its users and their rights',
-  );
+  if (!row.enabled) return dropped;
+  return next.seerrUrl
+    ? 'the Seerr address of this Jellyfin connection changed in the environment while requests were on: they are switched off until staff check the Seerr and switch them on again under Admin > Streaming'
+    : `the Seerr of this Jellyfin connection was removed from the environment while requests were on: they are switched off, the old Seerr keeps its users and their rights${requestsOff.length > 0 ? `, and the requests add-on of ${requestsOff.length} organizations is switched off` : ''}`;
 }

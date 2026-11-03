@@ -244,12 +244,14 @@ export function SeerrDialog({
           </div>
         )}
 
-        {(!!check?.unmanagedRequesters || !!check?.orphans) && (
+        {(!!check?.unmanagedRequesters || !!check?.orphans || check?.localLogin === true) && (
           <div className="space-y-1 text-xs text-muted">
             {!!check?.unmanagedRequesters && (
               <p>{t('media.seerr.unmanaged', { n: check.unmanagedRequesters })}</p>
             )}
             {!!check?.orphans && <p>{t('media.seerr.orphans', { n: check.orphans })}</p>}
+            {/* Not a problem of the check: Seerr's own staff may sign in locally. */}
+            {check?.localLogin === true && <p>{t('media.seerr.localLogin')}</p>}
           </div>
         )}
 
