@@ -77,7 +77,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'login.email': 'E-mail',
   'login.password': 'Mot de passe',
   'login.submit': 'Se connecter',
-  'login.hero.title': 'Vos serveurs. Un seul tableau de bord.',
+  'login.hero.title': 'Vos serveurs. Une seule console.',
   'login.hero.text':
     "Gérez des serveurs cloud dans un centre de données en Allemagne et sur notre propre infrastructure en Suisse. Avec surveillance, sauvegardes, snapshots et droits d'accès finement gradués.",
   'login.hero.de': 'Centre de données en Allemagne',
@@ -88,7 +88,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'login.mfa.submit': 'Confirmer',
   'login.mfa.back': 'Utiliser un autre compte',
   'invite.title': 'Invitation à rejoindre {org}',
-  'invite.subtitle': '{email} a été invité en tant que {role}.',
+  'invite.subtitle': '{email} a reçu une invitation en tant que {role}.',
   'invite.accept': "Accepter l'invitation",
   'invite.create': 'Créer un compte et rejoindre',
   'invite.name': 'Nom',
@@ -204,7 +204,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'power.more': "Autres actions d'alimentation",
   'power.turnOn': 'Allumer le serveur',
   'power.turnOff': 'Éteindre le serveur',
-  'power.sent': '{action} déclenché',
+  'power.sent': 'Action déclenchée : {action}',
   'power.confirm.title': '{action} : {name}?',
   'power.start': 'Démarrer',
   'power.start.hint': 'Allume le serveur.',
@@ -338,7 +338,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'network.interface': 'Interface',
   'network.agentHint': 'Avec Proxmox, les IP sont détectées via le QEMU Guest Agent ou Cloud-Init.',
   'network.rdnsTitle': 'DNS inverse pour {ip}',
-  'network.rdnsText': "Le nom d'hôte doit à son tour pointer vers cette IP via un enregistrement A/AAAA.",
+  'network.rdnsText': "Le nom d'hôte devrait à son tour pointer vers cette IP via un enregistrement A/AAAA.",
   'network.hostname': "Nom d'hôte",
   'network.rdnsSaved': 'DNS inverse enregistré',
   'network.ddos': 'Protection DDoS',
@@ -364,7 +364,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'firewall.portHint': 'Ports individuels, listes (80,443) ou plages (8000:8100).',
   'firewall.portNeedsProtocol': 'Seuls TCP et UDP ont des ports.',
   'firewall.source': 'Source',
-  'firewall.sourceHint': "IP ou CIDR. Vide signifie n'importe laquelle.",
+  'firewall.sourceHint': 'IP ou CIDR. Vide signifie toutes les adresses.',
   'firewall.comment': 'Commentaire',
   'firewall.any': 'indifférent',
   'iso.hint':
@@ -573,7 +573,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'perm.domain:authcode': "Afficher le code d'autorisation (transfert)",
   'perm.domain:manage': 'Modifier les serveurs de noms, le verrou de transfert et les paramètres CDN',
   'perm.webspace:read': 'Voir les espaces web et les sites web',
-  'perm.webspace:credentials': 'Afficher et redéfinir les accès (Plesk, SFTP/SSH, bases de données)',
+  'perm.webspace:credentials': 'Afficher et redéfinir les identifiants (Plesk, SFTP/SSH, bases de données)',
   'perm.webspace:write':
     'Créer des sites web, créer et supprimer des bases de données, émettre des certificats SSL',
   'perm.webspace:delete': 'Supprimer des sites web (avec tous les fichiers et bases de données)',
@@ -581,7 +581,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'perm.cloud:write': 'Créer, modifier et supprimer des comptes cloud',
   'perm.cloud:password':
     "Accès aux comptes cloud : redéfinir le mot de passe, modifier l'adresse e-mail, envoyer une invitation",
-  'perm.mail:read': 'Voir les domaines e-mail, les boîtes e-mail et les redirections',
+  'perm.mail:read': 'Voir les domaines de messagerie, les boîtes e-mail et les redirections',
   'perm.mail:write':
     'Créer, modifier et supprimer des boîtes e-mail et des redirections, générer des clés DKIM',
   'perm.mail:password': 'Redéfinir les mots de passe des boîtes e-mail',
@@ -612,9 +612,9 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'perm.platform:user:read': 'Voir tous les utilisateurs',
   'perm.platform:user:write': 'Gérer les utilisateurs',
   'perm.platform:provider:read': 'Voir les fournisseurs',
-  'perm.platform:provider:write': 'Gérer les fournisseurs (accès)',
+  'perm.platform:provider:write': 'Gérer les fournisseurs (identifiants)',
   'perm.platform:server:assign':
-    'Attribuer aux clients des serveurs, domaines, espaces web, sites web, domaines e-mail, centraux téléphoniques et sondes',
+    'Attribuer aux clients des serveurs, domaines, espaces web, sites web, domaines de messagerie, centraux téléphoniques et sondes',
   'perm.platform:server:create': 'Créer des serveurs chez les fournisseurs',
   'perm.platform:infra:read': "Voir l'infrastructure (nœuds, stockage)",
   'perm.platform:explorer': 'Explorateur API (accès brut aux API des fournisseurs)',
@@ -628,11 +628,11 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'perm.platform:domain:move':
     'Migrer le DNS de domaines vers Cloudflare (créer la zone, changer les serveurs de noms)',
   'perm.platform:mail:write':
-    'Créer des domaines e-mail sur Mailcow, modifier leurs limites et les supprimer',
+    'Créer des domaines de messagerie sur Mailcow, modifier leurs limites et les supprimer',
   'perm.platform:website:write':
     'Créer, reprendre, libérer et supprimer des sites web sur des serveurs CloudPanel pour les clients',
   'perm.platform:media:write':
-    'Configurer des contingents de streaming, reprendre et attribuer des utilisateurs Jellyfin et appliquer des directives',
+    'Configurer des contingents de streaming, reprendre et attribuer des utilisateurs Jellyfin et appliquer des politiques',
   'perm.platform:ai:use': "Utiliser les fonctions IA dans l'administration",
   'perm.platform:i18n:read': 'Voir les traductions',
   'perm.platform:i18n:write': "Modifier les traductions et traduire avec l'IA",
@@ -649,7 +649,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
     'Comptes Nextcloud pour les fichiers, les calendriers et les contacts, avec contingent de stockage.',
   'module.mail.label': 'E-mail',
   'module.mail.description':
-    'Domaines e-mail avec boîtes e-mail et redirections (Mailcow), avec webmail, IMAP et SMTP.',
+    'Domaines de messagerie avec boîtes e-mail et redirections (Mailcow), avec webmail, IMAP et SMTP.',
   'module.phone.label': 'Téléphonie',
   'module.phone.description':
     'Centraux téléphoniques 3CX : gérer les utilisateurs et les numéros internes, les groupes de sonnerie et les lignes.',
@@ -757,7 +757,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'customers.ownerEmail': 'E-mail du propriétaire',
   'customers.ownerEmailHint':
     "Les utilisateurs existants deviennent directement propriétaires, les nouveaux reçoivent un lien d'invitation.",
-  'customers.created': '{name} a été créé',
+  'customers.created': 'Client {name} créé',
   'customers.inviteLink': "Lien d'invitation pour le propriétaire (valable 14 jours) :",
   'customers.open': 'Ouvrir le client',
   'customers.openConsole': 'Ouvrir la console',
@@ -819,7 +819,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'inventory.importText':
     'Ajoute un serveur par son ID fournisseur si la détection automatique ne le trouve pas.',
   'inventory.importHint.fire24':
-    "L'id de GET /v1/servers dans l'explorateur API ou l'id dans l'URL du 24fire Control Panel.",
+    "L'id de GET /v1/servers dans l'explorateur API ou l'id dans l'URL du panneau de contrôle 24fire.",
   'inventory.importHint.proxmox': 'Format qemu/<vmid> ou lxc/<vmid>, p. ex. qemu/100.',
   'inventory.imported': 'Serveur importé',
   'inventory.create': 'Créer un serveur',
@@ -830,7 +830,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
     "Le clonage peut prendre quelques minutes. Le serveur apparaît ensuite dans l'inventaire, le résultat figure dans le journal d'audit.",
   'inventory.createStarted': 'Création du serveur en cours',
   'providers.subtitle':
-    'Connexions à 24fire, Proxmox, Joker.com et aux futures plateformes. Les accès sont enregistrés de manière chiffrée.',
+    'Connexions à 24fire, Proxmox, Joker.com et aux futures plateformes. Les identifiants sont enregistrés de manière chiffrée.',
   'providers.add': 'Ajouter un fournisseur',
   'providers.edit': 'Modifier le fournisseur',
   'providers.type': 'Type',
@@ -846,7 +846,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'providers.backupStorage': 'Stockage des sauvegardes',
   'providers.enabled': 'Actif (synchronisé)',
   'providers.envManaged':
-    "Les accès proviennent de variables d'environnement et sont repris au démarrage. Modifiez-les dans le fichier .env ou dans le déploiement.",
+    "Les identifiants proviennent de variables d'environnement et sont repris au démarrage. Modifiez-les dans le fichier .env ou dans le déploiement.",
   'providers.empty': 'Aucun fournisseur connecté',
   'providers.emptyText': 'Configurez 24fire, Proxmox ou Joker.com dans le fichier .env ou ajoutez-les ici.',
   'providers.status.ok': 'Connecté',
@@ -869,7 +869,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'providers.joker.authPassword': "Nom d'utilisateur et mot de passe",
   'providers.joker.apiKeyHint':
     'La clé appartient à votre compte revendeur et peut être révoquée à tout moment sur joker.com.',
-  'providers.joker.passwordHint': 'Accès de votre compte revendeur chez Joker.com.',
+  'providers.joker.passwordHint': 'Identifiants de votre compte revendeur chez Joker.com.',
   'providers.joker.username': "Nom d'utilisateur",
   'providers.joker.password': 'Mot de passe',
   'providers.joker.apiKeyRemoved':

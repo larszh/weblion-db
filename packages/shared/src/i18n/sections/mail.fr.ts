@@ -33,7 +33,7 @@ export const mailFr: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.subtitle':
     'Domaines de messagerie de votre organisation avec boîtes e-mail et redirections, webmail, IMAP et SMTP.',
   'mail.noAccess': "Vous n'avez pas accès aux domaines de messagerie de cette organisation.",
-  'mail.none.title': 'Aucun domaine de messagerie pour le moment',
+  'mail.none.title': "Aucun domaine de messagerie pour l'instant",
   'mail.none.text':
     "weblion.one configure les domaines de messagerie pour vous. Dès qu'un domaine est attribué à votre organisation, vous créez ici des boîtes e-mail et des redirections.",
   'mail.none.textReseller':
@@ -76,7 +76,7 @@ export const mailFr: Partial<Record<keyof typeof mailDe, string>> = {
     "Mailcow accepte les e-mails pour ce domaine et les transmet à un autre serveur. C'est pourquoi il n'y a ici ni boîtes e-mail ni redirections.",
   'mail.limits.title': 'Limites et consommation',
   'mail.limits.text':
-    "Les limites sont fixées par weblion.one (ou votre fournisseur) et appliquées par le serveur de messagerie. Pour d'autres limites, contactez-nous.",
+    "Les limites sont fixées par weblion.one (ou votre prestataire) et appliquées par le serveur de messagerie. Pour d'autres limites, contactez-nous.",
   'mail.limits.none': "Mailcow n'a pas encore fourni de données pour ce domaine.",
   'mail.limits.mailboxes': 'Boîtes e-mail',
   'mail.limits.aliases': 'Redirections',
@@ -122,7 +122,7 @@ export const mailFr: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.mailbox.countText': '{n} boîtes e-mail sur {max}, encore {free} de stockage disponible',
   'mail.mailbox.search': 'Rechercher une boîte e-mail',
   'mail.mailbox.create': 'Créer une boîte e-mail',
-  'mail.mailbox.empty': 'Aucune boîte e-mail pour le moment',
+  'mail.mailbox.empty': "Aucune boîte e-mail pour l'instant",
   'mail.mailbox.emptyText':
     'Créez une boîte e-mail pour chaque personne ou fonction qui doit recevoir des e-mails.',
   'mail.mailbox.never': 'Jamais',
@@ -216,7 +216,7 @@ export const mailFr: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.alias.countText': '{n} redirections sur {max}',
   'mail.alias.search': 'Rechercher une redirection',
   'mail.alias.create': 'Créer une redirection',
-  'mail.alias.empty': 'Aucune redirection pour le moment',
+  'mail.alias.empty': "Aucune redirection pour l'instant",
   'mail.alias.emptyText':
     'Avec une redirection, les e-mails adressés à info@ ou team@ arrivent dans une ou plusieurs boîtes e-mail.',
   'mail.alias.limitReached':

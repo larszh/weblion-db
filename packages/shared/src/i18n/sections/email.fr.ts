@@ -27,8 +27,7 @@ export const emailFr: Partial<Record<keyof typeof emailDe, string>> = {
   'email.invoice.button': 'Voir la facture',
   'email.reminder.subject': 'Rappel de paiement : facture {number}',
   'email.reminder.heading': 'Rappel de paiement',
-  'email.reminder.text':
-    "La facture {number} pour {org} n'est pas encore réglée. Veuillez payer le montant dû.",
+  'email.reminder.text': 'La facture {number} pour {org} est encore ouverte. Veuillez régler le montant dû.',
   'email.reminder.amountDue': 'Montant dû',
   'email.reminder.dueSince': 'Échue depuis',
   'email.reminder.button': 'Voir la facture',
