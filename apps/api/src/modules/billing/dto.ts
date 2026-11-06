@@ -541,6 +541,7 @@ export async function serviceDtos(db: Database, rows: Service[], view: ServiceVi
     nextBillingAt: s.nextBillingAt,
     endsAt: s.endsAt,
     cancelledAt: iso(s.cancelledAt),
+    deactivateModuleAtEnd: s.deactivateModuleAtEnd,
     notes: view.seller ? s.notes : null,
     createdAt: s.createdAt.toISOString(),
   }));

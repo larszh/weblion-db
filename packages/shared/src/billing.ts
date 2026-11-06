@@ -157,8 +157,14 @@ export interface ServiceDto {
   startsAt: string;
   /** Next date an invoice line is due. null once a one-off service was billed or it ended. */
   nextBillingAt: string | null;
+  /**
+   * Last day of the service. Together with a status other than "cancelled" a scheduled cancellation: the
+   * service runs and is billed up to this day and ends afterwards.
+   */
   endsAt: string | null;
   cancelledAt: string | null;
+  /** A scheduled cancellation also switches the module off when the service ends. False otherwise. */
+  deactivateModuleAtEnd: boolean;
   /** Internal note of the seller. Always null in the customer's view. */
   notes: string | null;
   createdAt: string;

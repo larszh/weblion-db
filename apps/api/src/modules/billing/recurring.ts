@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or } from 'drizzle-orm';
 import type pg from 'pg';
 import { lineTotal, type Currency } from '@weblion/shared';
 import type { AppContext } from '../../context';
@@ -9,6 +9,7 @@ import { loadProfile } from './dto';
 import { afterFinalize, amountsProblem, createDraft, finalizeInTx, type FinalizeResult } from './invoices';
 import { getBillingSettings, issuerSettings } from './settings';
 import { addDays, formatDateCH, nextBillingDate, todayZurich } from './dates';
+import { endDueServices } from './service-end';
 
 /**
  * Recurring billing: services that are due become invoice lines, one line per service
@@ -23,6 +24,24 @@ const MAX_PERIODS_PER_RUN = 24;
 /** Advisory lock id of the daily job (the sync job uses 742_001 and 742_002). */
 const JOB_LOCK = 742_003;
 const JOB_STATE_KEY = 'billing_job';
+/**
+ * The end step remembers its day apart from the billing run: a process with invoicing off
+ * must not mark the billing run of the day as done.
+ */
+const END_STATE_KEY = 'billing_end_job';
+
+/**
+ * Due services: active, with a billing date up to `until` that is not after the end date of a
+ * scheduled cancellation. Once the last period up to the end date is billed, the billing date
+ * stays on the period after it, so withdrawing the cancellation continues from there.
+ */
+const dueUntil = (until: string) =>
+  and(
+    eq(services.status, 'active'),
+    isNotNull(services.nextBillingAt),
+    lte(services.nextBillingAt, until),
+    or(isNull(services.endsAt), lte(services.nextBillingAt, services.endsAt)),
+  );
 
 export interface SkippedService {
   serviceId: string;
@@ -52,14 +71,7 @@ export async function generateInTx(
     .select({ service: services, productRate: products.taxRateBp })
     .from(services)
     .leftJoin(products, eq(products.id, services.productId))
-    .where(
-      and(
-        eq(services.orgId, org.id),
-        eq(services.status, 'active'),
-        isNotNull(services.nextBillingAt),
-        lte(services.nextBillingAt, until),
-      ),
-    )
+    .where(and(eq(services.orgId, org.id), dueUntil(until)))
     .orderBy(asc(services.createdAt), asc(services.id))
     .for('update', { of: services });
   if (due.length === 0) return { finalized: null, invoiceId: null, lines: 0, skipped: [] };
@@ -85,10 +97,8 @@ export async function generateInTx(
     let next: string | null = service.nextBillingAt;
     let billed = 0;
     for (let n = 0; next && next <= until && n < MAX_PERIODS_PER_RUN; n++) {
-      if (service.endsAt && next > service.endsAt) {
-        next = null;
-        break;
-      }
+      // Nothing after the end date of a cancellation. The date is kept (not cleared), see dueUntil.
+      if (service.endsAt && next > service.endsAt) break;
       const following = nextBillingDate(next, service.interval, service.startsAt);
       let periodEnd = following ? addDays(following, -1) : null;
       if (periodEnd && service.endsAt && periodEnd > service.endsAt) periodEnd = service.endsAt;
@@ -134,31 +144,30 @@ export async function generateInTx(
 }
 
 /**
- * Daily job: bills every organization with due services. Runs hourly but works once per
- * day (remembered in the settings table) and only on the instance holding the lock.
+ * Daily job: bills every organization with due services, then ends the services whose
+ * cancellation date has passed (endDueServices). Runs hourly but works once per day
+ * (remembered in the settings table) and only on the instance holding the lock. With
+ * `invoicing: false` (BILLING_JOB_ENABLED=false) it only ends services: an active one with
+ * unbilled periods up to its end date then stays active until "Fällige Dienste abrechnen"
+ * has billed them.
  */
 export class BillingJob {
   private timers: NodeJS.Timeout[] = [];
+  private readonly invoicing: boolean;
 
   constructor(
     private readonly ctx: AppContext,
     private readonly pool: pg.Pool,
-  ) {}
+    opts: { invoicing?: boolean } = {},
+  ) {
+    this.invoicing = opts.invoicing ?? true;
+  }
 
   /** Bills all due services up to `today`. Returns counts for the log. */
   async runDue(today = todayZurich()): Promise<{ orgs: number; invoices: number; failed: number }> {
     const { db, log } = this.ctx;
     const config = await getBillingSettings(db);
-    const dueOrgIds = db
-      .selectDistinct({ orgId: services.orgId })
-      .from(services)
-      .where(
-        and(
-          eq(services.status, 'active'),
-          isNotNull(services.nextBillingAt),
-          lte(services.nextBillingAt, today),
-        ),
-      );
+    const dueOrgIds = db.selectDistinct({ orgId: services.orgId }).from(services).where(dueUntil(today));
     const due = await db.select().from(organizations).where(inArray(organizations.id, dueOrgIds));
     let created = 0;
     let failed = 0;
@@ -196,7 +205,25 @@ export class BillingJob {
     return { orgs: due.length, invoices: created, failed };
   }
 
-  /** One scheduled tick: runs at most once per day across all instances. */
+  /** Ends the services whose cancellation date is before `today`. */
+  async endDue(today = todayZurich()): Promise<{ ended: number; failed: number }> {
+    return endDueServices(this.ctx, today);
+  }
+
+  /** Runs `step` unless the settings row `key` says it already ran today, then remembers the day. */
+  private async oncePerDay(key: string, today: string, step: () => Promise<object>, done: string) {
+    const state = await this.ctx.db.query.settings.findFirst({ where: eq(settings.key, key) });
+    if ((state?.value as { lastRun?: string } | undefined)?.lastRun === today) return;
+    const result = await step();
+    const value = { lastRun: today, ...result };
+    await this.ctx.db
+      .insert(settings)
+      .values({ key, value })
+      .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
+    this.ctx.log.info({ ...result }, done);
+  }
+
+  /** One scheduled tick: runs at most once per day across all instances, billing first, then the end step. */
   async tick(): Promise<void> {
     const client = await this.pool.connect();
     try {
@@ -206,15 +233,15 @@ export class BillingJob {
       if (!rows[0]?.locked) return;
       try {
         const today = todayZurich();
-        const state = await this.ctx.db.query.settings.findFirst({ where: eq(settings.key, JOB_STATE_KEY) });
-        if ((state?.value as { lastRun?: string } | undefined)?.lastRun === today) return;
-        const result = await this.runDue(today);
-        const value = { lastRun: today, ...result };
-        await this.ctx.db
-          .insert(settings)
-          .values({ key: JOB_STATE_KEY, value })
-          .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
-        this.ctx.log.info({ ...result }, 'recurring billing done');
+        if (this.invoicing) {
+          await this.oncePerDay(JOB_STATE_KEY, today, () => this.runDue(today), 'recurring billing done');
+        }
+        await this.oncePerDay(
+          END_STATE_KEY,
+          today,
+          () => this.endDue(today),
+          'ending cancelled services done',
+        );
       } finally {
         await client.query('select pg_advisory_unlock($1)', [JOB_LOCK]);
       }

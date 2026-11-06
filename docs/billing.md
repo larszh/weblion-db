@@ -41,6 +41,25 @@ Kontrolle, mit "Wiederkehrende Rechnungen automatisch abschliessen" gehen sie di
 Abschalten mit `BILLING_JOB_ENABLED=false`. Manuell geht es pro Kunde mit "Fällige Dienste
 abrechnen".
 
+### Kündigen
+
+Ohne Datum, mit heute oder einem früheren Datum endet ein Dienst sofort: Er wird nicht mehr
+abgerechnet, und "Modul sperren" schaltet das Modul gleich aus. Mit einem späteren Datum ist die
+Kündigung vorgemerkt ("Gekündigt per ..."): Der Dienst läuft bis zu diesem Tag weiter, behält seinen
+Status (aktiv oder pausiert) und wird für jede Periode abgerechnet, die bis zu diesem Tag beginnt, die
+letzte bis zum Enddatum. Am Tag danach beendet ihn der tägliche Job (Audit-Eintrag `service.end`,
+Akteur "Abrechnungsjob") und sperrt erst dann das Modul, falls gewählt. Der Job rechnet zuerst ab und
+beendet danach. Hat ein aktiver Dienst noch eine Periode bis zum Enddatum offen (etwa weil sie in einer
+anderen Währung steht oder der Betrag nicht passt), bleibt er aktiv, bis sie abgerechnet ist. Das
+Beenden läuft auch mit `BILLING_JOB_ENABLED=false`, dann bleibt ein solcher Dienst aktiv, bis "Fällige
+Dienste abrechnen" die Perioden abgerechnet hat.
+
+Eine vorgemerkte Kündigung lässt sich bis zum Enddatum ändern (nochmals kündigen, mit heute endet der
+Dienst sofort) oder mit "Kündigung zurücknehmen" aufheben (`POST /services/:id/cancel/withdraw`,
+Audit-Eintrag `service.cancel_withdraw`). Die Abrechnung geht dann mit der Periode nach dem alten
+Enddatum weiter. Ein beendeter Dienst lässt sich nicht mehr ändern. Gutschriften für Perioden, die
+schon über das Enddatum hinaus verrechnet sind (etwa ein Jahresdienst), entstehen nicht von selbst.
+
 ### Domain-Verlängerungen
 
 Verlängert Joker.com eine Domain (automatisch oder über "Jetzt verlängern" im Admin-Bereich),

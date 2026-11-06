@@ -1,0 +1,1 @@
+ALTER TABLE "services" ADD COLUMN "deactivate_module_at_end" boolean DEFAULT false NOT NULL;
