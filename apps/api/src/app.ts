@@ -9,7 +9,7 @@ import websocket from '@fastify/websocket';
 import type pg from 'pg';
 import type { ApiErrorBody } from '@weblion/shared';
 import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
-import type { Env } from './config/env';
+import { fastifyTrustProxy, type Env } from './config/env';
 import type { Database } from './db/client';
 import type { AppContext } from './context';
 import { AuditService } from './audit';
@@ -73,7 +73,7 @@ export async function buildApp({
   i18nCatalog,
 }: BuildOptions): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const app = Fastify({
-    trustProxy: env.TRUST_PROXY,
+    trustProxy: fastifyTrustProxy(env.TRUST_PROXY),
     bodyLimit: 1024 * 1024,
     // Path parameters up to an e-mail address of 254 characters (Fastify's default is 100).
     routerOptions: { maxParamLength: 512 },
@@ -85,6 +85,11 @@ export async function buildApp({
         }
       : false,
   });
+  if (env.TRUST_PROXY === true || typeof env.TRUST_PROXY === 'number') {
+    // Kept for existing installations, but a client that reaches the port directly then picks
+    // the IP that the rate limits and the audit log see.
+    app.log.warn('TRUST_PROXY trusts X-Forwarded-For from any peer; list the proxy addresses instead');
+  }
 
   const box = new SecretBox(env.ENCRYPTION_KEY);
   const providers = new ProviderRegistry(db, box);

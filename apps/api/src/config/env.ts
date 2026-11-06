@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { FIRE24_DEFAULT_BASE_URL } from '../providers/fire24/config';
 
@@ -9,6 +10,75 @@ const bool = (fallback: boolean) =>
       v === undefined || v === '' ? fallback : ['1', 'true', 'yes', 'on'].includes(v.toLowerCase()),
     );
 
+/** Address groups of proxy-addr that Fastify resolves itself. */
+const TRUST_PROXY_NAMES = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+/**
+ * TRUST_PROXY parsed: trust every proxy (true), none (false), a hop count, or the addresses
+ * of the proxies whose X-Forwarded-For is believed. Unset means loopback: the reverse proxy on
+ * the same host (nginx of CloudPanel, Caddy). Trusting every proxy was the default before, so
+ * anyone who reached the API port directly could choose the client IP that the rate limits and
+ * the audit log see.
+ */
+export type TrustProxy = boolean | number | string[];
+
+/** "10.0.0.0/8", "fd00::/8", "192.168.0.0/255.255.0.0" or a plain address, as proxy-addr reads them. */
+function validProxyAddress(entry: string): boolean {
+  const [address, range, ...rest] = entry.split('/');
+  const family = isIP(address ?? '');
+  if (family === 0 || rest.length > 0) return false;
+  if (range === undefined) return true;
+  if (/^\d{1,3}$/.test(range)) return Number(range) <= (family === 4 ? 32 : 128);
+  return family === 4 && isIP(range) === 4;
+}
+
+export function parseTrustProxy(value: string | undefined): TrustProxy | { invalid: string } {
+  const raw = value?.trim() ?? '';
+  if (raw === '') return ['loopback'];
+  const lower = raw.toLowerCase();
+  // The words of bool() keep an existing TRUST_PROXY=true or =false working.
+  if (['true', 'yes', 'on'].includes(lower)) return true;
+  if (['false', 'no', 'off'].includes(lower)) return false;
+  if (/^\d+$/.test(raw)) return Number(raw) === 0 ? false : Number(raw);
+  const entries = raw
+    .split(',')
+    .map((e) => e.trim())
+    .filter((e) => e !== '')
+    .map((e) => (TRUST_PROXY_NAMES.has(e.toLowerCase()) ? e.toLowerCase() : e));
+  if (entries.length === 0) return { invalid: raw };
+  const invalid = entries.find((e) => !TRUST_PROXY_NAMES.has(e) && !validProxyAddress(e));
+  return invalid === undefined ? entries : { invalid };
+}
+
+const trustProxy = z
+  .string()
+  .optional()
+  .transform((value, ctx) => {
+    const parsed = parseTrustProxy(value);
+    if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `"${parsed.invalid}" is not a proxy address: use true, false, a number of hops or a comma separated list of IP addresses, CIDR ranges, loopback, linklocal and uniquelocal`,
+      });
+      return z.NEVER;
+    }
+    return parsed;
+  });
+
+/**
+ * The trustProxy option of Fastify for a parsed TRUST_PROXY. Fastify 5.12 no longer honours a hop
+ * count: a number makes it trust no proxy at all (it cannot tell a proxy from a direct client by
+ * the count alone). A configured count is therefore passed as the trust function proxy-addr used
+ * for counts: the first `hops` addresses, counted from the socket, are proxies. Like true, this
+ * believes a client that reaches the port directly, so addresses are the safer choice.
+ */
+export function fastifyTrustProxy(
+  setting: TrustProxy,
+): boolean | string[] | ((address: string, hop: number) => boolean) {
+  if (typeof setting === 'number') return (_address, hop) => hop < setting;
+  return setting;
+}
+
 const optionalString = z
   .string()
   .optional()
@@ -19,7 +89,7 @@ const EnvSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-  TRUST_PROXY: bool(true),
+  TRUST_PROXY: trustProxy,
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   /** Public URL of the panel, used for invite links and origin checks. */

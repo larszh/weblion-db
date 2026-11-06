@@ -288,6 +288,35 @@ Zugänge) braucht nginx ausserdem ein längeres `proxy_read_timeout`, siehe
 [Mailcow für E-Mail](#mailcow-für-e-mail), [CloudPanel für Websites](#cloudpanel-für-websites)
 und [Jellyfin für Streaming](#jellyfin-für-streaming).
 
+### Client-IP hinter dem Proxy (`TRUST_PROXY`)
+
+Die Console nimmt die IP des Clients für die Login-Sperre, die übrigen Rate Limits und das
+Audit-Protokoll aus `X-Forwarded-For`, aber nur, wenn die Anfrage von einem vertrauenswürdigen
+Proxy kommt. Welche Proxys das sind, sagt `TRUST_PROXY`:
+
+| Wert | Bedeutung |
+|---|---|
+| leer (Standard) | `loopback`: nur ein Proxy auf demselben Server (nginx von CloudPanel, Caddy). Passt für Variante B mit PM2 |
+| Liste, z.B. `10.0.0.0/8,127.0.0.1` | IP-Adressen, CIDR-Bereiche und die Namen `loopback`, `linklocal` und `uniquelocal` (private Bereiche), durch Kommas getrennt |
+| `true` | jeder Absender. Nur noch für bestehende Installationen |
+| Zahl, z.B. `2` | so viele Proxys ab der Verbindung, ohne ihre Adresse zu prüfen |
+
+Mit `true` oder einer Zahl kann jeder, der den Port der Console direkt erreicht, eine beliebige
+IP vortäuschen und so die Login-Sperre umgehen und das Audit-Protokoll verfälschen. Die Console
+schreibt dann beim Start eine Warnung ins Log. Hängt der Proxy an einen mitgeschickten Header an
+(nginx mit `$proxy_add_x_forwarded_for`), zählt mit `true` sogar über den Proxy der erste, vom
+Client frei gewählte Eintrag. Besser die Adressen der Proxys eintragen.
+
+`docker-compose.yml` setzt `loopback,uniquelocal`, solange `TRUST_PROXY` in der `.env` leer ist:
+Die Anfragen des Proxys auf dem Host kommen im Container vom Docker-Gateway (einer privaten
+Adresse), nicht von `127.0.0.1`. Weil der Port nur auf `127.0.0.1` veröffentlicht ist, erreichen
+ihn nur der Host und seine Container. Steht vor dem Proxy auf dem Server noch ein weiterer, etwa
+Cloudflare mit orangener Wolke oder ein Load Balancer, dessen Adressen zusätzlich eintragen (bei
+Cloudflare die Bereiche von <https://www.cloudflare.com/ips/>), sonst sieht die Console nur dessen
+Adressen und alle Nutzer teilen sich die Login-Sperre. Prüfen lässt es sich mit einem
+fehlgeschlagenen Login: Im Audit-Protokoll muss die eigene öffentliche IP stehen, nicht
+`127.0.0.1` oder eine Adresse wie `172.18.0.1`.
+
 ## Auf CloudPanel
 
 [CloudPanel](https://www.cloudpanel.io) läuft auf Debian 11/12 oder Ubuntu 22.04/24.04 und
