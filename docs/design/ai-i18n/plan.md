@@ -1679,7 +1679,7 @@ them (ai 5.6). Text values in i18n details are cut to 300 characters.
 | `ai.key_delete` | `DELETE /admin/ai/key` (F) | null, `settings` / `ai_key` | `{ envFallback: boolean }` |
 | `ai.test` | `POST /admin/ai/test` (F) | null, `settings` / `ai` | `{ model, reason }`; status `success` or `failure` |
 | `ai.org_switch` | `PUT /admin/orgs/:orgId/ai` | the customer, `org` / customer id | `{ enabled, by: 'platform', consentConfirmed }` (O34) |
-| `ai.org_switch` | `PUT /orgs/:orgId/customers/:customerId/ai` | two entries: the reseller (`org` / customer id, like `reseller.customer_update`) and the customer (`org` / customer id) | `{ enabled, by: 'reseller', consentConfirmed }` (O34) |` |
+| `ai.org_switch` | `PUT /orgs/:orgId/customers/:customerId/ai` | two entries: the reseller (`org` / customer id, like `reseller.customer_update`) and the customer (`org` / customer id) | `{ enabled, by: 'reseller', consentConfirmed }` (O34) |
 | `ai.org_decline`, `ai.org_allow` | `PUT /orgs/:orgId/ai/decline` | the organization, `org` / its id | `{ declined }` |
 | `ai.budget_warning` | `checkBudgetWarning` (`req = null`, `actorName: 'AI budget'`) | null, `settings` / `ai_budget_notice` | `{ month, percent, spentMicros, budgetMicros }` |
 | `ai.budget_exhausted` | the same | null, `settings` / `ai_budget_notice` | `{ month, spentMicros, budgetMicros }` |
