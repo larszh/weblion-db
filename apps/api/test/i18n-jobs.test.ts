@@ -30,8 +30,8 @@ let runner: TranslationJobRunner;
 const waits: number[] = [];
 const runners: TranslationJobRunner[] = [];
 
-const NBSP = ' ';
-const EM_DASH = '—';
+const NBSP = '\u00A0';
+const EM_DASH = '\u2014';
 
 const BULK: Record<string, string> = {};
 for (let i = 1; i <= 120; i++)
@@ -409,7 +409,7 @@ describe('d. happy path', () => {
       expect(body.output_config.effort).toBe('medium');
       expect(body.system[0].text).toMatch(/^# Feature: translations\n/);
       expect(body.system[0].cache_control).toEqual({ type: 'ephemeral' });
-      expect(body.system[0].text).not.toMatch(/—|claude-(opus|sonnet|haiku)/);
+      expect(body.system[0].text).not.toMatch(/\u2014|claude-(opus|sonnet|haiku)/);
     }
     expect(batchOf(mock.requests[0]!.body).locale).toBe('fr');
     expect(batchOf(mock.requests[1]!.body).locale).toBe('nl');

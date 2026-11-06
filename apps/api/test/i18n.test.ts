@@ -1,3 +1,6 @@
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import {
@@ -30,6 +33,11 @@ import { hashPassword } from '../src/lib/crypto';
 import { startClaudeMock, type MockTurn } from './claude-mock';
 import { ADMIN, Client, configureAi, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
 import { STALE_FR, testCatalog } from './i18n-fixtures';
+import { SECTION_SOURCES } from '@weblion/shared/i18n/server';
+import { parseImportFile } from '../src/i18n/import';
+import { literal, planApply, planFiles, replaceInPlace, SECTIONS_DIR } from '../scripts/i18n-apply';
+import { reportSection } from '../scripts/i18n-report';
+import { STAMPS_DIR } from '../scripts/i18n-stamp';
 
 /** The translation admin A2 to A16 and B1, B4 to B6 without a running job (i18n 20.2 group "admin"). */
 
@@ -39,9 +47,12 @@ let admin: Client;
 let support: Client;
 let adminId: string;
 
-const SHARP_S = 'ß';
-const EM_DASH = '—';
-const NBSP = ' ';
+/** Copies of the shared section and stamp files for the i18n:apply test. */
+const temp = mkdtempSync(join(tmpdir(), 'wl-i18n-apply-'));
+
+const SHARP_S = '\u00DF';
+const EM_DASH = '\u2014';
+const NBSP = '\u00A0';
 
 const hashOf = (key: string) => t.ctx.i18n.source(key as ServerTranslationKey).hash;
 
@@ -117,6 +128,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await t?.close();
   await mock?.close();
+  rmSync(temp, { recursive: true, force: true });
 });
 
 beforeEach(async () => {
@@ -231,7 +243,7 @@ describe('A2 summary', () => {
     await put('common.save', 'fr', 'Enregistrer'); // equal to the compiled text
     await put('gone.key', 'fr', 'Ancien', { hash: sourceHash('x') });
     await put('nav.billing', 'it', '[IT] Abrechnung', { origin: 'ai', demo: true });
-    await put('nav.dashboard', 'fr', 'Vue d’ensemble', { origin: 'ai', reviewed: false });
+    await put('nav.dashboard', 'fr', "Vue d'ensemble", { origin: 'ai', reviewed: false });
     await t.ctx.i18n.reload();
     const res = await admin.get('/admin/i18n/summary');
     expect(res.statusCode).toBe(200);
@@ -533,7 +545,7 @@ describe('A5 to A8', () => {
     await put('common.save', 'fr', 'Enregistrer');
     await put('gone.key', 'fr', 'Ancien', { hash: sourceHash('x') });
     await put('nav.billing', 'it', '[IT] Abrechnung', { origin: 'ai', demo: true });
-    await put('nav.dashboard', 'fr', 'Vue d’ensemble');
+    await put('nav.dashboard', 'fr', "Vue d'ensemble");
     await t.ctx.i18n.reload();
     const all = { orphans: true, sameAsCompiled: true, demo: true };
     const dry = await admin.post('/admin/i18n/cleanup', { ...all, dryRun: true });
@@ -1073,5 +1085,107 @@ describe('every write is audited', () => {
       ]),
     );
     await editor.request('PUT', '/admin/i18n/style/nl', { notes: '' });
+  });
+});
+
+// --- i18n:apply (i18n 16.2) and i18n:report (i18n 4.3, plan 8.2), against copies of the shared files ---
+
+describe('i18n:apply', () => {
+  it('applies checked values: fr regenerated, en replaced in place, stamps with the hash of the row', async () => {
+    const sections = join(temp, 'sections');
+    const stamps = join(temp, 'stamps');
+    cpSync(SECTIONS_DIR, sections, { recursive: true });
+    cpSync(STAMPS_DIR, stamps, { recursive: true });
+    const german = SECTION_SOURCES.core.de;
+    const rows = parseImportFile({
+      format: 'weblion-i18n-overrides',
+      version: 1,
+      entries: [
+        {
+          key: 'common.save',
+          locale: 'fr',
+          value: 'Enregistrer',
+          origin: 'manual',
+          reviewed: true,
+          sourceHash: sourceHash(german['common.save']!),
+        },
+        // Stale: written against an older German text; it stays stale in the repository.
+        {
+          key: 'common.pageOf',
+          locale: 'fr',
+          value: 'Page {page} : {total}',
+          origin: 'manual',
+          reviewed: true,
+          sourceHash: sourceHash('Seite {page} aus {total}'),
+        },
+        { key: 'common.cancel', locale: 'en', value: 'Abort', origin: 'manual', reviewed: true },
+        // Not applied: a placeholder is missing.
+        { key: 'common.pageOf', locale: 'it', value: 'Pagina', origin: 'manual', reviewed: true },
+        // Not reviewed: left out with --only-reviewed.
+        { key: 'common.edit', locale: 'fr', value: 'Modifier', origin: 'ai', reviewed: false },
+        { key: 'gone.key', locale: 'fr', value: 'x', origin: 'manual', reviewed: true },
+      ],
+    });
+    const plan = planApply(rows, { onlyReviewed: true });
+    expect(plan.values.map((v) => `${v.locale}:${v.key}`)).toEqual([
+      'fr:common.save',
+      'fr:common.pageOf',
+      'en:common.cancel',
+    ]);
+    // The French spacing is fixed before the checks.
+    expect(plan.values[1]!.value).toBe(`Page {page}${NBSP}: {total}`);
+    expect(plan.failures).toHaveLength(1);
+    expect(plan.failures[0]).toMatch(/^it:common\.pageOf: missing \{page\}, missing \{total\}/);
+    expect(plan.ignored).toEqual(['fr:common.edit: not reviewed', 'fr:gone.key: unknown key']);
+
+    const changes = await planFiles(plan, { sections, stamps });
+    const fr = changes.find((c) => c.path.endsWith('core.fr.ts'))!;
+    expect(fr.after).toContain("import type { coreDe } from './core.de';");
+    expect(fr.after).toContain('export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {');
+    expect(fr.after).toContain("'common.save': 'Enregistrer',");
+    expect(fr.after).toContain("'common.pageOf': 'Page {page}\\u00A0: {total}',");
+    // German key order: pageOf comes before save.
+    expect(fr.after.indexOf('common.pageOf')).toBeLessThan(fr.after.indexOf('common.save'));
+
+    const en = changes.find((c) => c.path.endsWith('core.en.ts'))!;
+    expect(en.after).toContain("'common.cancel': 'Abort',");
+    expect(en.after.split('\n').length).toBe(en.before!.split('\n').length);
+    expect(en.after.replace("'common.cancel': 'Abort',", "'common.cancel': 'Cancel',")).toBe(en.before);
+
+    const frStamps = JSON.parse(changes.find((c) => c.path.endsWith(join('fr', 'core.json')))!.after);
+    expect(frStamps['common.save']).toEqual([sourceHash(german['common.save']!), sourceHash('Enregistrer')]);
+    expect(frStamps['common.pageOf'][0]).toBe(sourceHash('Seite {page} aus {total}'));
+    const enStamps = JSON.parse(changes.find((c) => c.path.endsWith(join('en', 'core.json')))!.after);
+    expect(enStamps['common.cancel']).toEqual([sourceHash(german['common.cancel']!), sourceHash('Abort')]);
+    // Nothing was written: planFiles only computes.
+    expect(readFileSync(join(sections, 'core.fr.ts'), 'utf8')).toBe(fr.before);
+  });
+
+  it('replaces only one string literal and refuses what it cannot replace', () => {
+    const text = "export const x = {\n  // a comment\n  'a.b': 'old',\n  'a.c':\n    'long old value',\n};\n";
+    expect(replaceInPlace(text, 'a.b', "it's new")).toBe(
+      "export const x = {\n  // a comment\n  'a.b': \"it's new\",\n  'a.c':\n    'long old value',\n};\n",
+    );
+    expect(replaceInPlace(text, 'a.c', 'new\nline')).toContain('\'a.c\':\n    "new\\nline",');
+    expect(() => replaceInPlace(text, 'a.d', 'x')).toThrow(/not found/);
+    expect(() => replaceInPlace("const x = { 'a.b': 'x' + 'y' };", 'a.b', 'z')).toThrow(
+      /single string literal/,
+    );
+    expect(literal(`a${NBSP}b`)).toBe('"a\\u00A0b"');
+  });
+});
+
+describe('i18n:report', () => {
+  it('counts missing keys and stale or unstamped values', () => {
+    const german = { 'a.one': 'Eins', 'a.two': 'Zwei', 'a.three': 'Drei', 'a.four': 'Vier' };
+    const report = reportSection({
+      german,
+      values: { 'a.one': 'Un', 'a.two': 'Deux', 'a.three': 'Trois' },
+      stamps: {
+        'a.one': [sourceHash('Eins'), sourceHash('Un')],
+        'a.two': [sourceHash('Zwei alt'), sourceHash('Deux')],
+      },
+    });
+    expect(report).toEqual({ missing: ['a.four'], stale: ['a.two', 'a.three'] });
   });
 });
