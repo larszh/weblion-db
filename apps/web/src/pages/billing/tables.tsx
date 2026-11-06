@@ -227,69 +227,74 @@ export function ServiceTable({
         </tr>
       </THead>
       <TBody>
-        {services.map((s) => (
-          <tr key={s.id} className={s.status === 'cancelled' ? 'opacity-70' : undefined}>
-            <TD className="min-w-[180px]">
-              <div className="font-medium text-text">{s.name}</div>
-              <div className="text-xs text-muted">
-                {[s.description, s.module ? labels.module(s.module) : null].filter(Boolean).join(' · ')}
-              </div>
-              <div className="mt-1 lg:hidden">
-                {s.resource && (
-                  <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
-                )}
-              </div>
-            </TD>
-            <TD className="hidden lg:table-cell">
-              <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
-            </TD>
-            <TD className="text-right">
-              <PriceText amount={s.unitPrice} currency={s.currency} interval={s.interval} />
-              {s.quantity !== 1 && (
-                <div className="text-xs text-muted tabular">
-                  {t('billing.service.quantity', { quantity: formatQuantity(s.quantity, locale) })}
+        {services.map((s) => {
+          const end = scheduledEndOf(s);
+          // Past its end date with a period up to it unbilled (e.g. in another currency or with the automatic
+          // run off): it only ends once that period is billed, so say so.
+          const endText = end
+            ? t(
+                waitsForBilling(s, today)
+                  ? 'billing.service.endWaitsForBilling'
+                  : 'billing.service.cancelledPer',
+                {
+                  date: formatDay(end, locale),
+                },
+              )
+            : null;
+          return (
+            <tr key={s.id} className={s.status === 'cancelled' ? 'opacity-70' : undefined}>
+              <TD className="min-w-[180px]">
+                <div className="font-medium text-text">{s.name}</div>
+                <div className="text-xs text-muted">
+                  {[s.description, s.module ? labels.module(s.module) : null].filter(Boolean).join(' · ')}
                 </div>
-              )}
-            </TD>
-            <TD className="hidden whitespace-nowrap md:table-cell">
-              {s.status === 'cancelled' || billedToEnd(s) ? (
-                <span className="text-muted">
-                  {s.endsAt ? t('billing.service.endsAt', { date: formatDay(s.endsAt, locale) }) : '–'}
-                </span>
-              ) : s.nextBillingAt ? (
-                <span className="text-text">{formatDay(s.nextBillingAt, locale)}</span>
-              ) : (
-                <span className="text-muted">
-                  {s.interval === 'once' ? t('billing.service.billedOnce') : '–'}
-                </span>
-              )}
-              <div className="text-xs text-muted">{labels.interval(s.interval)}</div>
-            </TD>
-            <TD>
-              <ServiceStatusBadge status={s.status} />
-              {scheduledEndOf(s) && (
-                <div className="mt-1 text-xs text-warning">
-                  {/* Past its end date with a period up to it unbilled (e.g. in another currency or with
-                      the automatic run off): it only ends once that period is billed, so say so. */}
-                  {t(
-                    waitsForBilling(s, today)
-                      ? 'billing.service.endWaitsForBilling'
-                      : 'billing.service.cancelledPer',
-                    {
-                      date: formatDay(scheduledEndOf(s)!, locale),
-                    },
+                {/* On a phone the status column lies beyond the table's sideways scroll, so the end date that
+                  matters most shows under the name. */}
+                {endText && <div className="mt-1 text-xs text-warning sm:hidden">{endText}</div>}
+                <div className="mt-1 lg:hidden">
+                  {s.resource && (
+                    <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
                   )}
                 </div>
-              )}
-              {scheduledEndOf(s) && s.deactivateModuleAtEnd && s.module && (
-                <div className="text-xs text-muted">
-                  {t('billing.service.moduleOffAtEnd', { module: labels.module(s.module) })}
-                </div>
-              )}
-            </TD>
-            {actions && <TD className="w-10 text-right">{actions(s)}</TD>}
-          </tr>
-        ))}
+              </TD>
+              <TD className="hidden lg:table-cell">
+                <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
+              </TD>
+              <TD className="text-right">
+                <PriceText amount={s.unitPrice} currency={s.currency} interval={s.interval} />
+                {s.quantity !== 1 && (
+                  <div className="text-xs text-muted tabular">
+                    {t('billing.service.quantity', { quantity: formatQuantity(s.quantity, locale) })}
+                  </div>
+                )}
+              </TD>
+              <TD className="hidden whitespace-nowrap md:table-cell">
+                {s.status === 'cancelled' || billedToEnd(s) ? (
+                  <span className="text-muted">
+                    {s.endsAt ? t('billing.service.endsAt', { date: formatDay(s.endsAt, locale) }) : '–'}
+                  </span>
+                ) : s.nextBillingAt ? (
+                  <span className="text-text">{formatDay(s.nextBillingAt, locale)}</span>
+                ) : (
+                  <span className="text-muted">
+                    {s.interval === 'once' ? t('billing.service.billedOnce') : '–'}
+                  </span>
+                )}
+                <div className="text-xs text-muted">{labels.interval(s.interval)}</div>
+              </TD>
+              <TD>
+                <ServiceStatusBadge status={s.status} />
+                {endText && <div className="mt-1 hidden text-xs text-warning sm:block">{endText}</div>}
+                {end && s.deactivateModuleAtEnd && s.module && (
+                  <div className="text-xs text-muted">
+                    {t('billing.service.moduleOffAtEnd', { module: labels.module(s.module) })}
+                  </div>
+                )}
+              </TD>
+              {actions && <TD className="w-10 text-right">{actions(s)}</TD>}
+            </tr>
+          );
+        })}
       </TBody>
     </Table>
   );

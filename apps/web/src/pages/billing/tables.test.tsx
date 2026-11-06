@@ -80,6 +80,11 @@ describe('ServiceTable', () => {
     expect(billed).not.toContain(formatDay('2027-01-01', 'en'));
     expect(billed).not.toContain(moduleOff);
 
+    // Also under the name, for phones, where the status column lies beyond the table's sideways scroll.
+    expect(billed).toContain(
+      `<div class="mt-1 text-xs text-warning sm:hidden">${scheduledLabel('2026-12-15')}</div>`,
+    );
+
     const paused = html(<ServiceTable services={[service({ status: 'suspended', endsAt: '2026-12-15' })]} />);
     expect(paused).toContain(scheduledLabel('2026-12-15'));
     expect(paused).toContain(en['billing.serviceStatus.suspended']);

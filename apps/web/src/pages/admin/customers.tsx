@@ -793,7 +793,12 @@ function InfoCard({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
         </div>
         <div className="flex justify-between gap-3">
           <span className="text-muted">{t('admin.resources')}</span>
-          <ResourceCounts counts={org.counts} modules={org.modules} />
+          {/* Seven modules do not fit one line of the side card on a phone: the icons wrap, right-aligned. */}
+          <ResourceCounts
+            counts={org.counts}
+            modules={org.modules}
+            className="min-w-0 flex-wrap justify-end gap-y-1"
+          />
         </div>
         <div className="flex justify-between gap-3">
           <span className="text-muted">{t('orgSettings.created')}</span>
@@ -927,7 +932,7 @@ function OverviewTab({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
         </Card>
         <BoundaryCard org={org} canWrite={canWrite} />
       </div>
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
         <InfoCard org={org} canWrite={canWrite} />
         {/* Shown whatever the platform state (plan O27); switching on asks for the consent (plan O34). */}
         <AdminAiCard orgId={org.id} orgName={org.name} canWrite={canWrite} />

@@ -41,7 +41,9 @@ export function CardHeader({
         <h3 className="text-[15px] font-semibold text-text">{title}</h3>
         {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {/* Not shrink-0: on a phone the actions must wrap inside the card, or a row of buttons wider than the
+          screen makes the page scroll sideways. */}
+      {actions && <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

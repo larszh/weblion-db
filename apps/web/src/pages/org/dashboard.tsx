@@ -72,8 +72,9 @@ function StatTile({
       </div>
       <div className="min-w-0">
         <div className="text-2xl font-semibold text-text tabular">{value}</div>
-        <div className="truncate text-sm text-muted">{label}</div>
-        {sub && <div className="truncate text-xs text-subtle tabular">{sub}</div>}
+        {/* Wrapped, not cut: labels like "Cloud-Konten" or "Maandelijks terugkerend" do not fit a phone tile. */}
+        <div className="text-sm break-words hyphens-auto text-muted">{label}</div>
+        {sub && <div className="text-xs break-words hyphens-auto text-subtle tabular">{sub}</div>}
       </div>
     </Card>
   );

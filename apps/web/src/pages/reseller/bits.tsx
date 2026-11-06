@@ -124,7 +124,15 @@ export function StatusBadge({
  * Server, domain, web space, mail domain, phone system, streaming account and monitor counts as small
  * icons. Types whose module is off are left out unless something is still attached.
  */
-export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules: ModuleKey[] }) {
+export function ResourceCounts({
+  counts,
+  modules,
+  className,
+}: {
+  counts: OrgCounts;
+  modules: ModuleKey[];
+  className?: string;
+}) {
   const { t } = useI18n();
   const items = [
     { module: 'servers', icon: <Server />, n: counts.servers, label: t('nav.servers') },
@@ -142,7 +150,7 @@ export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules
   ].filter((i) => modules.includes(i.module as ModuleKey) || i.n > 0);
   if (items.length === 0) return <span className="text-subtle">–</span>;
   return (
-    <div className="flex items-center gap-3 text-sm text-muted">
+    <div className={cn('flex items-center gap-3 text-sm text-muted', className)}>
       {items.map((i) => (
         <span
           key={i.module}
