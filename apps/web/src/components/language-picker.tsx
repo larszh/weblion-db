@@ -209,6 +209,7 @@ export function LanguageMenu({ align = 'end', className }: { align?: 'start' | '
         <button
           type="button"
           aria-label={`${t('language.choose')}: ${native}`}
+          title={t('language.current', { language: native })}
           className={cn(
             'inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3 text-sm font-medium text-text',
             'hover:bg-surface-3 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',

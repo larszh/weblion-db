@@ -214,12 +214,16 @@ export function createI18nStore(boot: I18nBoot, loader: I18nLoader = i18nLoader)
     },
     async setLocale(next) {
       const token = ++switching;
+      // A background answer that arrives while the chunk still loads is newer than what loadOverrides gave.
+      const received = new Set<Locale>();
       // The old dictionary stays on screen until the new one is there; a failure keeps the old locale.
       const [dictionary, loadedOverrides] = await Promise.all([
         loader.loadDictionary(next),
         loader.loadOverrides(next, {
           onUpdate: (l, values) => {
-            if (token === switching) receiveOverrides(l, values);
+            if (token !== switching) return;
+            received.add(l);
+            receiveOverrides(l, values);
           },
         }),
       ]);
@@ -227,7 +231,8 @@ export function createI18nStore(boot: I18nBoot, loader: I18nLoader = i18nLoader)
       locale = next;
       base = dictionary;
       own = loader.peekBundle(next);
-      overrides = { ...overrides, ...loadedOverrides };
+      const fresh = Object.entries(loadedOverrides).filter(([l]) => !received.has(l as Locale));
+      overrides = { ...overrides, ...Object.fromEntries(fresh) };
       storeLocale(next);
       if (typeof document !== 'undefined') document.documentElement.lang = next;
       emit();
