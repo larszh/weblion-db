@@ -32,6 +32,10 @@ export const allowlist: Allowlist = {
     'websites.reseller.none',
     'websites.reseller.noPool',
     'websites.errors.no_allowance',
+    // "DNS-Verwaltung" is DNS management, not the staff administration area of the glossary entry
+    // ("Verwaltung" -> "administration"); French says "gestion DNS".
+    'mail.dns.toZone',
+    'mail.dns.explain.conflicts',
   ],
   typographyOk: [
     // A list of allowed password characters: the space before "!" and ":" separates literal characters, it is
