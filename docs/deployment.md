@@ -297,7 +297,7 @@ Proxy kommt. Welche Proxys das sind, sagt `TRUST_PROXY`:
 | Wert | Bedeutung |
 |---|---|
 | leer (Standard) | `loopback`: nur ein Proxy auf demselben Server (nginx von CloudPanel, Caddy). Passt für Variante B mit PM2 |
-| Liste, z.B. `10.0.0.0/8,127.0.0.1` | IP-Adressen, CIDR-Bereiche und die Namen `loopback`, `linklocal` und `uniquelocal` (private Bereiche), durch Kommas getrennt |
+| Liste, z.B. `10.0.0.0/8,127.0.0.1` | IP-Adressen, CIDR-Bereiche (Präfix ab 1, eine Netzmaske ohne Lücken) und die Namen `loopback`, `linklocal` und `uniquelocal` (private Bereiche), durch Kommas getrennt |
 | `true` | jeder Absender. Nur noch für bestehende Installationen |
 | Zahl, z.B. `2` | so viele Proxys ab der Verbindung, ohne ihre Adresse zu prüfen |
 

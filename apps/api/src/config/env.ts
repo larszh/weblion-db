@@ -22,14 +22,24 @@ const TRUST_PROXY_NAMES = new Set(['loopback', 'linklocal', 'uniquelocal']);
  */
 export type TrustProxy = boolean | number | string[];
 
-/** "10.0.0.0/8", "fd00::/8", "192.168.0.0/255.255.0.0" or a plain address, as proxy-addr reads them. */
+/**
+ * "10.0.0.0/8", "fd00::/8", "192.168.0.0/255.255.0.0" or a plain address, as proxy-addr reads them.
+ * proxy-addr refuses a range of 0 ("0.0.0.0/0", a netmask 0.0.0.0) and a netmask with gaps
+ * ("255.0.255.0") only when Fastify is built, with a bare TypeError; checked here so the start fails
+ * with the TRUST_PROXY message instead. Trusting every address is spelled "true".
+ */
 function validProxyAddress(entry: string): boolean {
   const [address, range, ...rest] = entry.split('/');
   const family = isIP(address ?? '');
   if (family === 0 || rest.length > 0) return false;
   if (range === undefined) return true;
-  if (/^\d{1,3}$/.test(range)) return Number(range) <= (family === 4 ? 32 : 128);
-  return family === 4 && isIP(range) === 4;
+  if (/^\d{1,3}$/.test(range)) return Number(range) >= 1 && Number(range) <= (family === 4 ? 32 : 128);
+  if (family !== 4 || isIP(range) !== 4) return false;
+  // A netmask is ones followed by zeros, so its inverse is zeros followed by ones: inverse & (inverse + 1)
+  // is 0 then. 0.0.0.0 would pass that and is the range 0 proxy-addr refuses.
+  const mask = range.split('.').reduce((acc, part) => acc * 256 + Number(part), 0);
+  const inverse = 0xffffffff - mask;
+  return mask !== 0 && (inverse & (inverse + 1)) === 0;
 }
 
 export function parseTrustProxy(value: string | undefined): TrustProxy | { invalid: string } {

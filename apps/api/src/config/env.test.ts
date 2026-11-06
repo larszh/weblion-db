@@ -74,6 +74,33 @@ describe('TRUST_PROXY', () => {
     }
   });
 
+  it('refuses the ranges proxy-addr refuses and accepts the ones it builds', () => {
+    // A range of 0 and a netmask with gaps: Fastify throws a bare TypeError for them when it is built.
+    for (const value of [
+      '0.0.0.0/0',
+      '::/0',
+      '10.0.0.0/0.0.0.0',
+      '10.0.0.0/255.0.255.0',
+      '10.0.0.0/0.0.0.1',
+    ]) {
+      expect(() => loadEnv({ ...base, TRUST_PROXY: value }), value).toThrow(/TRUST_PROXY/);
+      expect(() => Fastify({ trustProxy: [value] }), value).toThrow(/invalid range/);
+    }
+    for (const value of [
+      '10.0.0.0/1',
+      '10.0.0.0/32',
+      '::/1',
+      '::1/128',
+      '10.0.0.0/128.0.0.0',
+      '10.0.0.0/255.255.255.0',
+      '10.0.0.0/255.255.255.255',
+    ]) {
+      const setting = loadEnv({ ...base, TRUST_PROXY: value }).TRUST_PROXY;
+      expect(setting, value).toEqual([value]);
+      expect(() => Fastify({ trustProxy: fastifyTrustProxy(setting) }), value).not.toThrow();
+    }
+  });
+
   it('believes X-Forwarded-For by default only from loopback', async () => {
     const setting = loadEnv(base).TRUST_PROXY;
     expect(await clientIp(setting, '203.0.113.9', '198.51.100.7')).toBe('203.0.113.9');
