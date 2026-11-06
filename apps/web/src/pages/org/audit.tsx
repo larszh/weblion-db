@@ -171,6 +171,9 @@ export function AuditView({
             }}
           />
         )}
+        {/* Browsers submit a form on Enter only when it has a submit button or a single text field; this
+            one has two text fields and only type=button buttons, so the search needs one of its own. */}
+        <button type="submit" className="sr-only" aria-hidden tabIndex={-1} />
       </form>
       {audit.isError ? (
         <div className="p-5">
