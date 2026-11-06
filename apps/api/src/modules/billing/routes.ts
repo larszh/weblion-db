@@ -44,6 +44,7 @@ import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
   billingLocale,
+  billingProfileLocales,
   billingSummary,
   creditPage,
   listPayments,
@@ -370,7 +371,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       loadProfile(db, orgId),
       issuerSettings(db, sellerOrgId(org)),
     ]);
-    return toBillingProfileDto(orgId, profile, issuer, await billingLocale(db, orgId, profile ?? null));
+    const locales = await billingProfileLocales(db, orgId, profile ?? null);
+    return toBillingProfileDto(orgId, profile, issuer, locales.effectiveLocale, locales.ownerLocale);
   });
 
   app.put('/orgs/:orgId/billing/profile', async (req) => {
@@ -396,7 +398,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       details: body,
     });
     const saved = await loadProfile(db, orgId);
-    return toBillingProfileDto(orgId, saved, issuer, await billingLocale(db, orgId, saved ?? null));
+    const locales = await billingProfileLocales(db, orgId, saved ?? null);
+    return toBillingProfileDto(orgId, saved, issuer, locales.effectiveLocale, locales.ownerLocale);
   });
 
   // --- Single invoices (customer or issuer) ---------------------------------------
@@ -564,10 +567,11 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       billingSummary(ctx, req, org),
       canActAsSeller(ctx, req, org, 'write'),
     ]);
+    const locales = await billingProfileLocales(db, orgId, profile ?? null);
     return {
       org: { id: org.id, name: org.name, slug: org.slug, status: org.status, modules: org.modules },
       seller: summary.seller,
-      profile: toBillingProfileDto(orgId, profile, issuer, await billingLocale(db, orgId, profile ?? null)),
+      profile: toBillingProfileDto(orgId, profile, issuer, locales.effectiveLocale, locales.ownerLocale),
       summary,
       can: { write },
     };
@@ -598,7 +602,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       details: { ...body, asSeller: true },
     });
     const saved = await loadProfile(db, orgId);
-    return toBillingProfileDto(orgId, saved, issuer, await billingLocale(db, orgId, saved ?? null));
+    const locales = await billingProfileLocales(db, orgId, saved ?? null);
+    return toBillingProfileDto(orgId, saved, issuer, locales.effectiveLocale, locales.ownerLocale);
   });
 
   app.get('/billing/customers/:orgId/invoices', async (req) => {

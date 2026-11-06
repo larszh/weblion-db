@@ -45,18 +45,6 @@ describe('BillingProfileForm, "Sprache für Rechnungen" (i18n 9)', () => {
     expect(none).toContain('<option value="" selected="">Sprache des Owners (Italiano)</option>');
   });
 
-  it('names no language while the API does not know the owner’s (ownerLocale null)', () => {
-    // Never the profile's own language passed off as the owner's.
-    const unknown = html(
-      <BillingProfileForm
-        profile={profile({ locale: 'fr', effectiveLocale: 'fr', ownerLocale: null })}
-        mode="customer"
-      />,
-    );
-    expect(unknown).toContain('<option value="">Sprache des Owners</option>');
-    expect(unknown).not.toContain('Sprache des Owners (');
-  });
-
   it('shows the owner’s language read only when the profile has none of its own', () => {
     const out = html(<BillingProfileForm profile={profile()} mode="customer" readOnly />);
     expect(out).toContain('Sprache des Owners (Italiano)');

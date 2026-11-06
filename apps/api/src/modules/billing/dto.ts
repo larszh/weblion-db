@@ -151,16 +151,14 @@ export async function billingProfileLocales(
 /**
  * `issuer` is the seller's: its defaults apply while the organization has no profile. `effectiveLocale` and
  * `ownerLocale` come from billingProfileLocales() (the builder is synchronous, so the caller looks them up).
- * Without `ownerLocale` the effective language stands in for it only while the profile has no language of its
- * own (then the two are the same); otherwise the DTO says null rather than pass the profile's language off as
- * the owner's.
+ * Both are required, so a route that forgets the owner's language does not compile.
  */
 export function toBillingProfileDto(
   orgId: string,
   profile: BillingProfile | null | undefined,
   issuer: Pick<InvoiceIssuerSettings, 'defaultPaymentTermsDays' | 'defaultCurrency'>,
   effectiveLocale: Locale,
-  ownerLocale?: Locale,
+  ownerLocale: Locale,
 ): BillingProfileDto {
   return {
     orgId,
@@ -179,7 +177,7 @@ export function toBillingProfileDto(
     taxRateBp: profile?.taxRateBp ?? null,
     locale: normalizeLocale(profile?.locale) ?? null,
     effectiveLocale,
-    ownerLocale: ownerLocale ?? (normalizeLocale(profile?.locale) ? null : effectiveLocale),
+    ownerLocale,
     updatedAt: iso(profile?.updatedAt),
   };
 }

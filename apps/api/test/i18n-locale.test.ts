@@ -324,7 +324,7 @@ describe('billing language (i18n 9)', () => {
 
     // With a language of its own the billing language changes, the owner's stays (one owner lookup for both).
     const put = await olga.request('PUT', `/orgs/${lingId}/billing/profile`, { locale: 'fr' });
-    // The routes do not pass the owner's language yet: they must not report the profile's own as the owner's.
+    // Every route names the owner's language, never the profile's own as the owner's.
     for (const dto of [
       json<BillingProfileDto>(put),
       json<BillingProfileDto>(await olga.get(`/orgs/${lingId}/billing/profile`)),
@@ -333,7 +333,7 @@ describe('billing language (i18n 9)', () => {
         await admin.request('PUT', `/billing/customers/${lingId}/profile`, { locale: 'fr' }),
       ),
     ]) {
-      expect(dto).toMatchObject({ locale: 'fr', effectiveLocale: 'fr', ownerLocale: null });
+      expect(dto).toMatchObject({ locale: 'fr', effectiveLocale: 'fr', ownerLocale: 'nl' });
     }
     const profile = await loadProfile(t.db, lingId);
     expect(await billingProfileLocales(t.db, lingId)).toEqual({ effectiveLocale: 'fr', ownerLocale: 'nl' });
@@ -347,15 +347,10 @@ describe('billing language (i18n 9)', () => {
       effectiveLocale: 'fr',
       ownerLocale: 'nl',
     });
-    // Without a profile row (or one without a language) the owner's language is the billing language; with a
-    // language of its own and no owner lookup it is unknown.
-    expect(toBillingProfileDto(lingId, null, issuer, 'nl')).toMatchObject({
+    // Without a profile row the owner's language is the billing language.
+    expect(toBillingProfileDto(lingId, null, issuer, 'nl', 'nl')).toMatchObject({
       locale: null,
       ownerLocale: 'nl',
-    });
-    expect(toBillingProfileDto(lingId, profile, issuer, 'fr')).toMatchObject({
-      locale: 'fr',
-      ownerLocale: null,
     });
 
     await olga.request('PUT', `/orgs/${lingId}/billing/profile`, { locale: null });
