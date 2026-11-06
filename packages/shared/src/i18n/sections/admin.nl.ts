@@ -64,7 +64,7 @@ export const adminNl: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.reseller.noOwnerYet':
     'Zonder e-mailadres van de eigenaar heeft nog niemand toegang. U kunt later leden uitnodigen.',
   'admin.reseller.empty': 'Nog geen klanten',
-  'admin.reseller.emptyText': 'Maak uw eerste klant aan en wijs deze servers, domeinen of webruimtes toe.',
+  'admin.reseller.emptyText': 'Maak uw eerste klant aan en wijs hem servers, domeinen of webruimtes toe.',
   'admin.reseller.notReseller': 'Alleen voor resellers',
   'admin.reseller.notResellerText': 'Deze organisatie is geen reseller en heeft daarom geen eigen klanten.',
   'admin.reseller.noAccess': 'Geen rechten voor het klantenbeheer.',
@@ -111,7 +111,7 @@ export const adminNl: Partial<Record<keyof typeof adminDe, string>> = {
     'Maakt een organisatie met een standaardproject aan. Optioneel wordt de eigenaar uitgenodigd.',
   'admin.orgs.kindHint.customer':
     'Een klant van weblion.one of, met reseller, een klant van die reseller. De reseller beheert en factureert deze.',
-  'admin.orgs.kindHint.reseller': 'Een reseller beheert eigen klanten en stuurt hun facturen.',
+  'admin.orgs.kindHint.reseller': 'Een reseller beheert eigen klanten en factureert hen.',
   'admin.orgs.kindHint.internal': 'Voor weblion.one zelf, zonder facturering.',
   'admin.orgs.modulesHint': 'De klant ziet alleen deze modules in zijn console.',
   'admin.orgs.modulesOfReseller': 'Alleen modules die {name} zelf heeft.',

@@ -4,7 +4,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.assistant.title': 'AI-assistent',
   'ai.assistant.open': 'AI-assistent openen',
   'ai.assistant.close': 'AI-assistent sluiten',
-  'ai.assistant.ask': 'AI-assistent vragen',
+  'ai.assistant.ask': 'Vraag stellen aan AI-assistent',
   'ai.assistant.newChat': 'Nieuw gesprek',
   'ai.assistant.placeholder': 'Uw vraag over deze organisatie',
   'ai.assistant.send': 'Verzenden',
@@ -198,7 +198,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.card.usage': 'Deze maand: {count} verzoeken, USD {cost}',
   'admin.ai.card.usageStaff': 'waarvan {count} door medewerkers',
   'admin.ai.card.platformOff':
-    'De AI is uitgeschakeld voor het hele platform. De schakelaar geldt zodra deze wordt ingeschakeld.',
+    'De AI is uitgeschakeld voor het hele platform. De schakelaar geldt zodra de AI wordt ingeschakeld.',
   'ai.error.limit.budget':
     'Het AI-budget van deze maand is verbruikt. De AI-functies zijn vanaf volgende maand weer beschikbaar.',
   'ai.error.limit.org_daily': 'Uw organisatie heeft de daglimiet voor AI-verzoeken bereikt.',
