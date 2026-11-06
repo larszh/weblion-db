@@ -127,11 +127,11 @@ export const adminFr: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.orgs.resellerText': "Les clients d'un revendeur sont gérés et facturés par celui-ci.",
   'admin.orgs.resellerSaved': 'Revendeur modifié',
   'admin.orgs.moveBillingHint':
-    "Un changement n'est possible que si, chez l'émetteur des factures actuel, il ne reste plus de crédit, de factures ouvertes ou de projets de facture, de paiements en attente ni de services actifs.",
+    "Un changement n'est possible que si, chez l'émetteur des factures actuel, il ne reste plus de crédit, de factures ouvertes ou de brouillons de facture, de paiements en attente ni de services actifs.",
   'admin.orgs.moveBlocked':
     "Changement impossible, il reste des éléments ouverts chez l'émetteur des factures actuel :",
   'admin.orgs.moveBlocker.balance': 'Crédit : {amount}',
-  'admin.orgs.moveBlocker.invoices': 'Factures ouvertes et projets de facture : {n}',
+  'admin.orgs.moveBlocker.invoices': 'Factures ouvertes et brouillons de facture : {n}',
   'admin.orgs.moveBlocker.payments': 'Paiements en attente : {n}',
   'admin.orgs.moveBlocker.services': 'Services actifs ou en pause : {n}',
   'admin.orgs.moveBlockedHint':

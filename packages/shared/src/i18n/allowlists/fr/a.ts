@@ -23,7 +23,7 @@ export const allowlist: Allowlist = {
     'account.sessions.revoke',
     // "beim Abmelden" is the noun here; French uses the noun "déconnexion", not the button verb "se déconnecter".
     'ai.assistant.sessionHint',
-    // A file name: "projet de facture" is joined with hyphens like the German and English file names, so the
+    // A file name: "brouillon de facture" is joined with hyphens like the German and English file names, so the
     // glossary term with spaces cannot appear literally.
     'pdf.invoice.draftFilename',
   ],
