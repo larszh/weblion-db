@@ -67,11 +67,11 @@ the assistant `propose_monitor` (8.4).
 
 - Production: the master switch is off until the owner turns it on on the KI page. Turning it on asks for the
   go-live checklist (16): sub-processor list in AGB/AVV, legal basis for the US transfer, the notice sentence on
-  training and retention checked against Anthropic's terms, the workspace location, and the announcement mail to
-  every organization owner at least 30 days earlier (with its date).
+  training and retention checked against Anthropic's terms, and the workspace location. No announcement mail to all
+  owners: AI is opt-in per customer (plan O34).
 - With `ENABLE_DEMO_PROVIDER=true` and no key the module runs in demo mode (14) and the master switch starts on.
-- Every organization is on by default (migration default `true`, plan decision 16). Staff and the customer's
-  reseller can switch a customer off; a reseller switched off caps all its customers; the customer can decline
+- Every organization is **off by default** (migration default `false`, plan O34 and decision 16). Staff or the
+  customer's reseller switches a customer on after confirming the customer's consent, and can switch it off again; a reseller switched off caps all its customers; the customer can decline
   in its own settings at any time, before go-live and while suspended, and that also blocks staff features.
 
 ### 1.4 Data notice summary
@@ -265,7 +265,6 @@ export interface AiGoLiveDto {
   transferBasis: boolean; // legal basis for the US transfer
   noticeChecked: boolean; // notice sentence checked against Anthropic's terms
   workspaceChecked: boolean; // workspace location checked
-  announcedOn: string; // YYYY-MM-DD, at least 30 days before switching on
   confirmedAt: string | null;
   confirmedBy: { id: string; name: string } | null;
 }
@@ -805,10 +804,10 @@ now, checkedBy: userId }`. The KI page shows "Geprüft am ... von ...". A change
 later does not reset it; the go-live checklist asks again (`goLive.noticeChecked`).
 
 **Go-live checklist.** When `enabled` changes from `false` to `true` and demo mode is off, the body must carry
-`goLive` with `contracts`, `transferBasis`, `noticeChecked` and `workspaceChecked` all `true` and `announcedOn` a
-date at least 30 days before today (Europe/Zurich) and not in the future. Otherwise 400 `bad_request` with the
+`goLive` with `contracts`, `transferBasis`, `noticeChecked` and `workspaceChecked` all `true` (no announcement
+date, plan O34). Otherwise 400 `bad_request` with the
 failing field in `details` (zod issues). The stored `goLive` gets `confirmedAt` and `confirmedBy`; the audit entry
-`ai.settings_update` carries `{ enabled: { from: false, to: true }, goLive: { announcedOn, ...flags } }`. The dialog
+`ai.settings_update` carries `{ enabled: { from: false, to: true }, goLive: { ...flags } }`. The dialog
 asks every time the switch goes from off to on, pre-filled with the stored values. In demo mode `goLive` is
 optional.
 
@@ -892,7 +891,7 @@ Reservations of staff requests carry the customer's `orgId` whenever the data be
 
 ### 5.5 Per-organization routes and cards
 
-Columns on `organizations` (5.6): `ai_enabled` (default `true`), `ai_disabled_by` (`'platform' | 'reseller' |
+Columns on `organizations` (5.6): `ai_enabled` (default `false`, opt-in per customer, plan O34), `ai_disabled_by` (`'platform' | 'reseller' |
 null`), `ai_opt_out_at`, `ai_opt_out_by`. The effective state:
 
 ```ts
@@ -914,9 +913,9 @@ platform is off and while the organization is suspended (plan O27).
 | `GET /orgs/:orgId/ai` | `requireSession`, `loadOrg`, `ai:settings` | `OrgAiDto` | none |
 | `PUT /orgs/:orgId/ai/decline` | `requireSession`, `loadOrg`, `ai:settings` | `{ declined: boolean }` -> `OrgAiDto` | `ai.org_decline` or `ai.org_allow` (`orgId`, resource `org`) |
 | `GET /admin/orgs/:orgId/ai` | `requireSession`, `platform:org:read` | `AdminOrgAiDto` | none |
-| `PUT /admin/orgs/:orgId/ai` | `requireSession`, `platform:org:write` | `{ enabled: boolean }` -> `AdminOrgAiDto` | `ai.org_switch` `{ enabled, by: 'platform' }` |
+| `PUT /admin/orgs/:orgId/ai` | `requireSession`, `platform:org:write` | `{ enabled: boolean, consentConfirmed?: boolean }` (true required to switch on, plan O34) -> `AdminOrgAiDto` | `ai.org_switch` `{ enabled, by: 'platform', consentConfirmed }` |
 | `GET /orgs/:orgId/customers/:customerId/ai` | `requireSession`, reseller org, `reseller:customer:read`, customer belongs to it | `ResellerCustomerAiDto` | none |
-| `PUT /orgs/:orgId/customers/:customerId/ai` | `requireSession`, `reseller:customer:write`, same checks | `{ enabled: boolean }` -> `ResellerCustomerAiDto` | `ai.org_switch` `{ enabled, by: 'reseller' }` on the reseller's and the customer's org |
+| `PUT /orgs/:orgId/customers/:customerId/ai` | `requireSession`, `reseller:customer:write`, same checks | `{ enabled: boolean, consentConfirmed?: boolean }` (true required to switch on, plan O34) -> `ResellerCustomerAiDto` | `ai.org_switch` `{ enabled, by: 'reseller' }` on the reseller's and the customer's org |
 
 Rules:
 
@@ -942,7 +941,7 @@ Rules:
 Plan 3.1 is binding (it gives the Drizzle schema and the generated SQL); this is the AI part as designed.
 
 ```sql
-ALTER TABLE "organizations" ADD COLUMN "ai_enabled" boolean DEFAULT true NOT NULL;
+ALTER TABLE "organizations" ADD COLUMN "ai_enabled" boolean DEFAULT false NOT NULL;
 ALTER TABLE "organizations" ADD COLUMN "ai_disabled_by" text;
 ALTER TABLE "organizations" ADD COLUMN "ai_opt_out_at" timestamp with time zone;
 ALTER TABLE "organizations" ADD COLUMN "ai_opt_out_by" uuid REFERENCES "users"("id") ON DELETE SET NULL;
@@ -982,7 +981,7 @@ CREATE INDEX "ai_usage_user_created_idx" ON "ai_usage" ("user_id", "created_at")
 CREATE INDEX "ai_usage_running_idx" ON "ai_usage" ("created_at") WHERE "status" = 'running';
 ```
 
-The default `true` switches every existing organization on (plan decision 16). Drizzle: `organizations` gains
+The default `false` leaves every existing organization off; there is no data statement (plan O34). Drizzle: `organizations` gains
 `aiEnabled`, `aiDisabledBy: text().$type<AiSwitchedOffBy>()`, `aiOptOutAt`, `aiOptOutBy`; `products` gains
 `translations: jsonb().$type<ProductTranslations>().notNull().default({})`; new table `aiUsage` with type
 `AiUsageRow`. No prompt, answer, tool input or tool result is ever stored.
@@ -2352,9 +2351,8 @@ export function aiErrorText(t: TFunction, err: unknown): string; // = localizeEr
    "Als geprüft markieren" (sends `noticeChecked: true`), and `admin.ai.notice.checked` with date and name.
 
 **Go-live dialog** (`admin.ai.status.enableTitle`): `admin.ai.status.enableText`, four checkboxes
-(`enableCheck.contracts`, `.transfer`, `.notice`, `.workspace`), the date `enableAnnouncedOn`; the confirm button
-`enableAction` stays disabled until all are ticked and the date is at least 30 days ago (`enableTooEarly` shows
-the first possible day); a server 400 is shown in the dialog. The stored values pre-fill it.
+(`enableCheck.contracts`, `.transfer`, `.notice`, `.workspace`) and the note `enableOptIn`; the confirm button
+`enableAction` stays disabled until all are ticked (plan O34: no announcement date); a server 400 is shown in the dialog. The stored values pre-fill it.
 
 **Usage tab**: month select (the current and the 12 previous months); tiles requests, cost (USD with two decimals),
 input and output tokens, cache reads; tables by feature, by model (served models included), by customer (top 50,
@@ -2607,6 +2605,7 @@ Anthropic, Claude and the model names unchanged).
 | `ai.org.title` | KI-Funktionen | AI features |
 | `ai.org.description` | Mit den KI-Funktionen beantwortet Claude von Anthropic Fragen zu Ihrer Organisation und erklärt Fehler. Die KI liest nur und ändert nichts. | With the AI features, Claude by Anthropic answers questions about your organization and explains errors. The AI only reads and changes nothing. |
 | `ai.org.state.on / .off` | Eingeschaltet / Ausgeschaltet | Switched on / Switched off |
+| `ai.org.notEnabled` | Die KI-Funktionen sind für Ihre Organisation nicht eingeschaltet. weblion.one oder Ihr Anbieter schaltet sie auf Wunsch ein. | The AI features are not switched on for your organization. weblion.one or your provider switches them on on request. |
 | `ai.org.offByPlatform` | weblion hat die KI-Funktionen für Ihre Organisation ausgeschaltet. | weblion switched the AI features off for your organization. |
 | `ai.org.offByReseller` | Ihr Anbieter {name} hat die KI-Funktionen für Ihre Organisation ausgeschaltet. | Your provider {name} switched the AI features off for your organization. |
 | `ai.org.declined` | Ihre Organisation hat die KI-Funktionen am {date} abgelehnt ({name}). | Your organization declined the AI features on {date} ({name}). |
@@ -2630,6 +2629,10 @@ Anthropic, Claude and the model names unchanged).
 | `ai.reseller.usage` | Diesen Monat: {count} KI-Anfragen | This month: {count} AI requests |
 | `admin.ai.card.title` | KI | AI |
 | `admin.ai.card.switch` | KI für diesen Kunden | AI for this customer |
+| `admin.ai.card.consentTitle` | KI für {name} einschalten? | Switch on AI for {name}? |
+| `admin.ai.card.consentText` | Danach können die Benutzer dieses Kunden die KI-Funktionen verwenden, und Daten des Kunden gehen an Anthropic in den USA. Schalten Sie die KI nur ein, wenn der Kunde zugestimmt hat. | The customer's users can then use the AI features, and the customer's data is sent to Anthropic in the USA. Only switch AI on if the customer has agreed. |
+| `admin.ai.card.consentCheck` | Der Kunde hat der Nutzung der KI-Funktionen zugestimmt (Vertrag oder Nachtrag zum Auftragsverarbeitungsvertrag). | The customer has agreed to the use of the AI features (contract or addendum to the data processing agreement). |
+| `admin.ai.card.consentAction` | Einschalten | Switch on |
 | `admin.ai.card.reseller` | Der Reseller {name} hat die KI ausgeschaltet; das gilt auch für diesen Kunden. | The reseller {name} switched AI off; this also applies to this customer. |
 | `admin.ai.card.declined` | Der Kunde hat die KI am {date} abgelehnt. Das gilt auch für die KI-Funktionen der Mitarbeitenden. | The customer declined AI on {date}. This also applies to the AI features used by staff. |
 | `admin.ai.card.usage` | Diesen Monat: {count} Anfragen, USD {cost} | This month: {count} requests, USD {cost} |
@@ -2750,8 +2753,7 @@ count as outdated and the English (else German) text is shown until they are tra
 | `admin.ai.status.enableCheck.transfer` | Die rechtliche Grundlage für die Übermittlung in die USA ist geprüft und festgehalten. | The legal basis for the transfer to the USA has been checked and recorded. |
 | `admin.ai.status.enableCheck.notice` | Der Datenschutzhinweis ist gegen die aktuellen Bedingungen und den Auftragsverarbeitungsvertrag von Anthropic geprüft. | The privacy notice has been checked against Anthropic's current terms and data processing agreement. |
 | `admin.ai.status.enableCheck.workspace` | Der Speicher- und Verarbeitungsort des Anthropic-Workspace ist geprüft. | The storage and processing location of the Anthropic workspace has been checked. |
-| `admin.ai.status.enableAnnouncedOn` | Ankündigung an alle Inhaber von Organisationen verschickt am | Announcement sent to all organization owners on |
-| `admin.ai.status.enableTooEarly` | Die Ankündigung muss mindestens 30 Tage zurückliegen. Einschalten ist ab dem {date} möglich. | The announcement must be at least 30 days old. Switching on is possible from {date}. |
+| `admin.ai.status.enableOptIn` | Alle Kunden bleiben ausgeschaltet, bis Sie oder ihr Reseller sie einzeln einschalten. | Every customer stays switched off until you or their reseller switch them on one by one. |
 | `admin.ai.status.enableAction` | Einschalten | Switch on |
 | `admin.ai.key.title` | API-Schlüssel | API key |
 | `admin.ai.key.hint` | Ein API-Schlüssel aus der Claude Console (beginnt mit sk-ant-). Er wird verschlüsselt gespeichert und nie mehr angezeigt. Ein hier gespeicherter Schlüssel hat Vorrang vor ANTHROPIC_API_KEY. | An API key from the Claude Console (starts with sk-ant-). It is stored encrypted and never shown again. A key saved here takes precedence over ANTHROPIC_API_KEY. |
@@ -2902,7 +2904,7 @@ saved through `PUT /admin/ai/key` and the platform switched on through `PUT /adm
 | `apps/api/src/modules/ai/redact.test.ts` | F | each pattern of 11.2; exact env values; the saved Anthropic key after `setAnthropicKeys`; 4,000 cap; personal mode drops `ip`, `userAgent`, `user_agent`, `email`, `inviterEmail` and replaces addresses; non-personal mode keeps a DMARC `mailto:`; `toolJson` escapes `<` and `>` and stays valid JSON |
 | `apps/api/src/modules/ai/prompts.test.ts` | F | 10.8 checks |
 | `apps/api/src/modules/ai/tools.test.ts` | U3 | 22 tools, names equal `AI_TOOL_NAMES`; every input schema strict-convertible; `live` and `personal` flags as in 8.2 and 8.3; every route template exists as a `GET` route of the app (`app.printRoutes` or `hasRoute`); every `ai.tool.<name>` key exists; `validateDnsProposal` unit cases (verified equality with case, trailing dot and TXT quotes; NS and delete impossible; MX and apex A/AAAA change only verified; `textOnly` reasons) |
-| `apps/api/test/ai-settings.test.ts` | F | defaults (off without the demo provider, Opus, 100 USD, 80 percent, 200, 50, seven features on); validation ranges; switching on without `goLive` 400, with `announcedOn` 29 days ago 400, 30 days ago 200 and audited; demo mode needs no `goLive`; `noticeChecked` stores date and person; key: admin key 400 `ai_admin_key`, saved key wins over `ANTHROPIC_API_KEY`, never returned by any route, not in audit details, `demoOverridesDeleted` counted and the demo overrides gone in the same transaction; delete falls back to env; test button ok against the mock and `ok: false, reason: 'auth'` with a wrong key; `platform:settings` required (support 403); `GET /ai/status` reasons `disabled`, `not_configured`, `feature_off`, demo |
+| `apps/api/test/ai-settings.test.ts` | F | defaults (off without the demo provider, Opus, 100 USD, 80 percent, 200, 50, seven features on); validation ranges; switching on without `goLive` 400, with one of the four checks false 400, all four true 200 and audited (no announcement date, plan O34); demo mode needs no `goLive`; `noticeChecked` stores date and person; key: admin key 400 `ai_admin_key`, saved key wins over `ANTHROPIC_API_KEY`, never returned by any route, not in audit details, `demoOverridesDeleted` counted and the demo overrides gone in the same transaction; delete falls back to env; test button ok against the mock and `ok: false, reason: 'auth'` with a wrong key; `platform:settings` required (support 403); `GET /ai/status` reasons `disabled`, `not_configured`, `feature_off`, demo |
 | `apps/api/test/ai-structured.test.ts` | F | plan F20 list (request shape per model, refusal 422, max_tokens retry then 502, 401, 529, 500, mid-stream errors, 402 fixed message with the redacted original kept, `retryOnMaxTokens: false`, budget 429, platform cap 429 `concurrent`, tokens and cost on the row, demo translations at cost 0, availability reasons) plus: fallback iterations priced per entry, served model stored |
 | `apps/api/test/ai-org.test.ts` | U3 | staff switch off and on (audit); reseller switch; 409 `ai_platform_locked`; 409 `ai_reseller_blocked`; customer decline and allow (audit), also while suspended and while the platform is off; reseller off caps its customers' members and its own staff (chat 403); members of a declined org get 403 `ai_org_disabled`; staff explain on a declined org 403; usage counts include staff requests, no cost field in `OrgAiDto` and `ResellerCustomerAiDto`, cost in `AdminOrgAiDto`; none of the routes is 404 while AI is off |
 | `apps/api/test/ai-limits.test.ts` | U3 | each kind of 7.1 in order; translations (`countsForUser: false`) skip person and organization limits but not the budget; staff requests do not count against the customer's daily limit; stale rows ignored and marked by `AiMaintenance`; maintenance deletes rows older than 400 days and error texts older than 30 days; warning and exhaustion mails to superadmins and audit entries exactly once per month, both at once on a jump; `Retry-After` |
@@ -2936,11 +2938,9 @@ Einschalten", plan 9). The go-live dialog of the KI page asks for items 1 to 5 (
 4. **Workspace location**: in the Claude Console check the workspace the key belongs to: its data residency or
    processing location settings, if offered, and a spend limit at least as low as the console's budget (a second
    safety net). Adjust the notice if the location differs from it.
-5. **Announcement**: a mail to the owner of every organization at least 30 days before the switch: what the AI does,
-   Anthropic as sub-processor, which data, that weblion staff can use it on the organization's data, the planned
-   date, and the link to the decline setting (`<APP_URL>/o/<slug>/settings`, card "KI-Funktionen"). The console
-   does not send it (no template is planned); enter the sending date in the go-live dialog, which refuses dates less
-   than 30 days ago.
+5. **Customers one by one** (plan O34): AI stays off for every customer after the master switch. Switch a customer on
+   (admin customer page, or its reseller) only after the customer agreed in its contract or an AVV addendum; the
+   switch-on dialog asks for that confirmation and the audit log records it. No announcement mail to all owners.
 6. **Key**: save the API key on the KI page, "Verbindung testen".
 7. **Prices**: compare `AI_PRICES` (2.2) with Anthropic's pricing page; a difference is a code change.
 8. **Budget, limits, features**: set them, then switch on.

@@ -109,6 +109,7 @@ D (docs)
 | O31 | Scope | `format=ts` export | `customer_summary`, `propose_monitor` | All three dropped (i18n 16.3, ai 10.5, 8.4). Seven AI features remain (section 10, decision 32). |
 | O32 | Error codes | specific API messages stay English | 409 `conflict` for reseller cases | Every new AI and i18n error has its own code and a translated text (2.10, frozen by F); `ai_upstream`, `ai_busy`, `ai_incomplete`, `ai_timeout` carry fixed English messages, never Anthropic's (ai 4.2). |
 | O33 | Web and server texts | one aggregator per locale | | Web aggregators without `email` and `pdf`; `server.ts` aggregators for the API; types `TranslationKey` (web) and `ServerTranslationKey` (API) (i18n 3.1). |
+| O34 | Per-customer default (**owner decision 06.11.2026; wins over every other statement in this plan, the designs, summaries.md and any task instruction**) | | AI on by default for every organization, the migration switches all on, go-live needs an announcement mail 30 days ahead | **AI is opt-in per customer.** `organizations.ai_enabled` defaults to **false** and migration `0010_ai` has **no** data statement switching organizations on (existing and new organizations start off, `ai_disabled_by` null). Staff (`PUT /admin/orgs/:orgId/ai`) or the customer's reseller (`PUT /orgs/:orgId/customers/:customerId/ai`, only while the reseller's own AI is on) switches a customer on; the body is `{ enabled: boolean, consentConfirmed?: boolean }` and `enabled: true` requires `consentConfirmed: true` (else 400 `bad_request` with `details.field = 'consentConfirmed'`): the person confirms that the customer agreed (contract or AVV addendum). The audit entry `ai.org_switch` carries `{ enabled, by, consentConfirmed }`. The switch-on dialog (shared by `AdminAiCard` and `ResellerAiCard`) shows `admin.ai.card.consent*`. The customer's own decline (`ai_opt_out_at`) still wins and can be set at any time. `OrgAiCard` shows `ai.org.notEnabled` while the organization was never switched on. The go-live checklist and `AiGoLiveDto` **drop** `announcedOn` and the 30-day rule (keys `admin.ai.status.enableAnnouncedOn` and `enableTooEarly` are not added); they keep contracts, transferBasis, noticeChecked, workspaceChecked, and the dialog shows `admin.ai.status.enableOptIn`. Demo seed (`db/seed.ts`, F): the demo customer of `anna@muster.example` and the demo reseller are switched on, so the demo shows the features. Tests switch an organization on through the route or a helper `enableAiForOrg(db, orgId)` in `test/helpers.ts` (F). The migration test asserts `ai_enabled` false for existing rows. |
 
 ---
 
@@ -1099,8 +1100,8 @@ import type { AiFeature, AiModel, AiSwitchedOffBy, AiUsageScope, AiUsageStatus, 
   TargetLocale, TranslationBatchPlan, TranslationFailure, TranslationJobScope, TranslationJobStatus } from '@weblion/shared';
 
 // organizations: four columns after `modules`
-/** AI may be used on this organization's data. On by default (plan decision 16). */
-aiEnabled: boolean('ai_enabled').notNull().default(true),
+/** AI may be used on this organization's data. Off by default, opt-in per customer (plan O34, decision 16). */
+aiEnabled: boolean('ai_enabled').notNull().default(false),
 /** Who switched it off while aiEnabled is false. A reseller cannot switch on what the platform switched off. */
 aiDisabledBy: text('ai_disabled_by').$type<AiSwitchedOffBy>(),
 /** The customer declined the AI features (ai:settings). Wins over every switch, staff features included. */
@@ -1191,7 +1192,7 @@ CREATE TABLE "ai_usage" (
 	"request_id" text
 );
 --> statement-breakpoint
-ALTER TABLE "organizations" ADD COLUMN "ai_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "ai_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "organizations" ADD COLUMN "ai_disabled_by" text;--> statement-breakpoint
 ALTER TABLE "organizations" ADD COLUMN "ai_opt_out_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "organizations" ADD COLUMN "ai_opt_out_by" uuid;--> statement-breakpoint
@@ -1203,9 +1204,7 @@ CREATE INDEX "ai_usage_created_idx" ON "ai_usage" USING btree ("created_at");-->
 CREATE INDEX "ai_usage_org_created_idx" ON "ai_usage" USING btree ("org_id","created_at");--> statement-breakpoint
 CREATE INDEX "ai_usage_user_created_idx" ON "ai_usage" USING btree ("user_id","created_at");--> statement-breakpoint
 CREATE INDEX "ai_usage_running_idx" ON "ai_usage" USING btree ("created_at") WHERE "ai_usage"."status" = 'running';--> statement-breakpoint
--- Hand edit (plan decision 16): AI is on for every existing organization. The column default already fills the
--- existing rows with true; the statement keeps the decision visible and is a no-op on a fresh database.
-UPDATE "organizations" SET "ai_enabled" = true WHERE "ai_enabled" IS DISTINCT FROM true;
+-- No data statement (plan O34): AI is opt-in per customer, every existing organization starts off.
 ```
 
 `ai_disabled_by`, `ai_opt_out_at` and `ai_opt_out_by` stay null for existing rows (nobody switched off or declined
@@ -1415,7 +1414,7 @@ existing installations too.
 
 **Test** (`apps/api/test/migrations.test.ts`, F, i18n 10.3): migrate to `0009` only, insert today's rows (users
 with `de`, `en`, `EN-gb`, `fr-CH`, `xx`; an organization with owner, billing profile, open invoice with lines, a
-product), run all migrations, then assert: locales `de`, `en`, `en`, `fr`, `de`; `organizations.ai_enabled` true,
+product), run all migrations, then assert: locales `de`, `en`, `en`, `fr`, `de`; `organizations.ai_enabled` false (O34),
 the other three AI columns null; `products.translations = {}`; `billing_profiles.locale` and `invoices.locale` null;
 the four new tables exist and are empty; `update users set locale = 'es'` fails; two inserts of `queued` jobs fail
 on `translation_jobs_active_idx`; the journal order of 3.1.
@@ -1476,7 +1475,7 @@ Defaults and ranges of `ai` (validated by `PUT /admin/ai/settings`, ai 5.1):
 | `dailyOrgLimit` | 200 | 1 to 10,000 | 19 |
 | `dailyUserLimit` | 50 | 1 to 10,000 | 19 |
 | `notice` | `null` | | 25 |
-| `goLive` | `null` | `announcedOn` at least 30 days before today (Europe/Zurich), not in the future | 31 |
+| `goLive` | `null` | the four checks `true` (no announcement date, O34) | 31 |
 
 The default of `enabled` is computed when the row is missing; once the row is written its stored value counts.
 `ENABLE_DEMO_PROVIDER` is never set in production (`docs/providers.md`), so a production installation starts off
@@ -1675,12 +1674,12 @@ them (ai 5.6). Text values in i18n details are cut to 300 characters.
 
 | Action | Route or trigger | `orgId`, resource | Details |
 |---|---|---|---|
-| `ai.settings_update` | `PUT /admin/ai/settings` (F) | null, `settings` / `ai` | changed fields `{ field: { from, to } }`; on the off -> on switch also `goLive: { announcedOn, contracts, transferBasis, noticeChecked, workspaceChecked }`; `noticeChecked: true` when the notice was marked checked |
+| `ai.settings_update` | `PUT /admin/ai/settings` (F) | null, `settings` / `ai` | changed fields `{ field: { from, to } }`; on the off -> on switch also `goLive: { contracts, transferBasis, noticeChecked, workspaceChecked }`; `noticeChecked: true` when the notice was marked checked |
 | `ai.key_update` | `PUT /admin/ai/key` (F) | null, `settings` / `ai_key` | `{ source: 'ui', replaced: boolean, demoOverridesDeleted: number }` |
 | `ai.key_delete` | `DELETE /admin/ai/key` (F) | null, `settings` / `ai_key` | `{ envFallback: boolean }` |
 | `ai.test` | `POST /admin/ai/test` (F) | null, `settings` / `ai` | `{ model, reason }`; status `success` or `failure` |
-| `ai.org_switch` | `PUT /admin/orgs/:orgId/ai` | the customer, `org` / customer id | `{ enabled, by: 'platform' }` |
-| `ai.org_switch` | `PUT /orgs/:orgId/customers/:customerId/ai` | two entries: the reseller (`org` / customer id, like `reseller.customer_update`) and the customer (`org` / customer id) | `{ enabled, by: 'reseller' }` |
+| `ai.org_switch` | `PUT /admin/orgs/:orgId/ai` | the customer, `org` / customer id | `{ enabled, by: 'platform', consentConfirmed }` (O34) |
+| `ai.org_switch` | `PUT /orgs/:orgId/customers/:customerId/ai` | two entries: the reseller (`org` / customer id, like `reseller.customer_update`) and the customer (`org` / customer id) | `{ enabled, by: 'reseller', consentConfirmed }` (O34) |` |
 | `ai.org_decline`, `ai.org_allow` | `PUT /orgs/:orgId/ai/decline` | the organization, `org` / its id | `{ declined }` |
 | `ai.budget_warning` | `checkBudgetWarning` (`req = null`, `actorName: 'AI budget'`) | null, `settings` / `ai_budget_notice` | `{ month, percent, spentMicros, budgetMicros }` |
 | `ai.budget_exhausted` | the same | null, `settings` / `ai_budget_notice` | `{ month, spentMicros, budgetMicros }` |
@@ -2280,7 +2279,8 @@ build the web, run the API with `WEB_DIST_DIR=apps/web/dist`. Drive it with curl
    entries; a scripted chat whose second tool call asks for a server id of another organization gets `not_found`;
    a scripted DNS proposal with an MX value the console did not compute shows "Nicht von weblion.one geprüft" and
    the extra confirmation.
-2a. **Before go-live**: with the platform switch off, anna's org settings show the KI card with
+2a. **Before go-live**: a new organization starts with AI off (`ai.org.notEnabled`), switching it on without the
+   consent box is 400; with the platform switch off, anna's org settings show the KI card with
    `ai.org.platformOff`; she declines; turning the master switch on asks for the checklist; after it, anna's
    organization has no assistant, and an admin explain of one of its audit rows is 403 `ai_org_disabled`; a
    suspended organization's owner can still open and change the card.
@@ -2327,8 +2327,8 @@ After I, in German, no em dashes:
   feature, customer, reseller, the customer's own decline), budget and limits, read-only tool layer and isolation,
   retention, demo mode, error reasons on the KI page, the data notice, and the section "Vor dem Einschalten" with
   the go-live checklist of ai 16 (AGB/AVV sub-processor list, transfer basis, notice sentence on training and
-  retention checked against the Commercial Terms and DPA, workspace location, announcement mail to every
-  organization owner at least 30 days before the master switch with the link to the decline setting).
+  retention checked against the Commercial Terms and DPA, workspace location; per-customer opt-in with the
+  customer's consent, O34).
 - `docs/i18n.md` (new): i18n 21 content: languages and fallback, adding texts (de/en, `i18n:stamp`), translation
   rules and term table, Verwaltung > Übersetzungen (filters, editing, glossary, style notes, Mass Translate, cost),
   export and `i18n:apply`, checks (the same predicates for bundles and AI results), `I18N_REQUIRE_COMPLETE` and
@@ -2380,9 +2380,9 @@ Choices made where the designs or the owner's request left room (defaults the ow
     demo provider and without a key; the pseudo translations are served only with the demo provider and are deleted
     when a real key is saved.
 15. The AI master switch is off in production until the owner turns it on; with the demo provider it starts on.
-16. Per customer the AI is on by default (the migration switches every existing organization on); staff and the
-    customer's reseller can switch it off; a reseller's switch caps its customers; the customer can decline in its
-    own settings, and that wins over staff features.
+16. Per customer the AI is **off by default** (owner decision 06.11.2026, O34): staff or the customer's reseller switches
+    it on per customer after confirming that the customer agreed (recorded in the audit log); a reseller's switch caps
+    its customers; the customer can decline in its own settings at any time, and that wins over staff features.
 17. The API key saved under Verwaltung > KI wins over `ANTHROPIC_API_KEY` in the environment.
 18. One model for all features, chosen by the owner (default Claude Opus 5.5); the console never switches to a cheaper
     model by itself; Anthropic's refusal fallback is on for Opus and Sonnet (Haiku has none).
@@ -2409,9 +2409,9 @@ Choices made where the designs or the owner's request left room (defaults the ow
     quotes in all languages; Italian uses "Lei", Dutch "u", French "vous".
 30. AI effort is fixed per feature (assistant, DNS check, server analysis, translations: medium; the rest: low) so the
     prompt cache stays warm.
-31. Customers can decline the AI at any time: before the platform switch is on, while suspended, and afterwards. The
-    owner announces the AI to every organization owner at least 30 days before switching it on (checklist in
-    `docs/ai.md`); the KI page asks for it when the master switch is turned on.
+31. Customers can decline the AI at any time: before the platform switch is on, while suspended, and afterwards. Because
+    AI is opt-in per customer (O34), no announcement to all organization owners is needed; the KI page asks for the
+    go-live checklist (AGB/AVV, transfer basis, notice, workspace) when the master switch is turned on.
 32. Seven AI features: assistant, error explanations, DNS and e-mail check, audit summary, server analysis, product
     texts, translations. The staff customer briefing and monitor proposals from the assistant are left for later.
 33. The AI sees only the organization the request belongs to; every resource it reads by id is checked against that
