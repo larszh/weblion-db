@@ -15,7 +15,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
     'Chiave OpenSSH non cifrata (-----BEGIN OPENSSH PRIVATE KEY-----). Viene salvata in forma cifrata e non viene mai più mostrata. Consigliato: una chiave dedicata per ogni server.',
   'providers.cloudpanel.generate': 'Genera coppia di chiavi',
   'providers.cloudpanel.generated':
-    'Nuova coppia di chiavi generata. Diventa valida solo quando salva; installi la chiave pubblica sul server.',
+    'Nuova coppia di chiavi generata. Diventa valida solo dopo il salvataggio; installi la chiave pubblica sul server.',
   'providers.cloudpanel.publicKey': 'Chiave pubblica',
   'providers.cloudpanel.publicKeyHint':
     'Passi questa chiave a install.sh sul server (--public-key). Non è segreta.',
@@ -151,9 +151,10 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.create.type.nodejsText': 'App propria, da avviare tramite SSH',
   'websites.create.onlyType': 'Tipo: {type}',
   'websites.create.application': 'Applicazione',
-  'websites.create.applicationHint': 'Determina la configurazione del server web. Il sito web parte vuoto.',
+  'websites.create.applicationHint':
+    'Determina la configurazione del server web. Il sito web viene creato vuoto.',
   'websites.create.wordpressHint':
-    'I file di WordPress si caricano tramite SFTP. Il database lo creiamo contestualmente.',
+    'I file di WordPress si caricano tramite SFTP. Creiamo contestualmente anche il database.',
   'websites.create.templateInvalid': 'Il nome di un modello del server, ad es. Generic.',
   'websites.create.phpVersion': 'Versione PHP',
   'websites.create.phpStaffHint': "Secondo l'impostazione del provider; il server verifica se è installata.",
@@ -161,7 +162,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.create.recommended': 'consigliata',
   'websites.create.nodejsVersion': 'Versione Node.js',
   'websites.create.nodejsHint':
-    "La porta viene assegnata automaticamente, l'app la avvia tramite SSH (ad es. PM2). La creazione richiede più tempo.",
+    "La porta viene assegnata automaticamente; l'app la avvia Lei tramite SSH (ad es. PM2). La creazione richiede più tempo.",
   'websites.create.siteUser': 'Nome utente (SFTP/SSH)',
   'websites.create.siteUserHint':
     'Utente Linux del sito web (site user): da 3 a 32 caratteri, lettere minuscole, cifre e "-".',
@@ -221,7 +222,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
     'I dati di accesso non sono stati mostrati. Imposti una nuova password.',
   'websites.detail.offBusy': 'Possibile solo al termine della modifica in corso.',
   'websites.detail.offError': 'Possibile solo dopo che la sincronizzazione avrà chiarito lo stato.',
-  'websites.detail.offMissing': 'Non possibile: il server non segnala più questo sito web.',
+  'websites.detail.offMissing': 'Non è possibile: il server non segnala più questo sito web.',
   'websites.detail.noFacts': 'Ancora nessuna informazione dal server.',
   'websites.detail.synced': 'Ultima sincronizzazione {when} · creato il {created}',
   'websites.access.title': 'Accesso (SFTP/SSH)',
@@ -269,11 +270,11 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.ssl.issue': "Rilascia certificato Let's Encrypt",
   'websites.ssl.issueShort': 'Rilascia certificato',
   'websites.ssl.reissue': 'Rilascia di nuovo',
-  'websites.ssl.issueHint': 'Verifica prima il DNS del dominio e della sua variante www.',
+  'websites.ssl.issueHint': 'Verifica prima il DNS del dominio e della relativa variante www.',
   'websites.ssl.renewal': 'CloudPanel rinnova automaticamente il certificato.',
   'websites.ssl.dialogTitle': 'Certificato SSL per {domain}',
   'websites.ssl.dialogText':
-    "Let's Encrypt verifica che il dominio e la sua variante www puntino a questo server. Noi lo verifichiamo in anticipo.",
+    "Let's Encrypt verifica che il dominio e la relativa variante www puntino a questo server. Noi lo verifichiamo in anticipo.",
   'websites.ssl.ready': 'Entrambi i nomi puntano al server. Il certificato può essere rilasciato.',
   'websites.ssl.notReady': 'Il DNS non punta ancora al server',
   'websites.ssl.force': 'Prova comunque',
@@ -281,7 +282,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
     "Let's Encrypt sta verificando il dominio. Possono essere necessari fino a tre minuti.",
   'websites.ssl.issued': 'Certificato rilasciato per {domain}',
   'websites.dns.title': 'DNS',
-  'websites.dns.text': 'Record A e AAAA necessari per il dominio e la sua variante www.',
+  'websites.dns.text': 'Record A e AAAA necessari per il dominio e la relativa variante www.',
   'websites.dns.hint':
     'Verifichi se il dominio punta al server. I record si impostano là dove viene gestito il suo dominio.',
   'websites.dns.check': 'Verifica DNS',
@@ -358,7 +359,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.usage.fairUse': 'Nessun limite fisso; vale il fair use. Il server misura ogni sei ore.',
   'websites.backup.title': 'Backup',
   'websites.backup.text':
-    'I database vengono salvati ogni notte (7 giorni, nella cartella ~/backups). Eliminando il sito web, spariscono anche questi backup.',
+    'Ogni notte viene eseguito un backup dei database (7 giorni, nella cartella ~/backups). Eliminando il sito web, spariscono anche questi backup.',
   'websites.mail.title': 'E-mail',
   'websites.mail.text':
     'I siti web non inviano né ricevono e-mail. Le caselle e-mail per {domain} si trovano nel modulo E-mail.',
@@ -400,7 +401,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.admin.optionsError':
     'Server non raggiungibile. La selezione segue le impostazioni del provider; il server verifica ogni dato.',
   'websites.admin.noAllowanceCheck':
-    'Per i collaboratori della piattaforma non vale alcun contingente. Il sito web viene comunque conteggiato nel contingente del cliente.',
+    'Per il personale della piattaforma non vale alcun contingente. Il sito web viene comunque conteggiato nel contingente del cliente.',
   'websites.admin.forget': 'Rimuovi dalla console',
   'websites.admin.forgetTitle': 'Rimuovere {domain} dalla console?',
   'websites.admin.forgetText':

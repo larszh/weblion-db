@@ -28,9 +28,9 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
     "Non esiste più oppure non ha accesso. Per domande si rivolga all'Owner della sua organizzazione.",
   'hosting.moduleOff.title': '{module} non è attivato',
   'hosting.moduleOff.text':
-    'Questa area non è attiva per la sua organizzazione. Se desidera utilizzarla, si rivolga al suo fornitore.',
+    "Quest'area non è attiva per la sua organizzazione. Se desidera utilizzarla, si rivolga al suo fornitore.",
   'hosting.moduleOff.staff':
-    'Il modulo non è attivato per questa organizzazione. Vede i dati solo perché è un collaboratore di weblion.',
+    'Il modulo non è attivato per questa organizzazione. Vede i dati solo perché fa parte del personale di weblion.',
   'hosting.liveError.title': 'Dati live non disponibili',
   'hosting.liveError.text':
     "{provider} non è raggiungibile al momento. Vengono mostrati i dati dell'ultima sincronizzazione.",
@@ -79,7 +79,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.authcode.retry': 'Richiedi di nuovo',
   'hosting.authcode.lockedHint':
     'Il blocco del trasferimento è attivo. Lo rimuova prima che il nuovo fornitore avvii il trasferimento.',
-  'hosting.domain.privacy': 'Protezione dei dati Whois',
+  'hosting.domain.privacy': 'Protezione privacy Whois',
   'hosting.domain.privacyNone': 'Nessuna',
   'hosting.domain.dnssecOn': 'Attivo',
   'hosting.domain.dnssecOff': 'Non attivo',
@@ -129,7 +129,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.registrant.none': 'Il registrar non ha comunicato i dati del titolare.',
   'hosting.renewal.title': 'Rinnovo',
   'hosting.renewal.text':
-    'I rinnovi hanno un costo presso il registrar e sono quindi riservati ai collaboratori di weblion.',
+    'I rinnovi hanno un costo presso il registrar e sono quindi riservati al personale di weblion.',
   'hosting.renewal.staffOnly': 'Interno',
   'hosting.renewal.autoOnText':
     "Il registrar rinnova il dominio prima della scadenza e addebita l'importo sul conto weblion.",
@@ -156,11 +156,11 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.renewal.current': 'Data di scadenza attuale',
   'hosting.renewal.new': 'Nuova data di scadenza',
   'hosting.renewal.unknownExpiry':
-    'La data di scadenza attuale non è nota. Il registrar rinnova a partire dalla data di scadenza registrata nei suoi sistemi.',
+    'La data di scadenza attuale non è nota. Il registrar rinnova a partire dalla data di scadenza registrata nei propri sistemi.',
   'hosting.renewal.targetYear':
-    "Joker.com riceve l'anno di destinazione {year}. Un ordine ripetuto per errore non rinnova quindi due volte.",
+    "A Joker.com viene trasmesso l'anno finale {year}. Un ordine ripetuto per errore non rinnova quindi due volte.",
   'hosting.renewal.charge':
-    "{provider} addebita subito la tassa di rinnovo sul conto weblion. L'operazione non può essere annullata.",
+    "{provider} addebita subito la tariffa di rinnovo sul conto weblion. L'operazione non può essere annullata.",
   'hosting.renewal.confirm': 'Rinnova per {years}',
   'hosting.renewal.renewedToast': 'Rinnovo di {name} ordinato',
   'hosting.dns.title': 'Record DNS',
@@ -240,7 +240,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.dns.hint.SRV':
     'Priorità, peso, porta e destinazione. Il nome contiene servizio e protocollo, ad es. _sip._tls.',
   'hosting.dns.hint.TXT':
-    'Testo libero senza virgolette, ad es. SPF, DKIM, DMARC o una conferma di Google o Microsoft.',
+    'Testo libero senza virgolette, ad es. SPF, DKIM, DMARC o una verifica di Google o Microsoft.',
   'hosting.dns.hint.CAA':
     'Flag, tag e valore tra virgolette, ad es. 0 issue "letsencrypt.org". Stabilisce chi può rilasciare certificati per il dominio.',
   'hosting.dns.hint.PTR': 'Nome host per la risoluzione inversa.',

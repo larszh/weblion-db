@@ -99,7 +99,7 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.rate.frame.h': "all'ora",
   'mail.rate.frame.d': 'al giorno',
   'mail.client.title': 'Impostazioni per i programmi e-mail',
-  'mail.client.text': 'Così collega Outlook, Apple Mail, Thunderbird o il suo smartphone.',
+  'mail.client.text': 'Ecco come collegare Outlook, Apple Mail, Thunderbird o il suo smartphone.',
   'mail.client.none': 'Le impostazioni del server non sono disponibili al momento.',
   'mail.client.webmail': 'Apri webmail',
   'mail.client.protocol': 'Servizio',
@@ -177,7 +177,7 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.mailbox.deleteConfirm': 'Elimina casella e-mail',
   'mail.mailbox.deleteWarningTitle': 'Tutte le e-mail verranno eliminate',
   'mail.mailbox.deleteText':
-    "La casella e-mail e le sue e-mail ({used}) vengono eliminate. Mailcow le conserva ancora per qualche giorno nel suo cestino, ma la console non può ripristinarle. Gli inoltri che portano solo qui vengono anch'essi eliminati; dagli altri l'indirizzo viene rimosso.",
+    "La casella e-mail e le relative e-mail ({used}) vengono eliminate. Mailcow le conserva ancora per qualche giorno nel proprio cestino, ma la console non può ripristinarle. Gli inoltri che portano solo qui vengono anch'essi eliminati; dagli altri l'indirizzo viene rimosso.",
   'mail.mailbox.deleted': 'Casella e-mail {address} eliminata',
   'mail.state.active': 'Attiva',
   'mail.state.login_disabled': 'Accesso bloccato',
@@ -186,9 +186,9 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.state.login_disabled.hint': "Continua a ricevere e-mail, l'accesso è bloccato.",
   'mail.state.inactive.hint': "Non accetta più e-mail, l'accesso è bloccato.",
   'mail.password.label': 'Password',
-  'mail.password.generate': 'Genera password sicura',
+  'mail.password.generate': 'Genera una password sicura',
   'mail.password.generateText': 'La console genera una password e gliela mostra una sola volta.',
-  'mail.password.choose': 'Scegliere la password',
+  'mail.password.choose': 'Imposta la password manualmente',
   'mail.password.chooseText': 'Inserisce Lei la password; in seguito la console non la mostra più.',
   'mail.password.new': 'Nuova password',
   'mail.password.repeat': 'Ripeti password',
@@ -233,7 +233,7 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.alias.special.ham.hint':
     'Le e-mail inviate a questo indirizzo addestrano il filtro antispam come e-mail desiderate.',
   'mail.alias.specialReadOnly':
-    'Questo inoltro scarta le e-mail o addestra il filtro antispam. Le sue destinazioni si possono modificare solo in Mailcow; qui può attivarlo e disattivarlo.',
+    'Questo inoltro scarta le e-mail o addestra il filtro antispam. Le relative destinazioni si possono modificare solo in Mailcow; qui può attivarlo e disattivarlo.',
   'mail.alias.createTitle': 'Crea inoltro',
   'mail.alias.createText':
     'Le e-mail inviate a un indirizzo sotto {domain} vengono recapitate alle destinazioni.',
@@ -436,7 +436,7 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.admin.active': 'Dominio attivo',
   'mail.admin.activeHint': 'I domini inattivi non accettano e-mail.',
   'mail.admin.deleteTitle': 'Eliminare {name}?',
-  'mail.admin.deleteNotEmpty': 'Mailcow elimina solo domini vuoti. Ancora {n} caselle e-mail.',
+  'mail.admin.deleteNotEmpty': 'Mailcow elimina solo domini vuoti. Ci sono ancora {n} caselle e-mail.',
   'mail.admin.deleteNotEmptyHint':
     'Occorre prima eliminare le caselle e-mail. {org} può farlo da sé alla voce "E-mail".',
   'mail.admin.deleteConfirm': 'Elimina dominio e-mail',
