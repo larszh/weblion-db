@@ -28,8 +28,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
 import { Field, Input, Notice, Select, Textarea } from '@/components/ui/primitives';
-import { useBillingLabels } from './bits';
+import { scheduledEndOf, useBillingLabels } from './bits';
 import {
+  formatDay,
   formatRate,
   moneyInput,
   parseMoney,
@@ -761,7 +762,10 @@ export function EditServiceDialog({
   );
 }
 
-/** Cancel a service, optionally switching its module off for the customer. */
+/**
+ * Cancel a service, optionally switching its module off for the customer. A later end date schedules
+ * the cancellation (the service runs and is billed until then); opened on a scheduled one it changes it.
+ */
 export function CancelServiceDialog({
   service,
   onOpenChange,
@@ -769,14 +773,15 @@ export function CancelServiceDialog({
   service: ServiceDto | null;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const labels = useBillingLabels();
   const [endsAt, setEndsAt] = useState(todayISO());
   const [deactivate, setDeactivate] = useState(false);
+  const scheduled = service ? scheduledEndOf(service) : null;
   useEffect(() => {
     if (!service) return;
-    setEndsAt(todayISO());
-    setDeactivate(false);
+    setEndsAt(scheduledEndOf(service) ?? todayISO());
+    setDeactivate(service.deactivateModuleAtEnd);
   }, [service]);
 
   const cancel = useApiMutation(
@@ -786,7 +791,12 @@ export function CancelServiceDialog({
         deactivateModule: deactivate,
       }),
     {
-      success: (s) => t('billing.service.cancelled', { name: s.name }),
+      success: (s) => {
+        const end = scheduledEndOf(s);
+        return end
+          ? t('billing.service.cancelledLater', { name: s.name, date: formatDay(end, locale) })
+          : t('billing.service.cancelled', { name: s.name });
+      },
       invalidate: moduleChangeKeys,
       onSuccess: () => onOpenChange(false),
     },
@@ -810,7 +820,7 @@ export function CancelServiceDialog({
             loading={cancel.isPending}
             onClick={() => cancel.mutate(undefined)}
           >
-            {t('billing.service.cancel')}
+            {scheduled ? t('billing.service.changeCancel') : t('billing.service.cancel')}
           </Button>
         </>
       }
@@ -819,7 +829,7 @@ export function CancelServiceDialog({
         <Field
           label={t('billing.service.endsAt.label')}
           htmlFor="cs-ends"
-          hint={t('billing.service.endsAtHint')}
+          hint={`${t('billing.service.endsAtHint')} ${t('billing.service.endsAtLaterHint')}`}
         >
           <Input id="cs-ends" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
         </Field>

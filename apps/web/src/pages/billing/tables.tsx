@@ -14,6 +14,7 @@ import {
   ServiceStatusBadge,
   SignedAmount,
   ZohoBadge,
+  scheduledEndOf,
   useBillingLabels,
 } from './bits';
 import { formatDay, formatQuantity } from './money';
@@ -188,6 +189,12 @@ export function CreditTable({
   );
 }
 
+/** A scheduled cancellation with every period up to its end date billed: nothing more is due. */
+function billedToEnd(service: ServiceDto): boolean {
+  const end = scheduledEndOf(service);
+  return !!end && !(service.nextBillingAt && service.nextBillingAt <= end);
+}
+
 /** Services ("Dienste") with price, interval and next billing date. */
 export function ServiceTable({
   services,
@@ -242,7 +249,7 @@ export function ServiceTable({
               )}
             </TD>
             <TD className="hidden whitespace-nowrap md:table-cell">
-              {s.status === 'cancelled' ? (
+              {s.status === 'cancelled' || billedToEnd(s) ? (
                 <span className="text-muted">
                   {s.endsAt ? t('billing.service.endsAt', { date: formatDay(s.endsAt, locale) }) : '–'}
                 </span>
@@ -257,6 +264,16 @@ export function ServiceTable({
             </TD>
             <TD>
               <ServiceStatusBadge status={s.status} />
+              {scheduledEndOf(s) && (
+                <div className="mt-1 text-xs text-warning">
+                  {t('billing.service.cancelledPer', { date: formatDay(scheduledEndOf(s)!, locale) })}
+                </div>
+              )}
+              {scheduledEndOf(s) && s.deactivateModuleAtEnd && s.module && (
+                <div className="text-xs text-muted">
+                  {t('billing.service.moduleOffAtEnd', { module: labels.module(s.module) })}
+                </div>
+              )}
             </TD>
             {actions && <TD className="w-10 text-right">{actions(s)}</TD>}
           </tr>
