@@ -14,7 +14,7 @@
   "plans.select": ["9f9f4206116cd686", "c2faaa5a0e95d9b8"],
   "plans.upgradeDisk": ["c090fa6ac39f5c9b", "a71dbfc9361376dc"],
   "plans.upgradeDiskHint": ["5ea9d20210ca8100", "29d191b0f66e0bfb"],
-  "plans.hetznerOff": ["940ddf04556a45c3", "f3e93df6ba703d03"],
+  "plans.hetznerOff": ["940ddf04556a45c3", "c49fbea08e3cae7f"],
   "plans.hint": ["615457ba600e4c26", "6bac205d6dabccb0"],
   "plans.confirmText": ["924ca63c4d2e84ba", "fd4829b9db974a86"],
   "plans.confirmDisk": ["c306e9d9725b2954", "9521b087366773e9"],

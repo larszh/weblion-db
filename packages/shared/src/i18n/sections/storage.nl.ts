@@ -72,7 +72,7 @@ export const storageNl: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.email.required': 'Vereist voor de uitnodiging.',
   'storage.email.invalid': 'Geen geldig e-mailadres.',
   'storage.email.needsPassword':
-    'Wijzigen alleen met het recht om wachtwoorden opnieuw in te stellen: uitnodigingen en links om het wachtwoord opnieuw in te stellen gaan naar dit adres.',
+    'Alleen te wijzigen met het recht om wachtwoorden opnieuw in te stellen: uitnodigingen en links om het wachtwoord opnieuw in te stellen gaan naar dit adres.',
   'storage.email.changeHint': 'Nextcloud stuurt meldingen en uitnodigingen voortaan naar het nieuwe adres.',
   'storage.quota': 'Opslagquotum',
   'storage.quota.freeHint': 'Nog vrij in het quotum: {free}',
@@ -103,7 +103,7 @@ export const storageNl: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.enable': 'Activeren',
   'storage.disableTitle': '{username} deactiveren?',
   'storage.disableText':
-    'De persoon kan niet meer inloggen en de apparaten synchroniseren niet meer. Bestanden en quotum blijven bewaard.',
+    'De persoon kan niet meer inloggen en de apparaten van deze persoon synchroniseren niet meer. Bestanden en quotum blijven bewaard.',
   'storage.enableTitle': '{username} activeren?',
   'storage.enableText': 'De persoon kan weer inloggen.',
   'storage.enabledToast': '{username} geactiveerd',

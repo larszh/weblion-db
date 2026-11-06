@@ -82,11 +82,11 @@ export const uptimeNl: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.missing.text':
     'Niet meer gemeld door Uptime Kuma (voor het eerst {when}). De monitor is daar gepauzeerd of verwijderd, of Uptime Kuma start net opnieuw op.',
   'uptime.missing.paused':
-    'Niet meer gemeld door Uptime Kuma (voor het eerst {when}). De monitor was laatst gepauzeerd.',
+    'Niet meer gemeld door Uptime Kuma (voor het eerst {when}). De monitor was het laatst gepauzeerd.',
   'uptime.notFound': 'Monitor niet gevonden',
   'uptime.refreshError': 'Bijwerken mislukt',
   'uptime.since': 'sinds {when}',
-  'uptime.liveError': 'Live gegevens van Uptime Kuma niet beschikbaar, de opgeslagen waarden worden getoond',
+  'uptime.liveError': 'Live-gegevens van Uptime Kuma niet beschikbaar, de opgeslagen waarden worden getoond',
   'uptime.managementError': 'Beheer momenteel niet beschikbaar: de monitor kan niet worden gewijzigd',
   'uptime.range.recent': 'Laatste controles',
   'uptime.range.24h': '24 uur',

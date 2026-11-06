@@ -20,7 +20,7 @@ export const cloudNl: Partial<Record<keyof typeof cloudDe, string>> = {
   'plans.upgradeDiskHint':
     'Een grotere schijf kan niet meer worden verkleind. Daarna is geen overstap naar een type met een kleinere schijf meer mogelijk. Zonder deze optie blijft de schijf op {current} GB en kan de wijziging ongedaan worden gemaakt.',
   'plans.hetznerOff':
-    'Hetzner wijzigt het servertype alleen als de server is uitgeschakeld. Sluit de server eerst af onder Energiebeheer en start hem daarna weer.',
+    'Hetzner wijzigt het servertype alleen als de server is uitgeschakeld. Sluit de server eerst af onder Energiebeheer en start hem daarna weer op.',
   'plans.hint': 'Een ander servertype verandert de kosten en kan een herstart vereisen.',
   'plans.confirmText': 'De server wordt omgezet naar {plan} ({cores} vCPU, {memory} RAM).',
   'plans.confirmDisk': 'De schijf groeit naar {disk} GB. Dit kan niet ongedaan worden gemaakt.',
