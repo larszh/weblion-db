@@ -13,6 +13,9 @@ export const allowlist: Allowlist = {
     // "Reseller" is plural here ("{resellers} Reseller"); the Italian plural "rivenditori" does not contain the
     // singular "rivenditore" the check looks for.
     'admin.stat.orgsSub',
+    // A file name: the words of "bozza di fattura" are joined by hyphens ("Bozza-fattura-{id}.pdf"), as the
+    // German file name joins "Rechnungsentwurf" to the id, so the spaced term cannot appear.
+    'pdf.invoice.draftFilename',
   ],
   typographyOk: [],
 };
