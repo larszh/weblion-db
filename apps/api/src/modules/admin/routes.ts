@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   DEFAULT_MODULES,
+  LOCALES,
   MODULES,
   ORG_KINDS,
   PHP_VERSION_PATTERN,
@@ -1319,6 +1320,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
           link: result.invitation.link,
           expiresAt: result.invitation.expiresAt,
           inviter: auth.user,
+          // Only new addresses get an invitation here (an existing account becomes owner at once).
+          invitee: null,
         })
       : null;
     return {
@@ -1478,6 +1481,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         platformRole: z.enum(PLATFORM_ROLES).nullish(),
         orgId: z.uuid().optional(),
         orgRole: z.enum(['owner', 'admin', 'member', 'restricted', 'viewer', 'billing']).optional(),
+        /** Console and mail language of the new person (i18n 6.2); German when left out. */
+        locale: z.enum(LOCALES).optional(),
       }),
       req.body,
     );
@@ -1495,6 +1500,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
           name: body.name,
           platformRole: body.platformRole ?? null,
           passwordHash: await hashPassword(password),
+          locale: body.locale ?? 'de',
         })
         .returning();
       if (body.orgId) {
@@ -1509,7 +1515,12 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       orgId: body.orgId ?? null,
       resourceType: 'user',
       resourceId: user.id,
-      details: { email: body.email, platformRole: body.platformRole ?? null, orgRole: body.orgRole },
+      details: {
+        email: body.email,
+        platformRole: body.platformRole ?? null,
+        orgRole: body.orgRole,
+        locale: user.locale,
+      },
     });
     return { user: toUserDto(user), initialPassword: password };
   });

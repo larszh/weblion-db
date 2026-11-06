@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   BILLING_INTERVALS,
   CURRENCIES,
+  LOCALES,
   MODULES,
   SERVICE_RESOURCE_TYPES,
   TARGET_LOCALES,
@@ -41,6 +42,7 @@ import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockO
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
+  billingLocale,
   billingSummary,
   creditPage,
   listPayments,
@@ -62,7 +64,9 @@ import {
   deleteDraftInTx,
   finalizeInTx,
   inBackground,
+  contentDisposition,
   invoiceFilename,
+  invoiceLocale,
   invoicePdf,
   linesSchema,
   loadInvoiceFor,
@@ -114,6 +118,8 @@ const addressShape = {
   country: countrySchema.default('CH'),
   email: optionalEmail,
   vatId: optionalText(40),
+  /** "Sprache für Rechnungen"; null = the owner's language (i18n 9). The customer may choose it too. */
+  locale: z.enum(LOCALES).nullable().optional(),
 };
 /** Customers maintain their address; currency, terms and tax are the seller's. */
 const customerProfileBody = z.object(addressShape);
@@ -373,7 +379,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       loadProfile(db, orgId),
       issuerSettings(db, sellerOrgId(org)),
     ]);
-    return toBillingProfileDto(orgId, profile, issuer);
+    return toBillingProfileDto(orgId, profile, issuer, await billingLocale(db, orgId, profile ?? null));
   });
 
   app.put('/orgs/:orgId/billing/profile', async (req) => {
@@ -398,7 +404,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceId: orgId,
       details: body,
     });
-    return toBillingProfileDto(orgId, await loadProfile(db, orgId), issuer);
+    const saved = await loadProfile(db, orgId);
+    return toBillingProfileDto(orgId, saved, issuer, await billingLocale(db, orgId, saved ?? null));
   });
 
   // --- Single invoices (customer or issuer) ---------------------------------------
@@ -414,9 +421,10 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     // Drafts only reach their issuer here, rendered with an "ENTWURF" watermark.
     const { invoice, org } = await loadInvoiceFor(ctx, req, id);
     const pdf = await invoicePdf(ctx, invoice, org);
+    const filename = invoiceFilename(invoice, ctx.i18n.translator(await invoiceLocale(db, invoice)));
     return reply
       .header('content-type', 'application/pdf')
-      .header('content-disposition', `inline; filename="${invoiceFilename(invoice)}"`)
+      .header('content-disposition', contentDisposition('inline', filename))
       .header('cache-control', 'private, no-store')
       .send(pdf);
   });
@@ -568,7 +576,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     return {
       org: { id: org.id, name: org.name, slug: org.slug, status: org.status, modules: org.modules },
       seller: summary.seller,
-      profile: toBillingProfileDto(orgId, profile, issuer),
+      profile: toBillingProfileDto(orgId, profile, issuer, await billingLocale(db, orgId, profile ?? null)),
       summary,
       can: { write },
     };
@@ -598,7 +606,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceId: orgId,
       details: { ...body, asSeller: true },
     });
-    return toBillingProfileDto(orgId, await loadProfile(db, orgId), issuer);
+    const saved = await loadProfile(db, orgId);
+    return toBillingProfileDto(orgId, saved, issuer, await billingLocale(db, orgId, saved ?? null));
   });
 
   app.get('/billing/customers/:orgId/invoices', async (req) => {
@@ -712,6 +721,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     if (body.notify) {
       const to = await billingRecipients(db, orgId);
       if (to.length > 0) {
+        // Texts in the billing language, amounts in Swiss format like on every invoice (i18n 2.3, 8.2).
         await ctx.mail.send(
           'credit_booked',
           {
@@ -721,7 +731,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
             description: row.description,
             link: billingLink(ctx.env, org.slug),
           },
-          { to, locale: 'de', orgId },
+          { to, locale: await billingLocale(db, orgId), orgId },
         );
       }
     }
