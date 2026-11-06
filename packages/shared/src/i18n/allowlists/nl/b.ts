@@ -9,6 +9,10 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "Speichern Sie" is an imperative in a sentence, not the Save button; Dutch says "Bewaar ... nu" (keep them
+    // safe), which matches the confirm checkbox "Ik heb de inloggegevens bewaard".
+    'websites.creds.text',
+  ],
   typographyOk: [],
 };
