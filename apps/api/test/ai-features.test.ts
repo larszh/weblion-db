@@ -280,7 +280,13 @@ describe('explain (ai 10.1)', () => {
 
     const [row] = await t.db
       .insert(auditLogs)
-      .values({ action: 'server.delete', orgId: ids['muster-ag'], status: 'failure', ip: '198.51.100.4' })
+      .values({
+        action: 'server.delete',
+        orgId: ids['muster-ag'],
+        status: 'failure',
+        ip: '198.51.100.4',
+        details: { note: 'requested from 198.51.100.4 via 2001:db8::4' },
+      })
       .returning();
     res = await admin.post('/admin/ai/explain', {
       source: { kind: 'audit', auditId: String(row!.id) },
@@ -289,6 +295,8 @@ describe('explain (ai 10.1)', () => {
     expect(res.statusCode).toBe(200);
     expect(await lastRow()).toMatchObject({ scope: 'staff', orgId: ids['muster-ag'] });
     expect(JSON.stringify(sent().data)).not.toContain('198.51.100.4');
+    // Also inside texts, as the data notice says (log entries only).
+    expect(sent().data).toMatchObject({ details: { note: 'requested from [ip] via [ip]' } });
 
     const [provider] = await t.db.select().from(providerConnections).limit(1);
     await t.db
@@ -310,7 +318,7 @@ describe('explain (ai 10.1)', () => {
         subject: 'Rechnung',
         template: 'invoice',
         status: 'failed',
-        error: 'SMTP 550 for kunde@muster-ag.ch',
+        error: 'SMTP 550 from 203.0.113.5:25 for kunde@muster-ag.ch',
         orgId: ids['muster-ag'],
       })
       .returning();
@@ -323,7 +331,7 @@ describe('explain (ai 10.1)', () => {
       template: 'invoice',
       status: 'failed',
       to: '[email]',
-      error: 'SMTP 550 for [email]',
+      error: 'SMTP 550 from [ip]:25 for [email]',
     });
 
     // Support may use the admin features on audit and providers, not on the mail log (platform:settings).

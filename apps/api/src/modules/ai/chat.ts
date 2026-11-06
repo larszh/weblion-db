@@ -19,7 +19,7 @@ import { AiCancelled, aiRefusal, classifyAiError } from './errors';
 import type { AiGate } from './gates';
 import { SYSTEM_TEXT } from './prompts';
 import { ConsoleReader } from './reader';
-import { redactForAi, redactSecrets, toolJson } from './redact';
+import { redactForAi, redactSecrets, toolJson, type RedactOptions } from './redact';
 import type { AiFinishStatus } from './service';
 import { SseWriter } from './sse';
 import { toolByName, toolDefinitions } from './tools/registry';
@@ -112,10 +112,10 @@ export function echoContent(content: BetaContentBlock[]): BetaContentBlockParam[
 /** The JSON text of a tool result, cut to 20,000 characters at an item boundary (ai 6.4 step 9). */
 export function resultText(
   value: unknown,
-  personal: boolean,
+  redaction: RedactOptions,
   max: number = CHAT_LIMITS.toolResultMaxChars,
 ): string {
-  const redacted = redactForAi(value, { personal });
+  const redacted = redactForAi(value, redaction);
   let text = toolJson(redacted);
   if (text.length <= max) return text;
   // Lists are cut item by item: { items, truncated: true, total } stays valid JSON the model can read.
@@ -451,7 +451,7 @@ async function runTools(
     if (p.refused) return p.refused;
     const out = outputs.get(p.block.id);
     if (!out || out === 'failed') return errorResult(p.block.id, 'tool_failed');
-    const text = resultText(out.result, p.tool!.personal);
+    const text = resultText(out.result, { personal: p.tool!.personal, logEntries: p.tool!.logEntries });
     if (state.resultChars + text.length > CHAT_LIMITS.toolResultChars)
       return errorResult(p.block.id, 'result_limit');
     state.resultChars += text.length;

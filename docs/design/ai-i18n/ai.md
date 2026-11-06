@@ -2247,7 +2247,11 @@ export function toolJson(value: unknown): string;
 also drops the keys `ip`, `userAgent`, `user_agent` and `email` (any case, and keys ending in `email`, such as
 `inviterEmail`) and replaces e-mail-shaped substrings in strings by `[email]` (plan O28). Personal mode is used
 for every audit entry, mail log entry, mail domain, cloud storage and streaming result; not for DNS data, where
-addresses such as a DMARC `rua=mailto:` are part of what is checked.
+addresses such as a DMARC `rua=mailto:` are part of what is checked. With `logEntries: true` IPv4 and IPv6
+addresses inside strings become `[ip]` too, as the data notice (13.10) says for log entries: the third-party
+kinds `audit_entry`, `audit_entries` and `mail_log` and the tools with audit entries, `get_audit_log` and
+`get_server_activity` (flag `logEntries`). Server data, a single server action and errors keep their addresses,
+which the analysis needs.
 
 `ai_usage.error_message` passes `redactText` too. `ai-secrets.test.ts` (15.2) proves that no key, password or env
 secret appears in any request body the mock receives, in any response, audit entry, `ai_usage` row or captured log
@@ -2921,7 +2925,7 @@ one call with `configureAi(admin, { key?, model?, features?, budgetUsd? })` of `
 | `packages/shared/src/ai.test.ts` | F | 3.1 cases 1 to 10 |
 | `packages/shared/src/access.test.ts` | F | plan F9: org off, decline, reseller cascade through a parent boundary, `ai:settings` still allowed, suspended boundary has no `ai:use` but `ai:settings`, viewer and member have `ai:use`, restricted and billing do not, support has `ai:use` and `platform:ai:use` |
 | `apps/api/src/modules/ai/schema.test.ts` | F | 6.5 list; every tool input and every feature output schema converts |
-| `apps/api/src/modules/ai/redact.test.ts` | F | each pattern of 11.2; exact env values; the saved Anthropic key after `setAnthropicKeys`; 4,000 cap; personal mode drops `ip`, `userAgent`, `user_agent`, `email`, `inviterEmail` and replaces addresses; non-personal mode keeps a DMARC `mailto:`; `toolJson` escapes `<` and `>` and stays valid JSON |
+| `apps/api/src/modules/ai/redact.test.ts` | F | each pattern of 11.2; exact env values; the saved Anthropic key after `setAnthropicKeys`; 4,000 cap; personal mode drops `ip`, `userAgent`, `user_agent`, `email`, `inviterEmail` and replaces addresses; `logEntries` replaces IPv4 and IPv6 addresses in texts and keeps times, versions and MAC addresses; non-personal mode keeps a DMARC `mailto:`; `toolJson` escapes `<` and `>` and stays valid JSON |
 | `apps/api/src/modules/ai/prompts.test.ts` | F | 10.8 checks |
 | `apps/api/src/modules/ai/tools.test.ts` | U3 | 22 tools, names equal `AI_TOOL_NAMES`; every input schema strict-convertible; `live` and `personal` flags as in 8.2 and 8.3; every route template exists as a `GET` route of the app (`app.printRoutes` or `hasRoute`); every `ai.tool.<name>` key exists; `validateDnsProposal` unit cases (verified equality with case, trailing dot and TXT quotes; NS and delete impossible; MX and apex A/AAAA change only verified; `textOnly` reasons) |
 | `apps/api/test/ai-settings.test.ts` | F | defaults (off without the demo provider, Opus, 100 USD, 80 percent, 200, 50, seven features on); validation ranges; switching on without `goLive` 400, with one of the four checks false 400, all four true 200 and audited (no announcement date, plan O34); demo mode needs no `goLive`; `noticeChecked` stores date and person; key: admin key 400 `ai_admin_key`, saved key wins over `ANTHROPIC_API_KEY`, never returned by any route, not in audit details, `demoOverridesDeleted` counted and the demo overrides gone in the same transaction; delete falls back to env; test button ok against the mock and `ok: false, reason: 'auth'` with a wrong key; `platform:settings` required (support 403); `GET /ai/status` reasons `disabled`, `not_configured`, `feature_off`, demo |

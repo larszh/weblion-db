@@ -52,6 +52,7 @@ export const getAuditLog = tool({
   }),
   live: false,
   personal: true,
+  logEntries: true,
   routes: ['/orgs/:orgId/audit'],
   async run(input, { reader, org, ctx }) {
     const query: Record<string, string> = { perPage: '50' };

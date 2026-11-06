@@ -128,11 +128,15 @@ export type ThirdPartyKind =
   | 'server_data'
   | 'product_draft';
 
+/** Kinds that are log entries: IP addresses in their texts are removed too (RedactOptions.logEntries). */
+const LOG_ENTRY_KINDS: ReadonlySet<ThirdPartyKind> = new Set(['audit_entry', 'audit_entries', 'mail_log']);
+
 /**
  * Data that came from a third party (provider messages, DNS values, audit details, the browser's error object)
  * as one block of the user turn (ai 10, 11.1): redacted, and as JSON with < and > escaped, so it can never close
  * the block or open a <context> of its own.
  */
 export function thirdParty(kind: ThirdPartyKind, value: unknown, opts: { personal?: boolean } = {}): string {
-  return `<third_party kind="${kind}">\n${toolJson(redactForAi(value, opts))}\n</third_party>`;
+  const redacted = redactForAi(value, { personal: opts.personal, logEntries: LOG_ENTRY_KINDS.has(kind) });
+  return `<third_party kind="${kind}">\n${toolJson(redacted)}\n</third_party>`;
 }

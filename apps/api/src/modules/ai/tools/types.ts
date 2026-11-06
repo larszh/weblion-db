@@ -36,6 +36,8 @@ export interface AiTool<I = any> {
   live: boolean;
   /** The result passes redactForAi(..., { personal: true }) (plan O28). */
   personal: boolean;
+  /** The result holds log entries: IP addresses in its texts become [ip] too (RedactOptions.logEntries). */
+  logEntries?: boolean;
   /** The GET route templates it reads (checked against the app by tools.test.ts). */
   routes: string[];
   run(input: I, ctx: ToolContext): Promise<ToolOutput>;

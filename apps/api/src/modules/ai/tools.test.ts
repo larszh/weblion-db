@@ -57,6 +57,12 @@ describe('registry', () => {
         'get_audit_log',
       ].sort(),
     );
+    // The tools that return audit entries also lose IP addresses in texts (data notice).
+    expect(
+      AI_TOOLS.filter((t) => t.logEntries)
+        .map((t) => t.name)
+        .sort(),
+    ).toEqual(['get_audit_log', 'get_server_activity']);
   });
 
   it('every input has all fields required (absent values as null) and rejects unknown ids', () => {
@@ -242,14 +248,23 @@ describe('chat helpers (ai 6.4, 9.2)', () => {
 
   it('resultText cuts long lists at an item boundary and stays JSON', () => {
     const items = Array.from({ length: 200 }, (_, i) => ({ id: i, text: 'x'.repeat(300) }));
-    const text = resultText({ items, truncated: false, total: 200 }, false);
+    const text = resultText({ items, truncated: false, total: 200 }, {});
     expect(text.length).toBeLessThanOrEqual(20_000);
     const parsed = JSON.parse(text);
     expect(parsed.truncated).toBe(true);
     expect(parsed.items.length).toBeGreaterThan(0);
     expect(parsed.items.length).toBeLessThan(200);
-    expect(resultText({ a: '<b>' }, false)).toBe('{"a":"\\u003cb\\u003e"}');
-    expect(resultText({ email: 'a@b.ch', note: 'mail c@d.ch' }, true)).toBe('{"note":"mail [email]"}');
+    expect(resultText({ a: '<b>' }, {})).toBe('{"a":"\\u003cb\\u003e"}');
+    expect(resultText({ email: 'a@b.ch', note: 'mail c@d.ch' }, { personal: true })).toBe(
+      '{"note":"mail [email]"}',
+    );
+    // Log entries (get_audit_log) lose IP addresses in texts too; other personal results keep them.
+    expect(resultText({ note: 'login from 198.51.100.7' }, { personal: true, logEntries: true })).toBe(
+      '{"note":"login from [ip]"}',
+    );
+    expect(resultText({ note: 'host 198.51.100.7' }, { personal: true })).toBe(
+      '{"note":"host 198.51.100.7"}',
+    );
   });
 
   it('buildMessages: plain assistant text, a context block per user message, today only on the newest', () => {
