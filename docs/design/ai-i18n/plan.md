@@ -1038,9 +1038,442 @@ parameters from `details`):
 
 ---
 
-## 3. Data model, settings keys, locks / 4. Permissions, roles, audit actions, rate limits
+## 3. Data model, settings keys, locks
 
-> Being restored (sections 3 and 4 follow).
+### 3.1 Migrations (F, generated with drizzle-kit, data statements by hand)
+
+F changes `apps/api/src/db/schema.ts` in two steps and generates one migration after each (O12):
+
+1. The AI part below, then `pnpm --filter @weblion/api db:generate --name ai` -> `apps/api/drizzle/0010_ai.sql`,
+   `meta/0010_snapshot.json`, journal entry `idx: 10`, `tag: '0010_ai'`.
+2. The i18n part below, then `pnpm --filter @weblion/api db:generate --name i18n` -> `0011_i18n.sql`,
+   `meta/0011_snapshot.json`, `idx: 11`, `tag: '0011_i18n'`.
+
+Then F adds the hand-written statements marked below (they change data, not the schema, so a later
+`db:generate` produces no diff; precedent: the `UPDATE` in `0002_org_suspended_by.sql`). The journal
+(`apps/api/drizzle/meta/_journal.json`, today 10 entries, last `0009_media_requests` with `when: 1793721844339`)
+must keep `idx` without gaps and `when` strictly increasing (drizzle applies by `when`; a smaller value is skipped
+on existing databases), which `test/migrations.test.ts` checks (i18n 10.3). No other unit adds a migration (0).
+
+**0010_ai: schema** (ai 5.6):
+
+```ts
+import type { AiFeature, AiModel, AiSwitchedOffBy, AiUsageScope, AiUsageStatus, Locale, ProductTranslations,
+  TargetLocale, TranslationBatchPlan, TranslationFailure, TranslationJobScope, TranslationJobStatus } from '@weblion/shared';
+
+// organizations: four columns after `modules`
+/** AI may be used on this organization's data. On by default (plan decision 16). */
+aiEnabled: boolean('ai_enabled').notNull().default(true),
+/** Who switched it off while aiEnabled is false. A reseller cannot switch on what the platform switched off. */
+aiDisabledBy: text('ai_disabled_by').$type<AiSwitchedOffBy>(),
+/** The customer declined the AI features (ai:settings). Wins over every switch, staff features included. */
+aiOptOutAt: timestamp('ai_opt_out_at', { withTimezone: true }),
+aiOptOutBy: uuid('ai_opt_out_by').references(() => users.id, { onDelete: 'set null' }),
+
+// products: one column after `description`
+/** Name and description per target language (O14); German stays in name and description. */
+translations: jsonb('translations').$type<ProductTranslations>().notNull().default({}),
+
+/** One row per AI request: a chat turn, a feature call, a translation batch (O22). Metadata only, never a prompt,
+ *  an answer, a tool input or a tool result. Kept 400 days, error texts 30 days (plan decision 22). */
+export const aiUsage = pgTable(
+  'ai_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    feature: text('feature').$type<AiFeature>().notNull(),
+    scope: text('scope').$type<AiUsageScope>().notNull(),
+    /** The organization the data belongs to; staff requests carry the customer (O28). */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** false only for Mass Translate batches (O9). */
+    countsForUser: boolean('counts_for_user').notNull().default(true),
+    model: text('model').$type<AiModel>().notNull(),
+    /** Set when another model answered (server-side refusal fallback, ai 2.3). */
+    servedModel: text('served_model'),
+    status: text('status').$type<AiUsageStatus>().notNull().default('running'),
+    demo: boolean('demo').notNull().default(false),
+    apiCalls: integer('api_calls').notNull().default(0),
+    toolCalls: integer('tool_calls').notNull().default(0),
+    liveCalls: integer('live_calls').notNull().default(0),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    /** Estimate of the next call while running; 0 once finished (ai 7.1). */
+    reservedMicros: bigint('reserved_micros', { mode: 'number' }).notNull().default(0),
+    costMicros: bigint('cost_micros', { mode: 'number' }).notNull().default(0),
+    durationMs: integer('duration_ms'),
+    errorCode: text('error_code'),
+    errorReason: text('error_reason'),
+    /** Redacted original message for the staff errors tab; cleared after 30 days (ai 7.3). */
+    errorMessage: text('error_message'),
+    /** request-id of the last Claude API call. */
+    requestId: text('request_id'),
+  },
+  (t) => [
+    index('ai_usage_created_idx').on(t.createdAt),
+    index('ai_usage_org_created_idx').on(t.orgId, t.createdAt),
+    index('ai_usage_user_created_idx').on(t.userId, t.createdAt),
+    index('ai_usage_running_idx').on(t.createdAt).where(sql`${t.status} = 'running'`),
+  ],
+);
+export type AiUsageRow = typeof aiUsage.$inferSelect;
+```
+
+**0010_ai.sql** (what `db:generate` emits, plus the hand edit at the end):
+
+```sql
+CREATE TABLE "ai_usage" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"finished_at" timestamp with time zone,
+	"feature" text NOT NULL,
+	"scope" text NOT NULL,
+	"org_id" uuid,
+	"user_id" uuid,
+	"counts_for_user" boolean DEFAULT true NOT NULL,
+	"model" text NOT NULL,
+	"served_model" text,
+	"status" text DEFAULT 'running' NOT NULL,
+	"demo" boolean DEFAULT false NOT NULL,
+	"api_calls" integer DEFAULT 0 NOT NULL,
+	"tool_calls" integer DEFAULT 0 NOT NULL,
+	"live_calls" integer DEFAULT 0 NOT NULL,
+	"input_tokens" integer DEFAULT 0 NOT NULL,
+	"output_tokens" integer DEFAULT 0 NOT NULL,
+	"cache_read_tokens" integer DEFAULT 0 NOT NULL,
+	"cache_write_tokens" integer DEFAULT 0 NOT NULL,
+	"reserved_micros" bigint DEFAULT 0 NOT NULL,
+	"cost_micros" bigint DEFAULT 0 NOT NULL,
+	"duration_ms" integer,
+	"error_code" text,
+	"error_reason" text,
+	"error_message" text,
+	"request_id" text
+);
+--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "ai_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "ai_disabled_by" text;--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "ai_opt_out_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "organizations" ADD COLUMN "ai_opt_out_by" uuid;--> statement-breakpoint
+ALTER TABLE "products" ADD COLUMN "translations" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "ai_usage" ADD CONSTRAINT "ai_usage_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_usage" ADD CONSTRAINT "ai_usage_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "organizations" ADD CONSTRAINT "organizations_ai_opt_out_by_users_id_fk" FOREIGN KEY ("ai_opt_out_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "ai_usage_created_idx" ON "ai_usage" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "ai_usage_org_created_idx" ON "ai_usage" USING btree ("org_id","created_at");--> statement-breakpoint
+CREATE INDEX "ai_usage_user_created_idx" ON "ai_usage" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE INDEX "ai_usage_running_idx" ON "ai_usage" USING btree ("created_at") WHERE "ai_usage"."status" = 'running';--> statement-breakpoint
+-- Hand edit (plan decision 16): AI is on for every existing organization. The column default already fills the
+-- existing rows with true; the statement keeps the decision visible and is a no-op on a fresh database.
+UPDATE "organizations" SET "ai_enabled" = true WHERE "ai_enabled" IS DISTINCT FROM true;
+```
+
+`ai_disabled_by`, `ai_opt_out_at` and `ai_opt_out_by` stay null for existing rows (nobody switched off or declined
+yet); `products.translations` is `{}` for existing products (German only).
+
+**0011_i18n: schema** (i18n 10.1; `check` from `drizzle-orm/pg-core`, new in this schema file):
+
+```ts
+// users: the column type and a check in the existing table callback
+locale: text('locale').$type<Locale>().notNull().default('de'),
+(t) => [
+  uniqueIndex('users_email_idx').on(sql`lower(${t.email})`),
+  check('users_locale_check', sql`${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`),
+],
+
+// billingProfiles: one column after `paymentTermsDays`, and a table callback (it has none today)
+/** "Sprache für Rechnungen"; null = the language of the oldest active owner (i18n 9). */
+locale: text('locale').$type<Locale>(),
+(t) => [check('billing_profiles_locale_check', sql`${t.locale} is null or ${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`)],
+
+// invoices: one column after `currency`, and a check in the existing table callback
+/** Set at finalize to the billing language and never changed afterwards; null for drafts and old invoices. */
+locale: text('locale').$type<Locale>(),
+check('invoices_locale_check', sql`${t.locale} is null or ${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`),
+
+/** Text overrides per key and locale (i18n 8.1). */
+export const translationOverrides = pgTable(
+  'translation_overrides',
+  {
+    key: text('key').notNull(),
+    locale: text('locale').$type<Locale>().notNull(),
+    value: text('value').notNull(),
+    origin: text('origin').$type<'manual' | 'ai'>().notNull(),
+    /** sourceHash() of the effective German text the value was written against (i18n 4.1). */
+    sourceHash: text('source_hash').notNull(),
+    reviewed: boolean('reviewed').notNull().default(false),
+    /** Pseudo translation of a demo job, served only with ENABLE_DEMO_PROVIDER (O11). */
+    demo: boolean('demo').notNull().default(false),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.key, t.locale] }),
+    index('translation_overrides_locale_idx').on(t.locale),
+    check('translation_overrides_locale_check', sql`${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`),
+    check('translation_overrides_origin_check', sql`${t.origin} in ('manual', 'ai')`),
+  ],
+);
+
+export const translationGlossary = pgTable(
+  'translation_glossary',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    term: text('term').notNull(),
+    keep: boolean('keep').notNull().default(false),
+    translations: jsonb('translations').$type<Partial<Record<TargetLocale, string>>>().notNull().default({}),
+    note: text('note'),
+    /** From DEFAULT_GLOSSARY (seedGlossary at startup); editable, not deletable (A12). */
+    builtIn: boolean('built_in').notNull().default(false),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('translation_glossary_term_idx').on(sql`lower(${t.term})`)],
+);
+
+export const translationJobs = pgTable(
+  'translation_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    status: text('status').$type<TranslationJobStatus>().notNull().default('queued'),
+    locales: jsonb('locales').$type<TargetLocale[]>().notNull(),
+    scope: jsonb('scope').$type<TranslationJobScope>().notNull(),
+    replaceManual: boolean('replace_manual').notNull().default(false),
+    model: text('model').$type<AiModel>().notNull(),
+    demo: boolean('demo').notNull().default(false),
+    /** Fixed at start (i18n 12.2), never changed. */
+    batches: jsonb('batches').$type<TranslationBatchPlan[]>().notNull(),
+    /** Plan indexes already committed; a resumed job skips them (i18n 12.8). */
+    doneBatches: integer('done_batches').array().notNull().default(sql`'{}'::integer[]`),
+    total: integer('total').notNull(),
+    done: integer('done').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
+    outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
+    cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
+    cacheWriteTokens: bigint('cache_write_tokens', { mode: 'number' }).notNull().default(0),
+    costMicros: bigint('cost_micros', { mode: 'number' }).notNull().default(0),
+    estimateMicros: bigint('estimate_micros', { mode: 'number' }).notNull(),
+    /** At most 1,000 entries; the failed counter keeps counting. */
+    failures: jsonb('failures').$type<TranslationFailure[]>().notNull().default([]),
+    /** { code: TranslationJobErrorCode, message } of 2.6. */
+    error: jsonb('error').$type<{ code: string; message: string } | null>(),
+    cancelRequested: boolean('cancel_requested').notNull().default(false),
+    /** Instance id of the runner that owns the job while it runs. */
+    runner: text('runner'),
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+    retryOf: uuid('retry_of').references((): AnyPgColumn => translationJobs.id, { onDelete: 'set null' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('translation_jobs_created_idx').on(t.createdAt),
+    /** One job at a time (plan decision 10): a second queued or running row fails, B3 answers 409 job_running. */
+    uniqueIndex('translation_jobs_active_idx').on(sql`(true)`).where(sql`${t.status} in ('queued', 'running')`),
+    check('translation_jobs_status_check', sql`${t.status} in ('queued', 'running', 'completed', 'failed', 'cancelled')`),
+  ],
+);
+```
+
+**0011_i18n.sql** (generated, with the hand edit placed before the `users` constraint):
+
+```sql
+CREATE TABLE "translation_glossary" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"term" text NOT NULL,
+	"keep" boolean DEFAULT false NOT NULL,
+	"translations" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"note" text,
+	"built_in" boolean DEFAULT false NOT NULL,
+	"updated_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "translation_jobs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"status" text DEFAULT 'queued' NOT NULL,
+	"locales" jsonb NOT NULL,
+	"scope" jsonb NOT NULL,
+	"replace_manual" boolean DEFAULT false NOT NULL,
+	"model" text NOT NULL,
+	"demo" boolean DEFAULT false NOT NULL,
+	"batches" jsonb NOT NULL,
+	"done_batches" integer[] DEFAULT '{}'::integer[] NOT NULL,
+	"total" integer NOT NULL,
+	"done" integer DEFAULT 0 NOT NULL,
+	"failed" integer DEFAULT 0 NOT NULL,
+	"skipped" integer DEFAULT 0 NOT NULL,
+	"input_tokens" bigint DEFAULT 0 NOT NULL,
+	"output_tokens" bigint DEFAULT 0 NOT NULL,
+	"cache_read_tokens" bigint DEFAULT 0 NOT NULL,
+	"cache_write_tokens" bigint DEFAULT 0 NOT NULL,
+	"cost_micros" bigint DEFAULT 0 NOT NULL,
+	"estimate_micros" bigint NOT NULL,
+	"failures" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"error" jsonb,
+	"cancel_requested" boolean DEFAULT false NOT NULL,
+	"runner" text,
+	"heartbeat_at" timestamp with time zone,
+	"retry_of" uuid,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"started_at" timestamp with time zone,
+	"finished_at" timestamp with time zone,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "translation_jobs_status_check" CHECK ("translation_jobs"."status" in ('queued', 'running', 'completed', 'failed', 'cancelled'))
+);
+--> statement-breakpoint
+CREATE TABLE "translation_overrides" (
+	"key" text NOT NULL,
+	"locale" text NOT NULL,
+	"value" text NOT NULL,
+	"origin" text NOT NULL,
+	"source_hash" text NOT NULL,
+	"reviewed" boolean DEFAULT false NOT NULL,
+	"demo" boolean DEFAULT false NOT NULL,
+	"updated_by" uuid,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "translation_overrides_key_locale_pk" PRIMARY KEY("key","locale"),
+	CONSTRAINT "translation_overrides_locale_check" CHECK ("translation_overrides"."locale" in ('de', 'en', 'fr', 'it', 'nl')),
+	CONSTRAINT "translation_overrides_origin_check" CHECK ("translation_overrides"."origin" in ('manual', 'ai'))
+);
+--> statement-breakpoint
+ALTER TABLE "billing_profiles" ADD COLUMN "locale" text;--> statement-breakpoint
+ALTER TABLE "invoices" ADD COLUMN "locale" text;--> statement-breakpoint
+ALTER TABLE "translation_glossary" ADD CONSTRAINT "translation_glossary_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "translation_jobs" ADD CONSTRAINT "translation_jobs_retry_of_translation_jobs_id_fk" FOREIGN KEY ("retry_of") REFERENCES "public"."translation_jobs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "translation_jobs" ADD CONSTRAINT "translation_jobs_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "translation_overrides" ADD CONSTRAINT "translation_overrides_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "translation_glossary_term_idx" ON "translation_glossary" USING btree (lower("term"));--> statement-breakpoint
+CREATE INDEX "translation_jobs_created_idx" ON "translation_jobs" USING btree ("created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "translation_jobs_active_idx" ON "translation_jobs" USING btree ((true)) WHERE "translation_jobs"."status" in ('queued', 'running');--> statement-breakpoint
+CREATE INDEX "translation_overrides_locale_idx" ON "translation_overrides" USING btree ("locale");--> statement-breakpoint
+-- Hand edit: normalize stored languages before the constraint below can reject them. PATCH /auth/me accepts
+-- only de and en today, but rows written by scripts or by hand may carry de-CH, EN or anything else.
+UPDATE "users" SET "locale" = CASE
+  WHEN lower("locale") LIKE 'en%' THEN 'en'
+  WHEN lower("locale") LIKE 'fr%' THEN 'fr'
+  WHEN lower("locale") LIKE 'it%' THEN 'it'
+  WHEN lower("locale") LIKE 'nl%' THEN 'nl'
+  ELSE 'de' END
+WHERE "locale" NOT IN ('de', 'en', 'fr', 'it', 'nl');--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_locale_check" CHECK ("users"."locale" in ('de', 'en', 'fr', 'it', 'nl'));--> statement-breakpoint
+ALTER TABLE "billing_profiles" ADD CONSTRAINT "billing_profiles_locale_check" CHECK ("billing_profiles"."locale" is null or "billing_profiles"."locale" in ('de', 'en', 'fr', 'it', 'nl'));--> statement-breakpoint
+ALTER TABLE "invoices" ADD CONSTRAINT "invoices_locale_check" CHECK ("invoices"."locale" is null or "invoices"."locale" in ('de', 'en', 'fr', 'it', 'nl'));
+```
+
+The exact order and quoting of the generated statements is whatever drizzle-kit 0.31 emits; what F guarantees by
+hand is only that the `UPDATE "users"` comes before `users_locale_check`. No data statement for
+`billing_profiles.locale` and `invoices.locale`: null is right for every existing row (i18n 9). The glossary is not
+seeded by the migration but by `seedGlossary(db)` at every start (F17), so built-in terms added later reach
+existing installations too.
+
+**Test** (`apps/api/test/migrations.test.ts`, F, i18n 10.3): migrate to `0009` only, insert today's rows (users
+with `de`, `en`, `EN-gb`, `fr-CH`, `xx`; an organization with owner, billing profile, open invoice with lines, a
+product), run all migrations, then assert: locales `de`, `en`, `en`, `fr`, `de`; `organizations.ai_enabled` true,
+the other three AI columns null; `products.translations = {}`; `billing_profiles.locale` and `invoices.locale` null;
+the four new tables exist and are empty; `update users set locale = 'es'` fails; two inserts of `queued` jobs fail
+on `translation_jobs_active_idx`; the journal order of 3.1.
+
+### 3.2 Settings rows (table `settings`)
+
+Key/value rows of `settings` (`apps/api/src/db/schema.ts:949`: `key text primary key`, `value jsonb`, `updated_at`).
+Existing keys stay untouched: `smtp` (`mail/settings.ts:34`), `billing` (`modules/billing/settings.ts:26`),
+`billing_job` (`modules/billing/recurring.ts:25`), `zoho.state` (`integrations/zoho.ts:30`). New keys:
+
+| Key | Value type | Missing row means | Written by | Secret |
+|---|---|---|---|---|
+| `ai` | `StoredAiSettings` (below) | the defaults below | `PUT /admin/ai/settings` (`ai.settings_update`) | no |
+| `ai_key` | `{ enc: string }` = `box.encryptJson({ key, savedAt, savedBy })` | no saved key: `ANTHROPIC_API_KEY`, else none (demo with the demo provider) | `PUT` and `DELETE /admin/ai/key` | yes, `SecretBox` like `smtp` (`mail/settings.ts:74-80`); never returned, logged or audited |
+| `ai_budget_notice` | `{ month: 'YYYY-MM', warnedAt: string \| null, exhaustedAt: string \| null }` | nothing sent this month; a row of an earlier month counts as missing | `checkBudgetWarning` (U3, ai 7.2) | no |
+| `i18n_style` | `Partial<Record<TargetLocale, string>>`, each at most 2,000 characters | no admin style notes | A14 (`i18n.style_update`) | no |
+
+`modules/ai/settings.ts` (F; ai 5.1, 5.2):
+
+```ts
+export interface StoredAiSettings {
+  enabled: boolean; // master switch
+  model: AiModel;
+  features: Partial<Record<AiFeature, boolean>>; // a missing feature is on
+  budgetUsd: number;
+  warnPercent: number;
+  dailyOrgLimit: number;
+  dailyUserLimit: number;
+  notice: { checkedAt: string; checkedBy: string } | null; // data notice acknowledgement (user id)
+  goLive: (Omit<AiGoLiveDto, 'confirmedBy'> & { confirmedBy: string | null }) | null;
+}
+/** StoredAiSettings with every default applied. */
+export interface AiSettings extends Omit<StoredAiSettings, 'features'> { features: Record<AiFeature, boolean> }
+
+export function readAiSettings(db: DbOrTx, env: Env): Promise<AiSettings>;
+export function saveAiSettings(db: DbOrTx, value: StoredAiSettings): Promise<void>;
+
+export type ResolvedAiKey =
+  | { source: 'ui' | 'env'; key: string; demo: false }
+  | { source: 'none'; key: null; demo: boolean }; // demo = env.ENABLE_DEMO_PROVIDER
+/** null when the row is missing or cannot be decrypted after an ENCRYPTION_KEY change (like storedSmtpConfig). */
+export function storedAiKey(db: DbOrTx, box: SecretBox): Promise<{ key: string; savedAt: string; savedBy: string | null } | null>;
+export function saveAiKey(tx: DbOrTx, box: SecretBox, key: string, userId: string): Promise<void>;
+export function deleteAiKey(tx: DbOrTx): Promise<boolean>;
+/** The saved key wins over ANTHROPIC_API_KEY (plan decision 17, the reverse of SMTP on purpose). */
+export function resolveAiKey(db: DbOrTx, box: SecretBox, env: Env): Promise<ResolvedAiKey>;
+```
+
+Defaults and ranges of `ai` (validated by `PUT /admin/ai/settings`, ai 5.1):
+
+| Field | Default | Range | Plan |
+|---|---|---|---|
+| `enabled` | `env.ENABLE_DEMO_PROVIDER`: off in production, on with the demo provider | off -> on outside demo mode needs `goLive` (ai 5.1) | decisions 15, 31 |
+| `model` | `'claude-opus-5-5'` (`AI_DEFAULT_MODEL`) | `AI_MODELS` | 18 |
+| `features.<f>` | `true` for all seven | | 32 |
+| `budgetUsd` | 100 | 0 to 100,000 (0 refuses every request) | 19 |
+| `warnPercent` | 80 | 10 to 99 | 19 |
+| `dailyOrgLimit` | 200 | 1 to 10,000 | 19 |
+| `dailyUserLimit` | 50 | 1 to 10,000 | 19 |
+| `notice` | `null` | | 25 |
+| `goLive` | `null` | `announcedOn` at least 30 days before today (Europe/Zurich), not in the future | 31 |
+
+The default of `enabled` is computed when the row is missing; once the row is written its stored value counts.
+`ENABLE_DEMO_PROVIDER` is never set in production (`docs/providers.md`), so a production installation starts off
+whatever is seeded. Fixed limits are code, not settings (`AI_LIMITS`, 2.4; per-turn caps `CHAT_LIMITS`, ai 6.4).
+Environment variables of both modules: F11 (`ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MAX_RETRIES`,
+`AI_TURN_TIMEOUT_SECONDS`, `I18N_JOB_ENABLED`, `I18N_AI_CONCURRENCY`).
+
+### 3.3 Advisory locks
+
+In use at `c6c51ad`: session locks with a numeric id taken by a job with `pg_try_advisory_lock($1)` on a dedicated
+pool client and released with `pg_advisory_unlock($1)` on the same client (`jobs/sync.ts:812-828`,
+`modules/billing/recurring.ts:200-223`), and transaction locks on hashed names with
+`pg_advisory_xact_lock(hashtextextended('<name>', 0))` for per-resource serialization (`billing:<orgId>`
+`modules/billing/ledger.ts:26`, `cloud:`, `mail:`, `media:`, `media-seerr:`, `media-user:`, `monitor:`, `website:`,
+`website-domain:`). New locks:
+
+| Id or name | Kind | Held by | Purpose |
+|---|---|---|---|
+| `742_001` | session, numeric | `SyncService` sync job (`jobs/sync.ts:71`) | existing |
+| `742_002` | session, numeric | `SyncService` actions job (`jobs/sync.ts:71`) | existing |
+| `742_003` | session, numeric | `BillingJob` (`modules/billing/recurring.ts:24`) | existing |
+| **`742_004`** | session, numeric, `I18N_JOB_LOCK` in `apps/api/src/i18n/jobs.ts` | `TranslationJobRunner.tick()` | serializes claiming a translation job across API processes; released at the end of the tick, the job runs outside it (i18n 12.8) |
+| **`742_005`** | session, numeric, `AI_MAINTENANCE_LOCK` in `apps/api/src/modules/ai/maintenance.ts` | `AiMaintenance` run | one process marks stale usage rows and applies the retention (ai 7.3); skipped when another holds it |
+| **`hashtextextended('ai:reserve', 0)`** | transaction | `reserve()` (2.4, `modules/ai/usage.ts`) | the limit checks and the insert of a reservation run as one unit, so two requests cannot pass the budget or a concurrency cap together (ai 7.1) |
+| **`hashtextextended('ai:budget-notice', 0)`** | transaction | `checkBudgetWarning` (U3) | the warning and exhaustion mails go out at most once per month (ai 7.2) |
+
+`742_006` and up are free for later jobs. A hashed name could in theory hit a numeric id (one 64-bit key space);
+the chance is negligible, as for the existing hashed locks.
+
+---
+
+## 4. Permissions, roles, audit actions, rate limits
+
+> Being restored.
 
 ## 5. Foundation (F)
 
