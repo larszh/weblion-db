@@ -9,6 +9,24 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // German "Rechnung(en)" is a singular-or-plural form. The Dutch puts the count after a colon and uses the
+    // plural "facturen", which is the glossary term "factuur" in the plural but does not contain the singular.
+    'billing.summary.openCount',
+    'billing.admin.count',
+    'billing.admin.zohoErrors',
+    // The value quotes the menu path of the Hetzner Console, which has no Dutch interface, so it keeps the
+    // English labels "API tokens > Generate API token" instead of the glossary spelling "API-token".
+    'providers.hetzner.tokenHint',
+    // "Löschen Sie ..." is an imperative at the start of a sentence, not the Delete button. The Dutch
+    // imperative of "verwijderen" is "Verwijder", so the value cannot contain the infinitive.
+    'storage.limit.accounts',
+    'storage.allowance.removeBlocked',
+    'media.limit.accounts',
+    'media.allowance.removeBlocked',
+    'media.seerr.orphans',
+    'uptime.allowance.full',
+    'uptime.allowance.removeBlocked',
+  ],
   typographyOk: [],
 };
