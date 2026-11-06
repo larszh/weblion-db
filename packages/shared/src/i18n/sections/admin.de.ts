@@ -42,9 +42,9 @@ export const adminDe = {
 
   // Delete protection
   'admin.delete.blocked': 'Löschen nicht möglich, es hängt noch etwas daran:',
-  'admin.delete.moveHint': 'Verschiebe oder entferne diese Einträge zuerst.',
+  'admin.delete.moveHint': 'Verschieben oder entfernen Sie diese Einträge zuerst.',
   'admin.delete.billingHint':
-    'Rechnungen, Zahlungen und Guthabenbuchungen müssen aufbewahrt werden. Sperre die Organisation stattdessen.',
+    'Rechnungen, Zahlungen und Guthabenbuchungen müssen aufbewahrt werden. Sperren Sie die Organisation stattdessen.',
   'admin.blocker.customers': 'Kunden: {n}',
   'admin.blocker.servers': 'Server: {n}',
   'admin.blocker.domains': 'Domains: {n}',
@@ -128,7 +128,7 @@ export const adminDe = {
   'admin.orgs.kindHint.internal': 'Für weblion.one selbst, ohne Abrechnung.',
   'admin.orgs.modulesHint': 'Der Kunde sieht nur diese Module in seiner Console.',
   'admin.orgs.modulesOfReseller': 'Nur Module, die {name} selbst hat.',
-  'admin.orgs.resellerNoModules': '{name} hat noch keine Module. Schalte sie zuerst beim Reseller frei.',
+  'admin.orgs.resellerNoModules': '{name} hat noch keine Module. Schalten Sie sie zuerst beim Reseller frei.',
   'admin.orgs.ownerAdded': '{email} hat bereits ein Konto und wurde direkt als Owner hinzugefügt.',
   'admin.orgs.modulesText': 'Was die Organisation in ihrer Console sieht und nutzen kann.',
   'admin.orgs.modulesReseller':
@@ -150,7 +150,7 @@ export const adminDe = {
   'admin.orgs.suspendedByReseller':
     'Vom Reseller {name} gesperrt. Entsperren Sie hier, ist auch seine Sperre aufgehoben.',
   'admin.orgs.moveMissing':
-    '{name} hat nicht alle Module dieses Kunden. Schalte sie beim Reseller frei oder deaktiviere sie hier zuerst.',
+    '{name} hat nicht alle Module dieses Kunden. Schalten Sie sie beim Reseller frei oder deaktivieren Sie sie hier zuerst.',
   'admin.orgs.customersOf': 'Kunden dieses Resellers',
   'admin.orgs.customersOfText': 'Organisationen, die der Reseller verwaltet und verrechnet.',
   'admin.orgs.noCustomers': 'Dieser Reseller hat noch keine Kunden.',
