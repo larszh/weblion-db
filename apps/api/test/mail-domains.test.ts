@@ -925,12 +925,13 @@ describe('dns setup', () => {
     const viewer = json<MailDnsSetupDto>(await carla.get(`/mail/domains/${musterAg}/dns`));
     expect(viewer.zone).toMatchObject({ canEdit: false, writable: true });
     expect(viewer.records.every((r) => !r.addable)).toBe(true);
-    // muster-ag.ch: MX, SPF and autodiscover point elsewhere, DMARC is there, DKIM is not.
+    // muster-ag.ch: MX, SPF and autodiscover point elsewhere, DMARC and DKIM are missing (the demo leaves DMARC
+    // out for the AI DNS check, plan 8.4 scenario 1).
     const byKey = Object.fromEntries(viewer.records.map((r) => [r.key, r]));
     expect(byKey.mx!.hint).toBe('other_mx');
     expect(byKey.spf!.hint).toBe('other_spf');
     expect(byKey.autodiscover!.hint).toBe('other_target');
-    expect(byKey.dmarc!.status).toBe('ok');
+    expect(byKey.dmarc).toMatchObject({ status: 'missing', hint: null });
     expect(byKey.dkim).toMatchObject({ status: 'missing', hint: null });
     expect((await carla.post(`/mail/domains/${musterAg}/dns/apply`, {})).statusCode).toBe(403);
 
