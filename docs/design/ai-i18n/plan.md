@@ -3,9 +3,13 @@
 Repository `/home/user/weblion-db`, base `main` = `c6c51ad` (branch `claude/nice-mendel-eiwx53`). This plan merges
 the two designs into one build:
 
-- `scratchpad/design/i18n.md` (five languages, translation admin, Mass Translate), cited as "i18n x.y"
-- `scratchpad/design/ai.md` (AI module), cited as "ai x.y"
-- `scratchpad/design/ai-i18n-map.md` (code map), cited as "map x.y"
+- `docs/design/ai-i18n/i18n.md` (five languages, translation admin, Mass Translate), cited as "i18n x.y"
+- `docs/design/ai-i18n/ai.md` (AI module), cited as "ai x.y"
+- the code map `ai-i18n-map.md`, cited as "map x.y" (lost in the restart of 06.11.2026 and not cited below; its
+  summary is in `docs/design/ai-i18n/summaries.md`)
+
+The designs were regenerated in this folder after that restart, and sections 2 to 4 and 12 of this plan were
+restored from them, from `summaries.md` and from the code at `c6c51ad`.
 
 Both designs stay the detailed specification. **Where this plan says something different, this plan wins**
 (section 1 lists every override). Engineers read this plan first, then the design sections their unit names.
@@ -1814,7 +1818,8 @@ One engineer, branch `ai-i18n/f` from `c6c51ad`. Ordered checklist. Commit messa
   `lib/dto.ts` `toUserDto` `locale: normalizeLocale(row.locale) ?? 'de'`; `modules/auth/routes.ts` PATCH body
   `locale: z.enum(LOCALES).optional()` (nothing else there); `modules/billing/dto.ts` `translations`, `locale`,
   invoice detail `locale`; `modules/billing/routes.ts` product POST/PATCH accept
-  `translations: z.record(z.enum(TARGET_LOCALES), z.object({ name: z.string().trim().min(1).max(200), description: z.string().max(1000).nullable() })).optional()`;
+  `translations: z.partialRecord(z.enum(TARGET_LOCALES), z.object({ name: z.string().trim().min(1).max(200), description: z.string().max(1000).nullable() })).optional()`
+  (`partialRecord`: `z.record` with an enum key requires every key in zod 4, 2.7);
   `modules/settings/routes.ts` integrations `ai: await ctx.ai.integrationStatus()`; `mail/types.ts` template
   `ai_budget` (2.8) and `mail/templates.ts` builder `ai_budget` in today's de/en style with the texts of 5.3;
   `db/seed.ts` calls `await seedI18nDemo(db)` from a new `db/seed-i18n.ts` stub (`export async function seedI18nDemo(db: Database): Promise<void> {}`).
@@ -1888,7 +1893,7 @@ One engineer, branch `ai-i18n/f` from `c6c51ad`. Ordered checklist. Commit messa
 `admin.ai.status.enable*`, `admin.ai.card.usageStaff`) and i18n 18.2 (`admin.i18n.export.applyHint`,
 `admin.i18n.job.reason.german|formality|content`, `admin.i18n.job.budgetJob`, `admin.i18n.badge.legal`,
 `admin.i18n.cell.legalHint`, `admin.i18n.ai.estimateLegal`, `admin.i18n.cleanup.demoNotice`,
-`admin.i18n.error.job_finished`) is added by F like every other design key (O21). The keys of the removed
+`admin.i18n.error.job_finished`, `admin.i18n.error.not_stale` of 2.10) is added by F like every other design key (O21). The keys of the removed
 features (`ai.customer.*`, `ai.feature.customer_summary.*`, `ai.tool.propose_monitor`, `ai.proposal.monitor`,
 `admin.i18n.export.ts`, `admin.i18n.export.tsHint`) are not added.
 
