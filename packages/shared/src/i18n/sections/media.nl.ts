@@ -212,7 +212,7 @@ export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.allowance.maxTooHigh': 'Maximaal {n}.',
   'media.allowance.streams': 'Gelijktijdige streams (apparaten)',
   'media.allowance.streamsHint':
-    'Geteld worden ingelogde, actieve apparaten. Jellyfin controleert het aantal wanneer een apparaat inlogt.',
+    'Ingelogde, actieve apparaten tellen mee. Jellyfin controleert het aantal wanneer een apparaat inlogt.',
   'media.allowance.streamsInvalid': 'Een geheel getal van 1 tot {max}.',
   'media.allowance.libraries': 'Bibliotheken',
   'media.allowance.librariesEmpty':

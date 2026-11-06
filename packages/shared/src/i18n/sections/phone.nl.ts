@@ -15,7 +15,7 @@ export const phoneNl: Partial<Record<keyof typeof phoneDe, string>> = {
   'phone.open': '3CX openen',
   'phone.openWebClient': '3CX-webclient openen',
   'phone.liveError': 'Actuele gegevens van de telefooncentrale niet beschikbaar',
-  'phone.liveErrorText': 'Getoond worden de waarden van de laatste synchronisatie.',
+  'phone.liveErrorText': 'De waarden van de laatste synchronisatie worden getoond.',
   'phone.refreshError': 'De telefooncentrale kon niet opnieuw worden geladen',
   'phone.licenseNote': 'Licenties en upgrades ontvangt u via weblion.one, niet hier.',
   'phone.rename': 'Naam wijzigen',
