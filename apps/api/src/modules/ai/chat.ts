@@ -19,7 +19,7 @@ import { AiCancelled, aiRefusal, classifyAiError } from './errors';
 import type { AiGate } from './gates';
 import { SYSTEM_TEXT } from './prompts';
 import { ConsoleReader } from './reader';
-import { redactForAi, toolJson } from './redact';
+import { redactForAi, redactSecrets, toolJson } from './redact';
 import type { AiFinishStatus } from './service';
 import { SseWriter } from './sse';
 import { toolByName, toolDefinitions } from './tools/registry';
@@ -76,13 +76,14 @@ export interface ChatInput {
 export function buildMessages(body: ChatRequestBody, gate: Pick<AiGate, 'context'>): BetaMessageParam[] {
   const last = body.messages.length - 1;
   return body.messages.map((m, i): BetaMessageParam => {
-    if (m.role === 'assistant') return { role: 'assistant', content: m.text };
+    // The person's own words are requests, not third-party data, but known secrets never leave the console.
+    if (m.role === 'assistant') return { role: 'assistant', content: redactSecrets(m.text) };
     const block = contextBlock(
       { ...gate.context, language: body.locale },
       m.page ?? null,
       i === last ? todayZurich() : undefined,
     );
-    return { role: 'user', content: `${block}\n\n${m.text}` };
+    return { role: 'user', content: `${block}\n\n${redactSecrets(m.text)}` };
   });
 }
 
