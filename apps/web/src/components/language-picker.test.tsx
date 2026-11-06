@@ -4,6 +4,8 @@ import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it } from 'vitest';
 import type { Locale } from '@weblion/shared';
+import { it as italian } from '@weblion/shared/i18n/it';
+import { nl as dutch } from '@weblion/shared/i18n/nl';
 import { withI18n } from '@/test/i18n';
 import { TooltipProvider } from '@/components/ui/menu';
 import { Flag } from '@/components/server-bits';
@@ -54,7 +56,8 @@ describe('LanguageRadioGroup (i18n 6.1)', () => {
 describe('LanguageMenu (i18n 6.2)', () => {
   it('shows the current flag and name on a labelled button', () => {
     const out = html(<LanguageMenu />, 'it');
-    expect(out).toContain('aria-label="Choose language: Italiano"');
+    // The label is in the UI language (Italian here) and names the current language natively.
+    expect(out).toContain(`aria-label="${italian['language.choose']}: Italiano"`);
     expect(out).toContain('>Italiano</span>');
     expect(out).toMatch(/<svg[^>]*viewBox="0 0 3 2"[^>]*aria-hidden="true"/);
   });
@@ -70,7 +73,8 @@ describe('LanguageMenu (i18n 6.2)', () => {
       </Dropdown.Root>,
       'nl',
     );
-    expect(out).toContain('>Language</div>');
+    // The menu label is in the UI language (Dutch here).
+    expect(out).toContain(`>${dutch['account.language']}</div>`);
     expect(out.match(/role="menuitemradio"/g)).toHaveLength(5);
     for (const name of NATIVE) expect(out).toContain(`>${name}</span>`);
     expect(out.match(/aria-checked="true"/g)).toHaveLength(1);

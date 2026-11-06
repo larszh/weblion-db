@@ -288,8 +288,14 @@ describe('templates from keys', () => {
     const it = renderMail('invitation', data, 'it', i18n.translator('it'));
     expect(it.subject).toBe('Invitation to Muster AG on weblion.one');
     expect(it.html).toContain('<html lang="it">');
-    // The default translator is the compiled catalog with the same chain.
-    expect(catalogTranslator('nl')('email.common.greeting')).toBe('Hello');
+    // The default translator follows the same chain over a catalog (here the one without Italian texts)
+    // and reads the compiled repository catalog when given none.
+    expect(catalogTranslator('it', catalog)('email.common.greeting')).toBe('Hello');
+    expect(catalogTranslator('fr', catalog)('email.invitation.button')).toBe('Accept invitation');
+    expect(catalogTranslator('fr', catalog)('email.common.greeting')).toBe('Bonjour');
+    expect(catalogTranslator('nl')('email.common.greeting')).toBe(
+      SECTION_SOURCES.email.nl['email.common.greeting'],
+    );
     expect(catalogTranslator('de')('email.common.greeting')).toBe('Guten Tag');
   });
 
@@ -319,8 +325,11 @@ describe('the language of each mail (i18n 8.2)', () => {
     });
     expect(res.statusCode, res.body).toBe(200);
     expect(await lastSubject('invitation')).toBe('Invito a Muster AG');
-    // The role in the mail comes from the core keys in the mail's language (English fallback for it).
-    expect(sent.at(-1)!.text).toContain('Read only');
+    // The role in the mail comes from the core keys in the mail's language, not the inviter's or English.
+    const role = t.ctx.i18n.t('it', 'role.viewer');
+    expect(role).not.toBe(t.ctx.i18n.t('en', 'role.viewer'));
+    expect(role).not.toBe(t.ctx.i18n.t('fr', 'role.viewer'));
+    expect(sent.at(-1)!.text).toContain(role);
 
     await setLocale('anna@muster.example', 'nl');
     res = await anna.post(`/orgs/${musterId}/invitations`, {

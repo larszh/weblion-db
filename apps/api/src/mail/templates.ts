@@ -8,7 +8,7 @@ import {
   type OrgRole,
   type ServerTranslationKey,
 } from '@weblion/shared';
-import { loadCatalog } from '@weblion/shared/i18n/catalog';
+import { loadCatalog, type I18nCatalog } from '@weblion/shared/i18n/catalog';
 import type { Tr } from '../i18n/service';
 import type { MailLocale, MailTemplateName, MailTemplates } from './types';
 
@@ -51,10 +51,10 @@ const FONT = "-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 /**
  * The compiled texts of a locale without overrides, along the fallback chain (fr -> en -> de). For callers
- * without the I18nService (tests, scripts); the service's translator adds the overrides on top.
+ * without the I18nService (tests, scripts); the service's translator adds the overrides on top. `catalog`
+ * lets a test check the chain on a catalog where a locale lacks a text by construction.
  */
-export function catalogTranslator(locale: Locale): Tr {
-  const catalog = loadCatalog();
+export function catalogTranslator(locale: Locale, catalog: I18nCatalog = loadCatalog()): Tr {
   const chain = fallbackChain(locale);
   return (key: ServerTranslationKey, params?: I18nParams) => {
     for (const l of chain) {

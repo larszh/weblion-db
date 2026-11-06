@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import pino from 'pino';
 import { DEFAULT_GLOSSARY } from '@weblion/shared/i18n/glossary';
-import { buildCatalog } from '@weblion/shared/i18n/catalog';
+import { buildCatalog, repositoryStamps, type CatalogSources } from '@weblion/shared/i18n/catalog';
+import { SECTION_SOURCES } from '@weblion/shared/i18n/server';
 import { LEGAL_KEYS, type I18nOverridesDto, type Locale, type ServerTranslationKey } from '@weblion/shared';
 import { translationGlossary, translationOverrides } from '../src/db/schema';
 import { deleteDemoOverrides, revertOverride, saveOverride, setReviewed } from '../src/i18n/entries';
@@ -14,6 +15,18 @@ import { ADMIN, Client, createTestApp, json, type TestApp } from './helpers';
 
 let t: TestApp;
 const log = pino({ level: 'silent' });
+
+/**
+ * The repository's German and English texts (with the English stamps) and no compiled fr, it or nl text: the
+ * fallback chain and the legal substitution need a target locale without a translation, which the repository
+ * no longer has. Every service of this file runs on it.
+ */
+const catalog = buildCatalog(
+  Object.fromEntries(
+    Object.entries(SECTION_SOURCES).map(([section, texts]) => [section, { de: texts.de, en: texts.en }]),
+  ) as CatalogSources,
+  { en: repositoryStamps().en },
+);
 
 const NOTICE = 'ai.notice.text' satisfies ServerTranslationKey;
 
@@ -48,11 +61,11 @@ function plain(values: Record<string, string>): Record<string, string> {
 
 /** A second service on the same database with another environment (no second app: that would reset it). */
 function serviceWith(env: Partial<typeof t.ctx.env>): I18nService {
-  return new I18nService(t.db, { ...t.ctx.env, ...env }, log);
+  return new I18nService(t.db, { ...t.ctx.env, ...env }, log, catalog);
 }
 
 beforeAll(async () => {
-  t = await createTestApp();
+  t = await createTestApp({ i18nCatalog: catalog });
 });
 
 afterAll(async () => {
@@ -251,8 +264,8 @@ describe('legal keys', () => {
   });
 
   it('carry the served text in the payload of a locale without a compiled translation', async () => {
-    // fr has no compiled notice yet: the payload names the current English text, so the web never needs
-    // to work out on its own whether a translation is current.
+    // fr has no compiled notice in this catalog: the payload names the current English text, so the web
+    // never needs to work out on its own whether a translation is current.
     for (const key of LEGAL_KEYS) {
       expect(t.ctx.i18n.payload('fr').body.values[key]).toBe(t.ctx.i18n.catalog.bundles.en[key]);
     }
