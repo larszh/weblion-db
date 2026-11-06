@@ -18,6 +18,9 @@ export const allowlist: Allowlist = {
     // "Reseller" is plural here ("nur für Reseller"); the Italian plural "rivenditori" does not contain the
     // singular "rivenditore" that the check looks for.
     'billing.products.notReseller',
+    // A menu path of the Hetzner Console, which has no Italian interface: the labels stay in English as the
+    // reader sees them there ("API tokens", "Generate API token"), so "token API" cannot appear.
+    'providers.hetzner.tokenHint',
   ],
   typographyOk: [],
 };
