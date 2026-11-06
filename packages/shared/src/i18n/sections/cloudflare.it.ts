@@ -70,12 +70,12 @@ export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = 
   'hosting.dnsZone.text':
     'I record DNS di {name} sono gestiti dalla zona presso {provider}. I record presso il registrar qui sotto non sono attivi.',
   'hosting.dnsZone.notActive':
-    'Per {name} esiste una zona presso {provider} ({status}). Il dominio però non punta ancora ai suoi nameserver.',
+    'Per {name} esiste una zona presso {provider} ({status}). Il dominio però non punta ancora ai relativi nameserver.',
   'hosting.dnsZone.open': 'Vai alla zona DNS',
   'hosting.dnsZone.otherOrg':
     "La zona appartiene a un'altra organizzazione. Si rivolga all'Owner di quell'organizzazione o al supporto.",
   'hosting.dnsZone.prepared':
-    'Una zona presso {provider} è stata preparata ({status}). Finché il dominio non punterà ai nameserver di {provider}, valgono i record qui.',
+    'Una zona presso {provider} è stata preparata ({status}). Finché il dominio non punterà ai nameserver di {provider}, valgono i record riportati qui.',
   'hosting.dnsZone.nsLine': 'Zona DNS presso {provider}: {status}',
   'hosting.dnsZone.preset': 'Nameserver della zona presso {provider}',
   'hosting.dnsZone.presetHint':
@@ -155,7 +155,7 @@ export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = 
     'Crea una zona presso Cloudflare, copia i record DNS dal registrar e, se richiesto, cambia i nameserver.',
   'hosting.dnsMove.title': 'Migrare il DNS di {name} su Cloudflare',
   'hosting.dnsMove.intro':
-    'La console crea la zona o ne usa una esistente, copia i record e cambia i nameserver solo quando tutti i record sono stati ripresi. Ogni passaggio viene annotato nel registro di audit.',
+    'La console crea la zona o ne usa una esistente, copia i record e cambia i nameserver solo quando tutti i record sono stati importati. Ogni passaggio viene annotato nel registro di audit.',
   'hosting.dnsMove.target': 'Account Cloudflare',
   'hosting.dnsMove.noTargets':
     'Nessuna connessione Cloudflare con ID account. Inserisca l\'ID account in una connessione Cloudflare alla voce "Provider", affinché la console possa creare zone.',
@@ -166,21 +166,21 @@ export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = 
   'hosting.dnsMove.existingZoneClaim':
     'Non è assegnata ad alcuna organizzazione: la migrazione la assegna a {domainOrg}.',
   'hosting.dnsMove.noOrg': 'nessuna organizzazione',
-  'hosting.dnsMove.import.label': 'Riprendi i record dal registrar ({n})',
+  'hosting.dnsMove.import.label': 'Importa i record dal registrar ({n})',
   'hosting.dnsMove.import.hint':
     'Copia i record nella nuova zona. I record copiati non passano dal proxy, quindi il traffico non cambia.',
   'hosting.dnsMove.import.unavailable':
-    'Non possibile: il dominio non usa i nameserver del registrar, quindi i record del registrar non sono quelli validi.',
+    'Non è possibile: il dominio non usa i nameserver del registrar, quindi i record del registrar non sono quelli validi.',
   'hosting.dnsMove.import.error': 'Non è stato possibile leggere i record presso il registrar:',
   'hosting.dnsMove.import.tooMany':
-    'Non possibile: più di {max} record. Importi la zona nel dashboard di Cloudflare.',
+    'Non è possibile: più di {max} record. Importi la zona nel dashboard di Cloudflare.',
   'hosting.dnsMove.import.zoneNotEmpty':
     'In una zona che contiene già dei record, la console non copia nulla.',
   'hosting.dnsMove.planned': 'Da copiare ({n})',
   'hosting.dnsMove.converted': 'Adattati ({n})',
   'hosting.dnsMove.convertedType': '{from} diventa {to}',
   'hosting.dnsMove.ttlChanged': 'TTL {from} diventa {to}',
-  'hosting.dnsMove.skipped.title': 'Non ripresi ({n})',
+  'hosting.dnsMove.skipped.title': 'Non importati ({n})',
   'hosting.dnsMove.skipped.reason.type': 'Tipo non disponibile presso Cloudflare',
   'hosting.dnsMove.skipped.reason.readOnly': 'Sola lettura',
   'hosting.dnsMove.skipped.reason.apexNs': 'Nameserver del dominio, li imposta Cloudflare stesso',
@@ -188,10 +188,10 @@ export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = 
   'hosting.dnsMove.ns.hint':
     'Imposta il dominio sui nameserver della zona non appena tutti i record sono stati copiati. Da quel momento valgono i record presso Cloudflare.',
   'hosting.dnsMove.ns.unsupported':
-    'Non possibile: il registrar non supporta il cambio tramite la console. In seguito dovrà impostare i nameserver manualmente.',
-  'hosting.dnsMove.ns.requiresImport': 'Possibile solo dopo aver ripreso tutti i record.',
+    'Non è possibile: il registrar non supporta il cambio tramite la console. In seguito dovrà impostare i nameserver manualmente.',
+  'hosting.dnsMove.ns.requiresImport': 'Possibile solo dopo aver importato tutti i record.',
   'hosting.dnsMove.warning':
-    'Dopo il cambio, i nameserver di Cloudflare rispondono a tutte le richieste DNS del dominio. Verifichi gli elenchi: ciò che non viene ripreso, in seguito mancherà.',
+    'Dopo il cambio, i nameserver di Cloudflare rispondono a tutte le richieste DNS del dominio. Verifichi gli elenchi: ciò che non viene importato, in seguito mancherà.',
   'hosting.dnsMove.submit': 'Avvia migrazione',
   'hosting.dnsMove.result.title': 'Risultato della migrazione',
   'hosting.dnsMove.result.zoneCreated': 'Zona creata',
