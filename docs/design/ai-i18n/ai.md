@@ -1419,3 +1419,299 @@ its own row (plan O9).
 
 ---
 
+## 7. Budget and limits
+
+`apps/api/src/modules/ai/usage.ts`. All limits are checked against `ai_usage` in the database, so they hold across
+API processes; only the live-read window (7.1, last row) is per process.
+
+### 7.1 Reservations and limits
+
+One `ai_usage` row per **request**: a chat turn, a feature call, a translation batch (plan O22). The row is
+written as `running` with `reserved_micros` before the first API call; before every further call of the same
+request (chat calls, the `max_tokens` retry) `refreshReservation(row, estimate)` sets `reserved_micros` to the
+next call's estimate; after every call `addCall` adds tokens and cost. `finish(row, status, error?)` sets
+`status`, `finished_at`, `duration_ms`, `reserved_micros = 0` and the error fields.
+
+```ts
+export interface ReserveInput {
+  feature: AiFeature;
+  scope: AiUsageScope;
+  orgId: string | null;
+  userId: string | null;
+  countsForUser: boolean;
+  model: AiModel;
+  demo: boolean;
+  estimateMicros: number;
+}
+export const AI_LIMITS = {
+  userPerMinute: 12,
+  userConcurrent: 2,
+  orgConcurrent: 3,
+  platformConcurrent: 6,
+  orgLiveReadsPerMinute: 30,
+} as const;
+reserve(input: ReserveInput): Promise<AiUsageRow>;
+```
+
+`reserve()` runs in one transaction under `pg_advisory_xact_lock(hashtextextended('ai:reserve', 0))` (the
+pattern of `lockOrgBilling`, `modules/billing/ledger.ts:26`), so two requests cannot pass the checks together.
+"Live" rows are `status = 'running'` and `created_at > now() - (AI_TURN_TIMEOUT_SECONDS + 60) seconds`; older
+running rows are stale, ignored by every check and marked `stale` by maintenance (7.3). That bound replaces the
+fixed 25 minutes of the first design, so a deploy in the middle of a request locks nobody out for longer than a
+turn can last (review #8). Checks in this order, each a 429 `ai_limit`:
+
+| # | Check | Applies to | Kind |
+|---|---|---|---|
+| 1 | `spent + reserved(live rows) + estimate > budget` for the month (Europe/Zurich); `budgetUsd = 0` refuses everything | every request, translation batches included | `budget` |
+| 2 | live rows on the platform `>= 6` | every request | `concurrent` |
+| 3 | live rows with `org_id = orgId` and `scope = 'org'` `>= 3` | `scope 'org'` | `org_concurrent` |
+| 4 | rows today (Europe/Zurich) with `org_id = orgId` and `scope = 'org'` `>= dailyOrgLimit` (200) | `scope 'org'` | `org_daily` |
+| 5 | live rows of the user with `counts_for_user` `>= 2` | `countsForUser` | `user_concurrent` |
+| 6 | rows of the user with `counts_for_user` in the last 60 seconds `>= 12` | `countsForUser` | `user_rate` |
+| 7 | rows of the user today with `counts_for_user` `>= dailyUserLimit` (50) | `countsForUser` | `user_daily` |
+
+- `countsForUser: false` (Mass Translate batches) skips 3 to 7: no per-person rate, daily or concurrency limit and
+  no organization limit; the budget (1) and the platform cap (2) apply (plan O9). The i18n job runs at most
+  `I18N_AI_CONCURRENCY` batches at a time, so it leaves room on the platform.
+- Staff requests on a customer's data (`scope 'staff'`, `org_id` = the customer) count for the staff member (5 to
+  7) and in the customer's usage line (5.5), but not against the customer's organization limits (3, 4): staff work
+  must not use up the customer's quota.
+- Per turn (chat) on top: at most 8 API calls, 24 tool calls, 8 live tool calls, 120,000 tool-result characters,
+  and a cost of at most 5 x the turn's estimate (6.4). After every chat API call `budgetExceeded()` (`spent >=
+  budget`) stops the turn even when it passed the reservation check (plan O29). The overshoot of a month is bounded
+  by one call per running request, at most six calls platform-wide.
+- Mass Translate stops a job at 1.5 x its estimate and refuses to start when the budget is already exhausted
+  (i18n 12.6, plan O22).
+- Live reads: `liveReadAllowed(orgId)` keeps a sliding one-minute window of timestamps per organization in memory
+  (per API process) and allows 30; a refused live tool answers `{"error":"live_limit"}` to the model (6.4).
+
+### 7.2 Budget warning and exhaustion
+
+`checkBudgetWarning()` runs after every `finish()` that added cost (outside the request's transaction, errors
+logged, never thrown):
+
+1. `budgetState()`; nothing to do below `warnPercent`.
+2. In a transaction under `pg_advisory_xact_lock(hashtextextended('ai:budget-notice', 0))` read the settings row
+   `ai_budget_notice`; a row of an earlier month counts as empty. If `percent >= warnPercent` and `warnedAt` is
+   null, set it; if `percent >= 100` and `exhaustedAt` is null, set it. Commit.
+3. For each newly set mark: mail template `ai_budget` (plan O15) to every active user with `platform_role =
+   'superadmin'`, in each recipient's language (i18n 8.2), and the audit entry (`req` null, actor system):
+   - `ai.budget_warning` `{ month, percent, spentMicros, budgetMicros }`
+   - `ai.budget_exhausted` `{ month, spentMicros, budgetMicros }`
+
+Each happens at most once per month (raising the budget in the same month sends no second warning). When the
+budget is reached first (a jump from below the warning straight to 100 percent) both marks are set and both mails
+go out.
+
+`ai_budget` template (`apps/api/src/mail/types.ts`, plan F18; texts `email.aiBudget.*` of plan 5.3):
+
+```ts
+ai_budget: {
+  kind: 'warning' | 'exhausted';
+  /** Formatted in the mail language, e.g. "November 2026". */
+  month: string;
+  spent: string; // "USD 81.20"
+  budget: string; // "USD 100.00"
+  percent: number;
+  link: string; // `${APP_URL}/admin/ai`
+};
+```
+
+The admin dashboard (12.5) shows the same state as a notice: from the warning `admin.ai.dashboard.warning`, after
+exhaustion `admin.ai.dashboard.exhausted`.
+
+### 7.3 Maintenance
+
+`class AiMaintenance` (`apps/api/src/modules/ai/maintenance.ts`, plan F15, U3), `constructor(ctx: AppContext,
+pool: pg.Pool)`, started in `index.ts` and stopped in `shutdown` (plan F17). `start()` runs once 5 seconds after
+start, then every 10 minutes (timers `unref()`ed like `BillingJob.start`, `modules/billing/recurring.ts:224-231`).
+Each run takes `pg_try_advisory_xact_lock(hashtextextended('ai:maintenance', 0))` in one transaction on a pool
+client and skips when another process holds it:
+
+1. **Stale rows**: `status = 'running'` and `created_at < now() - (AI_TURN_TIMEOUT_SECONDS + 60) s` become `stale`,
+   `reserved_micros = 0`, `finished_at = now()` (their tokens so far stay counted).
+2. **Retention of usage**: delete rows with `created_at < now() - 400 days` (plan decision 22).
+3. **Retention of error texts**: `error_message = null` where `created_at < now() - 30 days`.
+
+Running it at start clears rows a crash or deploy left behind before the first request arrives (review #8).
+
+---
+
+## 8. Read-only tools
+
+### 8.1 `ConsoleReader`
+
+`apps/api/src/modules/ai/reader.ts`. Tools never query customer tables. They call an allowlist of existing `GET`
+routes in-process with `app.inject`, as the person who asked, so the existing permission, module and suspension
+checks apply unchanged (the loaders `loadServer`, `loadDomain`, `loadWebspace`, `loadMailDomain`, `loadMonitor`,
+`loadOrg` all need the live request, map 7).
+
+```ts
+export class ConsoleReader {
+  constructor(app: FastifyInstance, req: FastifyRequest, orgId: string, signal: AbortSignal);
+  /** A list or overview route of the current organization: /orgs/${orgId}/... only. */
+  orgGet<T>(subPath: OrgSubPath, query?: Record<string, string>): Promise<ReadResult<T>>;
+  /** Loads a resource by id and fails closed unless it belongs to the current organization. */
+  owned<K extends OwnedKind>(kind: K, id: string): Promise<ReadResult<OwnedBody[K]>>;
+  /** A sub-path of a resource verified by owned() earlier in the same run. */
+  sub<T>(kind: OwnedKind, id: string, sub: SubPath[OwnedKind], query?: Record<string, string>): Promise<ReadResult<T>>;
+  readonly liveCalls: number;
+}
+export type ReadResult<T> = { ok: true; body: T; path: string } | { ok: false; error: ReadError };
+export type ReadError = 'not_found' | 'forbidden' | 'unsupported' | 'provider_error' | 'rate_limited' | 'live_limit';
+```
+
+- **Injection.** `app.inject({ method: 'GET', url: '/api/v1' + path, query, remoteAddress: req.ip, headers: {
+  cookie: `${SESSION_COOKIE}=${req.cookies[SESSION_COOKIE]}`, 'user-agent': req.headers['user-agent'],
+  accept: 'application/json' } })` (`SESSION_COOKIE` from `apps/api/src/auth/sessions.ts`). Only `GET`, so the
+  CSRF rule for writes (`auth/plugin.ts`) never comes into play and nothing can be written. Paths are built from
+  fixed templates with the run's `orgId` and zod-validated UUIDs; the model never supplies a path.
+- **`owned(kind, id)`** (plan O26): loads the parent route and accepts the body only if `body.org?.id === orgId`.
+  A body with `org: null` (an unassigned server, a domain without customer) or without `org` fails the same way.
+  Any failure is `not_found`, the same answer as for an id that does not exist, so the model learns nothing about
+  other organizations. A member of two organizations, or reseller staff, cannot pull another organization's data
+  into this organization's chat.
+
+  | Kind | Parent route | `org` field | Sub-paths allowed after verification |
+  |---|---|---|---|
+  | `server` | `GET /servers/:id` | `ServerDto.org` (`dto.ts:204`) | `metrics`, `activity`, `tasks`, `monitoring`, `traffic` |
+  | `domain` | `GET /domains/:id` | `DomainDto.org` (`hosting.ts:216`) | `dns` |
+  | `website` | `GET /webspaces/:id` | `WebspaceDto.org` (`hosting.ts:375`) | `dns-check` |
+  | `mail_domain` | `GET /mail/domains/:id` | `MailDomainDto.org` (`mail.ts:159`) | `dns` |
+  | `monitor` | `GET /monitors/:id` | `MonitorDto.org` (`monitoring.ts:180`) | `history` |
+
+- **Sub-paths** (`/domains/:id/dns`, `/servers/:id/metrics`, `/mail/domains/:id/dns`, ...) answer without an `org`
+  field, so `sub()` refuses them unless `owned()` verified that parent in the same run (a `Set` of
+  `kind:id` in the reader); this closes review finding #1.
+- **Results.** Status 200: the body. 404: `not_found`. 403: `forbidden`. 422 `unsupported`: `unsupported`.
+  429: `rate_limited`. 502 or another 5xx (`ProviderError`): `provider_error` with `message: redactText(message)`
+  cut to 300 characters (the provider's text is third-party data). Anything else: `provider_error` without text.
+- **Escaping.** `toolJson(value)` (`modules/ai/redact.ts`, plan F13) is `JSON.stringify` with every `<` and `>`
+  replaced by `<` and `>`, so a value can never open or close a tag of the prompt (`</third_party>`,
+  `<context>`); the model still reads the characters.
+- **Organization switch.** The chat and the features run only while the organization's AI is on (9.1); the reader
+  does not check it again per call.
+
+### 8.2 Resource tools
+
+Every tool: `name`, `description` (English, one or two sentences, below), `input` (zod; all fields required,
+absent values as `null`), `live` (calls a provider, counts against 8 per turn and 30 per organization and minute),
+`personal` (the result passes `redactForAi(..., { personal: true })`), the route(s) it reads, and `project(body)`
+that keeps the fields the model needs (drops `permissions`, `capabilities` and other UI-only arrays) to save
+tokens. Lists are cut to 50 items (`truncated`, `total`). Every tool returns `sources`: the console paths of what
+it read (`/o/<slug>/servers/<id>`, ...).
+
+| # | Tool | Input | Reads | Live |
+|---|---|---|---|---|
+| 1 | `list_servers` | `{ q: string \| null, status: string \| null, label: string \| null }` | `GET /orgs/:orgId/servers` | no |
+| 2 | `get_server` | `{ server_id: uuid }` | `owned('server')` | no |
+| 3 | `get_server_metrics` | `{ server_id: uuid, range: 'hour' \| 'day' \| 'week' \| 'month' }` | `owned('server')`, then `sub('metrics', { range })` and `sub('monitoring')` | yes |
+| 4 | `get_server_activity` | `{ server_id: uuid }` | `owned('server')`, then `sub('tasks')` and `sub('activity', { page: '1', perPage: '50' })`; personal | no |
+| 5 | `list_domains` | `{}` | `GET /orgs/:orgId/domains` | no |
+| 6 | `get_domain` | `{ domain_id: uuid }` | `owned('domain')` (live info of the registrar) | yes |
+| 7 | `get_dns_records` | `{ domain_id: uuid }` | `owned('domain')`, then `sub('dns')` | yes |
+| 8 | `list_websites` | `{}` | `GET /orgs/:orgId/webspaces` | no |
+| 9 | `get_website` | `{ website_id: uuid }` | `owned('website')` (live from CloudPanel or the hoster) | yes |
+| 10 | `check_website_dns` | `{ website_id: uuid }` | `owned('website')`, then `sub('dns-check')` | yes |
+| 11 | `list_mail_domains` | `{}` | `GET /orgs/:orgId/mail/domains` | no |
+| 12 | `get_mail_domain` | `{ mail_domain_id: uuid }` | `owned('mail_domain')` (live from Mailcow); mailbox addresses replaced, personal | yes |
+| 13 | `get_mail_dns_setup` | `{ mail_domain_id: uuid }` | `owned('mail_domain')`, then `sub('dns')` | yes |
+| 14 | `get_monitoring` | `{}` | `GET /orgs/:orgId/monitoring` | no |
+| 15 | `get_monitor` | `{ monitor_id: uuid, range: 'recent' \| '24h' \| '7d' \| '30d' }` | `owned('monitor')`, then `sub('history', { range })` | yes |
+| 16 | `get_cloud_storage` | `{}` | `GET /orgs/:orgId/cloud`; personal | no |
+| 17 | `get_phone_systems` | `{}` | `GET /orgs/:orgId/phone-systems` | no |
+| 18 | `get_streaming` | `{}` | `GET /orgs/:orgId/media` (Seerr request info is live); personal | yes |
+
+Descriptions (sent to the model; English):
+
+- `list_servers`: "List the organization's servers with status, plan, location and labels. Filter by name, status
+  or label."
+- `get_server`: "Stored details of one server: status, plan, IP addresses, image, protection, project."
+- `get_server_metrics`: "Live CPU, memory, disk and network metrics of one server for a range, plus its
+  monitoring summary."
+- `get_server_activity`: "Recent actions on one server (start, stop, backups, rebuilds) with their results, and its
+  audit entries."
+- `list_domains`, `get_domain`: "Domains and DNS zones of the organization" / "One domain with registrar status,
+  expiry, name servers and linked zone."
+- `get_dns_records`: "All DNS records of one zone as the provider serves them."
+- `list_websites`, `get_website`: "Websites and web spaces" / "One website with runtime, certificate, databases and
+  status notices."
+- `check_website_dns`: "Whether the website's domain and www point to its server (A and AAAA), as the console
+  checks it."
+- `list_mail_domains`, `get_mail_domain`: "E-mail domains" / "One e-mail domain with limits, usage and status."
+- `get_mail_dns_setup`: "The DNS records the console computed for one e-mail domain (MX, SPF, DKIM, DMARC,
+  autoconfig) with the status of each in the zone."
+- `get_monitoring`, `get_monitor`: "Monitors and status pages" / "One monitor with its live state and history."
+- `get_cloud_storage`, `get_phone_systems`, `get_streaming`: "Cloud storage accounts and allowance" / "Phone
+  systems with users and trunks" / "Streaming accounts and allowance."
+
+### 8.3 Organization, billing and audit tools
+
+| # | Tool | Input | Reads | Live |
+|---|---|---|---|---|
+| 19 | `get_org_overview` | `{}` | `GET /orgs/:orgId` (counts, modules, kind, status, reseller) | no |
+| 20 | `get_billing_summary` | `{}` | `GET /orgs/:orgId/billing/summary` and `GET /orgs/:orgId/invoices?status=open&perPage=20`; `forbidden` without `billing:read` (viewers) | no |
+| 21 | `get_audit_log` | `{ action: string \| null, resource_type: string \| null, status: 'success' \| 'failure' \| 'denied' \| null }` | `GET /orgs/:orgId/audit?perPage=50` (needs `audit:read`); personal; blocked-customer filter | no |
+| 22 | `propose_dns_record` | 8.4 | `loadDnsContext` (10.2) | yes |
+
+- `get_org_overview`: "Name, kind, status, active modules and resource counts of the organization."
+- `get_billing_summary`: "Credit balance, open invoices and active services of the organization."
+- `get_audit_log`: "Newest audit log entries of the organization, filterable by action prefix, resource type and
+  status. IP and e-mail addresses are removed."
+
+**Personal filter.** `personal: true` tools pass every entry through `redactForAi(entry, { personal: true })`
+(11.2): `ip`, `userAgent`, `user_agent` and `email` keys are dropped and e-mail-shaped values replaced by
+`[email]` (plan O28). Actor names stay (an audit summary must say who did what); the notice says so (13.10).
+
+**Blocked-customer filter** (review #4). In a reseller's audit log, entries about a customer whose AI is off
+(declined, switched off, `aiOrgState(...).enabled` false) are dropped before the model sees them: entries with
+`resourceType = 'org'` and `resourceId` of such a customer, and entries whose `details` name such a customer
+(`customerOrgId`, `customerId`, `orgId`, as `reseller.customer_*`, `reseller.resource_*` and the billing job
+write them). The tool result says how many were left out (`hidden`).
+
+### 8.4 Proposals
+
+**`propose_dns_record`** is the only tool that is not a plain read. It reads, validates and returns a proposal; the
+console shows it as a card and, on request, opens the normal DNS form pre-filled (12.3). Nothing is saved.
+
+```ts
+const proposeDnsInput = z.object({
+  domain_id: z.uuid(),
+  action: z.enum(['add', 'change']),
+  record_id: z.string().max(200).nullable(), // required for 'change'
+  type: z.enum(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA']),
+  name: z.string().max(253), // relative to the zone, "@" for the apex
+  data: z.string().max(2048),
+  ttl: z.number().int().min(60).max(86_400).nullable(),
+  reason: z.string().max(500),
+});
+```
+
+Validation (`validateDnsProposal(ctx, reader, input)` in `modules/ai/proposals.ts`, shared with the DNS check
+10.2):
+
+1. `loadDnsContext(reader, { domainId })` (10.2): the zone must be the organization's (`owned('domain')`).
+2. The record must pass the console's own record rules: `dnsRecordBody` and `dnsDataIssue` exported from
+   `apps/api/src/modules/hosting/dns.ts:52,115`; the type must be in `DomainDetailDto.dnsRecordTypes`.
+3. `change` needs a `record_id` of an existing record of the zone with the same type; NS records and the deletion of
+   records are not proposable at all (the enum has no NS and no `delete`), and a `change` of an MX record or of an
+   apex A/AAAA record is accepted only when the new value is a `verified` one. Removing or replacing mail
+   delivery or the website's address on the model's word is never offered as a form (plan decision 23).
+4. **`verified`**: true only when `(type, name, data)` equals, after normalizing case, trailing dots and TXT
+   quoting, a record the console computed itself for this zone: a `MailDnsRecordDto` with non-empty `data` from
+   `GET /mail/domains/:id/dns`, or an expected A/AAAA of a website on that name from `GET /webspaces/:id/dns-check`
+   (`WebsiteDnsCheckDto.expected`). Everything else is unverified (review #5: text in TXT records, monitor
+   messages or SMTP errors can inject values).
+5. **`textOnly`**: true when the zone is not in the console, `DomainDetailDto.dnsWritable` is false, the person lacks
+   `domain:dns:write` on the domain (from `DomainDto.permissions`), or the type is not supported by the provider. The
+   card then shows the record as text with a copy button.
+
+The tool answers the model `{ proposal_id, verified, text_only }` (or `{ "error": "invalid", "issue": "..." }`), and
+the chat sends `proposal` (`AiDnsProposalDto`) to the browser. An unverified proposal carries the badge "Nicht von
+weblion.one geprüft" and needs an extra confirmation before the form opens (12.3).
+
+**`propose_monitor` is dropped** (plan O31, review #23): monitors are created in a few clicks, the proposal would
+need its own validation of target hosts and ports, and the allowance check would have to run twice.
+
+---
+
