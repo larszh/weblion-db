@@ -212,7 +212,7 @@ export const coreNl: Partial<Record<keyof typeof coreDe, string>> = {
   'power.reboot': 'Opnieuw opstarten',
   'power.reboot.hint': 'Start het besturingssysteem gecontroleerd opnieuw op.',
   'power.reset': 'Reset (hard)',
-  'power.reset.hint': 'Zoals de resetknop: directe herstart zonder afsluiten.',
+  'power.reset.hint': 'Net als de resetknop: directe herstart zonder afsluiten.',
   'power.suspend': 'Pauzeren',
   'power.suspend.hint': 'Bevriest de server in het werkgeheugen.',
   'power.resume': 'Hervatten',
@@ -306,7 +306,7 @@ export const coreNl: Partial<Record<keyof typeof coreDe, string>> = {
   'backups.deleted': 'Back-up verwijderd',
   'backups.fire24Hint':
     'Back-ups gebruiken de back-upslots van de server. Het maken kan enkele minuten duren.',
-  'snapshots.subtitle': 'Snelle tussenstanden, ideaal vóór updates. Geen vervanging voor back-ups.',
+  'snapshots.subtitle': 'Snelle herstelpunten, ideaal vóór updates. Geen vervanging voor back-ups.',
   'snapshots.create': 'Snapshot maken',
   'snapshots.createText': 'Legt de huidige toestand van de schijven vast.',
   'snapshots.created': 'Snapshot wordt gemaakt',
@@ -603,7 +603,7 @@ export const coreNl: Partial<Record<keyof typeof coreDe, string>> = {
   'perm.platform:server:assign':
     'Servers, domeinen, webruimtes, websites, e-maildomeinen, telefooncentrales en monitors aan klanten toewijzen',
   'perm.platform:server:create': 'Servers bij providers aanmaken',
-  'perm.platform:infra:read': 'Infrastructuur (nodes, storage) bekijken',
+  'perm.platform:infra:read': 'Infrastructuur (nodes, opslag) bekijken',
   'perm.platform:explorer': "API-explorer (directe toegang tot provider-API's)",
   'perm.platform:audit:read': 'Globaal auditlog',
   'perm.platform:billing:read': 'Facturering van alle klanten bekijken',
@@ -651,7 +651,7 @@ export const coreNl: Partial<Record<keyof typeof coreDe, string>> = {
   'tokens.name': 'Naam',
   'tokens.scope': 'Rechten',
   'tokens.scope.read': 'Lezen',
-  'tokens.scope.read.hint': 'Servers, metrics en back-ups opvragen.',
+  'tokens.scope.read.hint': 'Servers, meetwaarden en back-ups opvragen.',
   'tokens.scope.read_write': 'Lezen & schrijven',
   'tokens.scope.read_write.hint': 'Daarnaast acties uitvoeren. Geen beheer van leden of tokens.',
   'tokens.scope.custom': 'Eigen beleid',
@@ -720,7 +720,7 @@ export const coreNl: Partial<Record<keyof typeof coreDe, string>> = {
   'admin.subtitle': 'Alle klanten, servers en providers van weblion.one in één oogopslag.',
   'admin.providerErrors': 'Providers met fouten',
   'admin.checkProviders': 'Providers controleren',
-  'admin.stat.servers': 'Servers totaal',
+  'admin.stat.servers': 'Servers in totaal',
   'admin.stat.serversSub': '{running} actief, {stopped} gestopt',
   'admin.stat.unassigned': 'Niet toegewezen',
   'admin.stat.unassignedSub': 'Wachten op toewijzing aan een klant',
@@ -857,7 +857,7 @@ export const coreNl: Partial<Record<keyof typeof coreDe, string>> = {
   'providers.joker.useOte': 'Testsysteem (OT&E) gebruiken',
   'providers.joker.useLive': 'Livesysteem gebruiken',
   'providers.fire24.help':
-    'De 24fire Customer REST API v1 meldt zich aan met een Personal Access Token. Maak dit aan in de accountinstellingen van 24fire met de scopes hieronder en laat de productvrijgave leeg (alle producten): producten buiten de vrijgave gelden in het paneel als ontbrekend. Ontbrekende scopes worden door de verbindingstest getoond.',
+    'De 24fire Customer REST API v1 gebruikt een Personal Access Token voor de aanmelding. Maak dit aan in de accountinstellingen van 24fire met de scopes hieronder en laat de productvrijgave leeg (alle producten): producten buiten de vrijgave gelden in het paneel als ontbrekend. Ontbrekende scopes worden door de verbindingstest getoond.',
   'providers.fire24.scopesFull': 'Volledig gebruik ({count} scopes)',
   'providers.fire24.scopesReadOnly':
     'Alleen lezen ({count} scopes; zonder acties, console, back-ups, grafieken en wijzigingen)',
