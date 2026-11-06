@@ -209,6 +209,13 @@ describe('tools', () => {
       expect.arrayContaining(['/o/muster-ag', '/o/muster-ag/servers']),
     );
     expect(names(events).at(-1)).toBe('done');
+    // The text after the tool round is a new paragraph, not glued to the sentence before it.
+    expect(
+      events
+        .filter((e) => e.event === 'text')
+        .map((e) => e.data.text)
+        .join(''),
+    ).toBe('Ich sehe nach.\n\nSie haben fünf Server.');
     expect(mock.requests).toHaveLength(2);
     const second = mock.requests[1]!.body.messages;
     expect(second).toHaveLength(3);

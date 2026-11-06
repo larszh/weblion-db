@@ -343,7 +343,7 @@ function demoAssistant(body: BetaMessageStreamParams, language: DemoLanguage): E
   if (step.length === 0) {
     const mail = MAIL_QUESTION.test(questionOf(body).replace(/<context>[\s\S]*?<\/context>/g, ''));
     return [
-      { type: 'text', text: de ? '[Demo] Ich sehe mir das an. ' : '[Demo] Let me look at that. ' },
+      { type: 'text', text: de ? '[Demo] Ich sehe mir das an.' : '[Demo] Let me look at that.' },
       mail ? toolUse('list_mail_domains', {}) : toolUse('get_org_overview', {}),
     ];
   }

@@ -224,6 +224,12 @@ export async function runChatTurn(
     sse.send('notice', { kind });
   };
 
+  // The text deltas of every API call of the turn go into one answer, and the stream has no boundary between
+  // calls. Text written after a tool round starts a new paragraph, or "...Übersicht." and "Sie haben ..."
+  // of the next call would run together.
+  let textSent = false;
+  let paragraphPending = false;
+
   let failure: { error: AppError; original?: unknown } | null = null;
   try {
     for (;;) {
@@ -248,7 +254,10 @@ export async function runChatTurn(
         else if (event.type === 'content_block_stop') openToolBlock = false;
       });
       stream.on('text', (delta) => {
-        sse.send('text', { text: delta });
+        const text = paragraphPending && textSent ? `\n\n${delta}` : delta;
+        paragraphPending = false;
+        textSent = true;
+        sse.send('text', { text });
       });
       let message: BetaMessage;
       try {
@@ -298,6 +307,7 @@ export async function runChatTurn(
       }
 
       const results = await runTools(toolUses, toolCtx, state, sse, seenSources);
+      paragraphPending = true;
       const content: BetaContentBlockParam[] = [...results];
       const nextIsLast =
         state.calls + 1 >= CHAT_LIMITS.apiCalls ||

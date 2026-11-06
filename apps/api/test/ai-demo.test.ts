@@ -60,7 +60,7 @@ describe('the assistant', () => {
       .map((e) => e.data.text)
       .join('');
     expect(text).toMatch(
-      /^\[Demo\] Ich sehe mir das an\. \[Demo\] Ihre Organisation hat \d+ Server, \d+ Domains/,
+      /^\[Demo\] Ich sehe mir das an\.\n\n\[Demo\] Ihre Organisation hat \d+ Server, \d+ Domains/,
     );
     expect(events.at(-1)).toMatchObject({ event: 'done', data: { fallback: false } });
     const [row] = await t.db.select().from(aiUsage);
