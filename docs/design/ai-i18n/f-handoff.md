@@ -159,8 +159,9 @@ zusammen 4602.
 - **F19 (erste Hälfte)** `test/helpers.ts`: `TestAppOptions.i18nCatalog`, Standard `ANTHROPIC_BASE_URL:
   'http://127.0.0.1:9'` und `ANTHROPIC_MAX_RETRIES: '0'` (Tests können beides überschreiben),
   `enableAiForOrg(db, orgId)`.
-- **F20 (i18n-Teil)** `test/i18n-service.test.ts` (19 Fälle), `test/i18n-stamps.test.ts` (10 Fälle, der Fall
-  `I18N_REQUIRE_LEGAL` wird ohne Schalter übersprungen), `test/migrations.test.ts` (8 Fälle).
+- **F20 (i18n-Teil)** `test/i18n-service.test.ts` (19 Fälle), `test/i18n-stamps.test.ts` (11 Fälle; der Fall
+  `I18N_REQUIRE_LEGAL` wird ohne Schalter übersprungen und schlägt mit `I18N_REQUIRE_LEGAL=fr` wie erwartet fehl,
+  solange fr leer ist), `test/migrations.test.ts` (8 Fälle).
 - `pnpm --filter @weblion/api i18n:stamp --locale en` ist gelaufen: 16 Dateien `stamps/en/*.json` mit 4602
   Stempeln; `i18n:stamp --check` meldet "64 files up to date, 0 stale".
 
@@ -210,3 +211,11 @@ zusammen 4602.
 - Tests bauen kleine Kataloge mit `buildCatalog(sources, {})` und `new I18nService(t.db, env, log, catalog)` oder
   über `createTestApp({ i18nCatalog })`. Ein zweites `createTestApp` setzt die Datenbank zurück; für eine andere
   Umgebung lieber einen zweiten `I18nService` auf derselben Datenbank bauen (so macht es `i18n-service.test.ts`).
+
+### Geprüft (Teil 2)
+
+- `pnpm typecheck` (shared, api, web): sauber.
+- Prettier mit den vier CI-Globs: sauber.
+- `pnpm test` auf der frischen Datenbank `wl_fpart2_2`: shared 587 bestanden (2 übersprungen), web 165, api 1384
+  bestanden (1 übersprungen, der Legal-Schalter); diesmal ohne die bekannten Ausfälle in `monitoring.test.ts`.
+- `pnpm --filter @weblion/api build`: erfolgreich; `i18n:stamp --check`: 64 Dateien aktuell.
