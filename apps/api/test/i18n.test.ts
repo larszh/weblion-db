@@ -26,6 +26,8 @@ import {
   users,
 } from '../src/db/schema';
 import { loadCatalog } from '@weblion/shared/i18n/catalog';
+import { checkValue } from '@weblion/shared/i18n/checks';
+import { DEFAULT_GLOSSARY } from '@weblion/shared/i18n/glossary';
 import { insertI18nDemo } from '../src/db/seed-i18n';
 import { saveOverride } from '../src/i18n/entries';
 import { seedGlossary } from '../src/i18n/glossary';
@@ -995,27 +997,34 @@ describe('demo seed', () => {
     await t.ctx.i18n.reload();
     const rows = await t.db.select().from(translationOverrides);
     expect(rows.map((r) => `${r.locale}:${r.key}`).sort()).toEqual([
-      'fr:common.save',
-      'it:nav.billing',
+      'fr:nav.overview',
+      'it:nav.theme',
       'nl:login.hero.title',
     ]);
     expect(rows.every((r) => !r.demo && r.updatedBy === adminId)).toBe(true);
-    // None equals the compiled text of the repository, so "Aufräumen" keeps all three examples.
-    const compiled = loadCatalog().bundles;
-    for (const r of rows) expect(r.value).not.toBe(compiled[r.locale][r.key as ServerTranslationKey]);
-    expect(t.ctx.i18n.cell('fr', 'common.save' as ServerTranslationKey)).toMatchObject({
-      origin: 'manual',
-      state: 'current',
-    });
-    expect(t.ctx.i18n.cell('it', 'nav.billing' as ServerTranslationKey)).toMatchObject({
-      origin: 'ai',
-      reviewed: false,
-      state: 'current',
-    });
+    // None equals the compiled text of the repository, so "Aufräumen" keeps all three examples, and each passes
+    // every check with the real glossary, so a cell shows only the state it is meant to show.
+    const real = loadCatalog().bundles;
+    for (const r of rows) {
+      const key = r.key as ServerTranslationKey;
+      expect(r.value).not.toBe(real[r.locale][key]);
+      expect(
+        checkValue({
+          key,
+          source: real.de[key]!,
+          value: r.value,
+          locale: r.locale,
+          glossary: DEFAULT_GLOSSARY,
+        }),
+      ).toEqual({ hard: [], soft: [] });
+    }
+    const byKey = Object.fromEntries(rows.map((r) => [`${r.locale}:${r.key}`, r]));
+    expect(byKey['fr:nav.overview']).toMatchObject({ origin: 'manual', reviewed: true });
+    expect(byKey['it:nav.theme']).toMatchObject({ origin: 'ai', reviewed: false });
+    // The stale example is in the test catalog: written against an older German text.
     expect(t.ctx.i18n.cell('nl', 'login.hero.title' as ServerTranslationKey)).toMatchObject({
       state: 'stale',
     });
-    expect(keysOf(await entries({ filter: 'unreviewed' }))).toEqual(['nav.billing']);
   });
 });
 

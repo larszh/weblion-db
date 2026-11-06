@@ -20,20 +20,20 @@ const DEMO_OVERRIDES: {
   writtenAgainst: string | null;
 }[] = [
   // "Manuell", current. Each value differs from the compiled text, or "Aufräumen" would count it as already in the
-  // code and delete the example.
+  // code and delete the example, and keeps the glossary, or the cell would show a warning it is not meant to show.
   {
-    key: 'common.save',
+    key: 'nav.overview',
     locale: 'fr',
-    value: 'Sauvegarder',
+    value: 'Aperçu',
     origin: 'manual',
     reviewed: true,
     writtenAgainst: null,
   },
   // "KI, ungeprüft", listed by the filter "Ungeprüft".
   {
-    key: 'nav.billing',
+    key: 'nav.theme',
     locale: 'it',
-    value: 'Fatture',
+    value: 'Tema',
     origin: 'ai',
     reviewed: false,
     writtenAgainst: null,
