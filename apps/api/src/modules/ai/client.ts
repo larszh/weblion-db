@@ -69,8 +69,8 @@ type BaseParams = Pick<
 /**
  * The fixed part of every request: the exact model id, adaptive thinking (the only accepted on-mode of these
  * models), the effort of the feature (fixed so the cache stays warm, plan decision 30), an opaque user id for
- * Anthropic's abuse detection, and the server-side refusal fallback on Opus and Sonnet (Haiku has none). Never
- * sampling parameters, budget_tokens or a disabled thinking mode: these models reject them.
+ * Anthropic's abuse detection, and the server-side refusal fallback on Opus and Sonnet (Haiku has none). Nothing
+ * else: these models reject sampling parameters, thinking budgets and switching thinking off (ai 6.2).
  */
 export function baseParams(model: AiModel, feature: AiFeature, userId: string | null): BaseParams {
   return {

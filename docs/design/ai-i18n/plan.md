@@ -431,7 +431,7 @@ export interface AiAvailabilityDto {
   model: AiModel;
 }
 export interface AiStatusDto extends AiAvailabilityDto {
-  features: AiFeature[]; // switched on; empty while the master switch is off
+  features: AiFeature[]; // switched on; empty while AI is not available (master switch off or not configured)
 }
 /** new: IntegrationsDto.ai (2.7, ai 5.3). configured is true for ui, env and demo. */
 export interface AiIntegrationDto {
@@ -1888,7 +1888,8 @@ One engineer, branch `ai-i18n/f` from `c6c51ad`. Ordered checklist. Commit messa
     script?: (body: any, index: number) => MockTurn | undefined }): Promise<{ url: string;
     requests: RecordedClaudeRequest[]; setScript(fn: (body: any, index: number) => MockTurn | undefined): void; close(): Promise<void> }>;
   ```
-  Node `http`; `x-api-key` check (default `sk-ant-test-0000000000000000000000`, else 401
+  Node `http`; key check in `x-api-key` or `Authorization: Bearer` (SDK 1.3.0 sends the API key as a bearer
+  token; default `sk-ant-test-0000000000000000000000`, else 401
   `authentication_error`); `GET /v1/models/:id` (404 outside `AI_MODELS` and the fallback ids); `POST /v1/messages`
   with `stream: true` as SSE frames (`message_start`, `content_block_start/delta/stop` with `text_delta`,
   `message_delta` with `stop_reason`, `stop_details` and usage, `message_stop`), else JSON; errors as

@@ -13,6 +13,8 @@ import { DemoAdapter } from '../src/providers/demo/adapter';
 import { DemoCloudPanelAdapter } from '../src/providers/demo/cloudpanel';
 import type { AppContext } from '../src/context';
 import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
+import { AI_FEATURES, type AiFeature, type AiModel } from '@weblion/shared';
+import { MOCK_API_KEY } from './claude-mock';
 
 export const ADMIN = { email: 'admin@test.local', password: 'admin-password-123' };
 export const DEMO_PASSWORD = 'demo-password-123';
@@ -88,6 +90,36 @@ export async function enableAiForOrg(db: Database, orgId: string): Promise<void>
     .update(organizations)
     .set({ aiEnabled: true, aiDisabledBy: null })
     .where(eq(organizations.id, orgId));
+}
+
+/**
+ * Sets the platform up for AI as the owner would on the KI page (ai 15.2): saves the key (default: the mock's)
+ * through PUT /admin/ai/key and switches the master switch on through PUT /admin/ai/settings with the go-live
+ * checklist. `admin` must be signed in with platform:settings. Organizations stay off (plan O34): use
+ * enableAiForOrg for those.
+ */
+export async function configureAi(
+  admin: Client,
+  options: {
+    key?: string;
+    model?: AiModel;
+    features?: Partial<Record<AiFeature, boolean>>;
+    budgetUsd?: number;
+  } = {},
+): Promise<void> {
+  const key = await admin.request('PUT', '/admin/ai/key', { key: options.key ?? MOCK_API_KEY });
+  if (key.statusCode !== 200) throw new Error(`saving the AI key failed: ${key.body}`);
+  const res = await admin.request('PUT', '/admin/ai/settings', {
+    enabled: true,
+    model: options.model ?? 'claude-opus-5-5',
+    features: Object.fromEntries(AI_FEATURES.map((f) => [f, options.features?.[f] ?? true])),
+    budgetUsd: options.budgetUsd ?? 100,
+    warnPercent: 80,
+    dailyOrgLimit: 200,
+    dailyUserLimit: 50,
+    goLive: { contracts: true, transferBasis: true, noticeChecked: true, workspaceChecked: true },
+  });
+  if (res.statusCode !== 200) throw new Error(`switching AI on failed: ${res.body}`);
 }
 
 /** Minimal cookie aware client around fastify.inject. */

@@ -317,6 +317,8 @@ export class AiService {
       } else {
         await this.finish(row, status);
       }
+      // A refused or cut-off call costs money too (ai 7.2).
+      if (row.costMicros > 0) await usage.checkBudgetWarning(this.ctx);
       throw attachUsage(error, { usageId: row.id, tokens: usage.rowTotals(row), costMicros: row.costMicros });
     }
   }

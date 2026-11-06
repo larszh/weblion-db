@@ -244,7 +244,7 @@ export interface AiAvailabilityDto {
   model: AiModel;
 }
 export interface AiStatusDto extends AiAvailabilityDto {
-  /** Features switched on (empty while the master switch is off). */
+  /** Features switched on (empty while AI is not available: master switch off or not configured). */
   features: AiFeature[];
 }
 
@@ -316,9 +316,9 @@ export interface AiBudgetDto {
   spentMicros: number;
   reservedMicros: number;
   remainingMicros: number;
-  percent: number; // spent / budget, rounded down
-  warned: boolean;
-  exhausted: boolean;
+  percent: number; // spent / budget, rounded down (100 with a budget of 0)
+  warned: boolean; // percent >= warnPercent (from the numbers, not from the ai_budget_notice row)
+  exhausted: boolean; // spent >= budget; a budget of 0 is always exhausted
 }
 
 // --- Usage and errors (staff) ------------------------------------------------------------------
@@ -1023,6 +1023,9 @@ export function createAnthropic(env: Env, key: ResolvedAiKey, log: FastifyBaseLo
     // 'warn' at most: debug logging of the SDK would print request bodies with customer data.
     logger: log.child({ module: 'anthropic' }),
     logLevel: 'warn',
+    // No spans: an OTel setup of the host (or ANTHROPIC_OPEN_TELEMETRY_* variables) must never record prompts
+    // or answers.
+    openTelemetry: false,
   });
 }
 ```
@@ -1396,6 +1399,9 @@ export function classifyAiError(err: unknown, run: { timedOut: boolean }): AppEr
     if (err.status === 413 || err.status === 409 || err.status === 422) return aiUpstream('request');
     return aiUpstream('server'); // api_error and anything else
   }
+  // A stream that ended without message_stop, or a connection that broke while the body was read: the SDK
+  // reports both as a plain AnthropicError (not an APIError).
+  if (err instanceof Anthropic.AnthropicError) return aiUpstream('network');
   if (err instanceof SyntaxError || err instanceof z.ZodError) return aiUpstream('output');
   throw err; // a bug of ours: 500 internal_error through the normal handler
 }
@@ -1404,8 +1410,9 @@ export function classifyAiError(err: unknown, run: { timedOut: boolean }): AppEr
 - Overloaded (529 or a mid-stream `overloaded_error`) is `ai_busy` reason `overloaded`, not an upstream failure
   (plan F20).
 - The 402 "Your credit balance is too low" case: the client gets 502 `ai_upstream` with the fixed message (no
-  "credit", no "balance"); `ai_usage.error_message` keeps `redactText(err.message)` (at most 1,000 characters) for
-  staff, `error_reason = 'billing'`, `request_id = err.requestID`.
+  "credit", no "balance"); `ai_usage.error_message` keeps the redacted API message (`redactText` of the body's
+  `error.message`, else of `err.message`; at most 1,000 characters) for staff, `error_reason = 'billing'`,
+  `request_id = err.requestID`.
 - Logs: `log.warn({ feature, code, reason, status: err.status, type: err.type, requestId }, 'claude request
   failed')`, never the message.
 - `AiCancelled` is internal: the usage row gets status `cancelled`, nothing is sent (the client is gone).
@@ -2831,12 +2838,15 @@ interface EmulatedTurn {
   5.2).
 - `POST /v1/messages`: with `stream: true` an SSE response in the API's frame shapes (`message_start`,
   `content_block_start`, `content_block_delta` with `text_delta` or `input_json_delta`, `content_block_stop`,
-  `message_delta` with `stop_reason` and `usage`, `message_stop`), text in chunks of about 20 characters 30 ms
-  apart so the panel visibly streams; else JSON. Header `request-id: req_demo_<n>`.
+  `message_delta` with `stop_reason` and `usage`, `message_stop`); the assistant's text in chunks of about 20
+  characters 30 ms apart so the panel visibly streams, the answers of the JSON features and translations at once
+  (nobody watches them stream, and a Mass Translate demo job would otherwise take minutes); else JSON. Header
+  `request-id: req_demo_<n>`.
 - Routing by the first line of the system prompt, `# Feature: <feature>` (all prompts of 10.8 and the
   translator's start with it, plan O4).
 - Token numbers: input about request JSON length / 4, output about answer length / 4. The usage row gets `demo =
-  true` and cost 0.
+  true` and cost 0, and a demo request reserves 0 (`estimateMicros` 0): the budget check still runs, so a budget of
+  0 refuses demo requests too.
 - Build order: F writes `demoFetch`, the models route, the `translations` answer and a per-feature constant
   `DEMO_JSON` with a valid minimal object for every JSON feature, and lets `assistant` answer the marker text without
   tool use; U3 completes the behaviour below (plan F15).
@@ -2866,9 +2876,13 @@ badge `ai.demoBadge` with the tooltip `ai.demoHint`; the KI page shows `admin.ai
 `apps/api/test/claude-mock.ts`: F writes the skeleton of plan F19 (verbatim there: `MockTurn` with `text`, `json`,
 `stopReason`, `refusalCategory`, `model`, `usage`, `error`, `delayMs`, `gate`, `midStreamError`;
 `RecordedClaudeRequest`; `startClaudeMock({ apiKey, port, script })` with `url`, `requests`, `setScript`, `close`;
-`x-api-key` check against `sk-ant-test-0000000000000000000000`; `GET /v1/models/:id`; SSE or JSON; errors as `{
-type: 'error', error: { type, message }, request_id }`; `request-id: req_mock_<n>`; no scripted answer ->
-`emulateMessages(body)`). U3 adds to `MockTurn`:
+key check against `sk-ant-test-0000000000000000000000` in `x-api-key` or `Authorization: Bearer` (SDK 1.3.0 sends
+the API key as a bearer token); `GET /v1/models/:id` (also for the fallback ids `MOCK_FALLBACK_MODELS`); SSE or
+JSON; errors as `{ type: 'error', error: { type, message }, request_id }`; `request-id: req_mock_<n>`; no scripted
+answer -> `emulateMessages(body)`; `setScript` counts the requests of the new script from 0). F also builds
+`fallbackTo` of the list below, because `ai-structured.test.ts` (F) prices fallback iterations: after `afterFrames`
+text chunks of 40 characters the declined text block ends, the `fallback` block follows, then the rest of the
+text. U3 adds the other fields to `MockTurn`:
 
 ```ts
   /** tool_use blocks after the text, streamed as input_json_delta; stop_reason 'tool_use' unless stopReason is set.
@@ -2895,7 +2909,8 @@ only where expected.
 ### 15.2 Test files and cases
 
 Every API test runs against `createTestApp` (`apps/api/test/helpers.ts`) with a mock started per file; the key is
-saved through `PUT /admin/ai/key` and the platform switched on through `PUT /admin/ai/settings` (plan U1).
+saved through `PUT /admin/ai/key` and the platform switched on through `PUT /admin/ai/settings` (plan U1), both in
+one call with `configureAi(admin, { key?, model?, features?, budgetUsd? })` of `test/helpers.ts` (F).
 
 | File | Owner | Cases |
 |---|---|---|

@@ -11,7 +11,7 @@ import { SYSTEM_TEXT } from '../src/modules/ai/prompts';
 import { toStrictJsonSchema } from '../src/modules/ai/schema';
 import { AiService, type StructuredInput } from '../src/modules/ai/service';
 import { MOCK_API_KEY, startClaudeMock, type MockTurn } from './claude-mock';
-import { ADMIN, Client, createTestApp, json, type TestApp } from './helpers';
+import { ADMIN, Client, configureAi, createTestApp, json, type TestApp } from './helpers';
 
 /** The one Claude call path of the JSON features and translations (plan 2.4, F20, ai 6.6, 15.2). */
 
@@ -92,8 +92,7 @@ beforeAll(async () => {
   musterId = (await t.db.query.organizations.findFirst({ where: eq(organizations.slug, 'muster-ag') }))!.id;
   annaId = (await t.db.query.users.findFirst({ where: eq(users.email, 'anna@muster.example') }))!.id;
   adminId = (await t.db.query.users.findFirst({ where: eq(users.email, ADMIN.email) }))!.id;
-  expect((await admin.request('PUT', '/admin/ai/key', { key: MOCK_API_KEY })).statusCode).toBe(200);
-  await configure({});
+  await configureAi(admin);
 });
 
 afterAll(async () => {

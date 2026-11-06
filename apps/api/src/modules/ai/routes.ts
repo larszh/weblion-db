@@ -254,12 +254,12 @@ export async function aiRoutes(app: FastifyInstance, ctx: AppContext) {
   app.delete('/admin/ai/key', async (req): Promise<AiKeyStatusDto> => {
     requireSession(req);
     await access.assert(req, 'platform:settings', platformScope);
-    const deleted = await deleteAiKey(db);
+    await deleteAiKey(db);
     await audit.record(req, {
       action: 'ai.key_delete',
       resourceType: 'settings',
       resourceId: 'ai_key',
-      details: { envFallback: !!env.ANTHROPIC_API_KEY, deleted },
+      details: { envFallback: !!env.ANTHROPIC_API_KEY },
     });
     ctx.ai.resetClient();
     return keyStatus();

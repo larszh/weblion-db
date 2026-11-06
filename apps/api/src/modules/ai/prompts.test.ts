@@ -12,8 +12,9 @@ describe('prompts', () => {
     it(`${feature}: routing line, base rules, fixed text`, () => {
       expect(text.split('\n')[0]).toBe(`# Feature: ${feature}`);
       expect(text).toContain(BASE_RULES);
-      expect(text).not.toContain('—');
-      expect(text).not.toContain('ß');
+      // Built from code points, so this file itself contains neither character.
+      expect(text).not.toContain(String.fromCharCode(0x2014));
+      expect(text).not.toContain(String.fromCharCode(0xdf));
       // Nothing per request in the cached block: no dates, no model ids.
       expect(text).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\.\d{1,2}\.\d{2,4}\b/);
       expect(text).not.toMatch(/claude-[a-z]+-\d/);

@@ -329,7 +329,7 @@ describe('the key', () => {
       savedBy: null,
       envSet: false,
     });
-    expect((await auditOf('ai.key_delete')).at(-1)?.details).toEqual({ envFallback: false, deleted: true });
+    expect((await auditOf('ai.key_delete')).at(-1)?.details).toEqual({ envFallback: false });
 
     expect(await resolveAiKey(t.db, t.ctx.box, env)).toEqual({ source: 'env', key: ENV_KEY, demo: false });
     withEnv.resetClient();

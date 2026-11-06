@@ -219,3 +219,108 @@ zusammen 4602.
 - `pnpm test` auf der frischen Datenbank `wl_fpart2_2`: shared 587 bestanden (2 übersprungen), web 165, api 1384
   bestanden (1 übersprungen, der Legal-Schalter); diesmal ohne die bekannten Ausfälle in `monitoring.test.ts`.
 - `pnpm --filter @weblion/api build`: erfolgreich; `i18n:stamp --check`: 64 Dateien aktuell.
+
+## Teil 3: KI-Modul der API (F13, F15, KI-Teile von F17 bis F20)
+
+### Gebaut
+
+- **F13** `apps/api/src/lib/redact.ts` mit `SECRET_KEY_PATTERN` (aus `modules/admin/routes.ts` verschoben, dazu
+  `credential|cookie|^session`, ohne `g`-Flag); `admin/routes.ts` importiert es. `modules/ai/redact.ts`:
+  `initAiSecrets(env)` (in `buildApp` aufgerufen; Werte der Env-Variablen nach `SECRET_KEY_PATTERN` oder mit Endung
+  `_KEY`, `_TOKEN`, `_SECRET`, `_PASSWORD`, mindestens 8 Zeichen, bei mehrzeiligen Werten zusätzlich jede Zeile ab
+  16 Zeichen), `setAnthropicKeys(keys)`, `redactText`, `redactForAi(value, { personal })`, `toolJson`. Test
+  `redact.test.ts` (11 Fälle).
+- **F15** `apps/api/src/modules/ai/`:
+  - `errors.ts`: alle Helfer aus Plan 2.4, `AI_ERROR_MESSAGES`, `AI_LIMIT_MESSAGES`, `AiCancelled`,
+    `classifyAiError` (ai 6.8 mit `err.type`-Zweig), `usageOfError`; zusätzlich `attachUsage(err, usage)` (WeakMap)
+    und `retryAfterSeconds(headers)`.
+  - `settings.ts`: Plan 3.2 vollständig; zusätzlich `defaultAiSettings(env)`, `AI_SETTING_RANGES`, `AI_KEY_PATTERN`,
+    `AI_ADMIN_KEY_PREFIX`, `AI_SETTINGS_KEY`, `AI_KEY_SETTINGS_KEY`. Ein gespeicherter Wert ausserhalb des Bereichs
+    fällt beim Lesen auf den Standard zurück.
+  - `client.ts`: `createAnthropic`, `baseParams`, `systemBlocks`, `AI_FEATURE_MAX_TOKENS`,
+    `AI_FEATURE_EXPECTED_OUTPUT`, `AI_MAX_TOKENS_CEILING`, `REFUSAL_FALLBACK_BETA`.
+  - `schema.ts` (`toStrictJsonSchema`) mit `schema.test.ts` (7 Fälle), `prompts.ts` (`BASE_RULES`,
+    `FEATURE_RULES`, `FEATURES_WITH_PROMPT`, `SYSTEM_TEXT`, `thirdParty`, `ThirdPartyKind`) mit `prompts.test.ts`.
+  - `usage.ts`: `reserve` (sieben Prüfungen in der Reihenfolge von ai 7.1 unter `pg_advisory_xact_lock
+    (hashtextextended('ai:reserve', 0))`, eine SQL-Abfrage für alle Zähler, Monat und Tag nach Europe/Zurich aus
+    der Datenbankuhr, Grenze für veraltete Zeilen `AI_TURN_TIMEOUT_SECONDS + 60`), `countRate`,
+    `refreshReservation`, `addCall`, `finish`, `budgetState`, `budgetExceeded`, `checkBudgetWarning` (leer, U3),
+    `approxTokens`, `estimateCallMicros`, `AI_LIMITS`; Hilfen `usageTokens`, `callTotals`, `rowTotals`,
+    `budgetMicros`, `staleAfterSeconds`, `AI_RESERVE_LOCK`.
+  - `service.ts`: `AiService` nach Plan 2.4 mit `structured()`; `assertOrgData` und `liveReadAllowed` werfen
+    "not implemented" (U3). Zusätzlich `attachedApp()` (die mit `attach` gemerkte App für den `ConsoleReader`).
+  - `demo.ts`: `demoFetch` (`GET /v1/models/:id`, `POST /v1/messages` gestreamt oder JSON), `emulateMessages`,
+    `featureOf`, `DEMO_JSON` (minimale gültige Objekte für die JSON-Funktionen, U3 vervollständigt), Übersetzungen
+    als `[FR] <deutscher Text>` (O11), `assistant` mit Markertext ohne Werkzeug.
+  - `routes.ts` vollständig nach ai 5.4; Hüllen `org-routes.ts`, `admin-routes.ts`, `feature-routes.ts`,
+    `chat-routes.ts`, `sse.ts` (`SseWriter` mit den Mitgliedern von ai 9.3, werfen "not implemented"),
+    `maintenance.ts` (`AiMaintenance` leer, `AI_MAINTENANCE_LOCK = 742_005`).
+- **F17 (KI-Teil)** `context.ts` mit `ai: AiService`; `app.ts`: `initAiSecrets(env)`, `ctx.ai = new AiService(ctx)`
+  direkt nach dem Kontext, `ctx.ai.attach(app)` nach dem Auth-Plugin, `aiRoutes`, `aiOrgRoutes`, `aiAdminRoutes`,
+  `aiFeatureRoutes`, `aiChatRoutes` in der `/api/v1`-Liste. `index.ts` startet `AiMaintenance` und stoppt sie in
+  `shutdown`.
+- **F18 (KI-Teil)** `settings/routes.ts`: `ai: await ctx.ai.integrationStatus()`. `mail/types.ts`: Vorlage
+  `ai_budget` nach Plan 2.8; `mail/templates.ts`: Builder im heutigen de/en-Stil mit genau den Texten von Plan 5.3
+  (ohne Anrede, damit U2 sie 1:1 auf die Schlüssel umstellt). `test/mail.test.ts` hat ein Beispiel für die Vorlage.
+- **F19 (zweite Hälfte)** `test/claude-mock.ts` nach Plan 5.2; zusätzlich `fallbackTo` (siehe Abweichungen),
+  `MOCK_API_KEY`, `MOCK_FALLBACK_MODELS`. `test/helpers.ts`: `configureAi(admin, { key?, model?, features?,
+  budgetUsd? })` speichert den Schlüssel und schaltet die Plattform mit der Go-live-Checkliste ein.
+- **F20 (KI-Teil)** `test/ai-settings.test.ts` (33 Fälle) und `test/ai-structured.test.ts` (31 Fälle) mit allen
+  Fällen aus Plan F20 und ai 15.2.
+
+### Abweichungen und Entscheide
+
+1. **SDK 1.3.0 schickt den API-Schlüssel als `Authorization: Bearer`**, nicht als `x-api-key`. Der Mock prüft
+   beides. Plan F19 und ai 15.1 sind angepasst.
+2. **`fallbackTo` im Mock schon in F** (ai 15.1 nannte es als Zusatz von U3), weil `ai-structured.test.ts` die
+   Preise der Fallback-Iterationen prüft. `afterFrames` zählt Textstücke zu 40 Zeichen: der abgelehnte Teil steht in
+   einem eigenen Textblock, dann der `fallback`-Block, dann der Rest. `setScript` zählt die Anfragen des neuen
+   Skripts wieder ab 0. In ai 15.1 ergänzt.
+3. **`classifyAiError`**: ein einfacher `AnthropicError` (kein `APIError`; Stream ohne `message_stop` oder
+   abgebrochene Verbindung beim Lesen) wird `ai_upstream` `network`. Vorher wäre er als Fehler von uns (500)
+   durchgefallen. In ai 6.8 ergänzt. Der Fall "Werkzeugeingabe nicht parsebar" im Chat muss U3 vorher abfangen.
+4. **`openTelemetry: false`** im SDK-Client, damit eine OTel-Einrichtung des Hosts nie Prompts oder Antworten
+   aufzeichnet. In ai 6.1 ergänzt.
+5. **Demo**: Nur der Text des Assistenten streamt in Stücken zu 20 Zeichen alle 30 ms; JSON-Funktionen und
+   Übersetzungen antworten sofort (ein Demo-Auftrag von Mass Translate dauerte sonst Minuten). Demo-Anfragen
+   reservieren 0; die Budgetprüfung läuft trotzdem, ein Budget von 0 sperrt also auch die Demo. In ai 14 ergänzt.
+6. **`AiBudgetDto`**: `percent` ist 100 bei einem Budget von 0; `warned` = `percent >= warnPercent` und
+   `exhausted` = `spent >= budget` werden aus den Zahlen berechnet, nicht aus der Zeile `ai_budget_notice` (U1
+   braucht `exhausted` für B3). In ai 3.1 ergänzt.
+7. **`status().features`** ist leer, solange die KI nicht verfügbar ist (Hauptschalter aus **oder** nicht
+   eingerichtet), nicht nur bei ausgeschaltetem Hauptschalter. Plan 2.3 und ai 3.1 angepasst.
+8. **Audit `ai.settings_update`**: Funktionen als eigene Felder `features.<feature>: { from, to }`; die Details
+   enthalten nur geänderte Felder, beim Einschalten zusätzlich `goLive` mit den vier Haken, bei `noticeChecked:
+   true` zusätzlich `noticeChecked: true`. Jeder PUT wird protokolliert, auch ohne Änderung (Details `{}`).
+9. **Go-live-Fehler**: 400 `bad_request` mit `details: [{ path: 'goLive', message }]`, wenn die Checkliste fehlt,
+   sonst ein Eintrag `goLive.<check>` je fehlendem Haken. Im Demo-Modus ist `goLive` freiwillig; wird es mit allen
+   vier Haken geschickt, wird es gespeichert.
+10. **`POST /admin/ai/test` ohne jeden Schlüssel** (kein Demo-Anbieter) antwortet `ok: false, reason: 'auth'`.
+    Die Anfrage nutzt ein eigenes Zeitlimit von 30 s.
+11. **`ai_usage.error_message`** speichert die Meldung aus dem Fehlerkörper (`error.message`), nicht den
+    SDK-Text `"402 {...}"`; immer durch `redactText` und auf 1000 Zeichen gekürzt. `request_id` kommt bei
+    Fehlern von `err.requestID`. In ai 6.8 ergänzt.
+12. `structured()` ruft `checkBudgetWarning` nach Erfolg und nach einem Fehler mit Kosten auf (ai 7.2: "nach jedem
+    `finish()`, das Kosten hinzufügte").
+13. `usageTokens` (usage.ts) bildet `BetaUsage` des SDK auf `AiUsageTokens` ab, Feld für Feld; so passen auch
+    Iterationen ohne Modell (Kompaktierung) in die Preisfunktion von `@weblion/shared`.
+
+### Was die nächsten Teile wissen müssen
+
+- **Teil 4 (Web)**: `GET /admin/ai/settings` liefert `AiSettingsDto` (Schlüsselstatus ohne Schlüssel,
+  `status`, `budget`, `notice.checkedBy` und `goLive.confirmedBy` als `{ id, name }`). `PUT /admin/ai/key` antwortet
+  `AiKeyStatusDto & { demoOverridesDeleted }`, Admin-Schlüssel 400 `ai_admin_key`, falsches Format 400
+  `bad_request` mit `path: 'key'`. `GET /ai/status` braucht nur eine Anmeldung (auch API-Tokens).
+- **U3** übernimmt `modules/ai/**` ausser `routes.ts`: `checkBudgetWarning`, `assertOrgData`, `liveReadAllowed`,
+  `SseWriter`, `AiMaintenance`, die Routendateien und `DEMO_JSON` passend zu den eigenen Ausgabeschemas (die
+  Demo-Objekte müssen das Schema der Funktion bestehen, `product_texts` ist heute ein Objekt mit allen fünf
+  Sprachen als `null`). Records sind in strikten Schemas verboten (`toStrictJsonSchema` wirft): Sprachen als feste,
+  nullable Felder modellieren. Der Chat nutzt `reserve`, `refreshReservation`, `addCall`, `finish`,
+  `budgetExceeded` direkt; `baseParams` und `systemBlocks` aus `client.ts`.
+- **U1**: `structured()` wirft nach der Reservierung immer mit angehängter Nutzung (`usageOfError`), auch
+  `AiCancelled`. Im Demo-Modus kostet ein Paket 0 und `meta.demo` ist true. `budgetState().remainingMicros` und
+  `.exhausted` für B2/B3; `aiNotConfigured(reason)` aus `errors.ts`; `countRate({ userId })` für B1.
+- Tests: `configureAi(admin)` aus `test/helpers.ts` und ein Mock pro Datei (`startClaudeMock`,
+  `createTestApp({ env: { ANTHROPIC_BASE_URL: mock.url } })`). Für eine andere Umgebung (ohne Demo-Anbieter, mit
+  `ANTHROPIC_API_KEY`) einen zweiten `AiService` mit `{ ...t.ctx, env: { ... } }` bauen; sein Cache gilt 10 s,
+  also nach einer Änderung `resetClient()` aufrufen.
