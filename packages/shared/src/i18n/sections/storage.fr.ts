@@ -17,7 +17,7 @@ export const storageFr: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.limit.accounts':
     "Tous les comptes de votre contingent sont attribués. Pour en créer d'autres, veuillez supprimer un compte ou étendre votre contingent.",
   'storage.limit.storage':
-    "Votre contingent de stockage est entièrement attribué à des comptes. Réduisez un compte ou étendez votre contingent pour en créer d'autres.",
+    "Votre contingent de stockage est entièrement attribué à des comptes. Pour en créer d'autres, veuillez réduire un compte ou étendre votre contingent.",
   'storage.allowance': 'Contingent de stockage',
   'storage.allowanceText':
     "Stockage que vous répartissez entre vos comptes. L'espace utilisé correspond à ce que les comptes occupent réellement.",
@@ -181,7 +181,7 @@ export const storageFr: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.admin.assignText':
     'Le compte se trouve sur {instance}. Le client le gère ensuite dans sa console.',
   'storage.admin.assignQuotaHint':
-    "Le contingent du compte compte ensuite dans le contingent de stockage du client, même s'il le dépasse.",
+    "Le contingent du compte est ensuite imputé sur le contingent de stockage du client, même s'il le dépasse.",
   'storage.admin.unassignText':
     '{org} ne voit ensuite plus le compte. Le compte et ses fichiers sont conservés dans Nextcloud.',
   'storage.unmanaged.title': 'Utilisateurs non gérés',
@@ -198,7 +198,7 @@ export const storageFr: Partial<Record<keyof typeof storageDe, string>> = {
     "La console gère ensuite l'utilisateur. Le nom, le contingent et les fichiers restent inchangés.",
   'storage.unmanaged.noCustomer': "– n'attribuer à aucun client –",
   'storage.unmanaged.unlimitedHint':
-    "L'utilisateur n'a pas de contingent (illimité). Chez le client, il compte avec l'espace utilisé jusqu'à ce qu'un contingent soit défini.",
+    "L'utilisateur n'a pas de contingent (illimité). Chez le client, il est comptabilisé avec l'espace qu'il utilise jusqu'à ce qu'un contingent soit défini.",
   'storage.unmanaged.imported': '{username} repris',
   'storage.reseller.cardText':
     'Stockage issu de votre contingent, que le client répartit entre ses propres comptes Nextcloud.',
@@ -244,5 +244,5 @@ export const storageFr: Partial<Record<keyof typeof storageDe, string>> = {
   'explorer.nextcloudPath':
     "Chemins OCS, p. ex. /ocs/v2.php/cloud/users?search=anna. Les mots de passe dans les réponses sont masqués, les mots de passe d'application ne peuvent pas être gérés ici.",
   'explorer.nextcloudBodyHint':
-    'GET et DELETE envoient les paramètres en tant que query, POST et PUT en tant que formulaire, p. ex. { "key": "quota", "value": "10 GB" }.',
+    'GET et DELETE envoient les paramètres sous forme de chaîne de requête, POST et PUT sous forme de formulaire, p. ex. { "key": "quota", "value": "10 GB" }.',
 };
