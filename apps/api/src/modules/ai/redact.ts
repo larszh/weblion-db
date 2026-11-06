@@ -1,3 +1,4 @@
+import { isIPv6 } from 'node:net';
 import type { Env } from '../../config/env';
 import { SECRET_KEY_PATTERN } from '../../lib/redact';
 
@@ -87,6 +88,30 @@ const PATTERNS: Array<[RegExp, string]> = [
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
+const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
+/** A dotted quad on its own: not inside a longer number or version (v1.2.3.4, 1.2.3.4.5); a port may follow. */
+const IPV4 = new RegExp(`(?<![\\w.])${OCTET}(?:\\.${OCTET}){3}(?!\\.?\\w)`, 'g');
+/**
+ * IPv6 candidates: whole runs of hex digits, colons and dots (for ::ffff:192.0.2.1), each checked by isIPv6.
+ * A single quantifier and nothing after it, so the regex never backtracks and a long hex string costs linear
+ * time. Times (21:24:18), MAC addresses and C++ names (Foo::bar) are no IPv6 address and stay.
+ */
+const IPV6_RUN = /(?<![\w:.])[0-9A-Fa-f:.]+/g;
+
+/** IPv4 and IPv6 addresses in a text become [ip] (log entries only, see RedactOptions.logEntries). */
+export function redactIps(s: string): string {
+  return s
+    .replace(IPV6_RUN, (run, offset: number, text: string) => {
+      // No colon, or part of a longer word (2001:db8::1abcg): not an IPv6 address.
+      if (!run.includes(':') || /\w/.test(text.charAt(offset + run.length))) return run;
+      // A sentence may end right after the address ("from 2001:db8::1." or "2001:db8::1: refused").
+      const trimmed = run.replace(/\.+$/, '');
+      const core = isIPv6(trimmed) ? trimmed : trimmed.replace(/:$/, '');
+      return isIPv6(core) ? `[ip]${run.slice(core.length)}` : run;
+    })
+    .replace(IPV4, '[ip]');
+}
+
 /**
  * Exact secrets, then the patterns, without the length cap: for the person's own chat messages, which have their
  * own limits (ai 9.2), so a key pasted into the chat never leaves the console (ai 5.2).
@@ -112,19 +137,33 @@ function isPersonalKey(key: string): boolean {
   return k === 'ip' || k === 'useragent' || k === 'user_agent' || k.endsWith('email');
 }
 
+export interface RedactOptions {
+  /** Personal mode (plan O28): no ip, userAgent, user_agent or e-mail keys, e-mail addresses in strings as [email]. */
+  personal?: boolean;
+  /**
+   * The value is a log entry or a list of them (audit entries, mail log): IPv4 and IPv6 addresses in strings
+   * become [ip] too, as the data notice says. Not for server data or DNS, where the addresses are what the
+   * analysis is about.
+   */
+  logEntries?: boolean;
+}
+
 /**
  * Walks objects and arrays (depth at most 10): values of keys matching SECRET_KEY_PATTERN become [hidden],
  * every string goes through redactText. With `personal: true` (audit entries, mail logs, mail domains, cloud
  * storage, streaming) it also drops ip, userAgent, user_agent and e-mail keys and replaces e-mail addresses in
- * strings by [email]. DNS data is sent without personal mode: a DMARC rua=mailto: address is what is checked.
+ * strings by [email]; with `logEntries: true` IP addresses in strings become [ip]. DNS data is sent without
+ * personal mode: a DMARC rua=mailto: address is what is checked.
  */
-export function redactForAi(value: unknown, opts: { personal?: boolean } = {}): unknown {
+export function redactForAi(value: unknown, opts: RedactOptions = {}): unknown {
   const personal = opts.personal === true;
+  const logEntries = opts.logEntries === true;
   const walk = (v: unknown, depth: number): unknown => {
     if (v === null || typeof v === 'number' || typeof v === 'boolean') return v;
     if (typeof v === 'string') {
-      const text = redactText(v);
-      return personal ? text.replace(EMAIL, '[email]') : text;
+      let text = redactText(v);
+      if (personal) text = text.replace(EMAIL, '[email]');
+      return logEntries ? redactIps(text) : text;
     }
     if (typeof v === 'bigint') return v.toString();
     if (v instanceof Date) return walk(v.toISOString(), depth);

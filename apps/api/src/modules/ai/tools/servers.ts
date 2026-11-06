@@ -81,6 +81,9 @@ export const getServerActivity = tool({
   input: serverId,
   live: false,
   personal: true,
+  // Its audit entries are log entries; the actions lose IP addresses in texts with them, which their analysis
+  // does not need (the server is named).
+  logEntries: true,
   routes: ['/servers/:id', '/servers/:id/tasks', '/servers/:id/activity'],
   async run(input, { reader, org }) {
     const server = await reader.owned('server', input.server_id);

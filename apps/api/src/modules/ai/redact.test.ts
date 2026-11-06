@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadEnv } from '../../config/env';
 import { SECRET_KEY_PATTERN } from '../../lib/redact';
-import { initAiSecrets, redactForAi, redactText, setAnthropicKeys, toolJson } from './redact';
+import { initAiSecrets, redactForAi, redactIps, redactText, setAnthropicKeys, toolJson } from './redact';
 
 const baseEnv = {
   DATABASE_URL: 'postgres://weblion:db-password-123@localhost:5432/weblion',
@@ -143,6 +143,51 @@ describe('redactForAi', () => {
       action: 'user.login',
       details: { text: 'Invitation for [email] sent' },
     });
+  });
+
+  it('log entries also lose IP addresses in texts; other data keeps them', () => {
+    // The mail log case of the review: the server address in the SMTP error and the login address in a note.
+    const entry = {
+      template: 'invoice',
+      status: 'failed',
+      error: 'connect ECONNREFUSED 203.0.113.5:587 for anna@muster.example',
+      details: {
+        ip: '198.51.100.7',
+        note: 'login from 198.51.100.7.',
+        v6: 'from [2001:db8::5]:443 and fe80::1%eth0',
+      },
+    };
+    expect(redactForAi(entry, { personal: true, logEntries: true })).toEqual({
+      template: 'invoice',
+      status: 'failed',
+      error: 'connect ECONNREFUSED [ip]:587 for [email]',
+      details: { note: 'login from [ip].', v6: 'from [[ip]]:443 and [ip]%eth0' },
+    });
+    // Personal mode alone keeps addresses in texts: server data needs them.
+    expect(redactForAi({ note: 'web-01 at 203.0.113.5' }, { personal: true })).toEqual({
+      note: 'web-01 at 203.0.113.5',
+    });
+  });
+
+  it('redactIps: addresses only, not times, versions, MAC addresses or names', () => {
+    expect(redactIps('a 192.0.2.1, b ::ffff:192.0.2.1, c 2001:db8::1: refused, d ::1')).toBe(
+      'a [ip], b [ip], c [ip]: refused, d [ip]',
+    );
+    const kept = [
+      'at 21:24:18 on 06.11.2026',
+      '2026-11-06T21:24:18.123Z',
+      'Nextcloud v28.0.1.2 and 1.2.3.4.5',
+      'MAC 00:1a:2b:3c:4d:5e',
+      'Foo::bar and std::string',
+      '999.1.1.1 and 1.2.3',
+      'hash deadbeef:cafe',
+    ];
+    for (const text of kept) expect(redactIps(text)).toBe(text);
+    // Linear time on a long run of hex digits and colons.
+    const long = `${'a:'.repeat(20_000)}g`;
+    const started = Date.now();
+    expect(redactIps(long)).toBe(long);
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 
   it('non-personal mode keeps addresses (a DMARC mailto: is DNS data)', () => {

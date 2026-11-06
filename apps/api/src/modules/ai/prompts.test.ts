@@ -26,6 +26,22 @@ describe('prompts', () => {
 });
 
 describe('thirdParty', () => {
+  it('removes IP addresses from the texts of log entries only', () => {
+    const inner = (block: string) =>
+      JSON.parse(block.slice(block.indexOf('\n') + 1, block.lastIndexOf('\n')));
+    const value = { error: 'connect ECONNREFUSED 203.0.113.5:587', note: 'login from 2001:db8::7' };
+    for (const kind of ['audit_entry', 'audit_entries', 'mail_log'] as const) {
+      expect(inner(thirdParty(kind, value, { personal: true }))).toEqual({
+        error: 'connect ECONNREFUSED [ip]:587',
+        note: 'login from [ip]',
+      });
+    }
+    // Server data and errors keep them: the address is what the analysis is about.
+    for (const kind of ['server_data', 'server_action', 'error', 'dns'] as const) {
+      expect(inner(thirdParty(kind, value, { personal: true }))).toEqual(value);
+    }
+  });
+
   it('wraps redacted, escaped JSON in a block that the data cannot close', () => {
     const block = thirdParty(
       'error',
