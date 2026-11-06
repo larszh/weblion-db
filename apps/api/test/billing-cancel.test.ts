@@ -347,6 +347,80 @@ describe('scheduled cancellation', () => {
   });
 });
 
+describe('module at the end', () => {
+  it('keeps the module at the end while another running service of the customer has it', async () => {
+    // A plan change: the old plan ends with "Modul sperren", the new one with the same module starts after it.
+    const orgId = await customer('cancel-upgrade', ['servers', 'dns']);
+    const old = await service(orgId, { name: 'DNS S', module: 'dns', startsAt: today });
+    const endsAt = addDays(today, 20);
+    await cancel(old.id, { endsAt, deactivateModule: true });
+    const next = await service(orgId, { name: 'DNS M', module: 'dns', startsAt: addDays(endsAt, 1) });
+
+    const dayAfter = addDays(endsAt, 1);
+    await job.runDue(dayAfter);
+    expect((await job.endDue(dayAfter)).failed).toBe(0);
+    expect((await load(old.id)).status).toBe('cancelled');
+    expect((await load(next.id)).status).toBe('active');
+    expect(await modulesOf(orgId)).toEqual(['servers', 'dns']);
+    const [end] = await audits(old.id, 'service.end');
+    expect(end!.details).toEqual({ endsAt, moduleDeactivated: null, moduleKept: 'dns' });
+  });
+
+  it('switches the module off with the last of two scheduled ends, not the first', async () => {
+    const orgId = await customer('cancel-two-ends', ['servers', 'dns']);
+    const first = await service(orgId, { module: 'dns', startsAt: today });
+    const second = await service(orgId, { module: 'dns', startsAt: today });
+    await cancel(first.id, { endsAt: addDays(today, 10), deactivateModule: true });
+    await cancel(second.id, { endsAt: addDays(today, 20), deactivateModule: true });
+
+    await job.runDue(addDays(today, 11));
+    await job.endDue(addDays(today, 11));
+    expect((await load(first.id)).status).toBe('cancelled');
+    expect(await modulesOf(orgId)).toEqual(['servers', 'dns']);
+
+    await job.runDue(addDays(today, 21));
+    await job.endDue(addDays(today, 21));
+    expect((await load(second.id)).status).toBe('cancelled');
+    expect(await modulesOf(orgId)).toEqual(['servers']);
+    const [end] = await audits(second.id, 'service.end');
+    expect(end!.details).toEqual({ endsAt: addDays(today, 20), moduleDeactivated: 'dns' });
+  });
+
+  it('does not count a service whose own end date has passed', async () => {
+    // Both end on the same day, only one with "Modul sperren": neither runs afterwards, the module goes.
+    const orgId = await customer('cancel-same-day', ['servers', 'dns']);
+    const endsAt = addDays(today, 7);
+    const withModule = await service(orgId, { module: 'dns', startsAt: today });
+    const without = await service(orgId, { module: 'dns', startsAt: today });
+    await cancel(withModule.id, { endsAt, deactivateModule: true });
+    await cancel(without.id, { endsAt });
+
+    await job.runDue(addDays(endsAt, 1));
+    await job.endDue(addDays(endsAt, 1));
+    expect((await load(withModule.id)).status).toBe('cancelled');
+    expect((await load(without.id)).status).toBe('cancelled');
+    expect(await modulesOf(orgId)).toEqual(['servers']);
+  });
+
+  it('keeps the module on an immediate cancellation while another service runs with it', async () => {
+    const orgId = await customer('cancel-now-kept', ['servers', 'dns']);
+    const one = await service(orgId, { module: 'dns' });
+    const other = await service(orgId, { module: 'dns' });
+    expect(json<ServiceDto>(await cancel(one.id, { deactivateModule: true })).status).toBe('cancelled');
+    expect(await modulesOf(orgId)).toEqual(['servers', 'dns']);
+    const [entry] = await audits(one.id, 'service.cancel');
+    expect(entry!.details).toMatchObject({ scheduled: false, moduleDeactivated: null, moduleKept: 'dns' });
+
+    // A paused service needs the module as well; once it is cancelled too, the module goes.
+    expect((await admin.patch(`/services/${other.id}`, { status: 'suspended' })).statusCode).toBe(200);
+    const third = await service(orgId, { module: 'dns' });
+    await cancel(third.id, { deactivateModule: true });
+    expect(await modulesOf(orgId)).toEqual(['servers', 'dns']);
+    await cancel(other.id, { deactivateModule: true });
+    expect(await modulesOf(orgId)).toEqual(['servers']);
+  });
+});
+
 describe('daily job', () => {
   it('bills first and then ends services, and still ends them with invoicing off', async () => {
     const pool = (t.db as unknown as { $client: import('pg').Pool }).$client;

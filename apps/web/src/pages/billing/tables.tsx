@@ -14,10 +14,10 @@ import {
   ServiceStatusBadge,
   SignedAmount,
   ZohoBadge,
-  scheduledEndOf,
   useBillingLabels,
 } from './bits';
 import { formatDay, formatQuantity } from './money';
+import { scheduledEndOf } from './service-end';
 
 /** Tables shared by the customer view, the seller panel and the admin overview. */
 

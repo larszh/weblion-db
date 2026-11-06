@@ -54,6 +54,13 @@ anderen Währung steht oder der Betrag nicht passt), bleibt er aktiv, bis sie ab
 Beenden läuft auch mit `BILLING_JOB_ENABLED=false`, dann bleibt ein solcher Dienst aktiv, bis "Fällige
 Dienste abrechnen" die Perioden abgerechnet hat.
 
+"Modul sperren" gilt nur, solange der Kunde keinen anderen laufenden Dienst mit demselben Modul hat
+(aktiv oder pausiert, ohne Enddatum oder mit einem Enddatum ab heute). Das prüft die Console beim
+Sperren selbst, bei einer vorgemerkten Kündigung also erst am Ende: Hat der Kunde bis dahin etwa
+einen neuen Dienst mit dem Modul bekommen (Wechsel des Pakets), bleibt das Modul aktiv, und
+`service.end` bzw. `service.cancel` vermerkt `moduleKept` statt `moduleDeactivated`. Von zwei
+Diensten mit demselben Modul kann es also erst der sperren, der zuletzt endet.
+
 Eine vorgemerkte Kündigung lässt sich bis zum Enddatum ändern (nochmals kündigen, mit heute endet der
 Dienst sofort) oder mit "Kündigung zurücknehmen" aufheben (`POST /services/:id/cancel/withdraw`,
 Audit-Eintrag `service.cancel_withdraw`). Die Abrechnung geht dann mit der Periode nach dem alten

@@ -398,6 +398,8 @@ export const billingDe = {
   'billing.service.deactivateModule': 'Modul «{module}» sperren',
   'billing.service.deactivateModuleHint':
     'Nur wenn der Kunde keinen anderen Dienst mit diesem Modul mehr hat.',
+  'billing.service.moduleKept':
+    'Das Modul bleibt aktiv, solange der Kunde noch einen anderen Dienst damit hat: {names}.',
   'billing.service.cancelled': 'Dienst «{name}» gekündigt',
   'billing.service.cancelledLater': 'Dienst «{name}» gekündigt per {date}',
   'billing.service.endsAtLaterHint':
