@@ -85,6 +85,13 @@
       "when": 1793986173869,
       "tag": "0011_i18n",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793997178610,
+      "tag": "0012_scheduled_cancellation",
+      "breakpoints": true
     }
   ]
 }

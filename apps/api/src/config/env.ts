@@ -233,7 +233,7 @@ const EnvSchema = z.object({
   /** Zoho tax id per rate in basis points, e.g. "810:1234567890,0:0987654321". */
   ZOHO_TAX_IDS: optionalString,
 
-  /** Daily job that turns due services into invoices. */
+  /** Daily job that turns due services into invoices. Off, the job only ends services whose cancellation date passed. */
   BILLING_JOB_ENABLED: bool(true),
 
   // Claude (AI features). Optional; a key saved in the admin area (KI page) wins over ANTHROPIC_API_KEY.

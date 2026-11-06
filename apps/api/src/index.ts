@@ -17,8 +17,9 @@ async function main() {
   await syncEnvProviders(db, new SecretBox(env.ENCRYPTION_KEY), env, app.log);
 
   ctx.sync.start(env.SYNC_INTERVAL_SECONDS);
-  const billingJob = new BillingJob(ctx, pool);
-  if (env.BILLING_JOB_ENABLED) billingJob.start();
+  // Always started: without automatic invoicing it still ends services whose cancellation date has passed.
+  const billingJob = new BillingJob(ctx, pool, { invoicing: env.BILLING_JOB_ENABLED });
+  billingJob.start();
   ctx.i18n.start();
   // Secondary processes set I18N_JOB_ENABLED=false; the runner's advisory lock guards the rest.
   if (env.I18N_JOB_ENABLED) ctx.i18nJobs.start();

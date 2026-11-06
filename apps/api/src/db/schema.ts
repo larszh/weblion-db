@@ -838,8 +838,14 @@ export const services = pgTable(
     status: text('status').$type<ServiceStatus>().notNull().default('active'),
     startsAt: date('starts_at').notNull(),
     nextBillingAt: date('next_billing_at'),
+    /**
+     * Last day of the service. With a status other than cancelled it is a cancellation on a later date
+     * (scheduled): the service runs and is billed up to this day, the daily billing job ends it afterwards.
+     */
     endsAt: date('ends_at'),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    /** A scheduled cancellation also switches the module off when the service ends (the seller's choice). */
+    deactivateModuleAtEnd: boolean('deactivate_module_at_end').notNull().default(false),
     notes: text('notes'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     ...timestamps,

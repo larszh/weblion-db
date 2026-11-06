@@ -38,6 +38,7 @@ import { paginationQuery, parse } from '../../lib/validation';
 import { containsPattern } from '../../lib/like';
 import { loadOrg } from '../orgs/routes';
 import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockOrgBilling } from './ledger';
+import { deactivateModule } from './service-end';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
@@ -300,16 +301,6 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     await tx
       .update(organizations)
       .set({ modules: normalizeModules([...org.modules, module]) })
-      .where(eq(organizations.id, orgId));
-    return true;
-  }
-
-  async function deactivateModule(tx: Tx, orgId: string, module: ModuleKey): Promise<boolean> {
-    const [org] = await tx.select().from(organizations).where(eq(organizations.id, orgId)).for('update');
-    if (!org || !org.modules.includes(module)) return false;
-    await tx
-      .update(organizations)
-      .set({ modules: org.modules.filter((m) => m !== module) })
       .where(eq(organizations.id, orgId));
     return true;
   }
@@ -880,6 +871,12 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     return toServiceDto(db, updated, { seller: true });
   });
 
+  /**
+   * Cancels a service. An end date after today schedules the cancellation: the service keeps
+   * running and is billed up to that day, the daily billing job ends it afterwards and only
+   * then switches the module off (if chosen). Today, an earlier date or none ends it at once.
+   * Calling it again on a scheduled cancellation sets the new date and module choice.
+   */
   app.post('/services/:id/cancel', async (req) => {
     const { id } = parse(idParams, req.params);
     const { service } = await loadServiceAsSeller(req, id);
@@ -887,28 +884,76 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       z.object({ endsAt: dateSchema.optional(), deactivateModule: z.boolean().default(false) }),
       req.body ?? {},
     );
-    const { updated, deactivated } = await db.transaction(async (tx) => {
+    const endsAt = body.endsAt ?? todayZurich();
+    const scheduled = endsAt > todayZurich();
+    const { updated, deactivated, previousEndsAt } = await db.transaction(async (tx) => {
+      // Under the billing lock, like a PATCH: the end date limits what a billing run bills.
+      await lockOrgBilling(tx, service.orgId);
+      const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
+      if (!current || current.status === 'cancelled') throw conflict('The service is already cancelled');
       const [row] = await tx
         .update(services)
-        .set({
-          status: 'cancelled',
-          cancelledAt: new Date(),
-          nextBillingAt: null,
-          endsAt: body.endsAt ?? todayZurich(),
-        })
-        .where(and(eq(services.id, service.id), ne(services.status, 'cancelled')))
+        .set(
+          scheduled
+            ? { cancelledAt: new Date(), endsAt, deactivateModuleAtEnd: body.deactivateModule }
+            : {
+                status: 'cancelled',
+                cancelledAt: new Date(),
+                nextBillingAt: null,
+                endsAt,
+                deactivateModuleAtEnd: false,
+              },
+        )
+        .where(eq(services.id, current.id))
         .returning();
-      if (!row) throw conflict('The service is already cancelled');
       const deactivated =
-        body.deactivateModule && row.module ? await deactivateModule(tx, row.orgId, row.module) : false;
-      return { updated: row, deactivated };
+        !scheduled && body.deactivateModule && row!.module
+          ? await deactivateModule(tx, row!.orgId, row!.module)
+          : false;
+      return { updated: row!, deactivated, previousEndsAt: current.endsAt };
     });
     await audit.record(req, {
       action: 'service.cancel',
       orgId: service.orgId,
       resourceType: 'service',
       resourceId: service.id,
-      details: { endsAt: updated.endsAt, moduleDeactivated: deactivated ? updated.module : null },
+      details: {
+        endsAt: updated.endsAt,
+        scheduled,
+        moduleDeactivated: deactivated ? updated.module : null,
+        ...(scheduled && updated.deactivateModuleAtEnd && updated.module
+          ? { moduleDeactivatedAtEnd: updated.module }
+          : {}),
+        ...(previousEndsAt ? { previousEndsAt } : {}),
+      },
+    });
+    return toServiceDto(db, updated, { seller: true });
+  });
+
+  /** Withdraws a scheduled cancellation while the service still runs (end date today or later). */
+  app.post('/services/:id/cancel/withdraw', async (req) => {
+    const { id } = parse(idParams, req.params);
+    const { service } = await loadServiceAsSeller(req, id);
+    const { updated, previousEndsAt } = await db.transaction(async (tx) => {
+      await lockOrgBilling(tx, service.orgId);
+      const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
+      if (!current || current.status === 'cancelled') throw conflict('The service is already cancelled');
+      if (!current.endsAt) throw conflict('The service has no scheduled cancellation');
+      // After the end date the service only waits for the daily job to end it.
+      if (current.endsAt < todayZurich()) throw conflict('The service has already ended');
+      const [row] = await tx
+        .update(services)
+        .set({ cancelledAt: null, endsAt: null, deactivateModuleAtEnd: false })
+        .where(eq(services.id, current.id))
+        .returning();
+      return { updated: row!, previousEndsAt: current.endsAt };
+    });
+    await audit.record(req, {
+      action: 'service.cancel_withdraw',
+      orgId: service.orgId,
+      resourceType: 'service',
+      resourceId: service.id,
+      details: { endsAt: previousEndsAt },
     });
     return toServiceDto(db, updated, { seller: true });
   });

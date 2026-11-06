@@ -90,6 +90,9 @@ beforeAll(async () => {
   await db.execute(
     sql`insert into products (name, unit_price, interval) values ('Webhosting S', 1500, 'monthly')`,
   );
+  await db.execute(sql`
+    insert into services (org_id, name, unit_price, interval, starts_at, next_billing_at)
+    select id, 'Webhosting S', 1500, 'monthly', '2026-10-01', '2026-11-01' from organizations where slug = 'alt-ag'`);
 
   await runMigrations(db);
 });
@@ -173,6 +176,15 @@ describe('migrations 0010_ai and 0011_i18n on existing data', () => {
     await db.execute(sql`update translation_jobs set status = 'completed'`);
     expect(await failure(job)).toBeUndefined();
     expect(await failure(sql`update translation_jobs set status = 'paused'`)).toBe('23514');
+  });
+});
+
+describe('migration 0012_scheduled_cancellation on existing data', () => {
+  it('leaves existing services without a remembered module choice', async () => {
+    const [service] = await rows<Record<string, unknown>>(
+      sql`select status, ends_at, deactivate_module_at_end from services where name = 'Webhosting S'`,
+    );
+    expect(service).toEqual({ status: 'active', ends_at: null, deactivate_module_at_end: false });
   });
 });
 
