@@ -162,7 +162,7 @@
   "uptime.pause.confirm": ["75a303be13179a94", "4a7413bd39bb0c4b"],
   "uptime.resume.action": ["76f6db6d9811aab1", "b0cc9c2660cbffcc"],
   "uptime.delete.title": ["e7038c8e92ebbb2a", "57475caf1c7fd2c5"],
-  "uptime.delete.text": ["609f8f4cdb0a2792", "77727be00aa5f362"],
+  "uptime.delete.text": ["609f8f4cdb0a2792", "20e4f468857963c4"],
   "uptime.delete.textMissing": ["1a197958c6f39100", "2c070e4dd76c9243"],
   "uptime.error.monitor_limit": ["e1108475dca9942c", "9ecba44e2c3af045"],
   "uptime.error.no_allowance": ["f8da897c787ccc06", "571235b6996210ea"],

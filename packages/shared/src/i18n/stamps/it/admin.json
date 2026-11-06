@@ -54,7 +54,7 @@
   "admin.reseller.noOwnerYet": ["867054efc676d481", "a5f303ba029e2677"],
   "admin.reseller.empty": ["cdd28a7c0c7de459", "d9265f31580b9786"],
   "admin.reseller.emptyText": ["37ec3f3070d56f61", "f722a51ea80fbe91"],
-  "admin.reseller.notReseller": ["72b5936fbe8b2246", "6b33f31d2b4fd237"],
+  "admin.reseller.notReseller": ["72b5936fbe8b2246", "0fef813ef260e6b3"],
   "admin.reseller.notResellerText": ["9845095392ed2c32", "d0353b0cfdd889ad"],
   "admin.reseller.noAccess": ["e3a34118ee131906", "8f047e4080a704c1"],
   "admin.reseller.notFound": ["9dc39e2f2530602d", "0876cee159bfccd9"],
@@ -227,7 +227,7 @@
   "admin.dash.recurring": ["e72ea00b307ed007", "9592fab8da1e4705"],
   "admin.dash.seller": ["3e219d6206b4e9fd", "ac937e6c9ad0f2ae"],
   "admin.dash.viaReseller": ["d04e23c1ae063c34", "82cfc95e7869a7ba"],
-  "admin.dash.backToReseller": ["79574520bc758f5a", "01d864fab6ab88fd"],
+  "admin.dash.backToReseller": ["79574520bc758f5a", "0ddceb19e8896a9c"],
   "admin.dash.noModules": ["96c5c768ddf464c2", "96f34321ec5a52c1"],
   "admin.dash.noModulesText": ["f89818639717a690", "941435879ed70569"]
 }
