@@ -30,7 +30,7 @@ export const cloudIt: Partial<Record<keyof typeof cloudDe, string>> = {
   'inventory.createTextPlans': "Crea un server con un tipo di server fisso nell'ubicazione selezionata.",
   'inventory.createHintPlans':
     "Il server è operativo dopo poco tempo e da quel momento viene fatturato dal provider. Appare nell'inventario, il risultato si trova nel registro di audit. In seguito imposti una password di root nelle impostazioni del server.",
-  'inventory.notInLocation': 'non disponibile in questa ubicazione',
+  'inventory.notInLocation': 'non in questa ubicazione',
   'inventory.archImage': "Tipo con {arch}: selezioni un'immagine adatta.",
   'inventory.importHint.hetzner': "L'ID numerico del server dalla Hetzner Console, ad es. 42817193.",
   'providers.hetzner.token': 'Token API',

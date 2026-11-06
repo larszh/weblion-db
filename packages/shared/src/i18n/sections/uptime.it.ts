@@ -62,7 +62,7 @@ export const uptimeIt: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.status.up': 'Raggiungibile',
   'uptime.status.down': 'Non raggiungibile',
   'uptime.status.pending': 'In attesa',
-  'uptime.status.maintenance': 'Manutenzione',
+  'uptime.status.maintenance': 'In manutenzione',
   'uptime.status.paused': 'In pausa',
   'uptime.status.unknown': 'Sconosciuto',
   'uptime.kind.http': 'HTTP(S)',
@@ -105,7 +105,7 @@ export const uptimeIt: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.events.title': 'Cambi di stato',
   'uptime.events.text': 'Gli ultimi cambi con il messaggio di Uptime Kuma.',
   'uptime.events.empty': 'Nessun cambio di stato',
-  'uptime.events.time': 'Momento',
+  'uptime.events.time': 'Data e ora',
   'uptime.events.message': 'Messaggio',
   'uptime.config.title': 'Configurazione',
   'uptime.config.text': 'Così Uptime Kuma controlla questo monitor.',
@@ -161,7 +161,8 @@ export const uptimeIt: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.form.statusCodesInvalid':
     'Codici di stato o intervalli come 200 o 200-299, separati da virgola, al massimo 10.',
   'uptime.form.ignoreTls': 'Ignora errori TLS',
-  'uptime.form.ignoreTlsHint': 'I certificati non validi o scaduti non contano allora come interruzione.',
+  'uptime.form.ignoreTlsHint':
+    'In tal caso i certificati non validi o scaduti non contano come interruzione.',
   'uptime.form.urlHint':
     "Solo indirizzi raggiungibili pubblicamente. I reindirizzamenti non vengono seguiti: indichi l'indirizzo definitivo (ad es. https://www.example.ch invece di http://example.ch).",
   'uptime.form.publicOnly':
@@ -197,13 +198,13 @@ export const uptimeIt: Partial<Record<keyof typeof uptimeDe, string>> = {
     'Monitor della sua organizzazione che controllano questo dominio o un sottodominio.',
   'uptime.related.all': 'Tutti i monitor',
   'uptime.admin.subtitle':
-    'Monitor di tutte le istanze Uptime Kuma: accedere per la gestione e assegnare i monitor ai clienti.',
+    'Monitor di tutte le istanze Uptime Kuma: collegarle per la gestione e assegnare i monitor ai clienti.',
   'uptime.admin.sync': 'Sincronizza ora',
   'uptime.admin.syncWhich': 'Sincronizza istanza',
   'uptime.admin.syncManagementError': 'Gestione non disponibile: {error}',
   'uptime.admin.instances': 'Istanze',
   'uptime.admin.instancesText':
-    "Versione, monitor e l'accesso per la gestione, necessario ai clienti per i propri monitor.",
+    'Versione, monitor e il collegamento per la gestione, necessario ai clienti per i propri monitor.',
   'uptime.admin.noInstances': 'Nessuna istanza Uptime Kuma connessa',
   'uptime.admin.noInstancesText': "Connetta un'istanza in Provider con il suo indirizzo e una chiave API.",
   'uptime.admin.instanceCounts': '{monitors} monitor, di cui {assigned} assegnati',
@@ -213,9 +214,9 @@ export const uptimeIt: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.admin.management.error': 'Gestione con problemi',
   'uptime.admin.envSession':
     "Questa connessione proviene dalle variabili d'ambiente. Imposti lì UPTIMEKUMA_SESSION_TOKEN; il token viene generato da pnpm --filter @weblion/api kuma:token.",
-  'uptime.admin.demoManagement': "Istanza demo: l'accesso per la gestione è sempre attivo.",
-  'uptime.admin.signIn': 'Accedi per la gestione',
-  'uptime.admin.signInAgain': 'Accedi di nuovo',
+  'uptime.admin.demoManagement': 'Istanza demo: il collegamento per la gestione è sempre attivo.',
+  'uptime.admin.signIn': 'Collega per la gestione',
+  'uptime.admin.signInAgain': 'Collega di nuovo',
   'uptime.admin.signOut': 'Disconnetti',
   'uptime.admin.signInTitle': 'Collega {name} per la gestione',
   'uptime.admin.signInText':
