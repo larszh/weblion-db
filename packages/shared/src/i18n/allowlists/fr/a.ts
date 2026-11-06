@@ -9,6 +9,27 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
-  typographyOk: [],
+  glossaryOk: [
+    // "Tokens" in these German texts means API tokens, which are "jetons API" in French; the glossary term
+    // "Tokens" (fr "tokens") is about the input and output tokens of an AI model only.
+    'nav.tokens',
+    'perm.apitoken:read',
+    'perm.apitoken:write',
+    'tokens.subtitle',
+    'tokens.empty',
+    'tokens.emptyText',
+    // "Abmelden" here signs out another session or device: the transitive "Déconnecter" is right, the
+    // reflexive glossary form "se déconnecter" (signing oneself out) would be wrong on that button.
+    'account.sessions.revoke',
+    // "beim Abmelden" is the noun here; French uses the noun "déconnexion", not the button verb "se déconnecter".
+    'ai.assistant.sessionHint',
+    // A file name: "projet de facture" is joined with hyphens like the German and English file names, so the
+    // glossary term with spaces cannot appear literally.
+    'pdf.invoice.draftFilename',
+  ],
+  typographyOk: [
+    // The hint names the marks "?", "!" and ";" themselves, separated by spaces like the German, so the rule
+    // "no space before ? ! ;" does not apply to this text.
+    'admin.i18n.check.typography',
+  ],
 };
