@@ -7,17 +7,23 @@ import {
   Package,
   Pencil,
   Plus,
+  Sparkles,
   Tags,
   Trash2,
 } from 'lucide-react';
 import {
   BILLING_INTERVALS,
   CURRENCIES,
+  LOCALE_META,
   MODULES,
+  TARGET_LOCALES,
+  productText,
   type BillingInterval,
   type Currency,
   type ModuleKey,
   type ProductDto,
+  type ProductTranslations,
+  type TargetLocale,
 } from '@weblion/shared';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -45,11 +51,16 @@ import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { NoBillingAccess, PriceText, Tabs, useBillingLabels, useSellerWrite, useTabParam } from './bits';
 import { formatRate, moneyInput, parseMoney, parsePercent, percentInput } from './money';
 import { ResellerIssuerForm } from './settings-form';
+import { Flag } from '@/components/server-bits';
+import { useAiAllowed } from '@/components/ai/bits';
+import { ProductTextsDialog, type ProductTexts } from '@/components/ai/feature-dialogs';
 
 /**
  * Price list ("Produkte & Preise") of the platform or of a reseller. Services are created
  * from these products; changing a price only affects services created afterwards.
  */
+
+type TranslationDraft = Record<TargetLocale, { name: string; description: string }>;
 
 interface ProductDraft {
   name: string;
@@ -60,7 +71,35 @@ interface ProductDraft {
   interval: BillingInterval;
   taxRate: string;
   active: boolean;
+  /** Name and description in the four other languages (plan O14); empty = the German text applies. */
+  translations: TranslationDraft;
 }
+
+const emptyTranslations = (): TranslationDraft =>
+  Object.fromEntries(TARGET_LOCALES.map((l) => [l, { name: '', description: '' }])) as TranslationDraft;
+
+function translationDraft(stored: ProductTranslations | undefined): TranslationDraft {
+  const draft = emptyTranslations();
+  for (const l of TARGET_LOCALES) {
+    const entry = stored?.[l];
+    if (entry) draft[l] = { name: entry.name, description: entry.description ?? '' };
+  }
+  return draft;
+}
+
+/** The languages with a name; a language with an empty name keeps the German text. */
+export function translationsBody(draft: TranslationDraft): ProductTranslations {
+  const out: ProductTranslations = {};
+  for (const l of TARGET_LOCALES) {
+    const name = draft[l].name.trim();
+    if (name) out[l] = { name, description: draft[l].description.trim() || null };
+  }
+  return out;
+}
+
+/** A description without a name cannot be saved (the API needs a name per language). */
+export const translationIssue = (entry: { name: string; description: string }) =>
+  !entry.name.trim() && !!entry.description.trim();
 
 function ProductDialog({
   open,
@@ -79,6 +118,9 @@ function ProductDialog({
 }) {
   const { t, locale } = useI18n();
   const labels = useBillingLabels();
+  // "Texte mit KI" (ai 10.6): the platform's catalogue in the admin area, a reseller's in its organization.
+  const aiTexts = useAiAllowed('product_texts', ownerOrgId ? 'org' : 'admin');
+  const [writing, setWriting] = useState(false);
   const [draft, setDraft] = useState<ProductDraft>({
     name: '',
     description: '',
@@ -88,6 +130,7 @@ function ProductDialog({
     interval: 'monthly',
     taxRate: '',
     active: true,
+    translations: emptyTranslations(),
   });
   const set = (patch: Partial<ProductDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -104,6 +147,7 @@ function ProductDialog({
             interval: product.interval,
             taxRate: percentInput(product.taxRateBp),
             active: product.active,
+            translations: translationDraft(product.translations),
           }
         : {
             name: '',
@@ -114,6 +158,7 @@ function ProductDialog({
             interval: 'monthly',
             taxRate: '',
             active: true,
+            translations: emptyTranslations(),
           },
     );
   }, [open, product, defaultCurrency]);
@@ -122,7 +167,25 @@ function ProductDialog({
   const priceOk = price !== null && price >= 0;
   const taxBp = draft.taxRate.trim() === '' ? null : parsePercent(draft.taxRate);
   const taxOk = draft.taxRate.trim() === '' || taxBp !== null;
-  const valid = !!draft.name.trim() && priceOk && taxOk;
+  const translationsOk = TARGET_LOCALES.every((l) => !translationIssue(draft.translations[l]));
+  const valid = !!draft.name.trim() && priceOk && taxOk && translationsOk;
+  const setTranslation = (l: TargetLocale, patch: Partial<{ name: string; description: string }>) =>
+    setDraft((d) => ({ ...d, translations: { ...d.translations, [l]: { ...d.translations[l], ...patch } } }));
+  /** The AI result only fills the fields; saving stays the normal product save (ai 10.6). */
+  const applyTexts = (texts: ProductTexts) =>
+    setDraft((d) => {
+      const next = { ...d, translations: { ...d.translations } };
+      const de = texts.de;
+      if (de) {
+        next.name = de.name;
+        next.description = de.description ?? '';
+      }
+      for (const l of TARGET_LOCALES) {
+        const entry = texts[l];
+        if (entry) next.translations[l] = { name: entry.name, description: entry.description ?? '' };
+      }
+      return next;
+    });
 
   const save = useApiMutation(
     () => {
@@ -135,6 +198,7 @@ function ProductDialog({
         interval: draft.interval,
         taxRateBp: taxBp,
         active: draft.active,
+        translations: translationsBody(draft.translations),
       };
       return product
         ? api.patch<ProductDto>(`/billing/products/${product.id}`, body)
@@ -153,6 +217,7 @@ function ProductDialog({
       onOpenChange={onOpenChange}
       title={product ? t('billing.product.editTitle') : t('billing.product.createTitle')}
       description={product ? t('billing.product.editText') : undefined}
+      size="lg"
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -279,8 +344,96 @@ function ProductDialog({
             label={t('billing.product.active')}
           />
         </label>
+        <section className="space-y-3 sm:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-text">{t('billing.product.translations.title')}</h4>
+              <p className="text-xs text-muted">{t('billing.product.translations.hint')}</p>
+            </div>
+            {aiTexts && (
+              <Button
+                size="sm"
+                icon={<Sparkles className="size-3.5" aria-hidden />}
+                onClick={() => setWriting(true)}
+              >
+                {t('ai.product.button')}
+              </Button>
+            )}
+          </div>
+          {TARGET_LOCALES.map((l) => {
+            const language = LOCALE_META[l].native;
+            const entry = draft.translations[l];
+            return (
+              <div key={l} className="grid gap-3 rounded-lg border border-border px-3 py-3 sm:grid-cols-2">
+                <Field
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      <Flag country={LOCALE_META[l].flag} decorative />
+                      {t('billing.product.translations.name', { language })}
+                    </span>
+                  }
+                  htmlFor={`pr-name-${l}`}
+                  // i18n: shares the generic "enter a name" text until billing has its own (report U4).
+                  error={translationIssue(entry) ? t('uptime.form.nameRequired') : undefined}
+                >
+                  <Input
+                    id={`pr-name-${l}`}
+                    lang={l}
+                    value={entry.name}
+                    maxLength={200}
+                    onChange={(e) => setTranslation(l, { name: e.target.value })}
+                  />
+                </Field>
+                <Field
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      <Flag country={LOCALE_META[l].flag} decorative />
+                      {t('billing.product.translations.description', { language })}
+                    </span>
+                  }
+                  htmlFor={`pr-desc-${l}`}
+                >
+                  <Textarea
+                    id={`pr-desc-${l}`}
+                    lang={l}
+                    rows={2}
+                    maxLength={1000}
+                    value={entry.description}
+                    onChange={(e) => setTranslation(l, { description: e.target.value })}
+                  />
+                </Field>
+              </div>
+            );
+          })}
+        </section>
       </div>
+      {aiTexts && (
+        <ProductTextsDialog
+          scope={ownerOrgId ? { orgId: ownerOrgId } : 'admin'}
+          open={writing}
+          onOpenChange={setWriting}
+          input={{
+            name: draft.name,
+            description: draft.description || null,
+            module: draft.module || null,
+            interval: draft.interval,
+          }}
+          onApply={applyTexts}
+        />
+      )}
     </Dialog>
+  );
+}
+
+/** Name and description in the viewer's language (plan O14), the German text where none is kept. */
+function ProductName({ product }: { product: ProductDto }) {
+  const { locale } = useI18n();
+  const text = productText(product, locale);
+  return (
+    <>
+      <div className="font-medium text-text">{text.name}</div>
+      {text.description && <div className="max-w-md text-xs text-muted">{text.description}</div>}
+    </>
   );
 }
 
@@ -390,8 +543,7 @@ export function ProductCatalog({ ownerOrgId }: { ownerOrgId: string | null }) {
             {rows.map((p) => (
               <tr key={p.id} className={cn(!p.active && 'opacity-70')}>
                 <TD className="min-w-[180px]">
-                  <div className="font-medium text-text">{p.name}</div>
-                  {p.description && <div className="max-w-md text-xs text-muted">{p.description}</div>}
+                  <ProductName product={p} />
                 </TD>
                 <TD className="hidden text-muted md:table-cell">
                   {p.module ? labels.module(p.module) : '–'}
