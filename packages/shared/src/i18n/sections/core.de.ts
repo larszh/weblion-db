@@ -83,7 +83,7 @@ export const coreDe = {
   'login.submit': 'Anmelden',
   'login.hero.title': 'Ihre Server. Ein Panel.',
   'login.hero.text':
-    'Verwalte Cloud-Server im Rechenzentrum in Deutschland und auf eigener Infrastruktur in der Schweiz. Mit Monitoring, Backups, Snapshots und fein abgestuften Zugriffsrechten.',
+    'Verwalten Sie Cloud-Server im Rechenzentrum in Deutschland und auf eigener Infrastruktur in der Schweiz. Mit Monitoring, Backups, Snapshots und fein abgestuften Zugriffsrechten.',
   'login.hero.de': 'Rechenzentrum Deutschland',
   'login.hero.ch': 'Self-Hosted Schweiz',
   'login.mfa.title': 'Zwei-Faktor-Code',
@@ -102,7 +102,8 @@ export const coreDe = {
     'Für diese E-Mail gibt es schon ein Konto. Melden Sie sich an, um die Einladung anzunehmen.',
   'invite.toLogin': 'Zur Anmeldung',
   'invite.invalid.title': 'Einladung ungültig',
-  'invite.invalid.text': 'Der Link ist abgelaufen oder wurde schon verwendet. Bitte um eine neue Einladung.',
+  'invite.invalid.text':
+    'Der Link ist abgelaufen oder wurde schon verwendet. Bitten Sie um eine neue Einladung.',
 
   // Roles
   'role.owner': 'Owner',
@@ -173,7 +174,7 @@ export const coreDe = {
   'projects.delete.title': 'Projekt löschen?',
   'projects.delete.text': 'Das Projekt wird endgültig entfernt.',
   'projects.delete.notEmpty':
-    'Das Projekt enthält noch Server. Verschiebe sie zuerst in ein anderes Projekt.',
+    'Das Projekt enthält noch Server. Verschieben Sie sie zuerst in ein anderes Projekt.',
 
   // Server list
   'servers.subtitle': 'Alle Server Ihrer Organisation, egal ob in Deutschland oder der Schweiz.',
@@ -483,7 +484,7 @@ export const coreDe = {
   'members.inviteText': 'Die eingeladene Person erhält einen Link, über den sie beitritt.',
   'members.sendInvite': 'Einladung erstellen',
   'members.inviteCreated': 'Einladung erstellt',
-  'members.inviteLinkText': 'Schicke diesen Link an {email}. Er ist 7 Tage gültig.',
+  'members.inviteLinkText': 'Schicken Sie diesen Link an {email}. Er ist 7 Tage gültig.',
   'members.inviteRevoked': 'Einladung zurückgezogen',
   'members.name': 'Name',
   'members.role': 'Rolle',
