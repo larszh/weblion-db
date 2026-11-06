@@ -77,7 +77,7 @@ Used the same way in all six sections; the review unit R-it may want to align gr
 | Vermerk (bank transfer) | causale | PDF |
 | Gutschrift oder Korrektur | nota di credito o rettifica | e-mail |
 | Guthabenbuchung | registrazione di credito | |
-| Interruttore (Schalter) | interruttore | |
+| Schalter (on/off switch) | interruttore | |
 
 Buttons use the usual Italian short form ("Salva", "Crea", "Aggiungi", "Rifiuta"); `perm.*` labels are infinitives
 ("Visualizzare ...", "Gestire ..."), `module.*` labels are noun phrases; running text addresses the reader with
