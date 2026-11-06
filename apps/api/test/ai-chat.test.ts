@@ -135,6 +135,26 @@ describe('stream', () => {
     expect(body.messages.at(-1).role).toBe('user');
   });
 
+  it('Haiku gets neither the fallback beta nor fallbacks; Sonnet gets both', async () => {
+    await configureAi(admin, { model: 'claude-haiku-5-5' });
+    try {
+      await chat();
+      const haiku = mock.requests.at(-1)!;
+      expect(haiku.body.model).toBe('claude-haiku-5-5');
+      expect(haiku.body).not.toHaveProperty('fallbacks');
+      expect(haiku.headers['anthropic-beta'] ?? '').not.toContain('server-side-fallback');
+      expect(haiku.body.thinking).toEqual({ type: 'adaptive' });
+      await configureAi(admin, { model: 'claude-sonnet-5-5' });
+      await chat();
+      const sonnet = mock.requests.at(-1)!;
+      expect(sonnet.body.fallbacks).toBe('default');
+      expect(sonnet.headers['anthropic-beta']).toContain('server-side-fallback-2026-07-01');
+      expect(sonnet.body.output_config).toEqual({ effort: 'medium' });
+    } finally {
+      await configureAi(admin);
+    }
+  });
+
   it('the <context> block carries the role and the page, never the name or the e-mail address', async () => {
     await chat({
       messages: [

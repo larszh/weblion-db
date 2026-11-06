@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import type { AiDnsProposalDto, AiPageRef, AiToolName, MetricsResult } from '@weblion/shared';
 import type { AppContext } from '../../../context';
 import type { Organization } from '../../../db/schema';
-import type { ConsoleReader, ReadError, ReadResult } from '../reader';
+import type { ConsoleReader, ReadError } from '../reader';
 
 /**
  * The shape of the assistant's read-only tools (ai 8.2 to 8.4) and the helpers they share: projection to the
@@ -93,11 +93,6 @@ export function consolePath(org: Pick<Organization, 'slug'>, ...parts: string[])
 export function titleOf(body: unknown): string | null {
   const name = (body as { name?: unknown } | null)?.name;
   return typeof name === 'string' ? name : null;
-}
-
-/** Unwraps a successful read, or returns the failure for the model. */
-export function okOr<T>(result: ReadResult<T>): result is { ok: true; body: T; path: string } {
-  return result.ok;
 }
 
 /** Min, average, max, last value and 24 evenly spaced points per metric series (ai 10.4). */

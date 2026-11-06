@@ -98,6 +98,8 @@ export async function blockedOrgIds(db: DbOrTx): Promise<Set<string>> {
   return new Set(rows.map((r) => r.id));
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Detail keys through which audit entries name another organization (reseller and billing entries). */
 const ORG_DETAIL_KEYS = ['customerOrgId', 'customerId', 'orgId'] as const;
 
@@ -119,7 +121,8 @@ export function orgsNamedByAuditEntry(entry: {
       if (typeof value === 'string') out.push(value);
     }
   }
-  return out;
+  // Only organization ids: free text in details is no reference.
+  return out.filter((id) => UUID.test(id));
 }
 
 /** True when the entry concerns one of the blocked organizations (other than through its own org_id). */
