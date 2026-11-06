@@ -17,6 +17,11 @@ export const allowlist: Allowlist = {
     // The menu path names labels of the Hetzner Console, which has no French interface; they stay in English
     // ("Generate API token") so the reader finds them, so "jeton API" cannot appear in the path.
     'providers.hetzner.tokenHint',
+    // "das Abmelden" (of devices) is a noun here, and the console signs devices out: French uses the noun
+    // "déconnexion", not the reflexive verb "se déconnecter" (signing yourself out).
+    'media.devices.failed',
+    // Same noun "dem Abmelden aller Geräte": "la déconnexion de tous les appareils".
+    'media.requests.sessionHint',
   ],
   typographyOk: [],
 };
