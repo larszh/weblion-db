@@ -58,8 +58,20 @@ describe('dictionary imports in the web', () => {
     expect(SECTION_IMPORT.test(`from '@weblion/shared/i18n/sections/index'`)).toBe(false);
     expect(SECTION_IMPORT.test(`from '@weblion/shared/i18n/sections/core.de'`)).toBe(true);
     expect(SECTION_IMPORT.test(`from '@weblion/shared/i18n/sections/index.de'`)).toBe(true);
-    // Texts would reach a chunk only through an import; the module has none.
-    expect(SECTIONS_INDEX).not.toMatch(/^\s*(import|export \* from|export \{[^}]*\} from)\b/m);
+    // Texts would reach a chunk only through an import; the module has none: no `from` clause of any form
+    // (import, export * [as x], export [type] {...}), no side-effect import, no import() and no require().
+    const anyImport = /\bfrom\s*['"]|^\s*import\s*['"]|\bimport\s*\(|\brequire\s*\(/m;
+    for (const line of [
+      `export * as core from './core.de';`,
+      `export * from './core.de';`,
+      `export type { Section } from './core.de';`,
+      `import './core.de';`,
+      `export const load = () => import('./core.de');`,
+      `const core = require('./core.de');`,
+    ]) {
+      expect(anyImport.test(line), line).toBe(true);
+    }
+    expect(SECTIONS_INDEX).not.toMatch(anyImport);
     expect(SECTIONS_INDEX).toContain('export const SECTIONS = [');
   });
 

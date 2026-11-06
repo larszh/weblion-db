@@ -44,8 +44,10 @@ jobs:
         env:
           # The AI data notice (legal keys) must stay complete and current in all five languages.
           I18N_REQUIRE_LEGAL: '1'
-      # Prints the missing and stale translations per locale, so later gaps show in every run; never fails.
+      # Prints the missing and stale translations per locale, so later gaps show in every run, also after a
+      # failed step; never fails.
       - name: Translation report
+        if: ${{ !cancelled() }}
         run: pnpm --filter @weblion/api i18n:report || true
       - name: Build
         run: pnpm build
