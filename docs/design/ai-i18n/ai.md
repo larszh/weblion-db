@@ -2400,3 +2400,342 @@ U4).
 
 ---
 
+## 13. Texts
+
+Section `ai` (`packages/shared/src/i18n/sections/ai.{de,en}.ts`, plan O2) holds every key below except 13.1 (section
+`core`). Keys starting `admin.ai.` live in section `ai` too and appear under the "admin" prefix filter of the
+translation admin (plan O24). Rows that list several keys (`a / .b / .c`) give the values in the same order; F
+expands them into one key each (plan 5.3). Placeholders are `{name}`. The mail texts `email.aiBudget.*` and the
+product translation labels `billing.product.translations.*` are in plan 5.3. Terms: plan 7.2 and 7.3 (KI, KI-Assistent,
+Anthropic, Claude and the model names unchanged).
+
+### 13.1 Section `core`
+
+| Key | de | en |
+|---|---|---|
+| `nav.admin.ai` | KI | AI |
+| `perm.group.ai` | KI | AI |
+| `perm.ai:use` | KI-Funktionen verwenden | Use AI features |
+| `perm.ai:settings` | KI-Funktionen für die Organisation ablehnen oder erlauben | Decline or allow AI features for the organization |
+| `perm.platform:ai:use` | KI-Funktionen in der Verwaltung verwenden | Use AI features in the admin area |
+
+### 13.2 Assistant
+
+| Key | de | en |
+|---|---|---|
+| `ai.assistant.title` | KI-Assistent | AI assistant |
+| `ai.assistant.open` | KI-Assistent öffnen | Open AI assistant |
+| `ai.assistant.close` | KI-Assistent schliessen | Close AI assistant |
+| `ai.assistant.ask` | KI-Assistent fragen | Ask the AI assistant |
+| `ai.assistant.newChat` | Neues Gespräch | New conversation |
+| `ai.assistant.placeholder` | Ihre Frage zu dieser Organisation | Your question about this organization |
+| `ai.assistant.send` | Senden | Send |
+| `ai.assistant.stop` | Anhalten | Stop |
+| `ai.assistant.thinking` | Die KI arbeitet | The AI is working |
+| `ai.assistant.empty` | Fragen Sie zum Beispiel, warum eine Website nicht erreichbar ist, ob die DNS-Einträge für E-Mail stimmen oder wie stark ein Server ausgelastet ist. | Ask, for example, why a website cannot be reached, whether the DNS records for e-mail are correct or how busy a server is. |
+| `ai.assistant.suggestion.servers / .mail / .audit` | Wie geht es meinen Servern? / Stimmen meine DNS-Einträge für E-Mail? / Was hat sich diese Woche geändert? | How are my servers doing? / Are my DNS records for e-mail correct? / What changed this week? |
+| `ai.assistant.sources` | Quellen | Sources |
+| `ai.assistant.toolRunning` | Liest: {tool} | Reading: {tool} |
+| `ai.assistant.toolError` | Konnte nicht gelesen werden: {tool} | Could not be read: {tool} |
+| `ai.assistant.toolLimit` | Die Antwort ist gekürzt, weil das Limit an Abfragen für eine Antwort erreicht ist. Stellen Sie bei Bedarf eine genauere Frage. | The answer is shortened because the limit of lookups for one answer was reached. Ask a more specific question if needed. |
+| `ai.assistant.budgetStop` | Die Antwort wurde angehalten, weil das KI-Budget dieses Monats aufgebraucht ist. | The answer was stopped because this month's AI budget is used up. |
+| `ai.assistant.incomplete` | Die Antwort ist unvollständig, weil sie zu lang wurde. | The answer is incomplete because it became too long. |
+| `ai.assistant.fallbackNote` | Ein Teil dieser Antwort stammt von einem Ersatzmodell von Anthropic. | Part of this answer comes from a substitute model of Anthropic. |
+| `ai.assistant.cancelled` | Angehalten. | Stopped. |
+| `ai.assistant.retry` | Erneut versuchen | Try again |
+| `ai.assistant.copy` | Antwort kopieren | Copy answer |
+| `ai.assistant.model` | Modell: {model} | Model: {model} |
+| `ai.assistant.sessionHint` | Das Gespräch bleibt nur in diesem Browser-Tab und wird beim Abmelden gelöscht. | The conversation stays in this browser tab only and is deleted when you sign out. |
+
+### 13.3 Tool chips (`ai.tool.<name>`)
+
+| Key | de | en |
+|---|---|---|
+| `ai.tool.get_org_overview / .list_servers / .get_server / .get_server_metrics / .get_server_activity` | Übersicht der Organisation / Serverliste / Server / Messwerte des Servers / Aktivität des Servers | Organization overview / Server list / Server / Server metrics / Server activity |
+| `ai.tool.list_domains / .get_domain / .get_dns_records` | Domains / Domain / DNS-Einträge | Domains / Domain / DNS records |
+| `ai.tool.list_websites / .get_website / .check_website_dns` | Websites / Website / DNS-Prüfung der Website | Websites / Website / Website DNS check |
+| `ai.tool.list_mail_domains / .get_mail_domain / .get_mail_dns_setup` | E-Mail-Domains / E-Mail-Domain / DNS-Einträge für E-Mail | E-mail domains / E-mail domain / DNS records for e-mail |
+| `ai.tool.get_monitoring / .get_monitor` | Monitoring / Monitor | Monitoring / Monitor |
+| `ai.tool.get_cloud_storage / .get_phone_systems / .get_streaming` | Cloud-Speicher / Telefonanlagen / Streaming | Cloud storage / Phone systems / Streaming |
+| `ai.tool.get_billing_summary / .get_audit_log / .propose_dns_record` | Abrechnung / Audit-Log / DNS-Vorschlag | Billing / Audit log / DNS proposal |
+
+### 13.4 Features (KI page switches)
+
+| Key | de | en |
+|---|---|---|
+| `ai.feature.assistant.label` | KI-Assistent | AI assistant |
+| `ai.feature.assistant.description` | Chat im Kundenbereich, der die Daten der Organisation liest und Fragen beantwortet. | Chat in the customer console that reads the organization's data and answers questions. |
+| `ai.feature.explain.label` | Fehler erklären | Explain errors |
+| `ai.feature.explain.description` | Erklärt Fehlermeldungen, fehlgeschlagene Aktionen und Protokolleinträge in einfachen Worten. | Explains error messages, failed actions and log entries in plain words. |
+| `ai.feature.dns_check.label` | DNS- und E-Mail-Prüfung | DNS and e-mail check |
+| `ai.feature.dns_check.description` | Prüft die DNS-Einträge einer Domain für E-Mail und Websites und schlägt Korrekturen vor. | Checks a domain's DNS records for e-mail and websites and proposes corrections. |
+| `ai.feature.audit_summary.label` | Audit-Zusammenfassung | Audit summary |
+| `ai.feature.audit_summary.description` | Fasst das Audit-Log eines Zeitraums zusammen und hebt Auffälliges hervor. | Summarizes the audit log of a period and points out anything unusual. |
+| `ai.feature.server_health.label` | Server-Auswertung | Server analysis |
+| `ai.feature.server_health.description` | Beurteilt Messwerte, Monitoring und Aktivität eines Servers. | Assesses a server's metrics, monitoring and activity. |
+| `ai.feature.product_texts.label` | Produkttexte | Product texts |
+| `ai.feature.product_texts.description` | Schreibt und übersetzt Produktnamen und Beschreibungen in fünf Sprachen. | Writes and translates product names and descriptions in five languages. |
+| `ai.feature.translations.label` | Übersetzungen | Translations |
+| `ai.feature.translations.description` | Mass Translate und Vorschläge unter Verwaltung > Übersetzungen. | Mass Translate and suggestions under Administration > Translations. |
+
+### 13.5 Feature results
+
+| Key | de | en |
+|---|---|---|
+| `ai.explain.button` | Mit KI erklären | Explain with AI |
+| `ai.explain.short` | Erklären | Explain |
+| `ai.explain.title` | Erklärung | Explanation |
+| `ai.explain.loading` | Die KI liest die Angaben | The AI is reading the details |
+| `ai.explain.cause / .steps / .links` | Mögliche Ursache / Nächste Schritte / Weiter in der Console | Possible cause / Next steps / Continue in the console |
+| `ai.explain.severity.info / .warning / .error` | Hinweis / Warnung / Fehler | Note / Warning / Error |
+| `ai.dns.button` | Mit KI prüfen | Check with AI |
+| `ai.dns.title` | DNS-Prüfung mit KI | DNS check with AI |
+| `ai.dns.zone` | Zone {zone} | Zone {zone} |
+| `ai.dns.status.ok / .warning / .problem` | In Ordnung / Prüfen / Problem | OK / Check / Problem |
+| `ai.dns.topic.mx / .spf / .dkim / .dmarc / .autoconfig / .website / .caa / .other` | Mailserver (MX) / Absender (SPF) / Signatur (DKIM) / Richtlinie (DMARC) / Automatische Einrichtung / Website (A und AAAA) / Zertifikate (CAA) / Weitere Einträge | Mail servers (MX) / Senders (SPF) / Signature (DKIM) / Policy (DMARC) / Automatic setup / Website (A and AAAA) / Certificates (CAA) / Other records |
+| `ai.dns.noProposals` | Keine Änderungen vorgeschlagen. | No changes proposed. |
+| `ai.dns.dropped` | {count} Vorschläge der KI waren ungültig und werden nicht angezeigt. | {count} proposals of the AI were invalid and are not shown. |
+| `ai.audit.button` | Mit KI zusammenfassen | Summarize with AI |
+| `ai.audit.title` | Zusammenfassung des Audit-Logs | Audit log summary |
+| `ai.audit.period` | Zeitraum | Period |
+| `ai.audit.period.day / .week / .month` | Letzte 24 Stunden / Letzte 7 Tage / Letzte 30 Tage | Last 24 hours / Last 7 days / Last 30 days |
+| `ai.audit.highlights / .unusual` | Wichtigste Änderungen / Auffälligkeiten | Main changes / Unusual activity |
+| `ai.audit.none` | Im Zeitraum gibt es keine Einträge. | There are no entries in this period. |
+| `ai.audit.entries` | {count} Einträge ausgewertet | {count} entries analysed |
+| `ai.audit.cut` | Die Zusammenfassung berücksichtigt nur die neuesten {count} Einträge. | The summary covers only the newest {count} entries. |
+| `ai.audit.hidden` | {count} Einträge zu Kunden, für die KI ausgeschaltet ist, wurden ausgelassen. | {count} entries about customers with AI switched off were left out. |
+| `ai.audit.showEntry` | Eintrag anzeigen | Show entry |
+| `ai.health.button` | Mit KI auswerten | Analyse with AI |
+| `ai.health.title` | Server-Auswertung | Server analysis |
+| `ai.health.range.day / .week` | Letzte 24 Stunden / Letzte 7 Tage | Last 24 hours / Last 7 days |
+| `ai.health.status.ok / .watch / .problem` | In Ordnung / Beobachten / Problem | OK / Watch / Problem |
+| `ai.health.metric.cpu / .memory / .disk / .network / .traffic / .backups / .uptime` | CPU / Arbeitsspeicher / Festplatte / Netzwerk / Datenverkehr / Backups / Erreichbarkeit | CPU / Memory / Disk / Network / Traffic / Backups / Availability |
+| `ai.health.recommendations` | Empfehlungen | Recommendations |
+| `ai.product.button` | Texte mit KI | Texts with AI |
+| `ai.product.title` | Produkttexte mit KI | Product texts with AI |
+| `ai.product.mode.write / .translate` | Texte schreiben / Deutschen Text übersetzen | Write texts / Translate the German text |
+| `ai.product.languages` | Sprachen | Languages |
+| `ai.product.notes` | Hinweise für die KI (optional) | Notes for the AI (optional) |
+| `ai.product.notesHint` | Zum Beispiel Leistungsumfang, Zielgruppe oder Begriffe, die vorkommen sollen. | For example the scope, the target group or terms to include. |
+| `ai.product.generate` | Texte erstellen | Create texts |
+| `ai.product.apply` | In das Formular übernehmen | Fill in the form |
+| `ai.product.applyHint` | Gespeichert wird erst mit "Speichern" im Produktformular. | Nothing is saved until you click "Save" in the product form. |
+
+### 13.6 Proposals
+
+| Key | de | en |
+|---|---|---|
+| `ai.proposal.title` | Vorschlag | Proposal |
+| `ai.proposal.add / .change` | Neuer Eintrag / Eintrag ändern | New record / Change record |
+| `ai.proposal.apply` | Vorschlag übernehmen | Use proposal |
+| `ai.proposal.reason` | Begründung | Reason |
+| `ai.proposal.copy` | Wert kopieren | Copy value |
+| `ai.proposal.verified` | Von weblion.one berechnet | Computed by weblion.one |
+| `ai.proposal.unverified` | Nicht von weblion.one geprüft | Not checked by weblion.one |
+| `ai.proposal.unverifiedHint` | Dieser Wert stammt von der KI und nicht aus der Berechnung von weblion.one. Prüfen Sie ihn, bevor Sie ihn speichern. | This value comes from the AI, not from weblion.one's own calculation. Check it before you save it. |
+| `ai.proposal.unverifiedConfirm.title` | Ungeprüften Vorschlag öffnen? | Open an unchecked proposal? |
+| `ai.proposal.unverifiedConfirm.text` | Die KI kann sich irren oder durch Inhalte Dritter, zum Beispiel einen TXT-Eintrag, getäuscht worden sein. Öffnen Sie den Vorschlag nur, wenn Sie den Wert kennen und für richtig halten. | The AI can be wrong or misled by third-party content, for example a TXT record. Only open the proposal if you know the value and consider it correct. |
+| `ai.proposal.unverifiedConfirm.action` | Trotzdem öffnen | Open anyway |
+| `ai.proposal.textOnly` | Diesen Eintrag können Sie hier nicht direkt anlegen. Tragen Sie ihn dort ein, wo die DNS-Zone verwaltet wird. | You cannot add this record here directly. Enter it where the DNS zone is managed. |
+| `ai.proposal.opened` | Der Vorschlag ist im Formular eingetragen. Prüfen Sie ihn und speichern Sie. | The proposal is filled into the form. Check it and save. |
+
+### 13.7 Organization, reseller and staff cards
+
+| Key | de | en |
+|---|---|---|
+| `ai.org.title` | KI-Funktionen | AI features |
+| `ai.org.description` | Mit den KI-Funktionen beantwortet Claude von Anthropic Fragen zu Ihrer Organisation und erklärt Fehler. Die KI liest nur und ändert nichts. | With the AI features, Claude by Anthropic answers questions about your organization and explains errors. The AI only reads and changes nothing. |
+| `ai.org.state.on / .off` | Eingeschaltet / Ausgeschaltet | Switched on / Switched off |
+| `ai.org.offByPlatform` | weblion hat die KI-Funktionen für Ihre Organisation ausgeschaltet. | weblion switched the AI features off for your organization. |
+| `ai.org.offByReseller` | Ihr Anbieter {name} hat die KI-Funktionen für Ihre Organisation ausgeschaltet. | Your provider {name} switched the AI features off for your organization. |
+| `ai.org.declined` | Ihre Organisation hat die KI-Funktionen am {date} abgelehnt ({name}). | Your organization declined the AI features on {date} ({name}). |
+| `ai.org.platformOff` | Die KI-Funktionen sind bei weblion.one noch nicht eingeschaltet. Sie können sie schon jetzt ablehnen; dann bleiben sie für Ihre Organisation auch nach dem Einschalten aus. | The AI features are not switched on at weblion.one yet. You can decline them now; they then stay off for your organization after they are switched on. |
+| `ai.org.decline` | KI-Funktionen ablehnen | Decline AI features |
+| `ai.org.declineConfirm.title` | KI-Funktionen ablehnen? | Decline AI features? |
+| `ai.org.declineConfirm.text` | Danach sendet weblion.one keine Daten Ihrer Organisation mehr an Anthropic, auch nicht für Funktionen der weblion-Mitarbeitenden. Sie können die Ablehnung jederzeit zurücknehmen. | After this, weblion.one sends no data of your organization to Anthropic, not even for features used by weblion staff. You can withdraw the decision at any time. |
+| `ai.org.declineConfirm.action` | Ablehnen | Decline |
+| `ai.org.allow` | Ablehnung zurücknehmen | Withdraw decline |
+| `ai.org.allowConfirm.title` | KI-Funktionen erlauben? | Allow AI features? |
+| `ai.org.allowConfirm.text` | Die KI-Funktionen stehen Ihrer Organisation dann wieder zur Verfügung, sofern weblion.one und gegebenenfalls Ihr Anbieter sie eingeschaltet haben. | The AI features are then available to your organization again, provided weblion.one and, if applicable, your provider have switched them on. |
+| `ai.org.allowConfirm.action` | Erlauben | Allow |
+| `ai.org.usage` | Diesen Monat: {count} KI-Anfragen | This month: {count} AI requests |
+| `ai.org.usageStaff` | davon {count} durch weblion-Mitarbeitende | of which {count} by weblion staff |
+| `ai.org.notice` | Datenschutzhinweis lesen | Read the privacy notice |
+| `ai.reseller.title` | KI-Funktionen | AI features |
+| `ai.reseller.switch` | KI für diesen Kunden erlauben | Allow AI for this customer |
+| `ai.reseller.lockedByPlatform` | weblion hat die KI für diesen Kunden ausgeschaltet. Nur weblion kann sie wieder einschalten. | weblion switched AI off for this customer. Only weblion can switch it on again. |
+| `ai.reseller.ownOff` | Die KI ist für Ihre eigene Organisation ausgeschaltet und damit für alle Ihre Kunden. | AI is switched off for your own organization and therefore for all your customers. |
+| `ai.reseller.declined` | Der Kunde hat die KI-Funktionen am {date} abgelehnt. | The customer declined the AI features on {date}. |
+| `ai.reseller.usage` | Diesen Monat: {count} KI-Anfragen | This month: {count} AI requests |
+| `admin.ai.card.title` | KI | AI |
+| `admin.ai.card.switch` | KI für diesen Kunden | AI for this customer |
+| `admin.ai.card.reseller` | Der Reseller {name} hat die KI ausgeschaltet; das gilt auch für diesen Kunden. | The reseller {name} switched AI off; this also applies to this customer. |
+| `admin.ai.card.declined` | Der Kunde hat die KI am {date} abgelehnt. Das gilt auch für die KI-Funktionen der Mitarbeitenden. | The customer declined AI on {date}. This also applies to the AI features used by staff. |
+| `admin.ai.card.usage` | Diesen Monat: {count} Anfragen, USD {cost} | This month: {count} requests, USD {cost} |
+| `admin.ai.card.usageStaff` | davon {count} durch Mitarbeitende | of which {count} by staff |
+| `admin.ai.card.platformOff` | Die KI ist für die ganze Plattform ausgeschaltet. Der Schalter gilt, sobald sie eingeschaltet wird. | AI is switched off for the whole platform. The switch applies as soon as it is switched on. |
+
+### 13.8 Errors (used by `localizeError`, plan O25)
+
+| Key | de | en |
+|---|---|---|
+| `ai.error.limit.budget` | Das KI-Budget dieses Monats ist aufgebraucht. Die KI-Funktionen stehen ab dem nächsten Monat wieder zur Verfügung. | This month's AI budget is used up. The AI features are available again next month. |
+| `ai.error.limit.org_daily` | Ihre Organisation hat das Tageslimit für KI-Anfragen erreicht. | Your organization reached its daily limit of AI requests. |
+| `ai.error.limit.user_daily` | Sie haben Ihr Tageslimit für KI-Anfragen erreicht. | You reached your daily limit of AI requests. |
+| `ai.error.limit.user_rate` | Zu viele KI-Anfragen in kurzer Zeit. Bitte warten Sie eine Minute. | Too many AI requests in a short time. Please wait a minute. |
+| `ai.error.limit.user_concurrent` | Es laufen bereits zwei KI-Anfragen von Ihnen. Bitte warten Sie, bis eine fertig ist. | Two of your AI requests are already running. Please wait until one is finished. |
+| `ai.error.limit.org_concurrent` | In Ihrer Organisation laufen bereits drei KI-Anfragen. Bitte versuchen Sie es gleich nochmals. | Three AI requests are already running in your organization. Please try again shortly. |
+| `ai.error.limit.concurrent` | Gerade laufen zu viele KI-Anfragen. Bitte versuchen Sie es gleich nochmals. | Too many AI requests are running right now. Please try again shortly. |
+| `ai.error.refusal` | Claude hat diese Anfrage abgelehnt. Formulieren Sie sie bei Bedarf anders. | Claude declined this request. Rephrase it if needed. |
+| `ai.error.upstream` | Der KI-Dienst konnte die Anfrage nicht bearbeiten. Bitte versuchen Sie es später nochmals. | The AI service could not process the request. Please try again later. |
+| `ai.error.busy` | Der KI-Dienst ist gerade ausgelastet. Bitte versuchen Sie es in einem Moment nochmals. | The AI service is busy right now. Please try again in a moment. |
+| `ai.error.incomplete` | Die Antwort der KI wurde abgeschnitten. Versuchen Sie es mit einer kürzeren Anfrage. | The AI answer was cut off. Try a shorter request. |
+| `ai.error.timeout` | Die KI hat zu lange gebraucht. Bitte versuchen Sie es nochmals. | The AI took too long. Please try again. |
+| `ai.error.orgDisabled` | Die KI-Funktionen sind für diese Organisation ausgeschaltet. | The AI features are switched off for this organization. |
+| `ai.error.platformLocked` | weblion hat die KI für diesen Kunden ausgeschaltet. Nur weblion kann sie wieder einschalten. | weblion switched AI off for this customer. Only weblion can switch it on again. |
+| `ai.error.resellerBlocked` | Die KI ist für Ihre eigene Organisation ausgeschaltet. Deshalb können Sie sie für Kunden nicht einschalten. | AI is switched off for your own organization, so you cannot switch it on for customers. |
+| `ai.error.adminKey` | Das ist ein Admin-API-Schlüssel. Speichern Sie einen normalen API-Schlüssel aus der Claude Console. | This is an Admin API key. Save a normal API key from the Claude Console. |
+| `ai.error.notConfigured` | Die KI ist nicht verfügbar. Richten Sie sie unter Verwaltung > KI ein. | AI is not available. Set it up under Administration > AI. |
+
+### 13.9 Footnote, demo and notice links
+
+| Key | de | en |
+|---|---|---|
+| `ai.footnote` | KI-Antworten können Fehler enthalten. Prüfen Sie wichtige Angaben, bevor Sie handeln. | AI answers can contain mistakes. Check important details before you act. |
+| `ai.demoBadge` | Demo | Demo |
+| `ai.demoHint` | Demo-Modus: Die Antworten sind Beispiele und stammen nicht von Claude. | Demo mode: the answers are examples and do not come from Claude. |
+| `ai.notice.open` | Datenschutzhinweis | Privacy notice |
+
+### 13.10 Data notice (`LEGAL_KEYS`)
+
+`ai.notice.title` and `ai.notice.text` are legal texts (plan O28, 7.2): translated completely and literally,
+never machine-translated, never served outdated, checked by the owner before go-live (16). Paragraphs are separated
+by a blank line (`\n\n`).
+
+| Key | de | en |
+|---|---|---|
+| `ai.notice.title` | Datenschutzhinweis zu den KI-Funktionen | Privacy notice for the AI features |
+
+`ai.notice.text`, de:
+
+> Für die KI-Funktionen nutzt weblion.one das Sprachmodell Claude der Anthropic PBC mit Sitz in den USA. Anthropic
+> ist dafür Unterauftragsverarbeiter von weblion.
+>
+> Wenn Sie, Ihr Team oder Mitarbeitende von weblion (zum Beispiel im Support) eine KI-Funktion verwenden,
+> übermittelt weblion.one die dafür nötigen Daten Ihrer Organisation an Anthropic, zum Beispiel Namen und Messwerte
+> von Servern, DNS-Einträge, Fehlermeldungen, Einträge aus dem Audit-Log und Ihre Fragen. Die Daten können in den
+> USA verarbeitet werden.
+>
+> Vor dem Senden entfernt weblion.one automatisch erkennbare Geheimnisse wie Passwörter, API-Schlüssel und Tokens
+> sowie IP- und E-Mail-Adressen aus Protokolleinträgen. Diese Erkennung ist automatisch und kann nicht jeden Fall
+> erfassen. Namen von Personen in Protokolleinträgen können übermittelt werden; Ihren eigenen Namen erhält die KI
+> nicht, nur Ihre Rolle.
+>
+> Nach den kommerziellen Bedingungen von Anthropic werden die Daten nicht zum Trainieren von Modellen verwendet und
+> nur so lange aufbewahrt, wie es diese Bedingungen vorsehen. weblion.one selbst speichert weder Fragen noch
+> Antworten, nur Angaben zur Nutzung wie Funktion, Zeitpunkt und Anzahl Tokens. Das Gespräch mit dem KI-Assistenten
+> bleibt nur in Ihrem Browser-Tab.
+>
+> Die KI liest nur und ändert nichts. Vorschläge, zum Beispiel für DNS-Einträge, übernehmen Sie selbst im
+> jeweiligen Formular.
+>
+> Sie können die KI-Funktionen für Ihre Organisation jederzeit unter Einstellungen > KI-Funktionen ablehnen. Dann
+> sendet weblion.one keine Daten Ihrer Organisation mehr an Anthropic, auch nicht für Funktionen der
+> weblion-Mitarbeitenden.
+
+`ai.notice.text`, en:
+
+> For the AI features, weblion.one uses the language model Claude of Anthropic PBC, based in the USA. Anthropic acts
+> as a sub-processor of weblion for this.
+>
+> When you, your team or weblion staff (for example in support) use an AI feature, weblion.one sends the data of your
+> organization that the feature needs to Anthropic, for example names and metrics of servers, DNS records, error
+> messages, audit log entries and your questions. The data may be processed in the USA.
+>
+> Before sending, weblion.one automatically removes recognisable secrets such as passwords, API keys and tokens, as
+> well as IP and e-mail addresses from log entries. This detection is automatic and cannot catch every case. Names
+> of people in log entries can be sent; the AI does not receive your own name, only your role.
+>
+> Under Anthropic's commercial terms, the data is not used to train models and is kept only as long as those terms
+> provide. weblion.one itself stores neither questions nor answers, only usage details such as the feature, the time
+> and the number of tokens. The conversation with the AI assistant stays in your browser tab only.
+>
+> The AI only reads and changes nothing. You apply proposals, for example for DNS records, yourself in the
+> respective form.
+>
+> You can decline the AI features for your organization at any time under Settings > AI features. weblion.one then
+> sends no data of your organization to Anthropic, not even for features used by weblion staff.
+
+The sentence beginning "Nach den kommerziellen Bedingungen" / "Under Anthropic's commercial terms" is the one the
+owner checks against Anthropic's Commercial Terms and DPA before go-live (16, item 3); if the terms or the
+workspace settings differ, the owner changes the German text in Verwaltung > Übersetzungen, the translations then
+count as outdated and the English (else German) text is shown until they are translated again (i18n 8.1).
+
+### 13.11 KI page (`admin.ai.*`)
+
+| Key | de | en |
+|---|---|---|
+| `admin.ai.subtitle` | Claude von Anthropic für die KI-Funktionen der Console: Schlüssel, Modell, Funktionen, Budget und Nutzung. | Claude by Anthropic for the console's AI features: key, model, features, budget and usage. |
+| `admin.ai.tab.settings / .usage / .errors` | Einstellungen / Nutzung / Fehler | Settings / Usage / Errors |
+| `admin.ai.status.title / .on / .off / .demo / .notConfigured` | Status / Eingeschaltet / Ausgeschaltet / Demo-Modus / Kein Schlüssel | Status / Switched on / Switched off / Demo mode / No key |
+| `admin.ai.status.master` | KI-Funktionen für alle Kunden einschalten | Switch on AI features for all customers |
+| `admin.ai.status.masterHint` | Kunden, die abgelehnt haben oder ausgeschaltet sind, bleiben aus. | Customers who declined or are switched off stay off. |
+| `admin.ai.status.test` | Verbindung testen | Test connection |
+| `admin.ai.status.testOk` | Die Verbindung zu Claude funktioniert ({model}, {ms} ms). | The connection to Claude works ({model}, {ms} ms). |
+| `admin.ai.status.testFailed` | Die Verbindung ist fehlgeschlagen: {reason} | The connection failed: {reason} |
+| `admin.ai.status.enableTitle` | KI-Funktionen einschalten? | Switch on AI features? |
+| `admin.ai.status.enableText` | Danach sendet weblion.one Daten von Kunden an Anthropic in den USA, sobald jemand eine KI-Funktion verwendet. Bestätigen Sie, dass die Voraussetzungen erfüllt sind. | weblion.one will then send customer data to Anthropic in the USA whenever someone uses an AI feature. Confirm that the prerequisites are met. |
+| `admin.ai.status.enableCheck.contracts` | Anthropic ist in den AGB und im Auftragsverarbeitungsvertrag als Unterauftragsverarbeiter aufgeführt. | Anthropic is listed as a sub-processor in the terms and the data processing agreement. |
+| `admin.ai.status.enableCheck.transfer` | Die rechtliche Grundlage für die Übermittlung in die USA ist geprüft und festgehalten. | The legal basis for the transfer to the USA has been checked and recorded. |
+| `admin.ai.status.enableCheck.notice` | Der Datenschutzhinweis ist gegen die aktuellen Bedingungen und den Auftragsverarbeitungsvertrag von Anthropic geprüft. | The privacy notice has been checked against Anthropic's current terms and data processing agreement. |
+| `admin.ai.status.enableCheck.workspace` | Der Speicher- und Verarbeitungsort des Anthropic-Workspace ist geprüft. | The storage and processing location of the Anthropic workspace has been checked. |
+| `admin.ai.status.enableAnnouncedOn` | Ankündigung an alle Inhaber von Organisationen verschickt am | Announcement sent to all organization owners on |
+| `admin.ai.status.enableTooEarly` | Die Ankündigung muss mindestens 30 Tage zurückliegen. Einschalten ist ab dem {date} möglich. | The announcement must be at least 30 days old. Switching on is possible from {date}. |
+| `admin.ai.status.enableAction` | Einschalten | Switch on |
+| `admin.ai.key.title` | API-Schlüssel | API key |
+| `admin.ai.key.hint` | Ein API-Schlüssel aus der Claude Console (beginnt mit sk-ant-). Er wird verschlüsselt gespeichert und nie mehr angezeigt. Ein hier gespeicherter Schlüssel hat Vorrang vor ANTHROPIC_API_KEY. | An API key from the Claude Console (starts with sk-ant-). It is stored encrypted and never shown again. A key saved here takes precedence over ANTHROPIC_API_KEY. |
+| `admin.ai.key.source.ui / .env / .none` | In der Verwaltung gespeichert / Aus ANTHROPIC_API_KEY / Kein Schlüssel | Saved in the admin area / From ANTHROPIC_API_KEY / No key |
+| `admin.ai.key.savedBy` | Gespeichert am {date} von {name} | Saved on {date} by {name} |
+| `admin.ai.key.label` | Neuer Schlüssel | New key |
+| `admin.ai.key.save / .replace / .delete` | Schlüssel speichern / Schlüssel ersetzen / Schlüssel löschen | Save key / Replace key / Delete key |
+| `admin.ai.key.deleteConfirm` | Gespeicherten Schlüssel löschen? Ohne Schlüssel sind die KI-Funktionen nicht verfügbar. | Delete the saved key? Without a key the AI features are not available. |
+| `admin.ai.key.envFallback` | Danach gilt wieder ANTHROPIC_API_KEY aus der Umgebung. | ANTHROPIC_API_KEY from the environment applies again afterwards. |
+| `admin.ai.key.saved` | Schlüssel gespeichert | Key saved |
+| `admin.ai.key.demoDeleted` | {count} Demo-Übersetzungen wurden entfernt. | {count} demo translations were removed. |
+| `admin.ai.model.title` | Modell | Model |
+| `admin.ai.model.hint` | Ein Modell für alle KI-Funktionen. weblion.one wechselt nie von sich aus zu einem anderen Modell. | One model for all AI features. weblion.one never switches to another model by itself. |
+| `admin.ai.model.price` | USD {input} / {output} pro Million Tokens (Eingabe / Ausgabe) | USD {input} / {output} per million tokens (input / output) |
+| `admin.ai.model.opusHint / .sonnetHint / .haikuHint` | Beste Qualität, Standard / Schneller, etwa halber Preis / Sehr günstig, für einfache Aufgaben; ohne Ersatzmodell bei Ablehnungen | Best quality, default / Faster, about half the price / Very low cost, for simple tasks; no substitute model on refusals |
+| `admin.ai.model.fallback` | Lehnt Claude Opus oder Sonnet eine Anfrage aus Sicherheitsgründen ab, beantwortet Anthropic sie mit einem Ersatzmodell. Solche Antworten sind markiert. | If Claude Opus or Sonnet declines a request for safety reasons, Anthropic answers it with a substitute model. Such answers are marked. |
+| `admin.ai.features.title` | Funktionen | Features |
+| `admin.ai.features.hint` | Ausgeschaltete Funktionen sind für alle unsichtbar. | Features that are switched off are hidden for everyone. |
+| `admin.ai.limits.title` | Budget und Limits | Budget and limits |
+| `admin.ai.limits.budget / .warn / .dailyOrg / .dailyUser` | Budget pro Monat (USD) / Warnung ab (%) / Anfragen pro Organisation und Tag / Anfragen pro Person und Tag | Budget per month (USD) / Warning from (%) / Requests per organization and day / Requests per person and day |
+| `admin.ai.limits.spent` | {spent} von {budget} verbraucht ({percent} %) | {spent} of {budget} used ({percent} %) |
+| `admin.ai.limits.fixed` | Fest: 12 Anfragen pro Minute und 2 gleichzeitig pro Person, 3 gleichzeitig pro Organisation, 6 auf der ganzen Plattform. Ist das Budget aufgebraucht, startet keine neue Anfrage mehr, auch nicht mitten in einer Antwort. | Fixed: 12 requests per minute and 2 at a time per person, 3 at a time per organization, 6 on the whole platform. Once the budget is used up, no new request starts, not even in the middle of an answer. |
+| `admin.ai.notice.title` | Datenschutzhinweis | Privacy notice |
+| `admin.ai.notice.hint` | Kunden sehen diesen Text im KI-Assistenten und in ihren Einstellungen. Prüfen Sie ihn vor dem Einschalten gegen die Bedingungen von Anthropic. Er wird nie maschinell übersetzt. | Customers see this text in the AI assistant and in their settings. Check it against Anthropic's terms before switching on. It is never machine-translated. |
+| `admin.ai.notice.edit / .check` | Text bearbeiten / Als geprüft markieren | Edit text / Mark as checked |
+| `admin.ai.notice.checked` | Geprüft am {date} von {name} | Checked on {date} by {name} |
+| `admin.ai.notice.unchecked` | Noch nicht geprüft | Not checked yet |
+| `admin.ai.usage.month / .requests / .cost / .tokensIn / .tokensOut / .cacheRead` | Monat / Anfragen / Kosten / Tokens Eingabe / Tokens Ausgabe / Aus dem Cache gelesen | Month / Requests / Cost / Input tokens / Output tokens / Read from cache |
+| `admin.ai.usage.byFeature / .byModel / .byOrg / .byDay` | Nach Funktion / Nach Modell / Nach Kunde / Nach Tag | By feature / By model / By customer / By day |
+| `admin.ai.usage.platform / .staff` | Plattform (ohne Kundendaten) / Durch Mitarbeitende | Platform (no customer data) / By staff |
+| `admin.ai.usage.empty` | In diesem Monat gab es noch keine KI-Anfragen. | There were no AI requests this month yet. |
+| `admin.ai.errors.empty` | Keine Fehler gefunden. | No errors found. |
+| `admin.ai.errors.retention` | Fehlertexte werden nach 30 Tagen gelöscht, die übrigen Angaben nach 400 Tagen. | Error texts are deleted after 30 days, the other details after 400 days. |
+| `admin.ai.errors.col.time / .feature / .org / .user / .model / .status / .reason / .message / .requestId` | Zeit / Funktion / Kunde / Person / Modell / Status / Grund / Meldung / Request-ID | Time / Feature / Customer / Person / Model / Status / Reason / Message / Request ID |
+| `admin.ai.usageStatus.running / .ok / .refusal / .incomplete / .error / .cancelled / .stale` | Läuft / Erfolgreich / Abgelehnt / Unvollständig / Fehler / Abgebrochen / Ohne Abschluss | Running / Successful / Declined / Incomplete / Error / Cancelled / Not finished |
+| `admin.ai.reason.auth / .permission / .billing / .not_found / .request / .server / .network / .output` | Schlüssel ungültig oder widerrufen / Schlüssel ohne Berechtigung / Abrechnung oder Guthaben bei Anthropic / Modell nicht verfügbar / Anfrage abgelehnt / Fehler bei Anthropic / Keine Verbindung / Ungültige Antwort | Key invalid or revoked / Key lacks permission / Billing or credit at Anthropic / Model not available / Request rejected / Error at Anthropic / No connection / Invalid answer |
+| `admin.ai.reason.overloaded / .rate_limit / .timeout` | Überlastet / Anfragelimit von Anthropic / Zeitüberschreitung | Overloaded / Anthropic rate limit / Timeout |
+| `admin.ai.reason.api / .internal` | Claude API / weblion.one | Claude API / weblion.one |
+| `admin.ai.dashboard.warning` | KI-Budget zu {percent} % verbraucht. | AI budget {percent} % used. |
+| `admin.ai.dashboard.exhausted` | KI-Budget aufgebraucht: Neue KI-Anfragen sind bis Monatsende gesperrt. | AI budget used up: new AI requests are blocked until the end of the month. |
+| `admin.ai.dashboard.open` | KI-Einstellungen öffnen | Open AI settings |
+| `admin.ai.integration.title / .description / .open` | KI (Claude) / Claude von Anthropic für die KI-Funktionen / KI-Einstellungen öffnen | AI (Claude) / Claude by Anthropic for the AI features / Open AI settings |
+
+The staff-facing reason texts `admin.ai.reason.billing` mention credit on purpose: only staff with
+`platform:settings` see them, never customers (4.2).
+
+---
+
