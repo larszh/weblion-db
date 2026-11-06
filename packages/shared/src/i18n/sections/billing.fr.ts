@@ -120,6 +120,10 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.payments.topup': 'Crédit',
   'billing.service.quantity': '× {quantity}',
   'billing.service.endsAt': 'Se termine le {date}',
+  'billing.service.cancelledPer': 'Résilié pour le {date}',
+  'billing.service.endWaitsForBilling':
+    "Résilié pour le {date}, se termine dès que tout est facturé jusqu'à cette date",
+  'billing.service.moduleOffAtEnd': 'Le module "{module}" sera alors désactivé',
   'billing.service.billedOnce': 'Facturé',
   'billing.invoice.title': 'Facture {number}',
   'billing.invoice.draftTitle': 'Projet de facture',
@@ -372,7 +376,20 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.endsAtHint': "Par défaut, aujourd'hui.",
   'billing.service.deactivateModule': 'Désactiver le module "{module}"',
   'billing.service.deactivateModuleHint': "Seulement si le client n'a plus d'autre service avec ce module.",
+  'billing.service.moduleKept':
+    'Le module reste actif tant que le client a encore un autre service avec ce module : {names}.',
   'billing.service.cancelled': 'Service "{name}" résilié',
+  'billing.service.cancelledLater': 'Service "{name}" résilié pour le {date}',
+  'billing.service.endsAtLaterHint':
+    "Avec une date ultérieure, le service continue jusqu'à ce jour-là, et un module choisi n'est désactivé qu'à ce moment-là. Chaque période qui commence au plus tard ce jour-là est facturée en entier, et non au prorata.",
+  'billing.service.fullPeriod': 'La période à partir du {date} est encore facturée en entier ({price}).',
+  'billing.service.endBeforePeriod': 'Résilier plutôt pour le {date}',
+  'billing.service.changeCancel': 'Modifier la résiliation',
+  'billing.service.withdrawCancel': 'Retirer la résiliation',
+  'billing.service.withdrawCancelTitle': 'Retirer la résiliation de "{name}"?',
+  'billing.service.withdrawCancelText':
+    "Le service continue ensuite sans date de fin et est facturé comme jusqu'à présent.",
+  'billing.service.cancelWithdrawn': 'Résiliation de "{name}" retirée',
   'billing.products.title': 'Produits',
   'billing.products.text':
     "Liste de prix pour les nouveaux services. Les modifications de prix ne s'appliquent qu'aux nouveaux services.",
@@ -483,6 +500,7 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.unit.yearly': 'an',
   'billing.profile.locale': 'Langue des factures',
   'billing.profile.localeOwner': 'Langue du propriétaire ({language})',
+  'billing.profile.localeOwnerPlain': 'Langue du propriétaire',
   'billing.profile.localeHint':
     'Les factures, rappels de paiement et confirmations de paiement sont envoyés dans cette langue. Les factures déjà émises conservent leur langue.',
   'billing.invoice.locale': 'Langue',
@@ -492,5 +510,6 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.product.translations.hint':
     "Nom et description dans d'autres langues. Si le champ reste vide, le texte allemand s'applique.",
   'billing.product.translations.name': 'Nom ({language})',
+  'billing.product.translations.nameRequired': 'Saisissez un nom ou videz la description.',
   'billing.product.translations.description': 'Description ({language})',
 };
