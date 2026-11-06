@@ -32,6 +32,7 @@ import { setAssistantListener } from './assistant-bus';
 import { useApplyProposal } from './ai-provider';
 import { loadAiChat, saveAiChat } from './storage';
 import { showLauncher } from './launcher-visible';
+import { sourceLabel } from './source-label';
 
 /**
  * The assistant (ai 12.3): a launcher at the bottom right and a side panel (full screen below sm) with the
@@ -308,7 +309,7 @@ function AnswerView({
             {message.sources.map((s) => (
               <li key={s.path}>
                 <Link to={s.path} className="text-primary-text underline underline-offset-2">
-                  {s.label}
+                  {sourceLabel(s, t)}
                 </Link>
               </li>
             ))}
