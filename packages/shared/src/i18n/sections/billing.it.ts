@@ -141,7 +141,7 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.doc.draft': 'Bozza',
   'billing.doc.number': 'Numero di fattura',
   'billing.doc.issueDate': 'Data della fattura',
-  'billing.doc.dueDate': 'Pagabile entro',
+  'billing.doc.dueDate': 'Pagabile entro il',
   'billing.doc.customer': 'Cliente',
   'billing.doc.onFinalize': 'alla finalizzazione',
   'billing.doc.vatId': 'N. IVA {id}',

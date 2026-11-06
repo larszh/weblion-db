@@ -289,7 +289,7 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.features.hint': 'Le funzioni disattivate sono invisibili per tutti.',
   'admin.ai.limits.title': 'Budget e limiti',
   'admin.ai.limits.budget': 'Budget mensile (USD)',
-  'admin.ai.limits.warn': 'Avviso a partire da (%)',
+  'admin.ai.limits.warn': 'Avviso da (%)',
   'admin.ai.limits.dailyOrg': 'Richieste per organizzazione e giorno',
   'admin.ai.limits.dailyUser': 'Richieste per persona e giorno',
   'admin.ai.limits.spent': '{spent} di {budget} consumati ({percent} %)',
