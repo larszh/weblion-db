@@ -797,7 +797,8 @@ function UsageTab() {
               value={formatNumber(data!.totals.cacheReadTokens, locale)}
             />
           </div>
-          <div className="grid gap-6 lg:grid-cols-2">
+          {/* Side by side only from 2xl: in half a row next to the sidebar the token columns were cut off. */}
+          <div className="grid gap-6 2xl:grid-cols-2">
             <Card>
               <CardHeader title={t('admin.ai.usage.byFeature')} />
               <Table>
@@ -963,8 +964,10 @@ function errorReason(t: TFunction, row: AiErrorDto): string {
 
 function ErrorsTable({ items }: { items: AiErrorDto[] }) {
   const { t, locale } = useI18n();
+  // Nine columns need the full width: next to the sidebar at 1280 px the message broke after every few letters
+  // and the request id scrolled out of the card, so the table starts at 2xl and narrower screens get cards.
   return (
-    <div className="hidden md:block">
+    <div className="hidden 2xl:block">
       <Table>
         <THead>
           <tr>
@@ -1014,11 +1017,11 @@ function ErrorsTable({ items }: { items: AiErrorDto[] }) {
   );
 }
 
-/** Below md each row is a card (ai 12.2), so nothing scrolls sideways at 390 px. */
+/** Below 2xl each row is a card (ai 12.2), so nothing scrolls sideways and the messages stay readable. */
 function ErrorCards({ items }: { items: AiErrorDto[] }) {
   const { t, locale } = useI18n();
   return (
-    <ul className="divide-y divide-border md:hidden">
+    <ul className="divide-y divide-border 2xl:hidden">
       {items.map((row) => (
         <li key={row.id} className="space-y-1.5 px-4 py-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">
