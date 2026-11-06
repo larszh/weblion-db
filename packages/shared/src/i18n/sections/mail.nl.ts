@@ -175,7 +175,7 @@ export const mailNl: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.mailbox.deleteConfirm': 'Mailbox verwijderen',
   'mail.mailbox.deleteWarningTitle': 'Alle e-mails worden verwijderd',
   'mail.mailbox.deleteText':
-    'De mailbox en de e-mails daarin ({used}) worden verwijderd. Mailcow bewaart ze nog enkele dagen in de prullenbak, maar de console kan ze niet terugzetten. Doorsturingen die alleen hierheen leiden, worden ook verwijderd; uit andere wordt het adres verwijderd.',
+    'De mailbox en de e-mails daarin ({used}) worden verwijderd. Mailcow bewaart ze nog enkele dagen in de prullenbak, maar de console kan ze niet terugzetten. Doorsturingen die alleen hierheen leiden, worden ook verwijderd; uit andere doorsturingen wordt het adres geschrapt.',
   'mail.mailbox.deleted': 'Mailbox {address} verwijderd',
   'mail.state.active': 'Actief',
   'mail.state.login_disabled': 'Inloggen geblokkeerd',
