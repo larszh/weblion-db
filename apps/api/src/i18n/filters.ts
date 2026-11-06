@@ -153,9 +153,7 @@ export function cellMatches(cell: TranslationCellDto, filter: TranslationFilter)
       return cell.origin === 'ai' && !cell.reviewed;
     case 'attention':
       // A legal key whose served text is a fallback has no current value in the locale: missing or stale.
-      return (
-        cell.state !== 'current' || (cell.origin === 'ai' && !cell.reviewed) || cell.warnings.length > 0
-      );
+      return cell.state !== 'current' || (cell.origin === 'ai' && !cell.reviewed) || cell.warnings.length > 0;
   }
 }
 
@@ -301,9 +299,7 @@ export function summaryStats(i18n: I18nService): Omit<TranslationSummaryDto, 'ai
   snap.summary = {
     keys: total,
     locales: LOCALES.map((l) => stats.get(l)!),
-    areas: [...areas]
-      .map(([area, keys]) => ({ area, keys }))
-      .sort((a, b) => a.area.localeCompare(b.area)),
+    areas: [...areas].map(([area, keys]) => ({ area, keys })).sort((a, b) => a.area.localeCompare(b.area)),
     sections: [...sections].map(([section, keys]) => ({ section, keys })),
     orphans,
     sameAsCompiled,

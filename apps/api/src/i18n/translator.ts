@@ -128,7 +128,9 @@ export function systemPrompt(locale: TargetLocale, glossary: readonly GlossaryTe
           '8. Put a no-break space (U+00A0) before ":" and "%", and no space before "?", "!" and ";", as in',
           '   Swiss French.',
         ]
-      : ['8. Keep the punctuation of the German text (ellipsis, colon at the end of a label, question mark).']),
+      : [
+          '8. Keep the punctuation of the German text (ellipsis, colon at the end of a label, question mark).',
+        ]),
     '9. Do not add URLs, e-mail addresses or numbers that are not in the German text.',
     '10. The English reference, when given, shows the meaning; translate from the German.',
     '11. The current translation, when given, is outdated or under review: keep its wording where it is still',
@@ -257,7 +259,14 @@ export function selectPairs(
   const order = new Map<string, number>(i18n.catalog.keys.map((k, i) => [k, i]));
   entries.sort((a, b) => order.get(a.key)! - order.get(b.key)!);
 
-  const selection: PairSelection = { pairs: [], perLocale: {}, legal: 0, legalOnly: null, keptManual: 0, skipped: 0 };
+  const selection: PairSelection = {
+    pairs: [],
+    perLocale: {},
+    legal: 0,
+    legalOnly: null,
+    keptManual: 0,
+    skipped: 0,
+  };
   if (!failed && scope.keys && scope.keys.length > 0 && scope.keys.every((k) => isLegalKey(k))) {
     selection.legalOnly = [...scope.keys];
   }
@@ -349,7 +358,9 @@ export function estimateUsage(input: {
     const user = Math.ceil(userMessage({ locale: batch.locale, items }).length / CHARS_PER_INPUT_TOKEN);
     const raw = items.reduce(
       (sum, item) =>
-        sum + (item.de.length * LANGUAGE_FACTOR[batch.locale]) / CHARS_PER_OUTPUT_TOKEN + JSON_TOKENS_PER_ITEM,
+        sum +
+        (item.de.length * LANGUAGE_FACTOR[batch.locale]) / CHARS_PER_OUTPUT_TOKEN +
+        JSON_TOKENS_PER_ITEM,
       0,
     );
     const output = Math.ceil(raw * THINKING_ALLOWANCE);
@@ -478,7 +489,8 @@ export function validateItem(input: {
   glossary: readonly GlossaryTerm[];
 }): ValidationResult {
   const { key, locale, source, english, glossary } = input;
-  if (typeof input.text !== 'string') return { ok: false, reason: 'missing', detail: 'no answer for this item' };
+  if (typeof input.text !== 'string')
+    return { ok: false, reason: 'missing', detail: 'no answer for this item' };
   if (input.text.trim() === '') return { ok: false, reason: 'empty', detail: 'empty text' };
   const { value, typographyFixed } = prepareValue(locale, source, input.text);
 
@@ -692,7 +704,8 @@ export async function translateBatch(
         const details = (err.details ?? {}) as { limit?: unknown; reason?: unknown };
         switch (err.code) {
           case 'ai_limit':
-            if (details.limit === 'budget') throw new JobStop('ai_budget_job', JOB_ERROR_MESSAGES.ai_budget_job);
+            if (details.limit === 'budget')
+              throw new JobStop('ai_budget_job', JOB_ERROR_MESSAGES.ai_budget_job);
             if (details.limit === 'concurrent') {
               // Other AI work holds the platform slots: wait, not counted as an attempt.
               if (concurrent++ < MAX_CONCURRENT_WAITS) {
@@ -776,7 +789,13 @@ export async function translateBatch(
         glossary: input.glossary,
       });
       if (check.ok) {
-        result.saved.push({ key: item.key, locale, value: check.value, sourceHash: item.hash, fixed: check.fixed });
+        result.saved.push({
+          key: item.key,
+          locale,
+          value: check.value,
+          sourceHash: item.hash,
+          fixed: check.fixed,
+        });
       } else if (!repaired && REPAIRABLE.has(check.reason) && typeof text === 'string') {
         repair.push({ ...item, previous: text, problem: check.detail });
       } else {
@@ -814,7 +833,11 @@ export async function translateBatch(
         }
         return fail(list, 'error', outcome.kind === 'output' ? 'no valid answer' : 'the request failed');
       default:
-        return fail(list, 'error', outcome.kind === 'busy' ? 'the AI service was busy' : 'the request failed');
+        return fail(
+          list,
+          'error',
+          outcome.kind === 'busy' ? 'the AI service was busy' : 'the request failed',
+        );
     }
   }
 
