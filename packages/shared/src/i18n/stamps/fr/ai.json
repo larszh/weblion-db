@@ -217,7 +217,7 @@
   "admin.ai.status.enableCheck.contracts": ["a3213c9c12125f67", "3da47f602a196e76"],
   "admin.ai.status.enableCheck.transfer": ["69407ea2891d24fa", "461a23178a1c4321"],
   "admin.ai.status.enableCheck.notice": ["319c29878ad68696", "c263dbb5d9430596"],
-  "admin.ai.status.enableCheck.workspace": ["a42bdc9d5f6ae85d", "9ee319ce6c815ab0"],
+  "admin.ai.status.enableCheck.workspace": ["a42bdc9d5f6ae85d", "dc9af0a1245211fe"],
   "admin.ai.status.enableOptIn": ["404010509c57d0b3", "2ba54289159e6935"],
   "admin.ai.status.enableAction": ["a64f4d09eac150cd", "77bf4e88dbc88e6a"],
   "admin.ai.key.title": ["de526edf818f3128", "aae29063af059bda"],

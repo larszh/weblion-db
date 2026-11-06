@@ -255,7 +255,7 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.status.enableCheck.notice':
     "L'avis de confidentialité a été vérifié par rapport aux conditions actuelles et au contrat de sous-traitance d'Anthropic.",
   'admin.ai.status.enableCheck.workspace':
-    'Le lieu de stockage et de traitement du workspace Anthropic a été vérifié.',
+    "Le lieu de stockage et de traitement de l'espace de travail Anthropic a été vérifié.",
   'admin.ai.status.enableOptIn':
     "Tous les clients restent désactivés jusqu'à ce que vous ou leur revendeur les activiez individuellement.",
   'admin.ai.status.enableAction': 'Activer',

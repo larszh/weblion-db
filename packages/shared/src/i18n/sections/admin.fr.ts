@@ -15,7 +15,7 @@ export const adminFr: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.notes': 'Notes',
   'admin.noMatch': 'Aucun résultat',
   'admin.balance': 'Crédit',
-  'admin.openTotal': 'Ouvert',
+  'admin.openTotal': 'Impayé',
   'admin.resources': 'Ressources',
   'admin.resources.domains': 'Domaines',
   'admin.resources.webspaces': 'Espaces web',
@@ -245,7 +245,7 @@ export const adminFr: Partial<Record<keyof typeof adminDe, string>> = {
     "Sans secret de webhook, les paiements ne sont pas confirmés. Inscrivez l'endpoint dans Stripe et définissez STRIPE_WEBHOOK_SECRET.",
   'admin.int.webhookUrl': 'URL du webhook',
   'admin.int.webhookHint':
-    'Dans Stripe, sous Développeurs > Webhooks, inscrivez-la comme endpoint avec ces événements :',
+    'Dans Stripe, sous Développeurs > Webhooks, inscrivez cette URL comme endpoint avec ces événements :',
   'admin.int.stripeEnvHint':
     'STRIPE_PAYMENT_METHODS liste les moyens de paiement, la valeur par défaut est card,twint. TWINT doit être activé dans Stripe.',
   'admin.int.zohoText':
