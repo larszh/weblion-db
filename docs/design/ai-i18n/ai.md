@@ -1716,8 +1716,8 @@ const proposeDnsInput = z.object({
 });
 ```
 
-Validation (`validateDnsProposal(ctx, reader, input)` in `modules/ai/proposals.ts`, shared with the DNS check
-10.2):
+Validation (`validateDnsProposal(ctx, reader, input)` in `modules/ai/features/dns-check.ts`, shared with the DNS
+check 10.2):
 
 1. `loadDnsContext(reader, { domainId })` (10.2): the zone must be the organization's (`owned('domain')`).
 2. The record must pass the console's own record rules: `dnsRecordBody` and `dnsDataIssue` exported from
@@ -1763,9 +1763,10 @@ before the stream opens (so they are normal JSON errors):
    - **member or reseller staff** (`subject.orgRole` or `subject.reseller`): `aiOrgState(org, parent).enabled`
      else 403 `ai_org_disabled`; then `access.assert(req, 'ai:use', orgScope(orgId))` (403 `forbidden`). The
      boundary deny (3.4) would refuse too; the explicit check gives the specific code. Scope `'org'`.
-   - **platform staff** (neither): `access.assert(req, 'platform:ai:use', platformScope)`, then
-     `ctx.ai.assertOrgData(orgId)` (403 `ai_org_disabled`; the decline wins over staff). Scope `'staff'`,
-     `org_id` = the customer (plan O28).
+   - **platform staff** (neither): `access.assert(req, 'ai:use', orgScope(orgId))` (granted by the platform role,
+     3.2) and `access.assert(req, 'platform:ai:use', platformScope)`, then `ctx.ai.assertOrgData(orgId)` (403
+     `ai_org_disabled`; platform roles pass every boundary, so this is what makes the decline win over staff).
+     Scope `'staff'`, `org_id` = the customer (plan O28).
 6. `reserve()` (7.1), else 429.
 7. `sse.open()` and the loop of 6.4.
 
@@ -1870,6 +1871,11 @@ block: `<third_party kind="...">` + `toolJson(redactForAi(value, ...))` + `</thi
 (11.1). Every user turn starts with the `<context>` block of 9.2. Staff requests carry the customer's `orgId`
 (scope `'staff'`).
 
+Files (U3): the logic of each feature in `modules/ai/features/{explain,dns-check,audit-summary,server-health,product-texts}.ts`
+(`loadDnsContext` and `validateDnsProposal` in `features/dns-check.ts`, imported by `tools/proposals.ts`); the route
+files only parse, gate and call them. Shared helpers: `modules/ai/gates.ts` (`aiRequestGate`) and
+`modules/ai/org-state.ts` (`aiOrgState`).
+
 ### 10.1 Explain
 
 | Route | Extra permission | Sources |
@@ -1907,7 +1913,7 @@ after validation.
 `POST /orgs/:orgId/ai/dns-check` `{ domainId | mailDomainId, locale }`, feature `dns_check`, members need
 `domain:read` or `mail:read` on what they pass (the routes the reader calls check it).
 
-`loadDnsContext(reader, { domainId } | { mailDomainId })` (`modules/ai/dns-context.ts`), shared with
+`loadDnsContext(reader, { domainId } | { mailDomainId })` (`modules/ai/features/dns-check.ts`), shared with
 `propose_dns_record` (8.4):
 
 ```ts
@@ -2344,7 +2350,8 @@ for the console's own: output validation, timeouts, stale rows), pagination, the
 
 - **Visibility**: `useAiLauncherVisible()` is true when the route is inside an organization (`/o/:slug/*`), the
   status is available with `features` including `assistant`, and the organization's `permissions` include
-  `ai:use` (staff access: the platform permissions include `platform:ai:use`). Otherwise nothing renders. The
+  `ai:use` (with staff access also `platform:ai:use` in `MeDto.platformPermissions`; a staff request on a declined
+  organization still gets 403 `ai_org_disabled`, which the panel shows). Otherwise nothing renders. The
   shell adds `pb-20 sm:pb-0` to the main area while it is true (plan F25), so the launcher never covers content.
 - **Launcher**: a round icon button (`Sparkles`, `aria-label` `ai.assistant.open`), `fixed right-4 bottom-20
   sm:bottom-6 sm:right-6`; below `sm` it sits above the sonner toasts (`Toaster position="bottom-right"`,
