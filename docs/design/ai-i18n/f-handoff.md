@@ -340,3 +340,156 @@ zusammen 4602.
   `tool_choice` ausser auto, keine datierten Modell-IDs, kein `fetch(` (nur `demoFetch`), kein `api.anthropic.com`
   in `apps/api/test`, kein scharfes S in `apps/api/src/mail` und `modules/ai`, kein Gedankenstrich in den
   hinzugefügten Zeilen.
+
+## Teil 4: Web-Hülle und Abschluss des Fundaments (F24 bis F26, Prüfung nach Plan 5.5)
+
+### Gebaut
+
+- **F24** `App.tsx`: lazy `AdminAiPage` (`@/pages/admin/ai`) unter `/admin/ai` und `TranslationsPage`
+  (`@/pages/admin/translations`) unter `/admin/translations`. `<AiProvider>` umschliesst den ganzen Inhalt von `App`
+  (Weiterleitung bei 401, `Suspense`, `Routes`), also ausserhalb von `Suspense`: eine lazy Route baut ihn nie neu auf
+  (die Übergabe des DNS-Vorschlags an `DomainDns` überlebt so die Navigation). Die zwei Seiten sind Stubs mit
+  `PageHeader` (`nav.admin.ai` mit `admin.ai.subtitle`, `nav.admin.translations` mit `admin.i18n.description`).
+- **F25** `components/layout/app-shell.tsx`: Navigation nach O16 (`... Audit-Log`, **KI** `/admin/ai` mit `Sparkles`
+  und `platform:settings`, **Übersetzungen** `/admin/translations` mit `Languages` und `platform:i18n:read`,
+  `Einstellungen` zuletzt); `<AiAssistant />` einmal am Ende der Hülle; das Abmelden ruft `clearAiChats()`; `<main>`
+  bekommt `pb-20 sm:pb-0`, solange `useAiLauncherVisible()` true ist (auf `<main>`, nicht auf dem inneren `div`,
+  dessen `py-6 lg:py-8` sonst ab `sm` unten wegfiele).
+- **F26**
+  - `lib/api.ts`: `ApiQuery`, `apiUrl(path, query?)` (das bisherige `buildUrl`), `WRITE_HEADERS`
+    (`{ 'X-Requested-With': 'weblion-console' }`, eingefroren), `apiErrorFromResponse(res, path)`; `request()` nutzt
+    beides. Verhalten unverändert (Proxy-Seiten mit Status und Code `error`, 401 ausserhalb von `/auth/` ruft den
+    Handler, eine erfolgreiche Antwort ohne JSON wirft weiter `SyntaxError`). Fälle in `lib/api.test.ts`.
+  - `lib/queries.ts`: `useApiMutation` zeigt `localizeError(err, t)`, mit der Sonner-Aktion `ai.explain.button`,
+    solange `explainAvailable(err)`; neue Option `errorToast?: boolean` (Standard true).
+  - `components/ui/primitives.tsx`: `Spinner` mit `aria-label={t('aria.loading')}`; `ErrorState` zeigt
+    `localizeError(error, t)` und, solange `useExplainAvailable(error)`, den kleinen Knopf `ai.explain.short`.
+  - `components/server-bits.tsx`: `Flag` mit `FR`, `IT` (viewBox `0 0 3 2`), `GB` (viewBox `0 0 60 30`,
+    `preserveAspectRatio="xMidYMid slice"`, vereinfacht ohne versetztes rotes Andreaskreuz) und `decorative`
+    (`aria-hidden`, keine Rolle, kein Label; gilt auch für das Textabzeichen unbekannter Codes).
+  - `lib/api-errors.ts`: `localizeError(err, t)` als Stub (gibt `errorMessage(err)` zurück).
+  - `components/ai/`: `ai-provider.tsx`, `assistant.tsx`, `explain-action.ts`, `storage.ts` (Liste unten).
+  - `src/test/i18n.tsx`: `withI18n(node, locale = 'en', overrides?)`.
+  - `pages/media/requests.test.tsx` importiert `en` aus `@weblion/shared/i18n/en` (seit Teil 1).
+- Tests: `components/ai/explain-action.test.tsx` (Handler, `useExplainAvailable` unter `renderToStaticMarkup`,
+  Knopf in `ErrorState`, `clearAiChats` mit gestubbtem `sessionStorage`), `components/ui/primitives.test.tsx`
+  (Spinner-Label in de, en, fr und mit Override, `ErrorState`, `Flag` für die fünf Sprachen und `decorative`),
+  `components/layout/app-shell.test.tsx` (Reihenfolge der Verwaltungs-Navigation und Rechte je Eintrag).
+
+### Abweichungen und Entscheide
+
+1. **Overrides im F-Provider.** `I18nProvider` übernimmt `boot.overrides`, und `applyOverride`/`applyOverrides`
+   ändern die Overrides im Speicher (Plan 2.9 sagte "F: no-op"). Sonst hätte `withI18n(..., overrides)` nichts
+   bewirkt. Zusammenführung wie i18n 5.3: Override der Sprache, ihr Bündel, en-Override, en-Bündel. Den Cache in
+   `localStorage` und das Nachladen im Hintergrund baut U2. `boot.dictionary` wird in F nicht gebraucht, weil die
+   statischen Bündel schon die kompilierten Wörterbücher sind. Plan 2.9 ist angepasst.
+2. **`explainError(err)`** ruft den registrierten Handler, wenn `explainAvailable(err)`; ohne Handler (in F immer)
+   tut es nichts. Der ganze Speicher in `explain-action.ts` ist fertig; U4 ruft nur noch
+   `registerExplainHandler(...)` im `AiProvider` und baut den Dialog. Plan 2.9 ist angepasst.
+3. **`clearAiChats()` auch beim 401.** Der Handler für "nicht angemeldet" in `App.tsx` löscht die Gespräche ebenfalls:
+   Die Sitzung ist weg, und wer sich danach im selben Tab anmeldet, soll sie nicht sehen. Plan 2.9, F25 und ai 12.3
+   sind angepasst. `App.tsx` gehört nur F, deshalb schon hier.
+4. **Flaggen-Labels.** `FR`, `IT`, `GB` tragen wie die bestehenden Flaggen deutsche Labels ("Frankreich",
+   "Italien", "Vereinigtes Königreich"), mit dem Kommentar `// i18n: U2 replaces ...`; `Intl.DisplayNames` in der
+   Sprache der Oberfläche ist U2 (i18n 6.4).
+5. **Neue Testdateien mit Eigentümer** (Plan 11 ergänzt): `lib/api.test.ts` und `components/ui/primitives.test.tsx`
+   nur F, `components/layout/app-shell.test.tsx` U2 (mit der Hülle), `components/ai/explain-action.test.tsx` U4 (wie
+   `components/ai/**`).
+
+### Prüfung des Fundaments (Plan 5.5 und Auftrag)
+
+- Schlüssel: alle 632 Schlüssel, die in den Tabellen von i18n 18 und ai 13 stehen (Mehrfachzeilen aufgelöst, ohne
+  die entfallenen Funktionen), gibt es in de und en; keiner der entfallenen Schlüssel ist vorhanden. Stichprobe von
+  30 zufälligen Schlüsseln einzeln bestätigt. Die Texte aller 34 Fehlerzeilen von Plan 2.10 und der 15 Zeilen von
+  Plan 5.3 stimmen Wort für Wort mit den Wörterbüchern überein. Jeder eingefrorene Code (`AI_ERROR_CODES` 11 mit
+  `AI_LIMIT_KINDS` 7, `I18N_ERROR_CODES` 12, `TRANSLATION_JOB_ERROR_CODES` 5) hat seinen Schlüssel nach der Regel
+  von `localizeError`; ebenso die 98 `perm.<action>`, 19 `perm.group.*`, 8 `module.<m>.label` und `.description`
+  und die zwei `LEGAL_KEYS`.
+- Verträge: 254 Exportnamen aus Plan 2.2 bis 2.9 in 49 Dateien vorhanden, dazu die Methoden von `AiService`,
+  `I18nService`, `TranslationJobRunner`, `AiMaintenance` und `SseWriter`.
+- O34: `organizations.ai_enabled` hat den Standard false (Schema und `0010_ai.sql`), `0010_ai.sql` hat keine
+  Datenanweisung, nur den Kommentar; `migrations.test.ts` prüft false für bestehende und neue Organisationen;
+  `AiGoLiveDto` ohne `announcedOn`; die Schlüssel `admin.ai.card.consentTitle|Text|Check|Action`,
+  `ai.org.notEnabled`, `admin.ai.status.enableOptIn` sind da, `enableAnnouncedOn` und `enableTooEarly` nicht; das
+  Demo-Seed schaltet Muster AG und Alpen Hosting ein; `enableAiForOrg(db, orgId)` in `test/helpers.ts`. Die Pflicht
+  `consentConfirmed: true` beim Einschalten gehört zu den Routen `PUT /admin/orgs/:orgId/ai` und
+  `PUT /orgs/:orgId/customers/:customerId/ai` in `org-routes.ts` (U3, ai 5.5); in F ist die Datei ein leerer Stub.
+- `i18n:stamp --locale en` schreibt nichts (0 von 16 Dateien, 0 veraltet); `--check`: 64 Dateien aktuell.
+
+### Stubs für die Einheiten (Pfad, Exporte, Zustand in F)
+
+API, U3 (`apps/api/src/modules/ai/`):
+
+| Datei | Exporte | In F |
+|---|---|---|
+| `org-routes.ts` | `aiOrgRoutes(app, ctx)` | leer, registriert |
+| `admin-routes.ts` | `aiAdminRoutes(app, ctx)` | leer, registriert |
+| `feature-routes.ts` | `aiFeatureRoutes(app, ctx)` | leer, registriert |
+| `chat-routes.ts` | `aiChatRoutes(app, ctx)` | leer, registriert |
+| `sse.ts` | `SseWriter` (`constructor(req, reply, opts?)`, `signal`, `closed`, `open`, `send`, `error`, `close`) | `signal` gesetzt, der Rest wirft "not implemented" |
+| `maintenance.ts` | `AiMaintenance` (`constructor(ctx, pool)`, `start`, `stop`), `AI_MAINTENANCE_LOCK` | leer, in `index.ts` gestartet und gestoppt |
+| `usage.ts` | `checkBudgetWarning(ctx)` | leere async-Funktion (wird nach jedem `finish` mit Kosten aufgerufen) |
+| `service.ts` | `AiService.assertOrgData(orgId)`, `AiService.liveReadAllowed(orgId)` | werfen "not implemented" |
+| `demo.ts` | `DEMO_JSON`, `emulateMessages` | minimale gültige Objekte; `assistant` antwortet mit Markertext ohne Werkzeug |
+
+API, U1:
+
+| Datei | Exporte | In F |
+|---|---|---|
+| `apps/api/src/i18n/entries.ts` | `confirmCurrent`, `cleanup` | werfen "not implemented" (die übrigen vier sind fertig) |
+| `apps/api/src/i18n/jobs.ts` | `TranslationJobRunner` (`start`, `stop`, `tick`, `requestCancel`), `JobRunnerOptions`, `I18N_JOB_LOCK` | `start`, `stop`, `tick` tun nichts, `requestCancel` wirft |
+| `apps/api/src/modules/i18n/routes.ts` | `i18nRoutes(app, ctx)` | nur A1 |
+| `apps/api/src/modules/i18n/ai-routes.ts` | `i18nAiRoutes(app, ctx)` | leer, registriert |
+| `apps/api/scripts/i18n-apply.ts`, `i18n-report.ts` | (Skripte) | "not implemented", Exit 1 |
+| `apps/api/src/db/seed-i18n.ts` | `seedI18nDemo(db)` | leer, von `seedDemo` aufgerufen |
+
+Web, U4: `components/ai/ai-provider.tsx` `AiProvider({ children })` (gibt nur die Kinder aus);
+`components/ai/assistant.tsx` `AiAssistant()` (null) und `useAiLauncherVisible()` (false);
+`components/ai/explain-action.ts` `ExplainHandler`, `registerExplainHandler`, `explainAvailable`,
+`useExplainAvailable`, `explainError` (fertig, es registriert nur niemand); `components/ai/storage.ts`
+`AI_CHAT_STORAGE_PREFIX`, `clearAiChats` (fertig; `loadAiChat`, `saveAiChat` fehlen); `pages/admin/ai.tsx`
+`AdminAiPage` (nur Kopf).
+
+Web, U1: `pages/admin/translations.tsx` `TranslationsPage` (nur Kopf).
+
+Web, U2: `lib/api-errors.ts` `localizeError` (gibt `errorMessage` zurück); `lib/i18n.tsx` mit statischen Importen
+(Overrides im Speicher, siehe oben); `src/test/i18n.tsx` `withI18n`; `Flag` mit deutschen Labels; dazu die Stellen
+mit `// i18n: U2 replaces this` (`pages/mail/units.ts`, `pages/billing/money.ts`, `pages/hosting/bits.tsx`,
+`mail/templates.ts`, `modules/billing/dto.ts`).
+
+### Was die Einheiten wissen müssen
+
+- **Alle**: Web-Tests rendern mit `withI18n` (Standard en) und `renderToStaticMarkup`. Wer `useApiMutation` oder
+  `ErrorState` rendert, braucht den Provider (beide rufen `useT`). `Spinner` auch.
+- **U4**: `useAiLauncherVisible` wird in `AppShell` vor dem frühen `return null` aufgerufen und darf nur Hooks
+  nutzen, die ausserhalb einer Organisation und ohne Daten funktionieren (`useOptionalOrg`, `useAiStatus`);
+  `app-shell.test.tsx` rendert `/admin` ohne Organisation und erwartet kein `pb-20`. `AiAssistant` steht in jeder
+  `AppShell` (Organisation, Verwaltung, Konto, Startseite ohne Organisation) und muss ausserhalb von `/o/:slug`
+  null sein. `AiProvider` liegt ausserhalb von `Suspense` und innerhalb von `BrowserRouter` und
+  `QueryClientProvider`. Die Feature-Hooks übergeben `errorToast: false` an `useApiMutation`. Die Gespräche hängen
+  nur an der Organisation (`wl-ai-chat:<orgId>`); sie werden beim Abmelden und bei jedem 401 gelöscht.
+- **U2**: `app-shell.tsx` behält die Navigation, `<AiAssistant />`, `clearAiChats()` und das `pb-20 sm:pb-0` auf
+  `<main>`; `app-shell.test.tsx` prüft die Navigation. Die Signatur von `withI18n` bleibt; im lazy Provider muss
+  `boot.dictionary` gelten, denn `withI18n` reicht das kompilierte Wörterbuch über `boot` herein. `localizeError`
+  ersetzt nur den Stub: `useApiMutation`, `ErrorState` und U4 rufen es schon.
+- **U1**: `applyOverride(locale, key, value)` wirkt schon im Speicher; die Übersetzungsseite kann es nach jedem
+  Speichern aufrufen und sieht die Änderung sofort.
+- Die Grösse: der Chunk `primitives-*.js` ist 683 kB (184 kB gzip), weil `lib/i18n.tsx` alle fünf Wörterbücher
+  statisch importiert (F22). U2 macht sie lazy, danach greift `check:chunks`.
+
+### Schlüssel je Abschnitt im F-Commit (de = en; fr, it, nl leer)
+
+core 857, admin 231, ai 307, translations 191, email 54, pdf 44, hosting 320, cloudflare 165, websites 379, mail 389,
+billing 456, cloud 45, storage 189, phone 238, media 429, uptime 308; zusammen 4602.
+
+### Geprüft (Teil 4)
+
+- `pnpm install --frozen-lockfile`: sauber.
+- Prettier mit den vier Globs (inklusive `apps/api/scripts/**/*.ts`): sauber.
+- `pnpm typecheck` (shared, api, web): sauber.
+- `pnpm test` auf der frischen Datenbank `wl_fpart4_1`: shared 587 bestanden (2 übersprungen), web 181, api 1475
+  bestanden (1 übersprungen, der Legal-Schalter); die bekannten Ausfälle in `monitoring.test.ts` traten nicht auf.
+- `pnpm build`: erfolgreich.
+- `python3 -I -m unittest discover -s deploy/cloudpanel-agent/tests`: 90 Tests, OK (1 übersprungen).
+- `git grep -n "@/i18n/" apps/web/src`: leer. Gedankenstrich in den hinzugefügten Zeilen seit `c6c51ad` (auch mit
+  `docs/design`): 0. Scharfes S in `sections/*.de.ts`: keines.
