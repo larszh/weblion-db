@@ -90,12 +90,14 @@ export const useAdminAiSettings = (enabled = true) =>
 // not pull the admin hooks into the main chunk (the assistant in the shell imports it).
 const settingsInvalidations = [aiKeys.settings, aiKeys.status, ['settings', 'integrations']];
 
-export const useSaveAiSettings = (onSuccess?: (result: AiSettingsDto) => void) => {
+/** errorToast false: the caller shows the error (the go-live dialog shows the server's 400 itself). */
+export const useSaveAiSettings = (onSuccess?: (result: AiSettingsDto) => void, errorToast = true) => {
   const t = useT();
   return useApiMutation((body: AiSettingsInput) => api.put<AiSettingsDto>('/admin/ai/settings', body), {
     success: t('common.saved'),
     invalidate: settingsInvalidations,
     onSuccess,
+    errorToast,
   });
 };
 

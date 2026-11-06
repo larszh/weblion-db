@@ -215,11 +215,12 @@ export function AuditView({
 
 export function OrgAuditPage() {
   const { t } = useI18n();
-  const { org } = useOrg();
+  const { org, can } = useOrg();
   return (
     <>
       <PageHeader title={t('nav.audit')} description={t('audit.subtitle')} />
-      <AuditView path={`/orgs/${org.id}/audit`} ai={{ orgId: org.id }} />
+      {/* The summary and the explanations read the audit log, so they need audit:read too (ai 10.3). */}
+      <AuditView path={`/orgs/${org.id}/audit`} ai={can('audit:read') ? { orgId: org.id } : undefined} />
     </>
   );
 }

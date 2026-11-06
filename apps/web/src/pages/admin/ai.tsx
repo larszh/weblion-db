@@ -160,7 +160,7 @@ function StatusBadges({ settings }: { settings: AiSettingsDto }) {
 function StatusCard({ settings }: { settings: AiSettingsDto }) {
   const { t } = useI18n();
   const [goLive, setGoLive] = useState(false);
-  const save = useSaveAiSettings(() => setGoLive(false));
+  const save = useSaveAiSettings(() => setGoLive(false), false);
   const [test, setTest] = useState<AiTestResultDto | null>(null);
   const tester = useTestAi(setTest);
 
@@ -190,6 +190,11 @@ function StatusCard({ settings }: { settings: AiSettingsDto }) {
           <Button size="sm" loading={tester.isPending} onClick={() => tester.mutate(undefined)}>
             {t('admin.ai.status.test')}
           </Button>
+          {!goLive && !!save.error && (
+            <p role="alert" className="w-full text-sm text-danger">
+              {aiErrorText(t, save.error)}
+            </p>
+          )}
           {test && (
             <span className={cn('text-sm', test.ok ? 'text-success' : 'text-danger')}>
               {test.ok
