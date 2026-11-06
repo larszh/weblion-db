@@ -6,6 +6,9 @@ import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { formatDate, formatRelative } from '@/lib/format';
 import { useAudit, type AuditParams } from '@/lib/queries';
+import type { AiScope } from '@/lib/api/ai';
+import { ExplainButton } from '@/components/ai/explain-dialog';
+import { AuditSummaryButton } from '@/components/ai/feature-dialogs';
 import { Button } from '@/components/ui/button';
 import {
   Badge,
@@ -28,10 +31,13 @@ export function ActivityList({
   items,
   compact,
   showOrg,
+  explain,
 }: {
   items: AuditEntryDto[];
   compact?: boolean;
   showOrg?: boolean;
+  /** "Erklären" on failed and denied entries (ai 12.5): the organization's or the admin area's explain. */
+  explain?: AiScope;
 }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState<string | null>(null);
@@ -85,6 +91,16 @@ export function ActivityList({
                   <ChevronRight className="mt-0.5 size-4 text-subtle" />
                 ))}
             </button>
+            {explain && item.status !== 'success' && (
+              <div className="-mt-2 pr-5 pb-2 pl-[3.75rem]">
+                <ExplainButton
+                  scope={explain}
+                  short
+                  className="-ml-3"
+                  source={() => ({ kind: 'audit', auditId: item.id })}
+                />
+              </div>
+            )}
             {expanded && (
               <pre className="mx-5 mb-3 max-h-64 overflow-auto rounded-lg bg-surface-2 p-3 font-mono text-xs text-text">
                 {JSON.stringify(item.details, null, 2)}
@@ -97,7 +113,16 @@ export function ActivityList({
   );
 }
 
-export function AuditView({ path, showOrg }: { path: string; showOrg?: boolean }) {
+export function AuditView({
+  path,
+  showOrg,
+  ai,
+}: {
+  path: string;
+  showOrg?: boolean;
+  /** The AI features of this log (ai 12.5): the summary in the header, "Erklären" on failed entries. */
+  ai?: AiScope;
+}) {
   const { t } = useI18n();
   const [params, setParams] = useState<AuditParams>({ page: 1 });
   const [q, setQ] = useState('');
@@ -137,6 +162,15 @@ export function AuditView({ path, showOrg }: { path: string; showOrg?: boolean }
           <option value="failure">{t('audit.status.failure')}</option>
           <option value="denied">{t('audit.status.denied')}</option>
         </Select>
+        {ai && (
+          <AuditSummaryButton
+            scope={ai}
+            filters={{
+              action: params.action ?? null,
+              status: (params.status as 'success' | 'failure' | 'denied' | undefined) ?? null,
+            }}
+          />
+        )}
       </form>
       {audit.isError ? (
         <div className="p-5">
@@ -148,7 +182,7 @@ export function AuditView({ path, showOrg }: { path: string; showOrg?: boolean }
         <EmptyState title={t('audit.empty')} />
       ) : (
         <div className={cn(audit.isFetching && 'opacity-60')}>
-          <ActivityList items={audit.data.items} showOrg={showOrg} />
+          <ActivityList items={audit.data.items} showOrg={showOrg} explain={ai} />
         </div>
       )}
       {audit.data && audit.data.total > 0 && (
@@ -185,7 +219,7 @@ export function OrgAuditPage() {
   return (
     <>
       <PageHeader title={t('nav.audit')} description={t('audit.subtitle')} />
-      <AuditView path={`/orgs/${org.id}/audit`} />
+      <AuditView path={`/orgs/${org.id}/audit`} ai={{ orgId: org.id }} />
     </>
   );
 }
