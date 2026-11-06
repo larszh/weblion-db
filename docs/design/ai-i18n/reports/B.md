@@ -1,7 +1,9 @@
 # Bericht Einheit B: drei Fehler behoben
 
-Branch `ai-i18n/bugs`, Basis `f0decba`. Jeder Commit ist mit `push-unit.sh B` auf dem Arbeitsbranch
-gesichert, ohne CONFLICT.
+Branch `ai-i18n/bugs`, Basis `f0decba`. Die Commits bis `f8717e2` sind mit `push-unit.sh B` auf dem
+Arbeitsbranch gesichert. Ab `8bf92ef` meldet das Skript CONFLICT in
+`apps/web/src/pages/billing/seller-dialogs.tsx` (siehe "Review", Abschnitt CONFLICT); diese Commits
+liegen nur lokal.
 
 ## Commits
 
@@ -12,7 +14,13 @@ gesichert, ohne CONFLICT.
 | `8c7d8fa` | B: Kündigung auf Termin läuft bis zum Enddatum |
 | `e200009` | B: Vorgemerkte Kündigung anzeigen, ändern und zurücknehmen |
 | `3d43c41` | B: Telefonie-Test sucht % wörtlich |
-| (dieser) | B: Bericht der Fehlerbehebung |
+| `ee13dd9` | B: Bericht der Fehlerbehebung |
+| `a74f36c` | B: Modul bleibt, solange ein anderer Dienst es nutzt |
+| `f8717e2` | B: Kündigung nach dem Enddatum nicht mehr änderbar |
+| `8bf92ef` | B: Kündigungsdialog warnt vor einer voll verrechneten Periode |
+| `3600f2f` | B: TRUST_PROXY lehnt Bereiche ab, die Fastify nicht baut |
+| `7a084da` | B: Docker Compose vertraut nur dem eigenen Netz |
+| (dieser) | B: Befunde der Durchsicht im Bericht |
 
 ## Fehler 2: Suche entfernte `%` und `_`
 
@@ -146,7 +154,9 @@ gesichert, ohne CONFLICT.
 
 ## Neue i18n-Schlüssel (nur de und en, fr/it/nl übersetzt der Integrator)
 
-Abschnitt `billing`, gestempelt mit `i18n:stamp --locale en --section billing` (9 neu).
+Abschnitt `billing`, gestempelt mit `i18n:stamp --locale en --section billing` (9 neu, nach der
+Durchsicht 4 weitere und `endsAtLaterHint` mit neuem Text; die vollständige Liste steht unter
+"Review").
 
 | Schlüssel | de | en |
 |---|---|---|
@@ -174,7 +184,8 @@ Kein Schlüssel umbenannt oder gelöscht.
 
 ## Prüfungen
 
-Alle im Worktree, Stand `3d43c41` (der Bericht ändert keinen Code).
+Erster Stand, im Worktree auf `3d43c41` (der Bericht ändert keinen Code). Die Prüfungen nach der
+Durchsicht stehen unter "Review".
 
 | Prüfung | Ergebnis |
 |---|---|
@@ -215,6 +226,7 @@ hinein. Nicht auf der Liste der bekannten Flakes, deshalb hier gemeldet; nicht w
 - **Keine Gutschrift für schon verrechnete Zeit:** Wer einen Jahresdienst auf ein Datum mitten in der
   bezahlten Periode kündigt, bekommt nichts zurück (wie bisher bei der sofortigen Kündigung). Die letzte
   Periode bis zum Enddatum kostet den vollen Periodenpreis, nur der Rechnungstext endet am Enddatum.
+  Seit der Durchsicht sagt der Dialog das und bietet den Tag vor der Periode an.
 - **Entwurf nach dem Ende gelöscht:** Löscht ein Verkäufer den Entwurf mit der letzten Periode, nachdem
   der Job den Dienst schon beendet hat, wird die Periode nicht mehr fällig (gleich wie bei jedem
   beendeten Dienst). Mit dem Standard "Entwurf" liegt die letzte Periode oft noch im Entwurf, wenn der
@@ -222,3 +234,195 @@ hinein. Nicht auf der Liste der bekannten Flakes, deshalb hier gemeldet; nicht w
 - **Erneute Kündigung** setzt `cancelledAt` auf den Zeitpunkt der letzten Erklärung; das ursprüngliche
   Datum steht im Audit-Protokoll.
 - Die Fehlermeldungen der neuen 409 sind wie die übrigen der API englisch.
+
+## Review
+
+Zwei Durchsichten (Abrechnung und Sicherheit) mit neun Befunden, zwei davon doppelt (1 = 5, 3 ≈ 6).
+Jeder Befund ist entweder behoben, mit Test, oder begründet offen.
+
+### 1 und 5: Endschritt sperrt das Modul trotz eines anderen laufenden Dienstes (behoben, `a74f36c`)
+
+Stimmt: "Modul sperren" wurde bei der Kündigung gewählt, wirkte aber erst Wochen später, ohne neue
+Prüfung. Neu `endModule(tx, service, today)` in `billing/service-end.ts`: sperrt das Modul nur, wenn die
+Organisation keinen anderen Dienst mit demselben Modul hat, der noch läuft (Status `active` oder
+`suspended`, `endsAt` null oder ab heute). Ein Dienst, dessen Enddatum vorbei ist, zählt nicht, er
+wartet nur noch auf sein Ende; so sperrt von zwei Diensten, die am selben Tag enden, der mit der Wahl
+das Modul. Die Zeile der Organisation wird zuerst gesperrt, wie es `activateModule` beim Anlegen tut:
+Ein gleichzeitig mit dem Modul angelegter Dienst wird gesehen oder schaltet es danach wieder ein.
+
+- Gilt für den Endschritt und für die sofortige Kündigung (gleiche Regel, sonst hinge das Ergebnis vom
+  Zeitpunkt ab).
+- Audit: `service.end` und `service.cancel` haben bei behaltenem Modul `moduleDeactivated: null,
+  moduleKept: '<modul>'`; beim Sperren unverändert `moduleDeactivated: '<modul>'` ohne `moduleKept`.
+- Web: Der Kündigungsdialog bekommt die Dienste des Kunden und zeigt bei eingeschaltetem "Modul sperren"
+  die Dienste, die das Modul halten (`servicesKeepingModule` in `pages/billing/service-end.ts`, dieselbe
+  Regel). `scheduledEndOf` ist dorthin umgezogen (reine Funktionen der Kündigung, ohne React).
+- Offen gelassen: Hält ein Dienst ohne Wahl das Modul und endet später, bleibt das Modul danach aktiv,
+  obwohl der erste Dienst "sperren" gewählt hatte. Die Wahl gehört zum Dienst, nicht zum Modul; der
+  Verkäufer sieht `moduleKept` im Audit und sperrt beim zweiten Dienst.
+- Tests (`billing-cancel.test.ts`, "module at the end", 4): Paketwechsel (alter Dienst endet, neuer mit
+  demselben Modul beginnt am Tag danach: Modul bleibt, Audit `moduleKept`), zwei vorgemerkte Enden (erst
+  das zweite sperrt), zwei Enden am selben Tag (Modul geht), sofortige Kündigung mit einem anderen
+  aktiven bzw. pausierten Dienst. Web `service-end.test.ts`: welche Dienste das Modul halten.
+
+### 2: Ende auf oder kurz nach einem Rechnungstag kostet eine ganze Periode (behoben, `8bf92ef`)
+
+Stimmt, und die Regel selbst bleibt (jede Periode, die bis zum Enddatum beginnt, voll, nicht anteilig;
+anteilige Rechnungen gibt es in der Console nirgends). Behoben ist, dass der Verkäufer es nicht sah:
+
+- `FullPeriodNotice` im `CancelServiceDialog`: Liegt das gewählte Datum nach heute und auf oder nach
+  `nextBillingAt` eines aktiven, wiederkehrenden Dienstes, steht dort "Die Periode ab {date} wird noch
+  voll verrechnet ({price})" (Betrag netto, Menge mal Preis) und ein Knopf "Stattdessen per {Tag davor}
+  kündigen", der das Datum setzt. Den Knopf gibt es nicht, wenn der Tag davor schon vorbei ist (die
+  Periode hat begonnen und ist fällig). Logik in `fullPeriodAhead()`.
+- `billing.service.endsAtLaterHint` neu formuliert (eigener, noch nicht übersetzter Schlüssel): sagt,
+  dass jede Periode, die bis zu diesem Tag beginnt, voll verrechnet wird, nicht anteilig.
+- `docs/billing.md`: voller Periodenpreis, der Hinweis im Dialog, der Fall Rechnungstag am Monatsende.
+- Tests: `service-end.test.ts` (`fullPeriodAhead`: Start am 31.08 und "per Ende November", Jahresdienst
+  aus dem Befund, keine Warnung vor der Periode, heute, pausiert, einmalig, ohne Datum; Knopf nur, wenn
+  der Tag davor nicht vorbei ist), `tables.test.tsx` (`FullPeriodNotice` mit Text, Betrag und Knopf,
+  leer vor der Periode).
+
+### 3 und 6: "Kündigung ändern" nach dem Enddatum verwirft die letzte Periode (behoben, `f8717e2`)
+
+Stimmt. `POST /services/:id/cancel` antwortet jetzt 409 ("The end date of the cancellation has passed"),
+wenn eine vorgemerkte Kündigung ihr Enddatum hinter sich hat, gleich wie Withdraw. Das gilt für jedes
+neue Datum: heute oder früher hätte `nextBillingAt` geleert und die Periode verworfen, ein späteres
+hätte den Dienst wieder geöffnet. Eine Abfrage nur bei offener Periode (Variante aus Befund 3) hätte
+das Wiederöffnen offen gelassen; ohne offene Periode endet der Dienst ohnehin beim nächsten Lauf.
+
+- Web: Das Menü zeigt "Kündigen"/"Kündigung ändern" und "Kündigung zurücknehmen" nur bis zum Enddatum
+  (`endPassed`, dieselbe Prüfung wie bisher `withdrawable`). Der Dialog sagt bei einer vorgemerkten
+  Kündigung nicht mehr "Standard ist heute.", nur den Hinweis zum späteren Datum.
+- `docs/billing.md`: nach dem Enddatum 409 auf beiden Routen und warum.
+- Test "cannot be changed once the end date has passed, so the periods up to it stay due": ohne Datum,
+  mit heute, mit 2099-12-31 und mit Modulwahl je 409; Dienst, Rechnungsdatum und Modul unverändert;
+  danach rechnet "Fällige Dienste abrechnen" die Periode bis zum Enddatum ab, und der Endschritt beendet
+  den Dienst.
+
+### 4: Ein Dienst, den der Lauf immer überspringt, endet nie (teilweise behoben, `f8717e2`)
+
+Stimmt. Das gilt schon vor dieser Einheit für jeden übersprungenen Dienst (er bleibt fällig, der Lauf
+warnt im Log, "Fällige Dienste abrechnen" zeigt die Meldung zur Währung). Automatisch beenden nach einer
+Frist, wie im Befund vorgeschlagen, verwirft Perioden ohne Zutun und widerspricht genau dem, was der
+Endschritt verspricht. Deshalb nur sichtbar gemacht und den Ausweg festgehalten:
+
+- Die Dienste-Tabelle (Kunde und Verkäufer) zeigt bei einem Dienst, dessen Enddatum vorbei ist und der
+  noch eine Periode bis dahin offen hat, "Gekündigt per {date}, endet, sobald bis dahin abgerechnet ist"
+  statt "Gekündigt per {date}" (`waitsForBilling`). `ServiceTable` hat dafür ein optionales `today` für
+  Tests.
+- Ausweg (`docs/billing.md`): Periode von Hand verrechnen, dann unter "Bearbeiten" die nächste Rechnung
+  leeren; der Endschritt beendet den Dienst danach und sperrt das Modul, falls gewählt.
+- Kein Hinweis für Admins ausserhalb der Tabelle (Log-Warnung wie bisher).
+- Tests: API "keeps a service the run skips until the seller clears its billing date" (Dienst in EUR bei
+  einem CHF-Kunden bleibt 30 Tage nach dem Ende aktiv, Modul bleibt; nach `PATCH nextBillingAt: null`
+  endet er, Modul aus), Web `tables.test.tsx` (Text nach dem Enddatum, nicht davor und nicht nach der
+  Abrechnung) und `service-end.test.ts` (`endPassed`, `waitsForBilling`).
+
+### 7: TRUST_PROXY nimmt Bereiche an, an denen Fastify scheitert (behoben, `3600f2f`)
+
+Stimmt (`@fastify/proxy-addr` 5.1.1, `parseipNotation`: Bereich `<= 0` oder Netzmaske mit Lücken wirft
+`TypeError: invalid range`). `validProxyAddress` verlangt jetzt ein Präfix von 1 bis 32 bzw. 128 und eine
+zusammenhängende Netzmaske ausser `0.0.0.0`. Allen trauen heisst weiterhin `true`. Test "refuses the
+ranges proxy-addr refuses and accepts the ones it builds": `0.0.0.0/0`, `::/0`, `10.0.0.0/0.0.0.0`,
+`10.0.0.0/255.0.255.0`, `10.0.0.0/0.0.0.1` scheitern an `loadEnv` mit der TRUST_PROXY-Meldung und, zum
+Beweis, an `Fastify()`; `/1`, `/32`, `::/1`, `::1/128`, `128.0.0.0`, `255.255.255.0`, `255.255.255.255`
+werden angenommen und von Fastify gebaut. `docs/deployment.md`: Präfix ab 1, Netzmaske ohne Lücken.
+
+### 8: `loopback,uniquelocal` in Docker Compose lässt private Clients ihre IP wählen (behoben, `7a084da`)
+
+Stimmt: Der Proxy auf dem Host hängt die Adresse seines Clients an; ist sie privat (LAN, VPN,
+Tailscale), war sie selbst vertrauenswürdig, und der gefälschte Eintrag davor zählte.
+
+- `docker-compose.yml`: Das Standardnetz hat einen festen Bereich, `'${CONSOLE_SUBNET:-172.30.0.0/24}'`,
+  und `TRUST_PROXY` ist standardmässig `'${TRUST_PROXY:-loopback,${CONSOLE_SUBNET:-172.30.0.0/24}}'`.
+  Verschachtelte Variablen mit `docker compose config` (v5.6.1) geprüft: leer, mit `CONSOLE_SUBNET`,
+  mit eigenem `TRUST_PROXY`, mit leerem `TRUST_PROXY`. Hier läuft kein Docker-Daemon, `up` ist also nicht
+  ausprobiert.
+- Warum der ganze /24 und nicht nur das Gateway: Im Netz sind nur die eigenen Container (Datenbank,
+  Console, allenfalls ein Proxy-Container), und das Gateway lässt sich in Compose nicht aus dem Bereich
+  ableiten.
+- `.env.example` (`CONSOLE_SUBNET=`, leer heisst 172.30.0.0/24) und `docs/deployment.md` (warum nicht
+  `uniquelocal`, "Pool overlaps", einmal `down`/`up -d` bei bestehenden Installationen).
+- Test "trusts only its own network in docker-compose.yml, not every private range" liest die Datei:
+  Standard und Netz nennen denselben Bereich; vom Gateway mit `X-Forwarded-For: 6.6.6.6, 10.8.0.5` ergibt
+  `10.8.0.5`, ebenso für eine ULA-Adresse; der alte Standard ergab `6.6.6.6`.
+
+### 9: Vor dem Fix auf ein späteres Datum gekündigte Dienste bleiben beendet (nicht im Code, für den Inhaber)
+
+Stimmt. Die alte Route setzte bei einem späteren Datum `status = 'cancelled'`, `nextBillingAt = null` und
+sperrte ein gewähltes Modul sofort. Diese Zeilen bleiben so. Kein Datenschritt, weil die Folgen eine
+Entscheidung brauchen: Wieder aktiv hiesse, Perioden seit der Kündigung nachträglich zu verrechnen und
+ein Modul wieder einzuschalten, das der Kunde seither nicht hatte; ein Teil der Verkäufer hat das
+spätere Datum vielleicht nur als Vermerk gesetzt. Zum Auflisten vor dem Deploy (danach entstehen
+Zeilen dieser Form auch regulär durch den Endschritt):
+
+```sql
+select s.id, o.name as kunde, s.name, s.module, s.ends_at, s.cancelled_at
+from services s join organizations o on o.id = s.org_id
+where s.status = 'cancelled'
+  and s.ends_at > (s.cancelled_at at time zone 'Europe/Zurich')::date
+order by s.ends_at;
+```
+
+Nach dem Deploy dieselbe Abfrage mit `and not exists (select 1 from audit_logs a where a.resource_id =
+s.id::text and a.action = 'service.end')`. Der Audit-Eintrag `service.cancel` der alten Route nennt
+`endsAt` und `moduleDeactivated`. Soll ein Dienst als vorgemerkte Kündigung weiterlaufen, geht das nur
+in der Datenbank: `status = 'active'`, `next_billing_at` = Beginn der Periode nach der zuletzt
+verrechneten (`max(period_start)` seiner Rechnungszeilen plus ein Intervall, sonst `starts_at`),
+`deactivate_module_at_end` nach dem Audit-Eintrag, das Modul wieder einschalten. Mit Zeilen, deren
+`ends_at` schon vorbei ist, nichts tun.
+
+### Neue und geänderte i18n-Schlüssel (vollständige Liste dieser Einheit)
+
+Alle im Abschnitt `billing`, nur de und en, gestempelt mit `i18n:stamp --locale en --section billing`.
+fr, it und nl fehlen für alle 13 (erwartet, der Integrator übersetzt).
+
+| Schlüssel | de | en |
+|---|---|---|
+| `billing.service.cancelledPer` | Gekündigt per {date} | Cancelled effective {date} |
+| `billing.service.endWaitsForBilling` (neu) | Gekündigt per {date}, endet, sobald bis dahin abgerechnet ist | Cancelled effective {date}, ends once it is billed up to then |
+| `billing.service.moduleOffAtEnd` | Modul «{module}» wird dann gesperrt | The module "{module}" is deactivated then |
+| `billing.service.moduleKept` (neu) | Das Modul bleibt aktiv, solange der Kunde noch einen anderen Dienst damit hat: {names}. | The module stays active while the customer still has another service with it: {names}. |
+| `billing.service.cancelledLater` | Dienst «{name}» gekündigt per {date} | Service "{name}" cancelled effective {date} |
+| `billing.service.endsAtLaterHint` (neuer Text) | Mit einem späteren Datum läuft der Dienst bis zu diesem Tag weiter, ein gewähltes Modul wird erst dann gesperrt. Jede Periode, die bis zu diesem Tag beginnt, wird voll verrechnet, nicht anteilig. | With a later date the service keeps running until that day, a chosen module is only deactivated then. Every period that starts up to that day is billed in full, not pro rata. |
+| `billing.service.fullPeriod` (neu) | Die Periode ab {date} wird noch voll verrechnet ({price}). | The period from {date} is still billed in full ({price}). |
+| `billing.service.endBeforePeriod` (neu) | Stattdessen per {date} kündigen | Cancel effective {date} instead |
+| `billing.service.changeCancel` | Kündigung ändern | Change cancellation |
+| `billing.service.withdrawCancel` | Kündigung zurücknehmen | Withdraw cancellation |
+| `billing.service.withdrawCancelTitle` | Kündigung von «{name}» zurücknehmen? | Withdraw the cancellation of "{name}"? |
+| `billing.service.withdrawCancelText` | Der Dienst läuft danach ohne Enddatum weiter und wird wie bisher abgerechnet. | The service then keeps running without an end date and is billed as before. |
+| `billing.service.cancelWithdrawn` | Kündigung von «{name}» zurückgenommen | Cancellation of "{name}" withdrawn |
+
+`endWaitsForBilling` steht nach `cancelledPer`, `moduleKept` nach `deactivateModuleHint`, `fullPeriod`
+und `endBeforePeriod` nach `endsAtLaterHint`. Kein Schlüssel umbenannt oder gelöscht, kein bestehender
+(übersetzter) Text geändert.
+
+### Neue Felder und Antworten
+
+- Audit-Details: `moduleKept` in `service.end` und `service.cancel`.
+- `POST /services/:id/cancel`: 409 nach dem Enddatum einer vorgemerkten Kündigung.
+- Compose: Variable `CONSOLE_SUBNET`, Netz `default` mit festem Bereich.
+
+### Prüfungen nach der Durchsicht
+
+Im Worktree auf `7a084da`, frische Datenbank `wl_bugs_9`.
+
+| Prüfung | Ergebnis |
+|---|---|
+| `pnpm typecheck` | sauber (shared, api, web) |
+| `prettier --check` (die fünf Muster) | sauber |
+| `pnpm --filter @weblion/api i18n:stamp --check` | 64 Dateien aktuell, 0 veraltet |
+| `pnpm build` | erfolgreich (api tsup, web vite) |
+| `pnpm test` (`wl_bugs_9`) | grün im ersten Lauf: shared 587 bestanden / 2 übersprungen, web 190 bestanden (14 Dateien), api 1504 bestanden / 1 übersprungen (52 Dateien) |
+
+`monitoring.test.ts` und `hosting.test.ts` waren grün.
+
+### CONFLICT
+
+Ab `8bf92ef` meldet `push-unit.sh B` CONFLICT in `apps/web/src/pages/billing/seller-dialogs.tsx`, gegen
+`6578eea` ("U4: WIP Produkttexte mit KI und Produktübersetzungen") auf dem Arbeitsbranch. Nicht
+aufgelöst, nichts gemergt. Der Konflikt ist nur die Importliste aus `@weblion/shared`: B fügt nach
+`formatMoney,` die Zeile `lineTotal,` ein, U4 an derselben Stelle `productText,`. Auflösung: beide
+Zeilen behalten. Die übrigen Änderungen beider Seiten in der Datei überschneiden sich nicht
+(`AddServiceDialog` bei U4, `CancelServiceDialog` und `FullPeriodNotice` bei B).
