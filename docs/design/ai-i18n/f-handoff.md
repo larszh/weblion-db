@@ -328,3 +328,15 @@ zusammen 4602.
   `createTestApp({ env: { ANTHROPIC_BASE_URL: mock.url } })`). Für eine andere Umgebung (ohne Demo-Anbieter, mit
   `ANTHROPIC_API_KEY`) einen zweiten `AiService` mit `{ ...t.ctx, env: { ... } }` bauen; sein Cache gilt 10 s,
   also nach einer Änderung `resetClient()` aufrufen.
+
+### Geprüft (Teil 3)
+
+- `pnpm typecheck` (shared, api, web): sauber.
+- Prettier mit den vier CI-Globs: sauber.
+- `pnpm test` auf der frischen Datenbank `wl_fpart3_6`: shared 587 bestanden (2 übersprungen), web 165, api 1475
+  bestanden (1 übersprungen, der Legal-Schalter); die bekannten Ausfälle in `monitoring.test.ts` traten nicht auf.
+- `pnpm build`: erfolgreich.
+- Review-Greps aus Plan 8.3 für `apps/api/src/modules/ai`: keine Sampling-Felder, kein `budget_tokens`, kein
+  `tool_choice` ausser auto, keine datierten Modell-IDs, kein `fetch(` (nur `demoFetch`), kein `api.anthropic.com`
+  in `apps/api/test`, kein scharfes S in `apps/api/src/mail` und `modules/ai`, kein Gedankenstrich in den
+  hinzugefügten Zeilen.
