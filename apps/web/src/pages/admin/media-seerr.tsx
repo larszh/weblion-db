@@ -9,7 +9,7 @@ import {
   type MediaSeerrDto,
   type MediaSeerrProblem,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { formatRelative } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';

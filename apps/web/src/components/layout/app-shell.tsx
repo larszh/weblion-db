@@ -47,7 +47,7 @@ import { useI18n } from '@/lib/i18n';
 import { useOptionalOrg } from '@/lib/org-context';
 import { useTheme } from '@/lib/theme';
 import { useMe } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/menu';
 
 interface NavItem {

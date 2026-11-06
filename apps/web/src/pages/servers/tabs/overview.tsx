@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { formatDate, formatDuration, formatMemoryMb, formatPercent, formatRelative } from '@/lib/format';
 import { useServerMetrics, useServerTasks } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import {
   Badge,
   Card,

@@ -1,5 +1,11 @@
 import { eq } from 'drizzle-orm';
-import { allowedActions, PLATFORM_PERMISSIONS, type MeDto, type UserDto } from '@weblion/shared';
+import {
+  allowedActions,
+  normalizeLocale,
+  PLATFORM_PERMISSIONS,
+  type MeDto,
+  type UserDto,
+} from '@weblion/shared';
 import type { Database } from '../db/client';
 import { memberships, organizations, type User } from '../db/schema';
 import type { AuthState } from '../auth/types';
@@ -13,7 +19,8 @@ export function toUserDto(user: User): UserDto {
     name: user.name,
     platformRole: user.platformRole ?? null,
     mfaEnabled: user.totpEnabled,
-    locale: user.locale,
+    // Rows written before the five locales (or by hand) may carry de-CH, EN or anything else.
+    locale: normalizeLocale(user.locale) ?? 'de',
     status: user.status,
     createdAt: user.createdAt.toISOString(),
     lastLoginAt: iso(user.lastLoginAt),

@@ -7,7 +7,7 @@ import type {
   MediaAllowanceDto,
   MediaRequestsInfoDto,
 } from '@weblion/shared';
-import { en } from '@/i18n/en';
+import { en } from '@weblion/shared/i18n/en';
 import { I18nProvider } from '@/lib/i18n';
 import { TooltipProvider } from '@/components/ui/menu';
 import { MediaAllowanceFigures } from './bits';

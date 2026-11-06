@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { CloudDownload, HardDrive, Link2, Pencil, Plus, Search, Trash2, Unlink, Users } from 'lucide-react';
-import {
-  MODULE_DEFS,
-  type AdminOrgDto,
-  type CloudAccountDto,
-  type CloudAllowanceDto,
-  type Permission,
-  type ProviderConnectionDto,
+import type {
+  AdminOrgDto,
+  CloudAccountDto,
+  CloudAllowanceDto,
+  Permission,
+  ProviderConnectionDto,
 } from '@weblion/shared';
 import { formatBytes } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
@@ -197,7 +196,7 @@ function AdminAllowanceDialog({
   const options = providers.data ?? [];
   const selected = providerId || options[0]?.id || '';
   const hasModule = org.modules.includes('storage');
-  const moduleLabel = MODULE_DEFS.storage.label[locale];
+  const moduleLabel = t('module.storage.label');
   const resellerLacks = !!parent && !parent.modules.includes('storage');
   // The instance can only change while nothing lives on the current one (no accounts and,
   // for a reseller, no customer allowances).

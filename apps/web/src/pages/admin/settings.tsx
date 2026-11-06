@@ -27,7 +27,7 @@ import {
   useZohoTest,
   type MailResult,
 } from '@/lib/api/admin';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';

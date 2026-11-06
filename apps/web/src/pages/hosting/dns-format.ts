@@ -5,7 +5,7 @@ import {
   type DnsRecordInput,
   type DnsRecordType,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 
 /**
  * Client side checks for DNS records and name servers. They mirror the API rules (generic

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Eraser } from 'lucide-react';
 import { CDN_SSL_MODES, type CdnSettings, type CdnSslMode, type DomainDetailDto } from '@weblion/shared';
 import { useI18n, type TFunction } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { useDnsRecords } from '@/lib/api/hosting';
 import { useCdnSettings, usePurgeCache, useUpdateCdnSetting } from '@/lib/api/zones';
 import { Button } from '@/components/ui/button';

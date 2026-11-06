@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Building2, CircleAlert, Cloud, Server, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { formatRelative } from '@/lib/format';
 import { useAdminActions, useAdminStats } from '@/lib/queries';
 import {

@@ -6,7 +6,7 @@ import { cn } from '@/lib/cn';
 import { useT } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { useServer } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { CopyButton, ErrorState, LoadingBlock, Mono, Spinner } from '@/components/ui/primitives';
 import { Flag, KindIcon, LabelChips, ProviderBadge, SpecsLine, StatusLabel } from '@/components/server-bits';

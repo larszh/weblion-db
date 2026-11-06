@@ -20,7 +20,7 @@ import {
   type MediaRequestsAccess,
   type MediaRequestsConflict,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatNumber, type Locale } from '@/lib/format';

@@ -18,7 +18,7 @@ import {
   type MonitorStatus,
   type MonitorTargetInput,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { ApiError, errorMessage } from '@/lib/api';
 import type { CreateMonitorInput, MonitorPatchInput } from '@/lib/api/monitoring';
 import { cn } from '@/lib/cn';

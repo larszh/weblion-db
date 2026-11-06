@@ -6,7 +6,7 @@ import type { InvitationInfoDto } from '@weblion/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { qk, useMe } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { ErrorState, Field, Input, Spinner } from '@/components/ui/primitives';
 import { AuthLayout } from './login';

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ExternalLink, Link2, MoreHorizontal, Phone, Plus, RefreshCw, Search, Unlink } from 'lucide-react';
-import { MODULE_DEFS, type AdminOrgDto, type Permission, type PhoneSystemDto } from '@weblion/shared';
+import type { AdminOrgDto, Permission, PhoneSystemDto } from '@weblion/shared';
 import { formatDate, formatRelative } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
 import { useAdminOrgs, useAdminProviders, useMe } from '@/lib/queries';
@@ -404,13 +404,13 @@ function orgLabel(t: TFunction, org: AdminOrgDto): string {
  * module switch. The reseller of a customer needs the module itself (the API checks it too).
  */
 function AssignPhoneSystemDialog({ system, onClose }: { system: PhoneSystemDto; onClose: () => void }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const orgs = useAdminOrgs();
   const current = system.org;
   const [orgId, setOrgId] = useState(current?.id ?? '');
   const [filter, setFilter] = useState('');
   const [enableModule, setEnableModule] = useState(true);
-  const moduleLabel = MODULE_DEFS.phone.label[locale];
+  const moduleLabel = t('module.phone.label');
   const all = orgs.data ?? [];
   const byId = new Map(all.map((o) => [o.id, o]));
   const selected = byId.get(orgId) ?? null;

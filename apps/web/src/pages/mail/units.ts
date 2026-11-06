@@ -1,7 +1,5 @@
 import { MAIL_MIB } from '@weblion/shared';
 import type { Locale } from '@/lib/format';
-import { mailDe } from '@/i18n/sections/mail.de';
-import { mailEn } from '@/i18n/sections/mail.en';
 
 /**
  * Sizes of mail domains and mailboxes. Mailcow takes whole MiB, the API answers in bytes.
@@ -50,10 +48,9 @@ export function fromBytes(bytes: number): SizeValue {
   return { value: Number.isInteger(mb) ? String(mb) : String(Math.round(mb * 100) / 100), unit: 'MB' };
 }
 
-const UNLIMITED: Record<Locale, string> = {
-  de: mailDe['mail.units.unlimited'],
-  en: mailEn['mail.units.unlimited'],
-};
+// i18n: U2 replaces this (formatMailSize with t and intlLocale, i18n 2.3). Until then the texts of the key
+// mail.units.unlimited, English for fr, it and nl; dictionaries are imported only by lib/i18n.tsx.
+const UNLIMITED = (locale: Locale) => (locale === 'de' ? 'unbegrenzt' : 'unlimited');
 
 const number = (value: number, locale: Locale, digits: number) =>
   new Intl.NumberFormat(locale === 'de' ? 'de-CH' : 'en-GB', { maximumFractionDigits: digits }).format(value);
@@ -71,7 +68,7 @@ export function formatMailSize(
   options: { zeroUnlimited?: boolean } = {},
 ): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return '–';
-  if (bytes === 0 && options.zeroUnlimited) return UNLIMITED[locale];
+  if (bytes === 0 && options.zeroUnlimited) return UNLIMITED(locale);
   const wholeMib = bytes % MIB === 0;
   const gb = bytes / GIB;
   if (Math.abs(gb) >= 1 && (!wholeMib || Number.isInteger(gb * 10))) return `${number(gb, locale, 1)} GB`;

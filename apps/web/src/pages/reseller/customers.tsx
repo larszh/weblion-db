@@ -12,13 +12,7 @@ import {
   Search,
   Undo2,
 } from 'lucide-react';
-import {
-  DEFAULT_MODULES,
-  MODULE_DEFS,
-  formatMoney,
-  type ModuleKey,
-  type ResellerCustomerDto,
-} from '@weblion/shared';
+import { DEFAULT_MODULES, formatMoney, type ModuleKey, type ResellerCustomerDto } from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
@@ -35,7 +29,7 @@ import {
   type ResellerCustomerCreated,
   type ResourceType,
 } from '@/lib/api/admin';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import {
@@ -491,7 +485,7 @@ function OverviewTab({ customer }: { customer: ResellerCustomerDto }) {
         description={
           disabling
             ? t('admin.modules.disableText', {
-                module: MODULE_DEFS[disabling].label[locale],
+                module: t(`module.${disabling}.label`),
                 name: customer.name,
               })
             : undefined
@@ -559,7 +553,7 @@ function AssignDialog({
   pool: CustomerResources['pool'];
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { org } = useOrg();
   const [selected, setSelected] = useState('');
   const def = RESOURCE_TYPES.find((r) => r.type === type);
@@ -613,7 +607,7 @@ function AssignDialog({
           )}
           {!customer.modules.includes(def.module) && (
             <Notice tone="warning">
-              {t('admin.resources.enablesModule', { module: MODULE_DEFS[def.module].label[locale] })}
+              {t('admin.resources.enablesModule', { module: t(`module.${def.module}.label`) })}
             </Notice>
           )}
         </div>
@@ -623,7 +617,7 @@ function AssignDialog({
 }
 
 function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { org, can } = useOrg();
   const canWrite = can('reseller:customer:write');
   const resources = useCustomerResources(org.id, customer.id);
@@ -661,7 +655,7 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
               title={t(`admin.resources.title.${def.type}` as TranslationKey)}
               description={
                 <>
-                  {MODULE_DEFS[def.module].label[locale]}
+                  {t(`module.${def.module}.label`)}
                   {' · '}
                   {t('admin.resources.poolCount', { n: pool.length })}
                 </>

@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import {
   DEFAULT_MODULES,
-  MODULE_DEFS,
   ORG_KINDS,
   formatMoney,
   type AdminOrgDto,
@@ -24,7 +23,7 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { formatDate } from '@/lib/format';
-import { qk, useAdminOrg, useAdminServers, useApiMutation, useMe, useMeta } from '@/lib/queries';
+import { qk, useAdminOrg, useAdminServers, useApiMutation, useMe } from '@/lib/queries';
 import {
   useAdminOrgList,
   useCreateAdminOrg,
@@ -426,8 +425,7 @@ function buildBoundary(denied: string[]): PolicyStatement[] {
 }
 
 function BoundaryCard({ org, canWrite }: { org: AdminOrgDto; canWrite: boolean }) {
-  const { t, locale } = useI18n();
-  const meta = useMeta();
+  const { t } = useI18n();
   const simple = parseSimpleBoundary(org.boundary);
   const [denied, setDenied] = useState<string[]>(simple ?? []);
   const [advanced, setAdvanced] = useState(simple === null);
@@ -493,7 +491,7 @@ function BoundaryCard({ org, canWrite }: { org: AdminOrgDto; canWrite: boolean }
                   className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
                 >
                   <span className="min-w-0 text-sm">
-                    {meta.data?.permissions[p]?.label[locale] ?? p}
+                    {t(`perm.${p}`)}
                     <Mono className="block truncate text-[11px] text-subtle">{p}</Mono>
                   </span>
                   <Switch
@@ -534,7 +532,7 @@ function ModulesCard({
   parent: AdminOrgDto | undefined;
   canWrite: boolean;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const update = useUpdateAdminOrg(org.id, t('common.saved'));
   const [disabling, setDisabling] = useState<ModuleKey | null>(null);
   const resellerWithCustomers = org.kind === 'reseller' && org.counts.customers > 0;
@@ -566,7 +564,7 @@ function ModulesCard({
         description={
           disabling
             ? t(resellerWithCustomers ? 'admin.modules.disableReseller' : 'admin.modules.disableText', {
-                module: MODULE_DEFS[disabling].label[locale],
+                module: t(`module.${disabling}.label`),
                 name: org.name,
               })
             : undefined

@@ -4,7 +4,7 @@ import type { PowerAction, ServerDto } from '@weblion/shared';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { qk, useApiMutation } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { Menu, MenuItem, MenuLabel } from '@/components/ui/menu';

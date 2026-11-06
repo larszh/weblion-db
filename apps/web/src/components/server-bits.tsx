@@ -3,7 +3,7 @@ import { Box, Server as ServerIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { formatMemoryMb } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 
 const STATUS_STYLE: Record<ServerStatus, { dot: string; text: string; pulse?: boolean }> = {
   running: { dot: 'bg-success', text: 'text-success' },

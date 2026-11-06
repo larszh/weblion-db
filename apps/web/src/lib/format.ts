@@ -1,4 +1,5 @@
-export type Locale = 'de' | 'en';
+export type { Locale } from '@weblion/shared';
+import type { Locale } from '@weblion/shared';
 
 const intlLocale = (locale: Locale) => (locale === 'de' ? 'de-CH' : 'en-GB');
 

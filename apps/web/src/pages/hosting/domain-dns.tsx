@@ -20,7 +20,7 @@ import {
 } from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { useI18n, type TFunction } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { useDnsMutations, useDnsRecords } from '@/lib/api/hosting';
 import { useToggleProxy } from '@/lib/api/zones';
 import { Button } from '@/components/ui/button';

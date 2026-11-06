@@ -112,5 +112,7 @@ export function unitForInterval(interval: BillingInterval, locale: Locale): stri
     quarterly: { de: 'Quartal', en: 'quarter' },
     yearly: { de: 'Jahr', en: 'year' },
   };
-  return units[interval][locale];
+  // i18n: U2 replaces this with unitForInterval(interval, t) and the keys billing.unit.* (i18n 2.3); English
+  // for fr, it and nl until then.
+  return units[interval][locale === 'de' ? 'de' : 'en'];
 }

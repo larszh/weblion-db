@@ -14,13 +14,7 @@ import {
   Search,
   Unlink,
 } from 'lucide-react';
-import {
-  MODULE_DEFS,
-  type AdminOrgDto,
-  type DomainDto,
-  type ModuleKey,
-  type WebspaceDto,
-} from '@weblion/shared';
+import type { AdminOrgDto, DomainDto, ModuleKey, WebspaceDto } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/lib/i18n';
 import { useAdminOrgs, useAdminProviders, useMe } from '@/lib/queries';
@@ -664,7 +658,7 @@ function orgLabel(t: ReturnType<typeof useI18n>['t'], org: AdminOrgDto): string 
 }
 
 function AssignDialog({ item, onClose }: { item: Item; onClose: () => void }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const orgs = useAdminOrgs();
   const current = item.row.org;
   const [orgId, setOrgId] = useState(current?.id ?? '');
@@ -672,7 +666,7 @@ function AssignDialog({ item, onClose }: { item: Item; onClose: () => void }) {
   const [enableModule, setEnableModule] = useState(true);
   const [unassigning, setUnassigning] = useState(false);
   const module = MODULE_OF[item.type];
-  const moduleLabel = MODULE_DEFS[module].label[locale];
+  const moduleLabel = t(`module.${module}.label`);
   const assign = useAssignHosting({
     success: (vars) =>
       vars.orgId

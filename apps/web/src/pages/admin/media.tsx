@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import {
   MEDIA_MAX_STREAMS,
-  MODULE_DEFS,
   isMediaAccountCode,
   mediaAccessExceeds,
   mediaRequestsExceed,
@@ -34,7 +33,7 @@ import {
   type ProviderConnectionDto,
   type UnmanagedMediaUserDto,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { useI18n, type TFunction } from '@/lib/i18n';
 import { useAdminOrgs, useAdminProviders, useMe } from '@/lib/queries';
 import { useProviderSync } from '@/lib/api/hosting';
@@ -1233,7 +1232,7 @@ function MediaAllowanceDialog({
   /** The policy and Seerr writes the change caused (failed accounts are shown on the card). */
   onResult: (result: MediaAllowanceChangeResult) => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const providers = useMediaProviders();
   const options = providers.data ?? [];
   const currentProvider = current?.provider?.id ?? '';
@@ -1266,7 +1265,7 @@ function MediaAllowanceDialog({
 
   const live = libraries.data ?? [];
   const hasModule = org.modules.includes('media');
-  const moduleLabel = MODULE_DEFS.media.label[locale];
+  const moduleLabel = t('module.media.label');
   const resellerLacks = !!parent && !parent.modules.includes('media');
   // The instance can only change while nothing lives on the current one (no accounts and, for a
   // reseller, no customer allowances); the code only while the organization has no own accounts.
