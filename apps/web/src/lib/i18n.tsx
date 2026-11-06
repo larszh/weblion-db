@@ -50,9 +50,9 @@ export interface I18nContextValue {
   /** Loads the chunk and overrides of `next`, then switches and stores it in localStorage['wl-locale']. */
   setLocale(next: Locale): Promise<void>;
   t: TFunction;
-  /** After a save in the translation admin: one override changed (value) or was reverted (null). F: no-op. */
+  /** After a save in the translation admin: one override changed (value) or was reverted (null). F: in memory. */
   applyOverride(locale: Locale, key: string, value: string | null): void;
-  /** Replaces all overrides of a locale (background revalidation). F: no-op. */
+  /** Replaces all overrides of a locale (background revalidation). F: in memory. */
   applyOverrides(locale: Locale, values: Record<string, string>): void;
 }
 

@@ -876,9 +876,9 @@ export interface I18nContextValue {
   /** Loads the chunk and overrides of `next`, then switches and stores it in localStorage['wl-locale']. */
   setLocale(next: Locale): Promise<void>;
   t: TFunction;
-  /** After a save in the translation admin: one override changed (value) or was reverted (null). F: no-op. */
+  /** After a save in the translation admin: one override changed (value) or was reverted (null). F: in memory only. */
   applyOverride(locale: Locale, key: string, value: string | null): void;
-  /** Replaces all overrides of a locale (background revalidation). F: no-op. */
+  /** Replaces all overrides of a locale (background revalidation). F: in memory only. */
   applyOverrides(locale: Locale, values: Record<string, string>): void;
 }
 export interface I18nBoot {
@@ -947,11 +947,13 @@ export function explainAvailable(err: unknown): boolean;
  *  snapshot function as getServerSnapshot: the web tests render with renderToStaticMarkup, and React throws
  *  "Missing getServerSnapshot" without it; on the server snapshot no handler is registered, so false). */
 export function useExplainAvailable(err: unknown): boolean;
-export function explainError(err: unknown): void; // F: no-op
+/** Calls the registered handler when explainAvailable(err); nothing without one (F registers none). */
+export function explainError(err: unknown): void;
 
 // storage.ts
 export const AI_CHAT_STORAGE_PREFIX = 'wl-ai-chat:';
-/** Removes every sessionStorage key with the prefix; AppShell's logout calls it (F25). F implements it. */
+/** Removes every sessionStorage key with the prefix; AppShell's logout (F25) and the unauthorized handler of
+ *  App.tsx (a 401: the session is gone) call it. F implements it. */
 export function clearAiChats(): void;
 // U4-internal: loadAiChat(orgId), saveAiChat(orgId, messages) (ai 12.3)
 ```
@@ -1962,7 +1964,8 @@ i18n 18.1 likewise.
   (`@/pages/admin/translations`) at `translations` under `/admin`; `<AiProvider>` around `<Routes>`.
   Stub pages render `PageHeader` with `nav.admin.ai` / `nav.admin.translations`.
 - **F25 `app-shell.tsx`**: nav items (O16); `<AiAssistant />` rendered once inside the shell; logout calls
-  `clearAiChats()`; the main content area adds `pb-20 sm:pb-0` while `useAiLauncherVisible()` is true (2.9).
+  `clearAiChats()` (also the unauthorized handler in `App.tsx`); the main content area adds `pb-20 sm:pb-0` while
+  `useAiLauncherVisible()` is true (2.9).
 - **F26 Shared edits** of 2.9: `lib/api.ts`, `lib/queries.ts`, `components/ui/primitives.tsx` (also
   `aria-label={t('aria.loading')}`), `components/server-bits.tsx` (FR, IT, GB, `decorative`),
   `lib/api-errors.ts`, `components/ai/{ai-provider.tsx,assistant.tsx (with the useAiLauncherVisible stub),explain-action.ts,storage.ts}`,
@@ -2455,8 +2458,8 @@ Choices made where the designs or the owner's request left room (defaults the ow
 | `apps/api/src/i18n/{service,entries,jobs}.ts` | creates | U1 (keep 2.5 signatures) |
 | `apps/api/src/i18n/{filters,export,import,translator}.ts`, `modules/i18n/**`, `scripts/i18n-{apply,report}.ts`, `db/seed-i18n.ts`, `test/i18n.test.ts`, `test/i18n-jobs.test.ts`, `test/i18n-fixtures.ts` | stubs where named | U1 |
 | `apps/api/src/mail/**`, `modules/billing/{pdf,invoices,routes,dto}.ts`, `modules/payments/checkout.ts`, `modules/auth/routes.ts`, `modules/admin/routes.ts`, `modules/orgs/routes.ts`, `modules/reseller/routes.ts`, `modules/settings/routes.ts`, `test/i18n-mail.test.ts`, `test/i18n-locale.test.ts` | small F edits | U2 |
-| `apps/web/src/App.tsx`, `lib/api.ts`, `lib/queries.ts`, `components/ui/primitives.tsx` | edits | F only |
-| `apps/web/src/lib/{i18n.tsx,i18n-loader.ts,format.ts,api-errors.ts,i18n.test.ts,i18n-imports.test.ts,api-errors.test.ts}`, `main.tsx`, `apps/web/index.html`, `src/test/i18n.tsx`, `components/language-picker*.tsx`, `components/server-bits.tsx`, `components/layout/app-shell.tsx`, `components/metric-chart.tsx`, `scripts/check-i18n-chunks.mjs`, `apps/web/package.json` | edits or stubs | U2 |
+| `apps/web/src/App.tsx`, `lib/api.ts`, `lib/api.test.ts`, `lib/queries.ts`, `components/ui/primitives.tsx`, `components/ui/primitives.test.tsx` | edits | F only |
+| `apps/web/src/lib/{i18n.tsx,i18n-loader.ts,format.ts,api-errors.ts,i18n.test.ts,i18n-imports.test.ts,api-errors.test.ts}`, `main.tsx`, `apps/web/index.html`, `src/test/i18n.tsx`, `components/language-picker*.tsx`, `components/server-bits.tsx`, `components/layout/app-shell.tsx`, `components/layout/app-shell.test.tsx`, `components/metric-chart.tsx`, `scripts/check-i18n-chunks.mjs`, `apps/web/package.json` | edits or stubs | U2 |
 | `apps/web/src/pages/{auth/login,auth/invite,account/account,admin/users,admin/mail,billing/profile-form,billing/invoice-editor,mail/bits,mail/mailboxes,mail/overview,monitoring/bits,media/bits,org/policies,servers/list,servers/tabs/settings}.tsx`, `pages/billing/money.ts`, `pages/mail/units.ts`, their tests, `pages/media/requests.test.tsx` | label codemod only | U2 |
 | `apps/web/src/lib/api/i18n.ts`, `pages/admin/translations*.tsx`, `pages/admin/translations-query.ts`, `pages/admin/translations-query.test.ts` | stub page | U1 |
 | `apps/web/src/lib/api/ai.ts`, `lib/api/ai.test.ts`, `components/ai/**`, `pages/admin/ai.tsx` | stubs | U4 |

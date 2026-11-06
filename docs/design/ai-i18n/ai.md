@@ -2410,7 +2410,9 @@ for the console's own: output validation, timeouts, stale rows), pagination, the
   `ai.proposal.textOnly` and a copy button instead.
 - **Storage**: `components/ai/storage.ts` keeps each organization's chat in `sessionStorage` under
   `wl-ai-chat:<orgId>` (at most 40 messages, the tab only; plan decision 22); `clearAiChats()` removes every
-  `wl-ai-chat:*` key and is called by the shell's logout (`components/layout/app-shell.tsx:191`, plan F25).
+  `wl-ai-chat:*` key and is called by the shell's logout (`components/layout/app-shell.tsx`, plan F25) and by the
+  unauthorized handler of `App.tsx` (a 401 means the session is gone, and the next person in the tab must not see
+  the chats).
 - **Tests** `assistant.test.tsx` (static markup with `withI18n`; the web has no DOM test library, plan 2.9): hidden
   without `ai:use`; launcher position classes; the panel state is built by the exported reducer
   `applySseEvent(state, event)` from a scripted event list and rendered: tool chips, a source, a proposal with the

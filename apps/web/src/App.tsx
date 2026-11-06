@@ -7,6 +7,7 @@ import { OrgProvider } from '@/lib/org-context';
 import { qk, useMe, useOrgBySlug } from '@/lib/queries';
 import { AppShell } from '@/components/layout/app-shell';
 import { AiProvider } from '@/components/ai/ai-provider';
+import { clearAiChats } from '@/components/ai/storage';
 import { EmptyState, ErrorState, Spinner } from '@/components/ui/primitives';
 import { LoginPage } from '@/pages/auth/login';
 import { InvitePage } from '@/pages/auth/invite';
@@ -132,6 +133,8 @@ function UnauthorizedRedirect() {
   useEffect(() => {
     setUnauthorizedHandler(() => {
       qc.removeQueries({ queryKey: qk.me });
+      // The session is gone: whoever signs in next in this tab must not see the chats (like the logout).
+      clearAiChats();
       if (!location.pathname.startsWith('/login')) {
         navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
       }
