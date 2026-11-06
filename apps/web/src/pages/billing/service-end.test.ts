@@ -79,10 +79,6 @@ describe('fullPeriodAhead', () => {
       from: '2026-11-30',
       endBefore: '2026-11-29',
     });
-    expect(fullPeriodAhead(monthly, '2027-03-01', today)).toEqual({
-      from: '2026-11-30',
-      endBefore: '2026-11-29',
-    });
     // Before the next period, today (an immediate end) or nothing to bill: no notice.
     expect(fullPeriodAhead(monthly, '2026-11-29', today)).toBeNull();
     expect(fullPeriodAhead({ ...monthly, nextBillingAt: '2026-11-06' }, today, today)).toBeNull();
@@ -90,6 +86,40 @@ describe('fullPeriodAhead', () => {
     expect(fullPeriodAhead({ ...monthly, interval: 'once' }, '2026-12-15', today)).toBeNull();
     expect(fullPeriodAhead({ ...monthly, nextBillingAt: null }, '2026-12-15', today)).toBeNull();
     expect(fullPeriodAhead(monthly, '', today)).toBeNull();
+  });
+
+  it('names the last period that starts on or before the end date, not the next one', () => {
+    // Monthly from 01.12.2026: the run bills 01.12, 01.01 and so on up to the end date.
+    const monthly = service({ startsAt: '2026-06-01', nextBillingAt: '2026-12-01' });
+    expect(fullPeriodAhead(monthly, '2026-12-15', today)).toEqual({
+      from: '2026-12-01',
+      endBefore: '2026-11-30',
+    });
+    expect(fullPeriodAhead(monthly, '2027-01-15', today)).toEqual({
+      from: '2027-01-01',
+      endBefore: '2026-12-31',
+    });
+    // On the last day of a period nothing is paid for unused time.
+    expect(fullPeriodAhead(monthly, '2027-03-31', today)).toBeNull();
+    expect(fullPeriodAhead(monthly, '2026-12-31', today)).toBeNull();
+    expect(fullPeriodAhead(monthly, '2027-04-01', today)).toEqual({
+      from: '2027-04-01',
+      endBefore: '2027-03-31',
+    });
+    // Anchored on the 31st: the periods start on 30.11, 31.12, 31.01, 28.02 and 31.03.
+    const anchored = service();
+    expect(fullPeriodAhead(anchored, '2027-03-01', today)).toEqual({
+      from: '2027-02-28',
+      endBefore: '2027-02-27',
+    });
+    expect(fullPeriodAhead(anchored, '2027-03-30', today)).toBeNull();
+    // A quarter from 01.12.2026 runs to 28.02.2027.
+    const quarterly = service({ interval: 'quarterly', startsAt: '2026-09-01', nextBillingAt: '2026-12-01' });
+    expect(fullPeriodAhead(quarterly, '2027-02-28', today)).toBeNull();
+    expect(fullPeriodAhead(quarterly, '2027-03-15', today)).toEqual({
+      from: '2027-03-01',
+      endBefore: '2027-02-28',
+    });
   });
 
   it('offers the end before the period only while that day is not past', () => {

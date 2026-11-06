@@ -26,6 +26,33 @@ export const INTERVAL_MONTHS: Record<BillingInterval, number> = {
   yearly: 12,
 };
 
+/**
+ * The billing date after `current` ("YYYY-MM-DD") for a service that started on `startsAt`, or null for
+ * one-off services. Keeps the start day where the month allows it, so a service from Jan 31 is billed on
+ * Feb 28, Mar 31, Apr 30; a date moved by hand becomes the new anchor. Shared so the console steps through
+ * the periods exactly as the billing run does.
+ */
+export function nextBillingDate(current: string, interval: BillingInterval, startsAt: string): string | null {
+  const months = INTERVAL_MONTHS[interval];
+  if (months === 0) return null;
+  const [y, m, d] = dateParts(current);
+  const anchor = dateParts(startsAt)[2];
+  const onAnchor = d === Math.min(anchor, daysIn(y, m));
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  const nd = Math.min(onAnchor ? anchor : d, daysIn(ny, nm));
+  return `${String(ny).padStart(4, '0')}-${String(nm).padStart(2, '0')}-${String(nd).padStart(2, '0')}`;
+}
+
+function dateParts(date: string): [number, number, number] {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) throw new Error(`Invalid date: ${date}`);
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+const daysIn = (year: number, month: number): number => new Date(Date.UTC(year, month, 0)).getUTCDate();
+
 export const INVOICE_STATUSES = ['draft', 'open', 'paid', 'void'] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 

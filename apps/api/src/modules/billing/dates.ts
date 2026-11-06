@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { INTERVAL_MONTHS, type BillingInterval } from '@weblion/shared';
+import { INTERVAL_MONTHS, nextBillingDate, type BillingInterval } from '@weblion/shared';
 
 /**
  * Calendar dates as "YYYY-MM-DD" strings. Billing works with dates in Swiss local time
@@ -57,18 +57,10 @@ export function addMonths(date: string, months: number, anchorDay?: number): str
 }
 
 /**
- * The billing date after `current` for a service that started on `startsAt`, or null for
- * one-off services. Keeps the start day where the month allows it, so a service from
- * Jan 31 is billed on Feb 28, Mar 31, Apr 30. A date moved by hand becomes the new anchor.
+ * The billing date after `current`, in the shared package because the console steps through the
+ * periods of a cancellation the same way (apps/web/src/pages/billing/service-end.ts).
  */
-export function nextBillingDate(current: string, interval: BillingInterval, startsAt: string): string | null {
-  const months = INTERVAL_MONTHS[interval];
-  if (months === 0) return null;
-  const anchor = parts(startsAt)[2];
-  const [y, m, d] = parts(current);
-  const onAnchor = d === Math.min(anchor, daysInMonth(y, m));
-  return addMonths(current, months, onAnchor ? anchor : d);
-}
+export { nextBillingDate };
 
 /**
  * The first billing date on or after `today`, stepping on from `current` like the billing
