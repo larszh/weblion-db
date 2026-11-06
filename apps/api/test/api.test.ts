@@ -939,6 +939,22 @@ describe('administration', () => {
     expect(actions(await search({ q: '\\' }))).toEqual(['like_test.backslash']);
     expect(actions(await search({ action: 'like_test.backslash\\' }))).toEqual([]);
   });
+
+  it('takes the client IP from X-Forwarded-For only from a local proxy (TRUST_PROXY default)', async () => {
+    const failedLogin = async (email: string, remoteAddress: string) => {
+      await t.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        remoteAddress,
+        headers: { 'x-requested-with': 'test', 'x-forwarded-for': '198.51.100.7' },
+        payload: { email, password: 'x' },
+      });
+      const [row] = await t.db.select().from(auditLogs).where(eq(auditLogs.actorName, email));
+      return row?.ip;
+    };
+    expect(await failedLogin('direct@proxy.example', '203.0.113.9')).toBe('203.0.113.9');
+    expect(await failedLogin('local-proxy@proxy.example', '127.0.0.1')).toBe('198.51.100.7');
+  });
 });
 
 describe('provider adapters', () => {
