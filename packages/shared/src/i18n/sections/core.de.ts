@@ -972,6 +972,11 @@ export const coreDe = {
 
   // Accessibility
   'aria.loading': 'Wird geladen',
+  'aria.openMenu': 'Menü öffnen',
+  'aria.closeMenu': 'Menü schliessen',
+  'aria.labelKey': 'Label-Schlüssel',
+  'aria.labelValue': 'Label-Wert',
+  'aria.statusFilter': 'Nach Status filtern',
 
   // Texts of the generic API error codes (localizeError, i18n 7)
   'error.network': 'Keine Verbindung zum Server. Bitte prüfen Sie Ihre Internetverbindung.',

@@ -922,6 +922,11 @@ export const coreEn: Record<keyof typeof coreDe, string> = {
 
   // Accessibility
   'aria.loading': 'Loading',
+  'aria.openMenu': 'Open menu',
+  'aria.closeMenu': 'Close menu',
+  'aria.labelKey': 'Label key',
+  'aria.labelValue': 'Label value',
+  'aria.statusFilter': 'Filter by status',
 
   // Texts of the generic API error codes (localizeError, i18n 7)
   'error.network': 'No connection to the server. Please check your internet connection.',

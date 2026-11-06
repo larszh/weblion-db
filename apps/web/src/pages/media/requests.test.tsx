@@ -8,7 +8,7 @@ import type {
   MediaRequestsInfoDto,
 } from '@weblion/shared';
 import { en } from '@weblion/shared/i18n/en';
-import { I18nProvider } from '@/lib/i18n';
+import { withI18n } from '@/test/i18n';
 import { TooltipProvider } from '@/components/ui/menu';
 import { MediaAllowanceFigures } from './bits';
 import { MediaRequestsCard } from './requests-card';
@@ -19,12 +19,7 @@ import { MediaRequestsCard } from './requests-card';
  * Rendered on the server: the page has no other markup tests.
  */
 
-const html = (node: ReactNode) =>
-  renderToStaticMarkup(
-    <I18nProvider>
-      <TooltipProvider>{node}</TooltipProvider>
-    </I18nProvider>,
-  );
+const html = (node: ReactNode) => renderToStaticMarkup(withI18n(<TooltipProvider>{node}</TooltipProvider>));
 
 /** Every text of the add-on as it can appear on the page (English, the test's locale). */
 const REQUEST_TEXTS = Object.entries(en)
