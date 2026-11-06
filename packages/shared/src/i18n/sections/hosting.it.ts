@@ -333,7 +333,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
     'I nuovi domini si registrano presso il registrar (pannello 24fire o Joker.com). Dopo la prossima sincronizzazione appaiono qui e possono essere assegnati a un cliente.',
   'hosting.admin.orderWebspaces':
     'I nuovi spazi web si ordinano nel pannello 24fire. Dopo la prossima sincronizzazione appaiono qui e possono essere assegnati a un cliente.',
-  'hosting.admin.toProviders': 'Ai provider',
+  'hosting.admin.toProviders': 'Vai ai provider',
   'hosting.admin.searchDomains': 'Cerca dominio o ID…',
   'hosting.admin.searchWebspaces': 'Cerca spazio web, utente o ID…',
   'hosting.admin.filterAssigned': 'Filtra per assegnazione',
