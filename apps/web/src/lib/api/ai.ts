@@ -77,10 +77,12 @@ export function aiFeatureOn(status: AiStatusDto | undefined, feature: AiFeature)
   return !!status?.available && status.features.includes(feature);
 }
 
-export const useAdminAiSettings = () =>
+/** `enabled`: the admin dashboard asks only with platform:settings (the budget notice). */
+export const useAdminAiSettings = (enabled = true) =>
   useQuery({
     queryKey: aiKeys.settings,
     queryFn: () => api.get<AiSettingsDto>('/admin/ai/settings'),
+    enabled,
   });
 
 /** Every write on the KI page also refreshes the status (feature buttons) and the integrations card. */

@@ -7,7 +7,7 @@ export function AdminAuditPage() {
   return (
     <>
       <PageHeader title={t('nav.admin.audit')} description={t('audit.globalSubtitle')} />
-      <AuditView path="/admin/audit" showOrg />
+      <AuditView path="/admin/audit" showOrg ai="admin" />
     </>
   );
 }
