@@ -280,6 +280,54 @@ const TEMPLATES: Builders = {
             { p: 'If you can read this message, the SMTP settings are correct.' },
           ],
         },
+
+  // The texts of the email.aiBudget.* keys (plan 5.3); U2 renders them from the keys.
+  ai_budget: (d, l) => {
+    if (d.kind === 'warning') {
+      return l === 'de'
+        ? {
+            subject: `KI-Budget zu ${d.percent} % verbraucht`,
+            heading: 'KI-Budget fast aufgebraucht',
+            blocks: [
+              {
+                p: `Im ${d.month} sind ${d.spent} von ${d.budget} verbraucht (${d.percent} %). Bei 100 % startet ${BRAND} keine neuen KI-Anfragen mehr bis Monatsende.`,
+              },
+              { button: { label: 'KI-Einstellungen öffnen', href: d.link } },
+            ],
+          }
+        : {
+            subject: `AI budget ${d.percent} % used`,
+            heading: 'AI budget almost used up',
+            blocks: [
+              {
+                p: `In ${d.month}, ${d.spent} of ${d.budget} have been used (${d.percent} %). At 100 %, ${BRAND} starts no new AI requests until the end of the month.`,
+              },
+              { button: { label: 'Open AI settings', href: d.link } },
+            ],
+          };
+    }
+    return l === 'de'
+      ? {
+          subject: 'KI-Budget aufgebraucht',
+          heading: 'KI-Budget aufgebraucht',
+          blocks: [
+            {
+              p: `Im ${d.month} sind ${d.spent} von ${d.budget} verbraucht. Neue KI-Anfragen sind bis Monatsende gesperrt. Sie können das Budget in den KI-Einstellungen erhöhen.`,
+            },
+            { button: { label: 'KI-Einstellungen öffnen', href: d.link } },
+          ],
+        }
+      : {
+          subject: 'AI budget used up',
+          heading: 'AI budget used up',
+          blocks: [
+            {
+              p: `In ${d.month}, ${d.spent} of ${d.budget} have been used. New AI requests are blocked until the end of the month. You can raise the budget in the AI settings.`,
+            },
+            { button: { label: 'Open AI settings', href: d.link } },
+          ],
+        };
+  },
 };
 
 const FOOTER: Record<TemplateLocale, string> = {

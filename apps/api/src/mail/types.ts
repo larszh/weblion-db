@@ -62,6 +62,20 @@ export interface MailTemplates {
   };
   /** Test message from the admin area. */
   test: { sentBy: string };
+  /** The monthly AI budget passed the warning mark or is used up (ai 7.2). */
+  ai_budget: {
+    kind: 'warning' | 'exhausted';
+    /** Formatted in the mail language, e.g. "November 2026". */
+    month: string;
+    /** e.g. "USD 81.20" */
+    spent: string;
+    /** e.g. "USD 100.00" */
+    budget: string;
+    /** Rounded down; shown only for 'warning'. */
+    percent: number;
+    /** `${APP_URL}/admin/ai` */
+    link: string;
+  };
 }
 
 export type MailTemplateName = keyof MailTemplates;

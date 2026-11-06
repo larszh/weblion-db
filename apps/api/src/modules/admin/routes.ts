@@ -45,6 +45,7 @@ import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
+import { SECRET_KEY_PATTERN } from '../../lib/redact';
 import { dropMediaRequestsOf, forgetSeerrUsers, pendingSeerrRevocations } from '../media/seerr';
 import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
 import {
@@ -457,15 +458,6 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
 }
 
 /**
- * Keys whose values never reach the audit log (Mailcow's DKIM import sends private_key_file,
- * its identity provider bindpass). Any "pass", like the Mailcow adapter's own redaction. 3CX
- * bodies: SIP credentials (AuthID, AuthPassword), the voicemail PIN (VMPIN), the license key,
- * one-time tickets and provisioning links. Jellyfin bodies: NewPw, CurrentPw, Pw and Pin.
- */
-const SECRET_KEY =
-  /pass|secret|token|auth_?code|api_?key|priv(ate)?_?key|auth_?id|licen[cs]e_?key|pin$|ticket|prov(isioning)?_?link|pw$/i;
-
-/**
  * An explorer request as it is audited: values of password-like keys blanked, including the
  * "value" of a Nextcloud user edit with key=password (PUT /ocs/v2.php/cloud/users/{id}).
  * Nextcloud reads key and value from the query as well: `secretEdit` when the key is there.
@@ -474,11 +466,11 @@ export function redactExplorerBody(value: unknown, secretEdit = false): unknown 
   if (Array.isArray(value)) return value.map((v) => redactExplorerBody(v));
   if (value === null || typeof value !== 'object') return value;
   const record = value as Record<string, unknown>;
-  const secret = secretEdit || (typeof record.key === 'string' && SECRET_KEY.test(record.key));
+  const secret = secretEdit || (typeof record.key === 'string' && SECRET_KEY_PATTERN.test(record.key));
   return Object.fromEntries(
     Object.entries(record).map(([k, v]) => [
       k,
-      SECRET_KEY.test(k) || (secret && k === 'value') ? '[redacted]' : redactExplorerBody(v),
+      SECRET_KEY_PATTERN.test(k) || (secret && k === 'value') ? '[redacted]' : redactExplorerBody(v),
     ]),
   );
 }
@@ -513,8 +505,8 @@ function explorerParams(path: string): { part: string; name: string; value: stri
 /** Whether an explorer request sets a secret with key=password, in the query or the body. */
 export function explorerEditsSecret(path: string, body: unknown): boolean {
   const key = body !== null && typeof body === 'object' ? (body as Record<string, unknown>).key : null;
-  if (typeof key === 'string' && SECRET_KEY.test(key)) return true;
-  return explorerParams(path).some((p) => p.name === 'key' && SECRET_KEY.test(p.value ?? ''));
+  if (typeof key === 'string' && SECRET_KEY_PATTERN.test(key)) return true;
+  return explorerParams(path).some((p) => p.name === 'key' && SECRET_KEY_PATTERN.test(p.value ?? ''));
 }
 
 /**
@@ -528,7 +520,7 @@ export function redactExplorerPath(path: string, secretEdit = false): string {
   const secret = secretEdit || explorerEditsSecret(path, null);
   const query = explorerParams(path)
     .map(({ part, name, value }) =>
-      value !== null && (SECRET_KEY.test(name) || (secret && name === 'value'))
+      value !== null && (SECRET_KEY_PATTERN.test(name) || (secret && name === 'value'))
         ? `${part.slice(0, part.indexOf('=') + 1)}[redacted]`
         : part,
     )

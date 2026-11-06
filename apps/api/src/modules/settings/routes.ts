@@ -1,13 +1,7 @@
 import { and, count, desc, eq, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import {
-  AI_DEFAULT_MODEL,
-  type IntegrationsDto,
-  type MailLogDto,
-  type MailSettingsDto,
-  type Paginated,
-} from '@weblion/shared';
+import type { IntegrationsDto, MailLogDto, MailSettingsDto, Paginated } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { platformScope, requireSession } from '../../auth/access';
 import { mailLog, organizations } from '../../db/schema';
@@ -188,8 +182,7 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
         twint: !!env.STRIPE_SECRET_KEY && stripeMethods.includes('twint'),
       },
       zoho: await ctx.zoho.status(),
-      // F17/F18 replace this with ctx.ai.integrationStatus() once ctx.ai exists.
-      ai: { configured: false, source: 'none', enabled: false, model: AI_DEFAULT_MODEL },
+      ai: await ctx.ai.integrationStatus(),
     };
   });
 }

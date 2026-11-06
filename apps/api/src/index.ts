@@ -5,6 +5,7 @@ import { buildApp } from './app';
 import { ensureBootstrapAdmin, syncEnvProviders } from './bootstrap';
 import { SecretBox } from './lib/crypto';
 import { BillingJob } from './modules/billing/recurring';
+import { AiMaintenance } from './modules/ai/maintenance';
 
 async function main() {
   const env = loadEnv();
@@ -21,11 +22,15 @@ async function main() {
   ctx.i18n.start();
   // Secondary processes set I18N_JOB_ENABLED=false; the runner's advisory lock guards the rest.
   if (env.I18N_JOB_ENABLED) ctx.i18nJobs.start();
+  // Marks stale AI usage rows and applies the retention; a session lock keeps it to one process (ai 7.3).
+  const aiMaintenance = new AiMaintenance(ctx, pool);
+  aiMaintenance.start();
 
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'shutting down');
     ctx.sync.stop();
     billingJob.stop();
+    aiMaintenance.stop();
     ctx.i18n.stop();
     // Re-queues a job this process owns, so the next start (here or elsewhere) resumes it.
     await ctx.i18nJobs.stop();

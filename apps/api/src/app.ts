@@ -48,6 +48,13 @@ import { seedGlossary } from './i18n/glossary';
 import { TranslationJobRunner } from './i18n/jobs';
 import { i18nRoutes } from './modules/i18n/routes';
 import { i18nAiRoutes } from './modules/i18n/ai-routes';
+import { AiService } from './modules/ai/service';
+import { initAiSecrets } from './modules/ai/redact';
+import { aiRoutes } from './modules/ai/routes';
+import { aiOrgRoutes } from './modules/ai/org-routes';
+import { aiAdminRoutes } from './modules/ai/admin-routes';
+import { aiFeatureRoutes } from './modules/ai/feature-routes';
+import { aiChatRoutes } from './modules/ai/chat-routes';
 
 export interface BuildOptions {
   env: Env;
@@ -86,7 +93,7 @@ export async function buildApp({
   await i18n.load();
   await seedGlossary(db);
   // The services below that take the context itself are assigned right after the literal.
-  const base: Omit<AppContext, 'i18nJobs'> = {
+  const base: Omit<AppContext, 'i18nJobs' | 'ai'> = {
     env,
     db,
     box,
@@ -102,6 +109,9 @@ export async function buildApp({
     secureCookies: env.APP_URL.startsWith('https://'),
   };
   const ctx = base as AppContext;
+  // Exact secret values of the environment, removed from everything the AI module sends (ai 11.2).
+  initAiSecrets(env);
+  ctx.ai = new AiService(ctx);
   ctx.i18nJobs = new TranslationJobRunner(ctx, pool, { concurrency: env.I18N_AI_CONCURRENCY });
 
   await app.register(cookie);
@@ -129,6 +139,8 @@ export async function buildApp({
     },
   });
   await app.register(authPlugin, { db, appUrl: env.APP_URL, sessionTtlHours: env.SESSION_TTL_HOURS });
+  // The assistant's tools read through app.inject with the person's session (ai 8.1).
+  ctx.ai.attach(app);
 
   app.setErrorHandler((error: FastifyError | AppError, req, reply) => {
     if (error instanceof AppError) {
@@ -186,6 +198,11 @@ export async function buildApp({
         settingsRoutes,
         i18nRoutes,
         i18nAiRoutes,
+        aiRoutes,
+        aiOrgRoutes,
+        aiAdminRoutes,
+        aiFeatureRoutes,
+        aiChatRoutes,
       ]) {
         await register(api, ctx);
       }
