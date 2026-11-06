@@ -5,7 +5,7 @@ import { en } from '@weblion/shared/i18n/en';
 import type { TFunction } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
 import { withI18n } from '@/test/i18n';
-import { adminAiLines, ConsentBody, neverEnabled, orgAiLines, resellerAiState } from './cards';
+import { adminAiLines, ConsentBody, neverEnabled, orgAiLines, resellerAiState, StateBadge } from './cards';
 
 const t: TFunction = (key, params) => interpolate(en[key], params);
 const esc = (s: string) =>
@@ -60,6 +60,16 @@ describe('switch cards (ai 12.4, plan O34)', () => {
     expect(lines[1]).toContain('Anna Muster');
 
     expect(adminAiLines(capped, t, 'en')).toEqual([t('admin.ai.card.reseller', { name: 'Alpen Hosting' })]);
+  });
+
+  it('the badge says "not active yet" for a switched-on organization while the platform is off', () => {
+    const badge = (dto: OrgAiDto) => renderToStaticMarkup(withI18n(<StateBadge dto={dto} />));
+    const on: OrgAiDto = { ...fresh, enabled: true, offReasons: [], switch: { enabled: true, by: null } };
+    expect(badge(on)).toContain(esc(en['ai.org.state.on']));
+    const platformOff = { ...on, platform: { ...available, available: false, reason: 'disabled' as const } };
+    expect(badge(platformOff)).toContain(esc(en['ai.org.state.notActive']));
+    expect(badge(platformOff)).not.toContain(esc(en['ai.org.state.on']));
+    expect(badge({ ...fresh, platform: platformOff.platform })).toContain(esc(en['ai.org.state.off']));
   });
 
   it('locks the reseller switch when weblion switched the customer off or the reseller is off', () => {

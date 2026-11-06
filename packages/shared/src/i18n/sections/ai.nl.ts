@@ -157,6 +157,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
     'Met de AI-functies beantwoordt Claude van Anthropic vragen over uw organisatie en legt fouten uit. De AI leest alleen en wijzigt niets.',
   'ai.org.state.on': 'Ingeschakeld',
   'ai.org.state.off': 'Uitgeschakeld',
+  'ai.org.state.notActive': 'Nog niet actief',
   'ai.org.notEnabled':
     'De AI-functies zijn voor uw organisatie niet ingeschakeld. weblion.one of uw aanbieder schakelt ze op verzoek in.',
   'ai.org.offByPlatform': 'weblion heeft de AI-functies voor uw organisatie uitgeschakeld.',
@@ -239,7 +240,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.status.off': 'Uitgeschakeld',
   'admin.ai.status.demo': 'Demomodus',
   'admin.ai.status.notConfigured': 'Geen sleutel',
-  'admin.ai.status.master': 'AI-functies voor alle klanten inschakelen',
+  'admin.ai.status.master': 'AI-functies op het platform inschakelen',
   'admin.ai.status.masterHint': 'Klanten die hebben geweigerd of zijn uitgeschakeld, blijven uitgeschakeld.',
   'admin.ai.status.test': 'Verbinding testen',
   'admin.ai.status.testOk': 'De verbinding met Claude werkt ({model}, {ms} ms).',
@@ -256,7 +257,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.status.enableCheck.workspace':
     'De opslag- en verwerkingslocatie van de Anthropic-workspace is gecontroleerd.',
   'admin.ai.status.enableOptIn':
-    'Alle klanten blijven uitgeschakeld totdat u of hun reseller ze afzonderlijk inschakelt.',
+    'Alleen klanten die afzonderlijk zijn ingeschakeld, krijgen de AI-functies. De andere blijven uitgeschakeld totdat u of hun reseller ze inschakelt.',
   'admin.ai.status.enableAction': 'Inschakelen',
   'admin.ai.key.title': 'API-sleutel',
   'admin.ai.key.hint':
@@ -349,6 +350,11 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.reason.timeout': 'Time-out',
   'admin.ai.reason.api': 'Claude API',
   'admin.ai.reason.internal': 'weblion.one',
+  'admin.ai.reason.cyber': 'Cyberbeveiliging',
+  'admin.ai.reason.bio': "Biologische risico's",
+  'admin.ai.reason.frontier_llm': 'Ontwikkeling van AI-modellen',
+  'admin.ai.reason.reasoning_extraction': 'Weergave van de redenering',
+  'admin.ai.reason.general_harms': 'Schadelijke inhoud',
   'admin.ai.dashboard.warning': 'AI-budget voor {percent} % verbruikt.',
   'admin.ai.dashboard.exhausted':
     'AI-budget verbruikt: nieuwe AI-verzoeken zijn tot het einde van de maand geblokkeerd.',

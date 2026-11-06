@@ -158,6 +158,7 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
     "Con le funzioni IA, Claude di Anthropic risponde a domande sulla sua organizzazione e spiega gli errori. L'IA legge soltanto e non modifica nulla.",
   'ai.org.state.on': 'Attivate',
   'ai.org.state.off': 'Disattivate',
+  'ai.org.state.notActive': 'Non ancora attive',
   'ai.org.notEnabled':
     'Le funzioni IA non sono attivate per la sua organizzazione. weblion.one o il suo fornitore le attiva su richiesta.',
   'ai.org.offByPlatform': 'weblion ha disattivato le funzioni IA per la sua organizzazione.',
@@ -240,7 +241,7 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.status.off': 'Disattivata',
   'admin.ai.status.demo': 'Modalità demo',
   'admin.ai.status.notConfigured': 'Nessuna chiave',
-  'admin.ai.status.master': 'Attiva le funzioni IA per tutti i clienti',
+  'admin.ai.status.master': 'Attiva le funzioni IA sulla piattaforma',
   'admin.ai.status.masterHint': 'I clienti che hanno rifiutato o che sono disattivati restano esclusi.',
   'admin.ai.status.test': 'Testa connessione',
   'admin.ai.status.testOk': 'La connessione a Claude funziona ({model}, {ms} ms).',
@@ -257,7 +258,7 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.status.enableCheck.workspace':
     'Il luogo di archiviazione e di trattamento del workspace Anthropic è stato verificato.',
   'admin.ai.status.enableOptIn':
-    'Tutti i clienti restano disattivati finché Lei o il loro rivenditore non li attiva singolarmente.',
+    'Solo i clienti attivati singolarmente hanno le funzioni IA. Gli altri restano disattivati finché Lei o il loro rivenditore non li attiva.',
   'admin.ai.status.enableAction': 'Attiva',
   'admin.ai.key.title': 'Chiave API',
   'admin.ai.key.hint':
@@ -351,6 +352,11 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.reason.timeout': 'Tempo scaduto',
   'admin.ai.reason.api': 'Claude API',
   'admin.ai.reason.internal': 'weblion.one',
+  'admin.ai.reason.cyber': 'Sicurezza informatica',
+  'admin.ai.reason.bio': 'Rischi biologici',
+  'admin.ai.reason.frontier_llm': 'Sviluppo di modelli di IA',
+  'admin.ai.reason.reasoning_extraction': 'Riproduzione del ragionamento',
+  'admin.ai.reason.general_harms': 'Contenuti dannosi',
   'admin.ai.dashboard.warning': 'Budget IA consumato al {percent} %.',
   'admin.ai.dashboard.exhausted':
     'Budget IA esaurito: le nuove richieste IA sono bloccate fino alla fine del mese.',

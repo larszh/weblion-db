@@ -11,7 +11,7 @@ export const translationsEn: Record<keyof typeof translationsDe, string> = {
 
   // Overview
   'admin.i18n.overview.source': 'Source language',
-  'admin.i18n.overview.keys': '{count} texts',
+  'admin.i18n.overview.keys': 'Texts: {count}',
   'admin.i18n.overview.translated': '{done} of {total} translated',
   'admin.i18n.overview.upToDate': '{count} up to date',
   'admin.i18n.overview.stale': '{count} outdated',
@@ -38,7 +38,7 @@ export const translationsEn: Record<keyof typeof translationsDe, string> = {
   'admin.i18n.filter.anyArea': 'All areas',
   'admin.i18n.filter.keys': '{count} selected texts',
   'admin.i18n.filter.reset': 'Reset filters',
-  'admin.i18n.entries.count': '{count} texts',
+  'admin.i18n.entries.count': 'Texts: {count}',
   'admin.i18n.entries.empty': 'No texts match these filters.',
   'admin.i18n.col.key': 'Key',
 

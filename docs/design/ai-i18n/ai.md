@@ -2758,7 +2758,7 @@ count as outdated and the English (else German) text is shown until they are tra
 | `admin.ai.subtitle` | Claude von Anthropic für die KI-Funktionen der Console: Schlüssel, Modell, Funktionen, Budget und Nutzung. | Claude by Anthropic for the console's AI features: key, model, features, budget and usage. |
 | `admin.ai.tab.settings / .usage / .errors` | Einstellungen / Nutzung / Fehler | Settings / Usage / Errors |
 | `admin.ai.status.title / .on / .off / .demo / .notConfigured` | Status / Eingeschaltet / Ausgeschaltet / Demo-Modus / Kein Schlüssel | Status / Switched on / Switched off / Demo mode / No key |
-| `admin.ai.status.master` | KI-Funktionen für alle Kunden einschalten | Switch on AI features for all customers |
+| `admin.ai.status.master` | KI-Funktionen auf der Plattform einschalten | Switch AI features on for the platform |
 | `admin.ai.status.masterHint` | Kunden, die abgelehnt haben oder ausgeschaltet sind, bleiben aus. | Customers who declined or are switched off stay off. |
 | `admin.ai.status.test` | Verbindung testen | Test connection |
 | `admin.ai.status.testOk` | Die Verbindung zu Claude funktioniert ({model}, {ms} ms). | The connection to Claude works ({model}, {ms} ms). |
@@ -2769,7 +2769,7 @@ count as outdated and the English (else German) text is shown until they are tra
 | `admin.ai.status.enableCheck.transfer` | Die rechtliche Grundlage für die Übermittlung in die USA ist geprüft und festgehalten. | The legal basis for the transfer to the USA has been checked and recorded. |
 | `admin.ai.status.enableCheck.notice` | Der Datenschutzhinweis ist gegen die aktuellen Bedingungen und den Auftragsverarbeitungsvertrag von Anthropic geprüft. | The privacy notice has been checked against Anthropic's current terms and data processing agreement. |
 | `admin.ai.status.enableCheck.workspace` | Der Speicher- und Verarbeitungsort des Anthropic-Workspace ist geprüft. | The storage and processing location of the Anthropic workspace has been checked. |
-| `admin.ai.status.enableOptIn` | Alle Kunden bleiben ausgeschaltet, bis Sie oder ihr Reseller sie einzeln einschalten. | Every customer stays switched off until you or their reseller switch them on one by one. |
+| `admin.ai.status.enableOptIn` | Nur Kunden, die einzeln eingeschaltet sind, erhalten die KI-Funktionen. Alle anderen bleiben aus, bis Sie oder deren Reseller sie einschalten. | Only customers that are switched on one by one get the AI features. All others stay off until you or their reseller switch them on. |
 | `admin.ai.status.enableAction` | Einschalten | Switch on |
 | `admin.ai.key.title` | API-Schlüssel | API key |
 | `admin.ai.key.hint` | Ein API-Schlüssel aus der Claude Console (beginnt mit sk-ant-). Er wird verschlüsselt gespeichert und nie mehr angezeigt. Ein hier gespeicherter Schlüssel hat Vorrang vor ANTHROPIC_API_KEY. | An API key from the Claude Console (starts with sk-ant-). It is stored encrypted and never shown again. A key saved here takes precedence over ANTHROPIC_API_KEY. |

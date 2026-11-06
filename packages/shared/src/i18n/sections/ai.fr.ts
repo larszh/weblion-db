@@ -135,12 +135,12 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.product.notesHint':
     "Par exemple l'étendue des prestations, le public cible ou des termes qui doivent apparaître.",
   'ai.product.generate': 'Créer les textes',
-  'ai.product.apply': 'Reprendre dans le formulaire',
+  'ai.product.apply': 'Insérer dans le formulaire',
   'ai.product.applyHint': "L'enregistrement n'a lieu qu'avec \"Enregistrer\" dans le formulaire du produit.",
   'ai.proposal.title': 'Proposition',
   'ai.proposal.add': 'Nouvel enregistrement',
   'ai.proposal.change': "Modifier l'enregistrement",
-  'ai.proposal.apply': 'Reprendre la proposition',
+  'ai.proposal.apply': 'Appliquer la proposition',
   'ai.proposal.reason': 'Justification',
   'ai.proposal.copy': 'Copier la valeur',
   'ai.proposal.verified': 'Calculé par weblion.one',
@@ -159,6 +159,7 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
     "Avec les fonctions IA, Claude d'Anthropic répond aux questions sur votre organisation et explique les erreurs. L'IA lit uniquement et ne modifie rien.",
   'ai.org.state.on': 'Activées',
   'ai.org.state.off': 'Désactivées',
+  'ai.org.state.notActive': 'Pas encore actives',
   'ai.org.notEnabled':
     'Les fonctions IA ne sont pas activées pour votre organisation. weblion.one ou votre prestataire les active sur demande.',
   'ai.org.offByPlatform': 'weblion a désactivé les fonctions IA pour votre organisation.',
@@ -240,7 +241,7 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.status.off': 'Désactivée',
   'admin.ai.status.demo': 'Mode démo',
   'admin.ai.status.notConfigured': 'Aucune clé',
-  'admin.ai.status.master': 'Activer les fonctions IA pour tous les clients',
+  'admin.ai.status.master': 'Activer les fonctions IA sur la plateforme',
   'admin.ai.status.masterHint': 'Les clients qui ont refusé ou qui sont désactivés restent désactivés.',
   'admin.ai.status.test': 'Tester la connexion',
   'admin.ai.status.testOk': 'La connexion à Claude fonctionne ({model}, {ms} ms).',
@@ -257,7 +258,7 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.status.enableCheck.workspace':
     "Le lieu de stockage et de traitement de l'espace de travail Anthropic a été vérifié.",
   'admin.ai.status.enableOptIn':
-    "Tous les clients restent désactivés jusqu'à ce que vous ou leur revendeur les activiez individuellement.",
+    "Seuls les clients activés individuellement ont accès aux fonctions IA. Les autres restent désactivés jusqu'à ce que vous ou leur revendeur les activiez.",
   'admin.ai.status.enableAction': 'Activer',
   'admin.ai.key.title': 'Clé API',
   'admin.ai.key.hint':
@@ -351,6 +352,11 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
   'admin.ai.reason.timeout': 'Délai dépassé',
   'admin.ai.reason.api': 'Claude API',
   'admin.ai.reason.internal': 'weblion.one',
+  'admin.ai.reason.cyber': 'Cybersécurité',
+  'admin.ai.reason.bio': 'Risques biologiques',
+  'admin.ai.reason.frontier_llm': "Développement de modèles d'IA",
+  'admin.ai.reason.reasoning_extraction': 'Restitution du raisonnement',
+  'admin.ai.reason.general_harms': 'Contenus préjudiciables',
   'admin.ai.dashboard.warning': 'Budget IA utilisé à {percent} %.',
   'admin.ai.dashboard.exhausted':
     "Budget IA épuisé : les nouvelles requêtes IA sont bloquées jusqu'à la fin du mois.",

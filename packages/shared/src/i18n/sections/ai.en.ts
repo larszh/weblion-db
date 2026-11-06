@@ -166,6 +166,7 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
     'With the AI features, Claude by Anthropic answers questions about your organization and explains errors. The AI only reads and changes nothing.',
   'ai.org.state.on': 'Switched on',
   'ai.org.state.off': 'Switched off',
+  'ai.org.state.notActive': 'Not active yet',
   'ai.org.notEnabled':
     'The AI features are not switched on for your organization. weblion.one or your provider switches them on on request.',
   'ai.org.offByPlatform': 'weblion switched the AI features off for your organization.',
@@ -255,7 +256,7 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
   'admin.ai.status.off': 'Switched off',
   'admin.ai.status.demo': 'Demo mode',
   'admin.ai.status.notConfigured': 'No key',
-  'admin.ai.status.master': 'Switch on AI features for all customers',
+  'admin.ai.status.master': 'Switch AI features on for the platform',
   'admin.ai.status.masterHint': 'Customers who declined or are switched off stay off.',
   'admin.ai.status.test': 'Test connection',
   'admin.ai.status.testOk': 'The connection to Claude works ({model}, {ms} ms).',
@@ -272,7 +273,7 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
   'admin.ai.status.enableCheck.workspace':
     'The storage and processing location of the Anthropic workspace has been checked.',
   'admin.ai.status.enableOptIn':
-    'Every customer stays switched off until you or their reseller switch them on one by one.',
+    'Only customers that are switched on one by one get the AI features. All others stay off until you or their reseller switch them on.',
   'admin.ai.status.enableAction': 'Switch on',
   'admin.ai.key.title': 'API key',
   'admin.ai.key.hint':
@@ -363,6 +364,11 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
   'admin.ai.reason.timeout': 'Timeout',
   'admin.ai.reason.api': 'Claude API',
   'admin.ai.reason.internal': 'weblion.one',
+  'admin.ai.reason.cyber': 'Cybersecurity',
+  'admin.ai.reason.bio': 'Biological risks',
+  'admin.ai.reason.frontier_llm': 'Developing AI models',
+  'admin.ai.reason.reasoning_extraction': 'Revealing the reasoning',
+  'admin.ai.reason.general_harms': 'Harmful content',
   'admin.ai.dashboard.warning': 'AI budget {percent} % used.',
   'admin.ai.dashboard.exhausted':
     'AI budget used up: new AI requests are blocked until the end of the month.',

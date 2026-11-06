@@ -10,7 +10,7 @@ export const translationsDe = {
 
   // Overview
   'admin.i18n.overview.source': 'Ausgangssprache',
-  'admin.i18n.overview.keys': '{count} Texte',
+  'admin.i18n.overview.keys': 'Texte: {count}',
   'admin.i18n.overview.translated': '{done} von {total} übersetzt',
   'admin.i18n.overview.upToDate': '{count} aktuell',
   'admin.i18n.overview.stale': '{count} veraltet',
@@ -37,7 +37,7 @@ export const translationsDe = {
   'admin.i18n.filter.anyArea': 'Alle Bereiche',
   'admin.i18n.filter.keys': '{count} ausgewählte Texte',
   'admin.i18n.filter.reset': 'Filter zurücksetzen',
-  'admin.i18n.entries.count': '{count} Texte',
+  'admin.i18n.entries.count': 'Texte: {count}',
   'admin.i18n.entries.empty': 'Keine Texte für diese Filter.',
   'admin.i18n.col.key': 'Schlüssel',
 

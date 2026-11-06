@@ -362,7 +362,7 @@
   "websites.reseller.inUse": ["a2651b61159bcb3d", "4c3bc49fef86d900"],
   "websites.reseller.enablesModule": ["f8afc689259d33ad", "f6b5064f61ea0449"],
   "websites.reseller.removeText": ["aed9f330dd6f7dd4", "b9f619de5eeb7ab4"],
-  "websites.reseller.removeBlocked": ["4c5bb51bf14bcdd1", "d7b425c0e439003b"],
+  "websites.reseller.removeBlocked": ["4c5bb51bf14bcdd1", "127d3e141b20f943"],
   "websites.reseller.releaseText": ["9310fd0f42f3f902", "6ff570934e1cdbd6"],
   "websites.errors.no_allowance": ["a56acf12a31fb671", "bf1acc130409601c"],
   "websites.errors.allowance_exceeded": ["f9f4374d426e854c", "8af41cc4fc6e50ee"],

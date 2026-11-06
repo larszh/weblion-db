@@ -167,6 +167,7 @@ export const aiDe = {
     'Mit den KI-Funktionen beantwortet Claude von Anthropic Fragen zu Ihrer Organisation und erklärt Fehler. Die KI liest nur und ändert nichts.',
   'ai.org.state.on': 'Eingeschaltet',
   'ai.org.state.off': 'Ausgeschaltet',
+  'ai.org.state.notActive': 'Noch nicht aktiv',
   'ai.org.notEnabled':
     'Die KI-Funktionen sind für Ihre Organisation nicht eingeschaltet. weblion.one oder Ihr Anbieter schaltet sie auf Wunsch ein.',
   'ai.org.offByPlatform': 'weblion hat die KI-Funktionen für Ihre Organisation ausgeschaltet.',
@@ -260,7 +261,7 @@ export const aiDe = {
   'admin.ai.status.off': 'Ausgeschaltet',
   'admin.ai.status.demo': 'Demo-Modus',
   'admin.ai.status.notConfigured': 'Kein Schlüssel',
-  'admin.ai.status.master': 'KI-Funktionen für alle Kunden einschalten',
+  'admin.ai.status.master': 'KI-Funktionen auf der Plattform einschalten',
   'admin.ai.status.masterHint': 'Kunden, die abgelehnt haben oder ausgeschaltet sind, bleiben aus.',
   'admin.ai.status.test': 'Verbindung testen',
   'admin.ai.status.testOk': 'Die Verbindung zu Claude funktioniert ({model}, {ms} ms).',
@@ -277,7 +278,7 @@ export const aiDe = {
   'admin.ai.status.enableCheck.workspace':
     'Der Speicher- und Verarbeitungsort des Anthropic-Workspace ist geprüft.',
   'admin.ai.status.enableOptIn':
-    'Alle Kunden bleiben ausgeschaltet, bis Sie oder ihr Reseller sie einzeln einschalten.',
+    'Nur Kunden, die einzeln eingeschaltet sind, erhalten die KI-Funktionen. Alle anderen bleiben aus, bis Sie oder deren Reseller sie einschalten.',
   'admin.ai.status.enableAction': 'Einschalten',
   'admin.ai.key.title': 'API-Schlüssel',
   'admin.ai.key.hint':
@@ -370,6 +371,11 @@ export const aiDe = {
   'admin.ai.reason.timeout': 'Zeitüberschreitung',
   'admin.ai.reason.api': 'Claude API',
   'admin.ai.reason.internal': 'weblion.one',
+  'admin.ai.reason.cyber': 'Cybersicherheit',
+  'admin.ai.reason.bio': 'Biologische Risiken',
+  'admin.ai.reason.frontier_llm': 'Entwicklung von KI-Modellen',
+  'admin.ai.reason.reasoning_extraction': 'Ausgabe der Denkschritte',
+  'admin.ai.reason.general_harms': 'Schädliche Inhalte',
   'admin.ai.dashboard.warning': 'KI-Budget zu {percent} % verbraucht.',
   'admin.ai.dashboard.exhausted': 'KI-Budget aufgebraucht: Neue KI-Anfragen sind bis Monatsende gesperrt.',
   'admin.ai.dashboard.open': 'KI-Einstellungen öffnen',

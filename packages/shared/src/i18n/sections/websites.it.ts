@@ -445,7 +445,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.reseller.removeText':
     'In seguito il cliente non potrà più creare siti web; il contingente torna a Lei.',
   'websites.reseller.removeBlocked':
-    'Possibile solo senza siti web. Il cliente ne ha ancora {n}; li elimini o li riporti nella sua dotazione.',
+    'Possibile solo senza siti web. Il cliente ne ha ancora {n}: li elimini oppure li riprenda nella propria dotazione.',
   'websites.reseller.releaseText':
     'Se si tratta di un sito web e il suo contingente di siti web non ha più spazio per esso, il sito porta con sé il proprio posto nel contingente del cliente: questo si riduce del sito web e dei relativi database.',
   'websites.errors.no_allowance':

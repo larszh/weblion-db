@@ -67,9 +67,15 @@ export function resellerAiState(dto: CardDto): { lockedByPlatform: boolean; ownO
   };
 }
 
-function StateBadge({ on }: { on: boolean }) {
+/**
+ * The badge of a card: the organization's own state, except that a switched-on organization reads "Noch nicht
+ * aktiv" while the platform is off, so the badge never contradicts the line below it (ai.org.platformOff).
+ */
+export function StateBadge({ dto }: { dto: Pick<CardDto, 'enabled' | 'platform'> }) {
   const { t } = useI18n();
-  return <Badge tone={on ? 'success' : 'neutral'}>{on ? t('ai.org.state.on') : t('ai.org.state.off')}</Badge>;
+  if (!dto.enabled) return <Badge tone="neutral">{t('ai.org.state.off')}</Badge>;
+  if (!dto.platform.available) return <Badge tone="neutral">{t('ai.org.state.notActive')}</Badge>;
+  return <Badge tone="success">{t('ai.org.state.on')}</Badge>;
 }
 
 function Lines({ lines }: { lines: string[] }) {
@@ -179,7 +185,7 @@ export function OrgAiCard({ org }: { org: Pick<OrgDto, 'id'> }) {
           </span>
         }
         description={t('ai.org.description')}
-        actions={ai.data ? <StateBadge on={ai.data.enabled} /> : undefined}
+        actions={ai.data ? <StateBadge dto={ai.data} /> : undefined}
       />
       {ai.isPending ? (
         <LoadingBlock rows={2} />
@@ -255,7 +261,7 @@ export function AdminAiCard({
             {t('admin.ai.card.title')}
           </span>
         }
-        actions={data ? <StateBadge on={data.enabled} /> : undefined}
+        actions={data ? <StateBadge dto={data} /> : undefined}
       />
       {ai.isPending ? (
         <LoadingBlock rows={2} />
@@ -333,7 +339,7 @@ export function ResellerAiCard({
             {t('ai.reseller.title')}
           </span>
         }
-        actions={data ? <StateBadge on={data.enabled} /> : undefined}
+        actions={data ? <StateBadge dto={data} /> : undefined}
       />
       {ai.isPending ? (
         <LoadingBlock rows={2} />
