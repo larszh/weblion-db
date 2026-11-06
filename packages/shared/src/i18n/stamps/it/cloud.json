@@ -23,7 +23,7 @@
   "inventory.image": ["1aa4cb0bcca76e92", "850b6f31035433ae"],
   "inventory.createTextPlans": ["d70ed5a8882f79a7", "b6dabe44a99e3ff0"],
   "inventory.createHintPlans": ["d277ffd374feb727", "355826ba1c2964cf"],
-  "inventory.notInLocation": ["3058277fc6938b3b", "bc88496eb7ce41e8"],
+  "inventory.notInLocation": ["3058277fc6938b3b", "ec20a7918473f6be"],
   "inventory.archImage": ["ae099ff852719958", "ce023c192378246f"],
   "inventory.importHint.hetzner": ["674873353cd2fa50", "77ccf6f435bfecdd"],
   "providers.hetzner.token": ["5efaaeeee66eff5f", "a28c3d95dd910be4"],

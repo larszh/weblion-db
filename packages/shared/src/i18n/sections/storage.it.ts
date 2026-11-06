@@ -84,7 +84,7 @@ export const storageIt: Partial<Record<keyof typeof storageDe, string>> = {
     'A partire da 1024 GB solo in passi di 512 GB (1024, 1536, 2048 …), Nextcloud arrotonda gli altri valori.',
   'storage.quota.tooLarge': 'Nel contingente rientrano al massimo {max}.',
   'storage.quota.current': 'Attualmente {quota}. Lasci vuoto per mantenerlo.',
-  'storage.quota.currentUnlimited': 'Attualmente illimitato. Lasci vuoto per lasciarlo così.',
+  'storage.quota.currentUnlimited': 'Attualmente illimitato. Lasci vuoto per mantenerlo così.',
   'storage.quota.used': 'Occupato: {used}',
   'storage.quota.belowUsageTitle': 'Inferiore allo spazio occupato',
   'storage.quota.belowUsage':
@@ -92,7 +92,7 @@ export const storageIt: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.delivery': 'Accesso',
   'storage.delivery.password': 'Genera password ora',
   'storage.delivery.passwordText':
-    "La password viene mostrata una sola volta. La comunica Lei stesso. Se è indicato un indirizzo e-mail, Nextcloud invia anche un'e-mail di benvenuto.",
+    "La password viene mostrata una sola volta. Sarà Lei a comunicarla. Se è indicato un indirizzo e-mail, Nextcloud invia anche un'e-mail di benvenuto.",
   'storage.delivery.invite': 'Invito via e-mail',
   'storage.delivery.inviteText':
     'Nextcloud invia un link con cui la persona imposta da sé la propria password.',
@@ -221,15 +221,15 @@ export const storageIt: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.reseller.removeBlocked':
     'Possibile solo senza account. Il cliente deve prima eliminare i propri account.',
   'providers.nextcloud.help':
-    'Crei in Nextcloud un account admin dedicato alla console (membro del gruppo "admin") e generi per esso una password per le applicazioni in Impostazioni personali > Sicurezza. Per gli inviti l\'istanza deve poter inviare e-mail (Impostazioni di amministrazione > Impostazioni di base > Server di posta).',
+    'Crei in Nextcloud un account admin dedicato alla console (membro del gruppo "admin") e generi per esso una password per app in Impostazioni personali > Sicurezza. Per gli inviti l\'istanza deve poter inviare e-mail (Impostazioni di amministrazione > Impostazioni di base > Server di posta).',
   'providers.nextcloud.url': "URL dell'istanza",
   'providers.nextcloud.urlHint': "L'indirizzo con cui gli utenti accedono, ad es. https://cloud.weblion.one",
   'providers.nextcloud.username': 'Utente admin',
   'providers.nextcloud.usernameHint':
-    "Nome di login dell'account admin per la console, non quello personale.",
-  'providers.nextcloud.appPassword': 'Password per le applicazioni',
+    "Nome di login dell'account admin per la console, non quello del suo account personale.",
+  'providers.nextcloud.appPassword': 'Password per app',
   'providers.nextcloud.appPasswordHint':
-    'Impostazioni personali > Sicurezza > Dispositivi e sessioni > Crea nuova password per le applicazioni.',
+    'Impostazioni personali > Sicurezza > Dispositivi e sessioni > Crea nuova password per app.',
   'providers.nextcloud.groupPrefix': 'Prefisso dei gruppi',
   'providers.nextcloud.groupPrefixHint':
     'Facoltativo. Ogni organizzazione riceve il gruppo <prefisso><sigla>, affinché colleghe e colleghi possano condividere tra loro. Predefinito: {prefix}',
@@ -241,7 +241,7 @@ export const storageIt: Partial<Record<keyof typeof storageDe, string>> = {
     'Account di questa istanza, assegnazione ai clienti e presa in carico degli utenti creati direttamente in Nextcloud.',
   'providers.nextcloud.toAccounts': 'Vai agli account cloud',
   'explorer.nextcloudPath':
-    'Percorsi OCS, ad es. /ocs/v2.php/cloud/users?search=anna. Le password nelle risposte vengono nascoste, le password per le applicazioni non possono essere gestite qui.',
+    'Percorsi OCS, ad es. /ocs/v2.php/cloud/users?search=anna. Le password nelle risposte vengono nascoste, le password per app non possono essere gestite qui.',
   'explorer.nextcloudBodyHint':
     'GET e DELETE inviano i parametri come query, POST e PUT come modulo, ad es. { "key": "quota", "value": "10 GB" }.',
 };

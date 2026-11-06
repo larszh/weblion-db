@@ -90,7 +90,7 @@ export const phoneIt: Partial<Record<keyof typeof phoneDe, string>> = {
   'phone.user.updated': 'Interno {number} salvato',
   'phone.user.deleteTitle': "Eliminare l'interno {number}?",
   'phone.user.deleteText':
-    "L'interno {number} viene eliminato con le sue impostazioni. Se le segreterie telefoniche e le registrazioni vengono mantenute dipende dalla 3CX.",
+    "L'interno {number} viene eliminato con le sue impostazioni. Dipende dalla 3CX se le segreterie telefoniche e le registrazioni vengono mantenute.",
   'phone.user.deleted': 'Interno {number} eliminato',
   'phone.user.welcome': 'Invia e-mail di benvenuto',
   'phone.user.welcomeTitle': "Inviare l'e-mail di benvenuto?",
