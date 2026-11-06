@@ -19,7 +19,7 @@ const log = pino({ level: 'silent' });
 /**
  * The repository's German and English texts (with the English stamps) and no compiled fr, it or nl text: the
  * fallback chain and the legal substitution need a target locale without a translation, which the repository
- * no longer has. Every service of this file runs on it.
+ * no longer has. Every service of this file runs on it, except one legal-key test on the repository catalog.
  */
 const catalog = buildCatalog(
   Object.fromEntries(
@@ -268,6 +268,27 @@ describe('legal keys', () => {
     // never needs to work out on its own whether a translation is current.
     for (const key of LEGAL_KEYS) {
       expect(t.ctx.i18n.payload('fr').body.values[key]).toBe(t.ctx.i18n.catalog.bundles.en[key]);
+    }
+  });
+
+  it('serve the compiled, stamped notices of the repository while current, German once they are stale', async () => {
+    // The repository catalog, the one production runs on: fr, it and nl ship a compiled notice with its stamp.
+    const repo = new I18nService(t.db, t.ctx.env, log, buildCatalog());
+    await repo.reload();
+    for (const locale of ['fr', 'it', 'nl'] as const) {
+      expect(repo.catalog.stamps[locale][NOTICE]?.[0]).toBe(repo.source(NOTICE).hash);
+      expect(repo.t(locale, NOTICE)).toBe(repo.catalog.bundles[locale][NOTICE]);
+      expect(repo.payload(locale).body.values[NOTICE]).toBeUndefined();
+    }
+
+    // A German override makes every compiled stamp stale: no outdated notice is served, the German one is.
+    await put(NOTICE, 'de', 'Neuer Hinweis zu den Daten.', {
+      hash: sourceHash(repo.catalog.bundles.de[NOTICE]!),
+    });
+    await repo.reload();
+    for (const locale of ['fr', 'it', 'nl', 'en'] as const) {
+      expect(repo.t(locale, NOTICE)).toBe('Neuer Hinweis zu den Daten.');
+      expect(repo.payload(locale).body.values[NOTICE]).toBe('Neuer Hinweis zu den Daten.');
     }
   });
 
