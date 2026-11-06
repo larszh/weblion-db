@@ -667,6 +667,9 @@ export class I18nService {
   stop(): void;
   /** After a local write (admin save, import, job batch, cleanup, key save): reload now. */
   reload(): Promise<void>;
+  /** One step of the 15 s timer: compares count and newest updated_at of overrides and glossary with the last
+   *  load, reloads when they differ, returns whether it did. Public so tests drive it without a timer (F). */
+  refresh(): Promise<boolean>;
   /** Overrides (servable rows only), fallbackChain, the legal rule; then interpolate(). Never throws. */
   t(locale: Locale, key: ServerTranslationKey, params?: I18nParams): string;
   translator(locale: Locale): Tr;
