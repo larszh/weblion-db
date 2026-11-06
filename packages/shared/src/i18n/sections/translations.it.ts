@@ -81,7 +81,7 @@ export const translationsIt: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.cell.readOnly': 'Può visualizzare le traduzioni, ma non modificarle.',
   'admin.i18n.check.placeholders': 'I segnaposto non corrispondono al testo tedesco.',
   'admin.i18n.check.german': 'Sembra un testo tedesco.',
-  'admin.i18n.check.formality': 'Sembra una forma di indirizzo informale. Usi la forma di cortesia.',
+  'admin.i18n.check.formality': 'Sembra scritto in forma confidenziale. Usi la forma di cortesia.',
   'admin.i18n.check.length': 'Molto più lungo del testo tedesco. Mantenga brevi i pulsanti e le etichette.',
   'admin.i18n.check.glossary': 'Manca un termine del glossario.',
   'admin.i18n.check.sharpS': 'Contiene una Eszett (s tedesca). Usi ss.',
@@ -170,7 +170,7 @@ export const translationsIt: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.glossary.saved': 'Glossario salvato',
   'admin.i18n.style.title': 'Note di stile',
   'admin.i18n.style.hint':
-    'Indicazioni aggiuntive per lingua per le traduzioni IA, ad esempio sulla forma di indirizzo o sui termini.',
+    'Indicazioni aggiuntive per lingua per le traduzioni IA, ad esempio sulla forma di cortesia o sui termini.',
   'admin.i18n.style.defaults': 'Indicazioni predefinite',
   'admin.i18n.style.saved': 'Note di stile salvate',
   'admin.i18n.export.title': 'Esportazione',

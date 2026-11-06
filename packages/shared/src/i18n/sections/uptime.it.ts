@@ -182,7 +182,7 @@ export const uptimeIt: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.resume.action': 'Riprendi',
   'uptime.delete.title': 'Eliminare {name}?',
   'uptime.delete.text':
-    "Il monitor viene eliminato in Uptime Kuma, con tutta la sua cronologia. L'operazione è irreversibile.",
+    "Il monitor viene eliminato in Uptime Kuma, con tutta la sua cronologia. L'operazione non può essere annullata.",
   'uptime.delete.textMissing':
     'Uptime Kuma non segnala più questo monitor. Viene solo rimosso dalla console.',
   'uptime.error.monitor_limit': 'Il contingente di monitoraggio è esaurito.',
