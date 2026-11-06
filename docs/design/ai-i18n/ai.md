@@ -2,8 +2,8 @@
 
 Regenerated on 06.11.2026 after the container restart, from `plan.md` (sections 0, 1, 5 to 11) and
 `summaries.md` (reports "ai", "review" and "revised"), checked against the code at `c6c51ad`. Cited by the plan as
-"ai x.y". Where this document and `plan.md` disagree, `plan.md` wins; the shared contracts of plan section 2
-(`contracts.md`) win over the copies given here for convenience (3.1, 4.2, 6.9).
+"ai x.y". Where this document and `plan.md` disagree, `plan.md` wins; the shared contracts of plan sections 2
+to 4 win over the copies given here for convenience (3.1, 4.2, 5.1, 5.6, 6.6, 6.9).
 
 Conventions: identifiers and comments in English, UI copy in German (formal "Sie", Swiss spelling with "ss") and
 English, no em dash anywhere. Model ids appear only as `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`.
@@ -144,7 +144,8 @@ and 0.1 x elsewhere. The KI page shows input and output prices next to each mode
 ### 3.1 `packages/shared/src/ai.ts`
 
 Exported from the package index (plan F4). Imports locales from `./i18n/locales` (plan O1) and `PolicyStatement`
-from `./policy`. U3 may only add to it (plan 11).
+from `./policy`. U3 may only add to it (plan 11). Plan 2.3 adds to the file below the error vocabulary of 4.2 as arrays
+(`AI_ERROR_CODES`, `AI_LIMIT_KINDS`, `AI_UPSTREAM_REASONS`) and `AiIntegrationDto` (5.3).
 
 ```ts
 import type { PolicyStatement } from './policy';
@@ -714,7 +715,10 @@ tab (7.3). The web translates every code (plan O25, O32); the key column names t
 | `ai_admin_key` | 400 | `aiAdminKey()` | none | This is an Admin API key. Save a normal API key from the Claude Console. | `ai.error.adminKey` |
 | `ai_not_configured` | 409 | `aiNotConfigured(reason)` (used by i18n routes) | `{ reason: AiUnavailableReason }` | AI is not available. Set it up under Administration > AI. | `ai.error.notConfigured` |
 
-The three reason types are exported from `packages/shared/src/ai.ts` (the web and `AiTestResultDto` use them):
+The three reason types are exported from `packages/shared/src/ai.ts` (the web and `AiTestResultDto` use them).
+Plan 2.3 exports `AiLimitKind` and `AiUpstreamReason` as arrays (`AI_LIMIT_KINDS`, `AI_UPSTREAM_REASONS`) with the
+types derived from them, and the codes of this table as `AI_ERROR_CODES`, so the web test can iterate them (plan
+2.10); the unions are the same:
 
 ```ts
 export type AiLimitKind =
@@ -760,7 +764,7 @@ export type AiBusyReason = 'overloaded' | 'rate_limit';
 ### 5.1 Settings rows
 
 Stored in the `settings` table (`apps/api/src/db/schema.ts:949`) like the SMTP settings, read through
-`apps/api/src/modules/ai/settings.ts`. Plan section 3 (`contracts.md`) is binding for the key names.
+`apps/api/src/modules/ai/settings.ts`. Plan 3.2 is binding for the key names and defaults.
 
 | Key | Value | Notes |
 |---|---|---|
@@ -853,7 +857,7 @@ optional.
 - `ctx.ai.integrationStatus()` fills `IntegrationsDto.ai` (plan F8, F18; `modules/settings/routes.ts`):
 
   ```ts
-  ai: { configured: boolean; source: 'ui' | 'env' | 'demo' | 'none'; enabled: boolean; model: AiModel };
+  ai: AiIntegrationDto; // { configured: boolean; source: 'ui' | 'env' | 'demo' | 'none'; enabled: boolean; model: AiModel }
   ```
 
   `configured` is true for `ui`, `env` and `demo`. The admin settings page shows it as an `IntegrationCard` with a
@@ -871,8 +875,9 @@ optional.
 | `POST /admin/ai/test` | `requireSession`, `platform:settings`, 10 per minute | `{}` -> `AiTestResultDto` | `ai.test` (status success or failure, `{ model, reason }`) |
 
 `PUT /admin/ai/key` runs in one transaction: `saveAiKey(tx, ...)`, then `deleteDemoOverrides(tx)` from
-`apps/api/src/i18n/entries.ts` (plan F16, O11; demo pseudo translations must not survive a real key), then the
-audit entry. After the commit: `ctx.ai.resetClient()`, `ctx.i18n` reloads its overrides (i18n 8.1). A key is
+`apps/api/src/i18n/entries.ts` (plan F16, O11; demo pseudo translations must not survive a real key). After the
+commit: the audit entry (`ctx.audit.record` writes outside the transaction, plan 4.3), `ctx.ai.resetClient()`,
+`ctx.i18n.reload()` (i18n 8.1). A key is
 saved even while the master switch is off.
 
 Staff routes of `modules/ai/admin-routes.ts` (U3; the feature routes are in 10):
@@ -934,7 +939,7 @@ Rules:
 
 ### 5.6 Data model (migration `apps/api/drizzle/0010_ai.sql`, plan O12)
 
-Plan section 3 (`contracts.md`) is binding; this is the AI part as designed.
+Plan 3.1 is binding (it gives the Drizzle schema and the generated SQL); this is the AI part as designed.
 
 ```sql
 ALTER TABLE "organizations" ADD COLUMN "ai_enabled" boolean DEFAULT true NOT NULL;
@@ -1252,19 +1257,19 @@ limits removed; `z.record` throws; every tool input schema and every feature out
 
 ### 6.6 `structured()`
 
-The one path for JSON features, translations included (plan O4). Signature (copy of plan 2.4):
+The one path for JSON features, translations included (plan O4). Signature (copy of plan 2.4, which is binding):
 
 ```ts
-export interface StructuredRequest<T> {
+export interface StructuredInput<T> {
   feature: AiFeature;
   scope: AiUsageScope; // 'org' | 'staff' | 'platform'
   orgId: string | null; // the organization the data belongs to (staff requests: the customer)
   countsForUser: boolean; // false only for Mass Translate batches (plan O9)
-  actor: { userId: string | null };
+  retryOnMaxTokens?: boolean; // default true; translation batches pass false
+  actor: { userId: string | null }; // userId required when countsForUser is true
   system: string; // SYSTEM_TEXT[feature], or the translator's prompt (first line "# Feature: translations")
   user: string; // the user turn; third-party data inside escaped blocks (11.1)
   schema: z.ZodType<T>;
-  retryOnMaxTokens?: boolean; // default true; translation batches pass false
   signal?: AbortSignal;
 }
 export interface StructuredResult<T> {
@@ -1274,17 +1279,19 @@ export interface StructuredResult<T> {
   tokens: UsageTotals;
   costMicros: number;
 }
-structured<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>>;
+/** Attached to every error thrown after the reservation; read with usageOfError(err) (errors.ts). */
+export interface StructuredUsage { usageId: string; tokens: UsageTotals; costMicros: number }
+structured<T>(input: StructuredInput<T>): Promise<StructuredResult<T>>;
 ```
 
 Flow:
 
-1. `assertFeature(req.feature)` (404 when not available; i18n routes check `availability()` before and answer
+1. `assertFeature(input.feature)` (404 when not available; i18n routes check `availability()` before and answer
    409 themselves); `client()`.
 2. `reserve()` (7.1) with `estimateCallMicros(model, feature, approxTokens(system + user + schema))`.
-3. One streamed call: `{ ...baseParams(model, feature, userId), system: systemBlocks(req.system), messages: [{
-   role: 'user', content: req.user }], output_config: { effort: AI_FEATURE_EFFORT[feature], format: { type:
-   'json_schema', schema: toStrictJsonSchema(req.schema) } } }`, signal `AbortSignal.any([req.signal,
+3. One streamed call: `{ ...baseParams(model, feature, userId), system: systemBlocks(input.system), messages: [{
+   role: 'user', content: input.user }], output_config: { effort: AI_FEATURE_EFFORT[feature], format: { type:
+   'json_schema', schema: toStrictJsonSchema(input.schema) } } }`, signal `AbortSignal.any([input.signal,
    AbortSignal.timeout(turn timeout)])`.
 4. `addCall(row, message)`, then `stop_reason`:
    - `refusal`: 422 `ai_refusal`, usage status `refusal`;
@@ -1293,9 +1300,11 @@ Flow:
      `retryOnMaxTokens: false`, gives 502 `ai_incomplete`, status `incomplete` (the job then splits the batch,
      i18n 12);
    - otherwise the text blocks in order are joined (after a mid-stream fallback the fallback model continues the
-     same text), `JSON.parse`d and validated with `req.schema`; a failure is 502 `ai_upstream` reason `output`.
+     same text), `JSON.parse`d and validated with `input.schema`; a failure is 502 `ai_upstream` reason `output`.
 5. `finish(row, 'ok')`, `checkBudgetWarning()`, return. Every thrown error passes `classifyAiError` and
-   `finish(row, status, error)` first.
+   `finish(row, status, { error, original })` first; once the row exists the error carries the request's
+   `StructuredUsage`, so the translation job counts the cost of refused and cut-off calls too (plan 2.6). An abort
+   by `input.signal` (not the timeout) becomes `AiCancelled`, status `cancelled`.
 
 The request always ends with a user turn and carries no prefill.
 
@@ -1402,26 +1411,33 @@ export function classifyAiError(err: unknown, run: { timedOut: boolean }): AppEr
 
 ### 6.9 `AiService` (copy of plan 2.4)
 
-`apps/api/src/modules/ai/service.ts`, `ctx.ai` (plan F17). F builds the core; U3 adds the marked members.
+`apps/api/src/modules/ai/service.ts`, `ctx.ai` (plan F17). F builds every member except the three marked U3, which
+F declares with these signatures and bodies that throw "not implemented". Plan 2.4 is binding (types, comments,
+the neighbouring exports of `usage.ts` and `errors.ts`).
 
 ```ts
 export class AiService {
-  constructor(ctx: AppContext);
+  constructor(ctx: AppContext); // stores ctx only; app.ts assigns ctx.ai = new AiService(ctx)
   attach(app: FastifyInstance): void; // keeps the app for ConsoleReader (app.inject)
   settings(): Promise<AiSettings>;
   availability(feature?: AiFeature): Promise<AiAvailabilityDto>;
   assertFeature(feature: AiFeature): Promise<AiSettings>; // 404
-  integrationStatus(): Promise<IntegrationsDto['ai']>;
-  client(): Promise<{ client: Anthropic; demo: boolean; model: AiModel } | null>;
-  resetClient(): void;
-  structured<T>(req: StructuredRequest<T>): Promise<StructuredResult<T>>;
+  status(): Promise<AiStatusDto>; // GET /ai/status
+  integrationStatus(): Promise<AiIntegrationDto>; // IntegrationsDto.ai
+  client(): Promise<AiClient | null>; // { client: Anthropic; demo: boolean; model: AiModel }
+  resetClient(): void; // also clears the 10 s settings and availability cache
+  structured<T>(input: StructuredInput<T>): Promise<StructuredResult<T>>;
   countRate(actor: { userId: string }): Promise<void>; // 429 user_rate / user_concurrent / user_daily, no row
+  reserve(input: ReserveInput): Promise<AiUsageRow>; // 7.1
+  refreshReservation(row: AiUsageRow, estimateMicros: number): Promise<void>;
+  addCall(row: AiUsageRow, message: BetaMessage, call: { requestId: string | null }): Promise<void>; // 6.7
+  finish(row: AiUsageRow, status: AiFinishStatus, failure?: { error: AppError; original?: unknown }): Promise<void>;
   budgetState(): Promise<AiBudgetDto>;
+  budgetExceeded(): Promise<boolean>; // spent >= budget; usage.ts (F), called by the chat loop after every call
   // U3:
-  budgetExceeded(): Promise<boolean>;
   assertOrgData(orgId: string): Promise<void>; // 403 ai_org_disabled
   liveReadAllowed(orgId: string): boolean;
-  chat(req: FastifyRequest, reply: FastifyReply, input: ChatInput): Promise<void>;
+  chat(req: FastifyRequest, reply: FastifyReply, input: ChatInput): Promise<void>; // U3's own signature
 }
 ```
 
@@ -1537,8 +1553,9 @@ exhaustion `admin.ai.dashboard.exhausted`.
 `class AiMaintenance` (`apps/api/src/modules/ai/maintenance.ts`, plan F15, U3), `constructor(ctx: AppContext,
 pool: pg.Pool)`, started in `index.ts` and stopped in `shutdown` (plan F17). `start()` runs once 5 seconds after
 start, then every 10 minutes (timers `unref()`ed like `BillingJob.start`, `modules/billing/recurring.ts:226-233`).
-Each run takes `pg_try_advisory_xact_lock(hashtextextended('ai:maintenance', 0))` in one transaction on a pool
-client and skips when another process holds it:
+Each run takes the session lock `AI_MAINTENANCE_LOCK = 742_005` with `pg_try_advisory_lock` on a dedicated pool
+client (the pattern of `BillingJob.tick`, `modules/billing/recurring.ts:200-223`; plan 3.3), skips when another
+process holds it, runs the three statements and unlocks on the same client:
 
 1. **Stale rows**: `status = 'running'` and `created_at < now() - (AI_TURN_TIMEOUT_SECONDS + 60) s` become `stale`,
    `reserved_micros = 0`, `finished_at = now()` (their tokens so far stay counted).
