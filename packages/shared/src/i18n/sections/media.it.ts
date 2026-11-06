@@ -51,7 +51,7 @@ export const mediaIt: Partial<Record<keyof typeof mediaDe, string>> = {
     'Le app sono disponibili per browser, Windows, macOS, Linux (Jellyfin Media Player), Android, Android TV, Fire TV, iPhone e iPad, Apple TV (Swiftfin), LG webOS, Roku e Kodi.',
   'media.login.allApps': 'Tutte le app',
   'media.login.privacy':
-    'Altri accessi sullo stesso server possono vedere i nomi di login. Usi nomi di persona o di locali, non nome e cognome.',
+    'Altri accessi sullo stesso server possono vedere i nomi di login. Usi nomi di persona o di stanze, non nome e cognome.',
   'media.accounts': 'Accessi',
   'media.accountsText':
     'Ogni accesso effettua il login con il proprio nome di login e riceve i diritti del suo contingente.',
@@ -86,7 +86,7 @@ export const mediaIt: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.name.placeholder': 'anna',
   'media.name.preview': 'Nome di login:',
   'media.name.hint':
-    'Usi nomi di persona o di locali come anna o soggiorno. Altri accessi sullo stesso server possono vedere i nomi di login.',
+    'Usi nomi di persona o di stanze come anna o soggiorno. Altri accessi sullo stesso server possono vedere i nomi di login.',
   'media.name.invalid':
     "Solo lettere minuscole, cifre e singoli trattini, con una lettera o una cifra all'inizio e alla fine (al massimo 20 caratteri).",
   'media.name.taken': 'Questo accesso esiste già.',

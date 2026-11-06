@@ -2,14 +2,14 @@ import type { cloudflareDe } from './cloudflare.de';
 
 export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = {
   'providers.cloudflare.help':
-    "Nel dashboard di Cloudflare, alla voce Il mio profilo > Token API, crei un token dedicato (non la Global API Key) per tutte le zone dell'account. Cloudflare consente 1200 richieste API ogni 5 minuti per utente: l'ideale è un utente Cloudflare riservato alla console.",
+    "Nella dashboard di Cloudflare, alla voce Il mio profilo > Token API, crei un token dedicato (non la Global API Key) per tutte le zone dell'account. Cloudflare consente 1200 richieste API ogni 5 minuti per utente: l'ideale è un utente Cloudflare riservato alla console.",
   'providers.cloudflare.token': 'Token API',
   'providers.cloudflare.tokenHint':
     'Token API > Crea token > Token personalizzato, risorse della zona "Tutte le zone di un account".',
   'providers.cloudflare.permissions': 'Autorizzazioni necessarie: {permissions}',
   'providers.cloudflare.accountId': 'ID account',
   'providers.cloudflare.accountIdHint':
-    "Facoltativo, si trova nella pagina iniziale dell'account nel dashboard. Necessario per creare zone (migrazione del DNS su Cloudflare); limita inoltre l'elenco delle zone a questo account.",
+    "Facoltativo, si trova nella pagina iniziale dell'account nella dashboard. Necessario per creare zone (migrazione del DNS su Cloudflare); limita inoltre l'elenco delle zone a questo account.",
   'providers.cloudflare.accountIdInvalid': "L'ID account è composto da 32 caratteri (0-9, a-f).",
   'providers.cloudflare.baseUrl': "URL di base dell'API",
   'providers.cloudflare.baseUrlHint': 'Predefinito: {url}',
@@ -45,7 +45,7 @@ export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = 
   'hosting.zone.plan': 'Piano',
   'hosting.zone.paused': 'Zona in pausa',
   'hosting.zone.pausedText':
-    '{provider} risponde ormai solo alle richieste DNS. Proxy e CDN sono disattivati per questa zona.',
+    '{provider} ora risponde solo alle richieste DNS. Proxy e CDN sono disattivati per questa zona.',
   'hosting.zone.movedText':
     'Il dominio non punta più ai nameserver di {provider}. I record di questa zona non sono più validi e {provider} eliminerà la zona dopo qualche tempo.',
   'hosting.zone.checkActivation': 'Verifica attivazione ora',
@@ -173,7 +173,7 @@ export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = 
     'Non è possibile: il dominio non usa i nameserver del registrar, quindi i record del registrar non sono quelli validi.',
   'hosting.dnsMove.import.error': 'Non è stato possibile leggere i record presso il registrar:',
   'hosting.dnsMove.import.tooMany':
-    'Non è possibile: più di {max} record. Importi la zona nel dashboard di Cloudflare.',
+    'Non è possibile: più di {max} record. Importi la zona nella dashboard di Cloudflare.',
   'hosting.dnsMove.import.zoneNotEmpty':
     'In una zona che contiene già dei record, la console non copia nulla.',
   'hosting.dnsMove.planned': 'Da copiare ({n})',
