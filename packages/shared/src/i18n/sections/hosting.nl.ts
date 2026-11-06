@@ -108,7 +108,7 @@ export const hostingNl: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.ns.count': '{min} tot {max} nameservers',
   'hosting.ns.presetJoker': 'Joker-nameservers',
   'hosting.ns.presetJokerHint':
-    'a.ns.joker.com, b.ns.joker.com en c.ns.joker.com. Nodig om de DNS-records bij Joker.com van kracht te laten zijn.',
+    'a.ns.joker.com, b.ns.joker.com en c.ns.joker.com. Nodig zodat de DNS-records bij Joker.com gelden.',
   'hosting.ns.usePreset': 'Overnemen',
   'hosting.ns.warning':
     'Verkeerde nameservers leggen de website en e-mail van het domein plat. Controleer vooraf of de nieuwe servers de zone al kennen.',
@@ -198,7 +198,7 @@ export const hostingNl: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.dns.cnameApex':
     'Een CNAME is voor het domein zelf niet toegestaan. Gebruik ALIAS of een A-record.',
   'hosting.dns.propagation':
-    'Wijzigingen zijn afhankelijk van de TTL na enkele minuten wereldwijd zichtbaar.',
+    'Afhankelijk van de TTL zijn wijzigingen na enkele minuten wereldwijd zichtbaar.',
   'hosting.dns.invalid.name': 'Ongeldige naam. Toegestaan zijn bijv. www, mail, _dmarc of *.dev.',
   'hosting.dns.invalid.ipv4': 'Voer een IPv4-adres in, bijv. 185.101.20.10.',
   'hosting.dns.invalid.ipv6': 'Voer een IPv6-adres in, bijv. 2a0e:3e9::10.',
@@ -312,7 +312,7 @@ export const hostingNl: Partial<Record<keyof typeof hostingDe, string>> = {
     'Met deze gegevens heeft men volledige toegang tot de webruimte. De opvraging wordt vastgelegd in het auditlog.',
   'hosting.creds.openPlesk': 'Plesk openen',
   'hosting.creds.loginUrlHint':
-    'Met deze link logt u eenmalig in en hij verloopt na korte tijd. Geef hem niet door aan anderen.',
+    'Met deze link logt u eenmalig in; de link verloopt na korte tijd. Geef hem niet door aan anderen.',
   'hosting.creds.loginConfirmText':
     'Er wordt een eenmalige inloglink voor Plesk aangemaakt. De opvraging wordt vastgelegd in het auditlog.',
   'hosting.mail.title': 'E-mailprogramma instellen',

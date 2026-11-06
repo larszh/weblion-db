@@ -78,14 +78,13 @@ export const cloudflareNl: Partial<Record<keyof typeof cloudflareDe, string>> = 
     'Er is een zone bij {provider} voorbereid ({status}). Totdat het domein naar de nameservers van {provider} verwijst, gelden de records hier.',
   'hosting.dnsZone.nsLine': 'DNS-zone bij {provider}: {status}',
   'hosting.dnsZone.preset': 'Nameservers van de zone bij {provider}',
-  'hosting.dnsZone.presetHint':
-    '{list}. Nodig om de DNS-records van de zone bij {provider} van kracht te laten zijn.',
+  'hosting.dnsZone.presetHint': '{list}. Nodig zodat de DNS-records van de zone bij {provider} gelden.',
   'hosting.dns.proxy.column': 'Proxy',
   'hosting.dns.proxy.on': 'Via proxy',
   'hosting.dns.proxy.off': 'Alleen DNS',
   'hosting.dns.proxy.onHint':
     'Het verkeer loopt via {provider} (CDN en bescherming). Het adres van uw server blijft verborgen.',
-  'hosting.dns.proxy.offHint': 'Alleen DNS: het adres wordt rechtstreeks vrijgegeven, zonder proxy en CDN.',
+  'hosting.dns.proxy.offHint': 'Alleen DNS: het adres wordt rechtstreeks teruggegeven, zonder proxy en CDN.',
   'hosting.dns.proxy.turnOn': 'Proxy inschakelen',
   'hosting.dns.proxy.turnOff': 'Proxy uitschakelen',
   'hosting.dns.proxy.label': 'Via Cloudflare leiden (proxy)',
@@ -97,7 +96,7 @@ export const cloudflareNl: Partial<Record<keyof typeof cloudflareDe, string>> = 
   'hosting.dns.proxy.toggledOff': 'Proxy voor {name} uitgeschakeld',
   'hosting.dns.ttlAuto': 'Automatisch',
   'hosting.dns.cnameFlattening':
-    'Toegestaan: {provider} geeft voor het domein zelf de adressen van het doel vrij (CNAME-flattening).',
+    'Toegestaan: {provider} geeft voor het domein zelf de adressen van het doel terug (CNAME-flattening).',
   'hosting.dns.comment': 'Notitie',
   'hosting.cdn.tab': 'CDN',
   'hosting.cdn.notActive':
@@ -163,13 +162,13 @@ export const cloudflareNl: Partial<Record<keyof typeof cloudflareDe, string>> = 
   'hosting.dnsMove.existingZoneOtherOrg':
     'Ze hoort bij {zoneOrg}, het domein bij {domainOrg}. Wijs beide toe aan dezelfde organisatie voordat u de verhuizing start.',
   'hosting.dnsMove.existingZoneClaim':
-    'Ze is aan geen enkele organisatie toegewezen; de verhuizing wijst haar toe aan {domainOrg}.',
+    'Ze is aan geen enkele organisatie toegewezen; de verhuizing wijst ze toe aan {domainOrg}.',
   'hosting.dnsMove.noOrg': 'geen organisatie',
   'hosting.dnsMove.import.label': 'Records van de registrar overnemen ({n})',
   'hosting.dnsMove.import.hint':
     'Kopieert de records naar de nieuwe zone. Gekopieerde records lopen niet via de proxy, aan het verkeer verandert dus niets.',
   'hosting.dnsMove.import.unavailable':
-    'Niet mogelijk: het domein gebruikt niet de nameservers van de registrar, de records daar zijn dus niet de geldige.',
+    'Niet mogelijk: het domein gebruikt niet de nameservers van de registrar, de records daar zijn dus niet van kracht.',
   'hosting.dnsMove.import.error': 'De records bij de registrar konden niet worden gelezen:',
   'hosting.dnsMove.import.tooMany':
     'Niet mogelijk: meer dan {max} records. Importeer de zone in het Cloudflare-dashboard.',

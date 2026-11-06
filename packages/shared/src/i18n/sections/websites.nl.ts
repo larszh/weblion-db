@@ -29,13 +29,13 @@ export const websitesNl: Partial<Record<keyof typeof websitesDe, string>> = {
   'providers.cloudpanel.ipv4': 'Publieke IPv4-adressen (optioneel)',
   'providers.cloudpanel.ipv6': 'Publieke IPv6-adressen (optioneel)',
   'providers.cloudpanel.ipsHint':
-    'Gescheiden door komma, voor de DNS-controle vóór SSL-certificaten. Standaard: wat de server doorgeeft.',
+    "Gescheiden door komma's, voor de DNS-controle vóór SSL-certificaten. Standaard: wat de server doorgeeft.",
   'providers.cloudpanel.phpVersions': 'PHP-versies voor klanten (optioneel)',
   'providers.cloudpanel.phpVersionsHint':
-    'Gescheiden door komma, bijv. 8.3, 8.4 (standaard). Alleen wat op de server is geïnstalleerd, wordt aangeboden.',
+    "Gescheiden door komma's, bijv. 8.3, 8.4 (standaard). Alleen wat op de server is geïnstalleerd, wordt aangeboden.",
   'providers.cloudpanel.templates': 'Applicaties voor klanten (optioneel)',
   'providers.cloudpanel.templatesHint':
-    'Vhost-sjablonen zoals in CloudPanel, gescheiden door komma; een * aan het eind past op alle namen met dit begin (Laravel*). Standaard: Generic, WordPress, WooCommerce.',
+    "Vhost-sjablonen zoals in CloudPanel, gescheiden door komma's; een * aan het eind past op alle namen met dit begin (Laravel*). Standaard: Generic, WordPress, WooCommerce.",
   'providers.cloudpanel.nodejs': 'Node.js-websites voor klanten',
   'providers.cloudpanel.nodejsHint':
     'Alleen als de agent met --nodejs is geïnstalleerd. Klanten hebben daarnaast Node.js in hun quotum nodig.',
@@ -93,7 +93,7 @@ export const websitesNl: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.allowance.instanceHint':
     'Nieuwe websites van de organisatie worden op deze CloudPanel-server aangemaakt.',
   'websites.allowance.instanceLocked':
-    'De reseller heeft klanten met een websitequotum op deze server. De server kan pas zonder hen worden gewijzigd.',
+    'De reseller heeft klanten met een websitequotum op deze server. Zolang die er zijn, kan de server niet worden gewijzigd.',
   'websites.allowance.instanceReseller':
     'Klanten van {reseller} krijgen hun websites op de server van de reseller.',
   'websites.allowance.instanceChange':
@@ -137,8 +137,9 @@ export const websitesNl: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.create.text':
     'Een domein met de bijbehorende www-variant, een gebruiker voor SFTP/SSH en desgewenst een database.',
   'websites.create.domain': 'Domein',
-  'websites.create.domainHint': 'Met of zonder www, beide worden geleverd.',
-  'websites.create.domainAscii': 'Wordt aangemaakt als {ascii}. Met of zonder www, beide worden geleverd.',
+  'websites.create.domainHint': 'Met of zonder www, de website is via beide bereikbaar.',
+  'websites.create.domainAscii':
+    'Wordt aangemaakt als {ascii}. Met of zonder www, de website is via beide bereikbaar.',
   'websites.create.domainInvalid': 'Geen geldig domein, bijv. shop.voorbeeld.ch.',
   'websites.create.type': 'Soort',
   'websites.create.type.php': 'PHP-applicatie',
@@ -393,7 +394,7 @@ export const websitesNl: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.admin.orgHint': 'Zonder toewijzing wijst u de website later toe in de lijst hieronder.',
   'websites.admin.enablesModule': 'De module "{module}" wordt voor {org} geactiveerd.',
   'websites.admin.optionsError':
-    'Server niet bereikbaar. De keuzemogelijkheden volgen de providerinstellingen; de server controleert elk gegeven.',
+    'Server niet bereikbaar. De keuzemogelijkheden volgen de providerinstellingen; de server controleert elke invoer.',
   'websites.admin.noAllowanceCheck':
     'Voor platformmedewerkers geldt geen quotum. In het quotum van de klant telt de website toch mee.',
   'websites.admin.forget': 'Uit de console verwijderen',
