@@ -13,6 +13,7 @@ import { platformScope, requireSession } from '../../auth/access';
 import { projects, serverActions, servers, users } from '../../db/schema';
 import { badRequest, forbidden, locked, notFound, unsupported } from '../../lib/errors';
 import { labelsSchema, paginationQuery, parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import { loadOrg } from '../orgs/routes';
 import { projectScope } from '../projects/routes';
 import { queryAudit } from '../audit/routes';
@@ -119,8 +120,8 @@ export async function serverRoutes(app: FastifyInstance, ctx: AppContext) {
       query.status ? eq(servers.status, query.status as never) : undefined,
       query.q
         ? or(
-            ilike(servers.name, `%${query.q.replace(/[%_]/g, '')}%`),
-            sql`${servers.ips}::text ilike ${`%${query.q.replace(/[%_]/g, '')}%`}`,
+            ilike(servers.name, containsPattern(query.q)),
+            sql`${servers.ips}::text ilike ${containsPattern(query.q)}`,
           )
         : undefined,
     ];

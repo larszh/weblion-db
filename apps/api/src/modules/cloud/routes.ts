@@ -25,6 +25,7 @@ import {
 } from '../../db/schema';
 import { AppError, badRequest, conflict, notFound, unsupported } from '../../lib/errors';
 import { parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import type { CloudAccountPatch, ProviderAdapter, RemoteCloudAccount } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
 import {
@@ -111,7 +112,6 @@ const importBody = z.object({
 });
 const assignBody = z.object({ orgId: z.uuid().nullable() });
 
-const like = (q: string) => `%${q.replace(/[%_]/g, '')}%`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Passwords must not end up in browser or proxy caches. */
@@ -726,9 +726,9 @@ export async function cloudRoutes(app: FastifyInstance, ctx: AppContext) {
       query.providerId ? eq(cloudAccounts.providerConnectionId, query.providerId) : undefined,
       query.q
         ? or(
-            ilike(cloudAccounts.externalId, like(query.q)),
-            ilike(cloudAccounts.displayName, like(query.q)),
-            ilike(cloudAccounts.email, like(query.q)),
+            ilike(cloudAccounts.externalId, containsPattern(query.q)),
+            ilike(cloudAccounts.displayName, containsPattern(query.q)),
+            ilike(cloudAccounts.email, containsPattern(query.q)),
           )
         : undefined,
     ];

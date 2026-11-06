@@ -35,6 +35,7 @@ import {
 } from '../../db/schema';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors';
 import { paginationQuery, parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import { loadOrg } from '../orgs/routes';
 import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockOrgBilling } from './ledger';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
@@ -226,11 +227,11 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
         : query.status
           ? eq(invoices.status, query.status as Invoice['status'])
           : undefined;
-    const q = query.q?.replace(/[%_]/g, '');
+    const q = query.q ? containsPattern(query.q) : undefined;
     const where = and(
       ...filters,
       status,
-      q ? or(ilike(invoices.number, `%${q}%`), ilike(organizations.name, `%${q}%`)) : undefined,
+      q ? or(ilike(invoices.number, q), ilike(organizations.name, q)) : undefined,
     );
     const [rows, total] = await Promise.all([
       db

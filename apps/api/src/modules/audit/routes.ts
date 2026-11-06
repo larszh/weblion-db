@@ -5,6 +5,7 @@ import type { AuditEntryDto, Paginated } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { orgScope, platformScope } from '../../auth/access';
 import { auditLogs, organizations } from '../../db/schema';
+import { containsPattern, prefixPattern } from '../../lib/like';
 import { paginationQuery, parse } from '../../lib/validation';
 import { loadOrg } from '../orgs/routes';
 
@@ -23,15 +24,15 @@ export async function queryAudit(
 ): Promise<Paginated<AuditEntryDto>> {
   const filters: (SQL | undefined)[] = [
     orgId ? eq(auditLogs.orgId, orgId) : undefined,
-    query.action ? ilike(auditLogs.action, `${query.action.replace(/[%_]/g, '')}%`) : undefined,
+    query.action ? ilike(auditLogs.action, prefixPattern(query.action)) : undefined,
     query.resourceType ? eq(auditLogs.resourceType, query.resourceType) : undefined,
     query.resourceId ? eq(auditLogs.resourceId, query.resourceId) : undefined,
     query.status ? eq(auditLogs.status, query.status) : undefined,
     query.q
       ? or(
-          ilike(auditLogs.actorName, `%${query.q.replace(/[%_]/g, '')}%`),
-          ilike(auditLogs.action, `%${query.q.replace(/[%_]/g, '')}%`),
-          ilike(auditLogs.ip, `%${query.q.replace(/[%_]/g, '')}%`),
+          ilike(auditLogs.actorName, containsPattern(query.q)),
+          ilike(auditLogs.action, containsPattern(query.q)),
+          ilike(auditLogs.ip, containsPattern(query.q)),
         )
       : undefined,
   ];
