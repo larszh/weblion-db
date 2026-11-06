@@ -166,6 +166,21 @@ const EnvSchema = z.object({
   /** Daily job that turns due services into invoices. */
   BILLING_JOB_ENABLED: bool(true),
 
+  // Claude (AI features). Optional; a key saved in the admin area (KI page) wins over ANTHROPIC_API_KEY.
+  ANTHROPIC_API_KEY: optionalString,
+  /** Claude API endpoint. Tests point it at a local mock. */
+  ANTHROPIC_BASE_URL: z.string().url().default('https://api.anthropic.com'),
+  /** Retries of the SDK on 408, 409, 429, 5xx and connection errors. */
+  ANTHROPIC_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  /** Upper bound of one AI request (a chat turn or a feature call) in seconds. */
+  AI_TURN_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
+
+  // Translations (Mass Translate jobs of the translation admin).
+  /** Runs translation jobs in this process. false on secondary API processes. */
+  I18N_JOB_ENABLED: bool(true),
+  /** Translation batches sent to Claude at the same time. */
+  I18N_AI_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
+
   ENABLE_DEMO_PROVIDER: bool(false),
   /** A second demo connection that simulates a Cloudflare account (needs ENABLE_DEMO_PROVIDER). */
   ENABLE_DEMO_CLOUDFLARE: bool(false),
