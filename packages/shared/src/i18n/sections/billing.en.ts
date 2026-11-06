@@ -127,6 +127,8 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.payments.topup': 'Credit',
   'billing.service.quantity': '× {quantity}',
   'billing.service.endsAt': 'Ends on {date}',
+  'billing.service.cancelledPer': 'Cancelled effective {date}',
+  'billing.service.moduleOffAtEnd': 'The module "{module}" is deactivated then',
   'billing.service.billedOnce': 'Billed',
 
   // Invoice document
@@ -388,6 +390,15 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.service.deactivateModule': 'Deactivate the module "{module}"',
   'billing.service.deactivateModuleHint': 'Only if the customer has no other service with this module.',
   'billing.service.cancelled': 'Service "{name}" cancelled',
+  'billing.service.cancelledLater': 'Service "{name}" cancelled effective {date}',
+  'billing.service.endsAtLaterHint':
+    'With a later date the service keeps running and is billed until that day, a chosen module is only deactivated then.',
+  'billing.service.changeCancel': 'Change cancellation',
+  'billing.service.withdrawCancel': 'Withdraw cancellation',
+  'billing.service.withdrawCancelTitle': 'Withdraw the cancellation of "{name}"?',
+  'billing.service.withdrawCancelText':
+    'The service then keeps running without an end date and is billed as before.',
+  'billing.service.cancelWithdrawn': 'Cancellation of "{name}" withdrawn',
 
   // Products
   'billing.products.title': 'Products',

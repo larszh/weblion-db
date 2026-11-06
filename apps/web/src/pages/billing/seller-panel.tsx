@@ -13,6 +13,7 @@ import {
   PiggyBank,
   Play,
   Plus,
+  Undo2,
   Wallet,
   Zap,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import {
   type InvoiceFilter,
 } from '@/lib/api/billing';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/dialog';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import {
   Card,
@@ -42,7 +44,7 @@ import {
   Notice,
   Select,
 } from '@/components/ui/primitives';
-import { NoBillingAccess, Pager, TabCount, Tabs, useTabParam } from './bits';
+import { NoBillingAccess, Pager, TabCount, Tabs, scheduledEndOf, useTabParam } from './bits';
 import { InvoiceEditorDialog } from './invoice-editor';
 import { InvoiceView, PaymentsTable } from './invoice-view';
 import { BillingProfileForm } from './profile-form';
@@ -53,7 +55,7 @@ import {
   EditServiceDialog,
   GenerateDialog,
 } from './seller-dialogs';
-import { formatDay } from './money';
+import { formatDay, todayISO } from './money';
 import { SummaryCards, SummarySkeleton } from './summary';
 import { CreditTable, InvoiceTable, ServiceTable } from './tables';
 
@@ -190,6 +192,12 @@ function InvoicesSection({
   );
 }
 
+/** A scheduled cancellation can be withdrawn until its end date; afterwards the job only has to end the service. */
+function withdrawable(service: ServiceDto): boolean {
+  const end = scheduledEndOf(service);
+  return !!end && end >= todayISO();
+}
+
 function ServicesSection({
   customer,
   canWrite,
@@ -204,6 +212,15 @@ function ServicesSection({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ServiceDto | null>(null);
   const [cancelling, setCancelling] = useState<ServiceDto | null>(null);
+  const [withdrawing, setWithdrawing] = useState<ServiceDto | null>(null);
+  const withdraw = useApiMutation(
+    (service: ServiceDto) => api.post<ServiceDto>(`/services/${service.id}/cancel/withdraw`),
+    {
+      success: (s) => t('billing.service.cancelWithdrawn', { name: s.name }),
+      invalidate: [billingKeys.all],
+      onSuccess: () => setWithdrawing(null),
+    },
+  );
   const setStatus = useApiMutation(
     ({ service, status }: { service: ServiceDto; status: 'active' | 'suspended' }) =>
       api.patch<ServiceDto>(`/services/${service.id}`, { status }),
@@ -292,8 +309,13 @@ function ServicesSection({
                       )}
                       <MenuSeparator />
                       <MenuItem icon={<Ban />} danger onSelect={() => setCancelling(s)}>
-                        {t('billing.service.cancel')}
+                        {scheduledEndOf(s) ? t('billing.service.changeCancel') : t('billing.service.cancel')}
                       </MenuItem>
+                      {withdrawable(s) && (
+                        <MenuItem icon={<Undo2 />} onSelect={() => setWithdrawing(s)}>
+                          {t('billing.service.withdrawCancel')}
+                        </MenuItem>
+                      )}
                     </Menu>
                   )
               : undefined
@@ -314,6 +336,16 @@ function ServicesSection({
             defaultTaxRateBp={taxDefault}
           />
           <CancelServiceDialog service={cancelling} onOpenChange={(o) => !o && setCancelling(null)} />
+          <ConfirmDialog
+            open={!!withdrawing}
+            onOpenChange={(o) => !o && setWithdrawing(null)}
+            title={t('billing.service.withdrawCancelTitle', { name: withdrawing?.name ?? '' })}
+            description={t('billing.service.withdrawCancelText')}
+            confirmLabel={t('billing.service.withdrawCancel')}
+            danger={false}
+            loading={withdraw.isPending}
+            onConfirm={() => withdrawing && withdraw.mutate(withdrawing)}
+          />
         </>
       )}
     </Card>

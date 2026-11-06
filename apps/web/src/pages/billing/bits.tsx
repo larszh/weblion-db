@@ -64,6 +64,14 @@ export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
   return <Badge tone={tone[status]}>{t(`billing.payStatus.${status}`)}</Badge>;
 }
 
+/**
+ * End date of a scheduled cancellation: the service still runs (active or paused) and is billed up to
+ * this day, then the daily billing job ends it. null without one or once the service has ended.
+ */
+export function scheduledEndOf(service: Pick<ServiceDto, 'status' | 'endsAt'>): string | null {
+  return service.status !== 'cancelled' ? service.endsAt : null;
+}
+
 export function ServiceStatusBadge({ status }: { status: ServiceStatus }) {
   const { t } = useI18n();
   const tone: Record<ServiceStatus, Tone> = { active: 'success', suspended: 'warning', cancelled: 'neutral' };

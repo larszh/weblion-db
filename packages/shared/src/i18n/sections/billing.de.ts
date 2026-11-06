@@ -126,6 +126,8 @@ export const billingDe = {
   'billing.payments.topup': 'Guthaben',
   'billing.service.quantity': '× {quantity}',
   'billing.service.endsAt': 'Endet am {date}',
+  'billing.service.cancelledPer': 'Gekündigt per {date}',
+  'billing.service.moduleOffAtEnd': 'Modul «{module}» wird dann gesperrt',
   'billing.service.billedOnce': 'Abgerechnet',
 
   // Invoice document
@@ -397,6 +399,15 @@ export const billingDe = {
   'billing.service.deactivateModuleHint':
     'Nur wenn der Kunde keinen anderen Dienst mit diesem Modul mehr hat.',
   'billing.service.cancelled': 'Dienst «{name}» gekündigt',
+  'billing.service.cancelledLater': 'Dienst «{name}» gekündigt per {date}',
+  'billing.service.endsAtLaterHint':
+    'Mit einem späteren Datum läuft der Dienst bis zu diesem Tag weiter und wird bis dahin abgerechnet, ein gewähltes Modul wird erst dann gesperrt.',
+  'billing.service.changeCancel': 'Kündigung ändern',
+  'billing.service.withdrawCancel': 'Kündigung zurücknehmen',
+  'billing.service.withdrawCancelTitle': 'Kündigung von «{name}» zurücknehmen?',
+  'billing.service.withdrawCancelText':
+    'Der Dienst läuft danach ohne Enddatum weiter und wird wie bisher abgerechnet.',
+  'billing.service.cancelWithdrawn': 'Kündigung von «{name}» zurückgenommen',
 
   // Products
   'billing.products.title': 'Produkte',
