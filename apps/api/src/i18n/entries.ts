@@ -194,13 +194,19 @@ export async function cleanup(
     })
     .from(translationOverrides)
     .for('update');
-  const result: TranslationCleanupResultDto = { orphans: 0, sameAsCompiled: 0, demo: 0, dryRun: !!input.dryRun };
+  const result: TranslationCleanupResultDto = {
+    orphans: 0,
+    sameAsCompiled: 0,
+    demo: 0,
+    dryRun: !!input.dryRun,
+  };
   const doomed = new Map<Locale, string[]>(LOCALES.map((l) => [l, []]));
   for (const row of rows) {
     let kind: 'orphans' | 'demo' | 'sameAsCompiled' | null = null;
     if (!catalog.has(row.key)) kind = input.orphans ? 'orphans' : null;
     else if (row.demo) kind = input.demo ? 'demo' : null;
-    else if (catalog.bundles[row.locale][row.key] === row.value) kind = input.sameAsCompiled ? 'sameAsCompiled' : null;
+    else if (catalog.bundles[row.locale][row.key] === row.value)
+      kind = input.sameAsCompiled ? 'sameAsCompiled' : null;
     if (!kind) continue;
     result[kind]++;
     doomed.get(row.locale)?.push(row.key);
@@ -211,7 +217,10 @@ export async function cleanup(
       await tx
         .delete(translationOverrides)
         .where(
-          and(eq(translationOverrides.locale, locale), inArray(translationOverrides.key, keys.slice(i, i + 1000))),
+          and(
+            eq(translationOverrides.locale, locale),
+            inArray(translationOverrides.key, keys.slice(i, i + 1000)),
+          ),
         );
     }
   }

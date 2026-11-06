@@ -84,7 +84,9 @@ export class TranslationJobRunner {
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
-      this.tick().catch((err) => this.ctx.log.warn({ err, job: 'translations' }, 'translation job tick failed'));
+      this.tick().catch((err) =>
+        this.ctx.log.warn({ err, job: 'translations' }, 'translation job tick failed'),
+      );
     }, this.options.tickMs ?? 5_000);
     this.timer.unref();
   }
@@ -271,7 +273,13 @@ export class TranslationJobRunner {
                 halt(new JobStop('ai_not_configured', JOB_ERROR_MESSAGES.ai_not_configured));
                 break;
               }
-              const { result, attempted, skipped } = await this.translate(job, index, glossary, notes, signal);
+              const { result, attempted, skipped } = await this.translate(
+                job,
+                index,
+                glossary,
+                notes,
+                signal,
+              );
               const committed = await this.commit(job, index, result, skipped);
               cost = committed.costMicros;
               await ctx.i18n.reload();
@@ -293,7 +301,9 @@ export class TranslationJobRunner {
             }
           }
         };
-        await Promise.all(Array.from({ length: Math.max(1, Math.min(this.concurrency, pending.length)) }, worker));
+        await Promise.all(
+          Array.from({ length: Math.max(1, Math.min(this.concurrency, pending.length)) }, worker),
+        );
       }
 
       if (active.lost) return;
@@ -302,7 +312,11 @@ export class TranslationJobRunner {
         return;
       }
       if (active.cancelled) await this.finish(job, 'cancelled', null);
-      else if (stop) await this.finish(job, 'failed', { code: (stop as JobStop).code, message: (stop as JobStop).message });
+      else if (stop)
+        await this.finish(job, 'failed', {
+          code: (stop as JobStop).code,
+          message: (stop as JobStop).message,
+        });
       else await this.finish(job, 'completed', null);
     } finally {
       clearInterval(heartbeat);
@@ -323,7 +337,11 @@ export class TranslationJobRunner {
     let skipped = 0;
     for (const key of plan.keys) {
       // A key removed by a deploy, a legal key (never planned), or a cell a person edited meanwhile (12.9).
-      if (!i18n.catalog.has(key) || isLegalKey(key) || keepsRow(i18n.override(plan.locale, key), job.replaceManual)) {
+      if (
+        !i18n.catalog.has(key) ||
+        isLegalKey(key) ||
+        keepsRow(i18n.override(plan.locale, key), job.replaceManual)
+      ) {
         skipped++;
         continue;
       }
