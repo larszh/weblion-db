@@ -84,6 +84,11 @@ export interface BillingProfileDto extends PostalAddress {
   locale: Locale | null;
   /** locale ?? users.locale of the oldest active owner ?? 'de'. */
   effectiveLocale: Locale;
+  /**
+   * users.locale of the oldest active owner ?? 'de', also while the profile has a language of its own, so the
+   * option "Sprache des Owners (<Sprache>)" can always name it.
+   */
+  ownerLocale: Locale;
   updatedAt: string | null;
 }
 
