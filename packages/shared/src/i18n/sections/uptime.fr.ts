@@ -94,7 +94,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.range.7d': '7 jours',
   'uptime.range.30d': '30 jours',
   'uptime.noHistory':
-    "Il n'y a pas d'historique pour cette sonde. Si l'instance Uptime Kuma est connectée pour l'administration, le graphique provient de là-bas. Sinon, il affiche les dernières vérifications, mais uniquement pour les sondes figurant sur la page de statut de votre organisation.",
+    "Il n'y a pas d'historique pour cette sonde. Si l'instance Uptime Kuma est connectée pour l'administration, le graphique provient de celle-ci. Sinon, il affiche les dernières vérifications, mais uniquement pour les sondes figurant sur la page de statut de votre organisation.",
   'uptime.noHistoryRange': "Aucun historique n'est disponible pour cette période.",
   'uptime.history.statusPage': '{n} dernières vérifications de la page de statut',
   'uptime.history.kuma': 'Moyenne par {resolution}',
@@ -269,7 +269,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.allowance.setUpTitle': 'Configurer le contingent de surveillance de {name}',
   'uptime.allowance.editTitle': 'Modifier le contingent de surveillance de {name}',
   'uptime.allowance.dialogText':
-    "Combien de sondes propres l'organisation peut créer, sur quelle instance, et à quelle fréquence maximale elles vérifient.",
+    "Combien de sondes propres l'organisation peut créer, sur quelle instance, et à quelle fréquence maximale elles effectuent leurs vérifications.",
   'uptime.allowance.instance': 'Instance',
   'uptime.allowance.instanceHint': "Uniquement les instances connectées pour l'administration.",
   'uptime.allowance.instanceLocked':
