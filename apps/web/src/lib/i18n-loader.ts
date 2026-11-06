@@ -32,6 +32,11 @@ export const OVERRIDES_BOOT_WAIT_MS = 1500;
 /** A request that hangs longer than this is given up; the cached copy (or none) stays. */
 const OVERRIDES_FETCH_TIMEOUT_MS = 15_000;
 const RETRY_DELAY_MS = 500;
+/**
+ * Prefix of the chunk markers ("wl-i18n-chunk:de"). Joined at runtime, so the literal exists only in the
+ * locale chunks and the build check can tell them apart from the entry set, where this loader lives.
+ */
+const MARKER_PREFIX = `${['wl', 'i18n', 'chunk'].join('-')}:`;
 
 interface CachedOverrides {
   etag: string | null;
@@ -95,7 +100,7 @@ export function createI18nLoader(deps: Partial<LoaderDeps> = {}): I18nLoader {
     const once = async () => {
       const chunk = await chunks[locale]();
       // The marker proves the chunk is the dictionary of this locale (and keeps the export in the build).
-      if (chunk.I18N_CHUNK !== `wl-i18n-chunk:${locale}`) {
+      if (chunk.I18N_CHUNK !== `${MARKER_PREFIX}${locale}`) {
         throw new Error(`Wrong dictionary chunk for ${locale}: ${String(chunk.I18N_CHUNK)}`);
       }
       return chunk.dict;
