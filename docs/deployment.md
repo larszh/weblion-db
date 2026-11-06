@@ -307,15 +307,22 @@ schreibt dann beim Start eine Warnung ins Log. Hängt der Proxy an einen mitgesc
 (nginx mit `$proxy_add_x_forwarded_for`), zählt mit `true` sogar über den Proxy der erste, vom
 Client frei gewählte Eintrag. Besser die Adressen der Proxys eintragen.
 
-`docker-compose.yml` setzt `loopback,uniquelocal`, solange `TRUST_PROXY` in der `.env` leer ist:
-Die Anfragen des Proxys auf dem Host kommen im Container vom Docker-Gateway (einer privaten
-Adresse), nicht von `127.0.0.1`. Weil der Port nur auf `127.0.0.1` veröffentlicht ist, erreichen
-ihn nur der Host und seine Container. Steht vor dem Proxy auf dem Server noch ein weiterer, etwa
-Cloudflare mit orangener Wolke oder ein Load Balancer, dessen Adressen zusätzlich eintragen (bei
-Cloudflare die Bereiche von <https://www.cloudflare.com/ips/>), sonst sieht die Console nur dessen
-Adressen und alle Nutzer teilen sich die Login-Sperre. Prüfen lässt es sich mit einem
-fehlgeschlagenen Login: Im Audit-Protokoll muss die eigene öffentliche IP stehen, nicht
-`127.0.0.1` oder eine Adresse wie `172.18.0.1`.
+`docker-compose.yml` setzt `loopback` und das eigene Netz der Compose-Datei (`172.30.0.0/24`),
+solange `TRUST_PROXY` in der `.env` leer ist: Die Anfragen des Proxys auf dem Host kommen im
+Container vom Gateway dieses Netzes, nicht von `127.0.0.1`. Bewusst nicht alle privaten Bereiche
+(`uniquelocal`): Der Proxy hängt die Adresse seines Clients an, und ein Client mit einer eigenen
+privaten Adresse (LAN, VPN, Tailscale) könnte sonst seine IP selbst wählen. Meldet Docker beim
+Start, der Bereich überschneide sich mit einem anderen Netz ("Pool overlaps"), in der `.env`
+einen freien als `CONSOLE_SUBNET` setzen, etwa `10.213.0.0/24`; `TRUST_PROXY` folgt von selbst.
+Nach dem Update auf diesen Stand braucht eine bestehende Installation einmal `docker compose down`
+und `docker compose up -d`, damit ihr Netz den festen Bereich bekommt (die Daten im Volume bleiben).
+
+Steht vor dem Proxy auf dem Server noch ein weiterer, etwa Cloudflare mit orangener Wolke oder ein
+Load Balancer, dessen Adressen zusätzlich eintragen (bei Cloudflare die Bereiche von
+<https://www.cloudflare.com/ips/>), sonst sieht die Console nur dessen Adressen und alle Nutzer
+teilen sich die Login-Sperre. Prüfen lässt es sich mit einem fehlgeschlagenen Login: Im
+Audit-Protokoll muss die eigene öffentliche IP stehen, nicht `127.0.0.1` oder eine Adresse wie
+`172.30.0.1`.
 
 ## Auf CloudPanel
 

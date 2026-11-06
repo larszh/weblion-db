@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { fastifyTrustProxy, loadEnv, parseTrustProxy, type TrustProxy } from './env';
@@ -108,6 +109,25 @@ describe('TRUST_PROXY', () => {
     expect(await clientIp(setting, '::1', '198.51.100.7')).toBe('198.51.100.7');
     // A forged entry in front of the one the local proxy appended stays ignored.
     expect(await clientIp(setting, '127.0.0.1', '6.6.6.6, 198.51.100.7')).toBe('198.51.100.7');
+  });
+
+  it('trusts only its own network in docker-compose.yml, not every private range', async () => {
+    const compose = readFileSync(new URL('../../../../docker-compose.yml', import.meta.url), 'utf8');
+    const trust = /TRUST_PROXY: '\$\{TRUST_PROXY:-loopback,\$\{CONSOLE_SUBNET:-([^}]+)\}\}'/.exec(compose);
+    const network = /subnet: '\$\{CONSOLE_SUBNET:-([^}]+)\}'/.exec(compose);
+    expect(trust?.[1]).toBeDefined();
+    // The default names the subnet the network is pinned to.
+    expect(network?.[1]).toBe(trust![1]);
+    const subnet = trust![1]!;
+    const setting = loadEnv({ ...base, TRUST_PROXY: `loopback,${subnet}` }).TRUST_PROXY;
+    const gateway = subnet.replace(/\.0\/\d+$/, '.1');
+    // The host proxy appends the address of its client; a client with a private address of its own
+    // (here 10.8.0.5 on a VPN, or a ULA) cannot put a forged entry in front of it.
+    expect(await clientIp(setting, gateway, '6.6.6.6, 10.8.0.5')).toBe('10.8.0.5');
+    expect(await clientIp(setting, gateway, '6.6.6.6, fd7a:115c:a1e0::5')).toBe('fd7a:115c:a1e0::5');
+    expect(await clientIp(setting, gateway, '198.51.100.7')).toBe('198.51.100.7');
+    // The former default believed the forged entry.
+    expect(await clientIp(['loopback', 'uniquelocal'], gateway, '6.6.6.6, 10.8.0.5')).toBe('6.6.6.6');
   });
 
   it('passes lists, true, false and hop counts to Fastify with their meaning', async () => {
