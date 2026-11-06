@@ -4,6 +4,7 @@ import {
   BILLING_INTERVALS,
   MODULES,
   formatMoney,
+  productText,
   type BillingInterval,
   type CreditTransactionDto,
   type Currency,
@@ -324,10 +325,13 @@ export function AddServiceDialog({
       set({ productId: '' });
       return;
     }
+    // The service's text ends up on the customer's invoices, so it is taken in the customer's billing
+    // language (plan O14); the list below shows the products in the viewer's language.
+    const text = productText(product, customer.profile.effectiveLocale);
     set({
       productId: product.id,
-      name: product.name,
-      description: product.description ?? '',
+      name: text.name,
+      description: text.description ?? '',
       module: product.module ?? '',
       unitPrice: moneyInput(product.unitPrice),
       interval: product.interval,
@@ -419,7 +423,8 @@ export function AddServiceDialog({
             <option value="">{t('billing.service.noProduct')}</option>
             {catalog.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} · {formatMoney(p.unitPrice, p.currency, locale)} {labels.interval(p.interval)}
+                {productText(p, locale).name} · {formatMoney(p.unitPrice, p.currency, locale)}{' '}
+                {labels.interval(p.interval)}
               </option>
             ))}
           </Select>
