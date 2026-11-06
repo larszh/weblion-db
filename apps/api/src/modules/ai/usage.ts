@@ -327,7 +327,8 @@ export async function reserve(
       staleAfterSeconds(env),
     );
     const budget = budgetMicros(settings);
-    if (budget <= 0 || c.spent + c.reserved + input.estimateMicros > budget) {
+    // Used up (spent >= budget) refuses every request, demo ones with an estimate of 0 too.
+    if (budget <= 0 || c.spent >= budget || c.spent + c.reserved + input.estimateMicros > budget) {
       throw aiLimit('budget', { resetsAt: c.nextMonth.toISOString() });
     }
     if (c.platformLive >= AI_LIMITS.platformConcurrent) {
