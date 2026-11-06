@@ -9,6 +9,10 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "Reseller" is plural here ("{resellers} Reseller"); the Italian plural "rivenditori" does not contain the
+    // singular "rivenditore" the check looks for.
+    'admin.stat.orgsSub',
+  ],
   typographyOk: [],
 };
