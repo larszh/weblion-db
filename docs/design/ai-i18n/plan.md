@@ -86,7 +86,7 @@ D (docs)
 | O8 | Effort, tokens, streaming for translations | effort `medium`, 16,000 tokens, non-streaming | effort `low`, 32,000, streamed | Effort **`medium`**, `max_tokens` **32,000**, **streamed** with `finalMessage()` (every call of the module is streamed). Rationale: a background job where quality matters more than latency; 32,000 leaves room for adaptive thinking. |
 | O9 | Limits for translations | own limiter 30 per minute for suggest and estimate | `reserve({ countsForUser: false })` | Job batches: `countsForUser: false` = no per-person rate, daily or concurrency check, no organization limit; the **monthly budget applies**. Suggest (B1): `countsForUser: true` and `ctx.ai.countRate()` (12 per minute per person, 2 concurrent, person daily limit); the i18n limiter for suggest is dropped. Estimate (B2) calls no model: global limit only. Import keeps its 10 per minute. |
 | O10 | Gate of the i18n AI routes | `platform:i18n:write` + AI available | also `platform:ai:use` | B1, B2, B3, B7: `requireSession`, `platform:i18n:write` **and** `platform:ai:use`, then `availability('translations')` else 409 `ai_not_configured`. Manual editing, import and export need no AI. |
-| O11 | Demo mode for translations | `[FR] <English>` without calling Claude, saved | `[fr] <source>`, never saved | Demo goes through the emulator like every AI call (ai 14). The emulator answers `[FR] <German text>` (code in capitals; German keeps placeholders, line breaks and glossary terms valid). **Demo results are saved** (origin `ai`, unreviewed, `translation_overrides.demo = true`) so the whole flow can be shown; the job row gets `demo = true` and the UI shows the "Demo" badge (`ai.demoBadge`) on the job and the note `admin.i18n.ai.demoNote` in the dialog. Demo mode only exists with `ENABLE_DEMO_PROVIDER=true` and no key. Demo overrides are served only while `ENABLE_DEMO_PROVIDER` is true, `PUT /admin/ai/key` deletes them, cleanup A8 has `demo: true` (i18n 8.1, 12.10). |
+| O11 | Demo mode for translations | `[FR] <English>` without calling Claude, saved | `[fr] <source>`, never saved | Demo goes through the emulator like every AI call (ai 14). The emulator answers `[FR] <German text>` (code in capitals; German keeps placeholders, line breaks and glossary terms valid). **Demo results are saved** (origin `ai`, unreviewed, `translation_overrides.demo = true`) so the whole flow can be shown; the job row gets `demo = true` and the UI shows the "Demo" badge (`ai.demoBadge`) on the job and the note `admin.i18n.ai.demoNote` in the dialog. Demo mode only exists with `ENABLE_DEMO_PROVIDER=true` and no key. Demo overrides are served only while `ENABLE_DEMO_PROVIDER` is true and `ANTHROPIC_API_KEY` is unset (2.5), `PUT /admin/ai/key` deletes them, cleanup A8 has `demo: true` (i18n 8.1, 12.10). |
 | O12 | Migrations | `0010_i18n` or `0011_i18n` | `00NN_ai` | Both in F, in this order: `apps/api/drizzle/0010_ai.sql`, then `apps/api/drizzle/0011_i18n.sql` (section 3). No unit adds a migration. |
 | O13 | Stamp and allowlist files | one file per locale `stamps/<locale>.json` | | One stamp file per locale **and section**: `packages/shared/src/i18n/stamps/<locale>/<section>.json`; one allowlist file per locale **and translation group**: `packages/shared/src/i18n/allowlists/<locale>/<a\|b\|c>.ts` (so units and translators never edit the same file). `i18n:stamp` takes `--locale <l>` and `--section <s>`. |
 | O14 | Product translations | not designed | `products.translations`, `ProductTranslations` in `ai.ts` | Column and route field as ai 10.6, type `ProductTranslations` in `packages/shared/src/billing.ts` keyed by `TargetLocale` (German stays in `name`/`description`), helper `productText(product, locale)`. The invoice editor fills lines from a product in the invoice's language (`InvoiceDetailDto.locale`). Stored invoice lines stay text. |
@@ -168,8 +168,10 @@ export function intlLocale(locale: Locale): LocaleMeta['intl'];
 ```
 
 Users of the type today that F widens (F18, F21): `apps/web/src/lib/format.ts` (`export type { Locale } from
-'@weblion/shared'`), `MailLocale` in `apps/api/src/mail/types.ts:9` (becomes `Locale`, U2), `formatMoney` in
-`packages/shared/src/billing.ts:298` (2.7), the `PATCH /auth/me` body (`z.enum(LOCALES)`), `UserDto.locale` (2.7).
+'@weblion/shared'`), `MailLocale` in `apps/api/src/mail/types.ts:9` (becomes `Locale` in F18, so U3 can send the
+`ai_budget` mail in every recipient's language before U2 merges; `renderMail` maps fr, it, nl to `en` until U2 renders
+from keys, 2.8), `formatMoney` in `packages/shared/src/billing.ts:298` (2.7), the `PATCH /auth/me` body
+(`z.enum(LOCALES)`), `UserDto.locale` (2.7).
 
 ### 2.2 Dictionaries (`packages/shared/src/i18n/`)
 
@@ -668,9 +670,13 @@ export class I18nService {
 }
 ```
 
-A row is servable when its key exists in the catalog, it is not `demo` or `ENABLE_DEMO_PROVIDER` is true (O11), and,
-for a key of `LEGAL_KEYS`, its `source_hash` equals `source(key).hash` (O28). A legal key takes only current values
-along its chain (override or a compiled value whose stamp is current), else the next locale: fr -> en -> de.
+A row is servable when its key exists in the catalog, it is not `demo` or demo mode can exist (`ENABLE_DEMO_PROVIDER`
+is true and `ANTHROPIC_API_KEY` is unset; a saved key deletes the rows, O11), and, for a key of `LEGAL_KEYS` in a
+target locale (en, fr, it, nl), its `source_hash` equals `source(key).hash` (O28). A `de` row is never subject to the
+legal rule: the effective German text is current by definition, and `source(key)` is computed from it (so the
+owner's German edit of `ai.notice.text` is served at once and makes every translation of it stale). A legal key takes
+only current values along its chain (override or a compiled value whose stamp is current), else the next locale:
+fr -> en -> de.
 
 ```ts
 // entries.ts (F implements deleteDemoOverrides, saveOverride, revertOverride, setReviewed; U1 confirmCurrent, cleanup)
@@ -836,9 +842,12 @@ export interface MailTemplates {
 
 Keys (`email` section, 5.3): `email.aiBudget.warning.subject|heading|text`, `email.aiBudget.exhausted.subject|
 heading|text`, `email.aiBudget.button`. Sent by `checkBudgetWarning` (U3) to every active user with
-`platform_role = 'superadmin'`, one `ctx.mail.send` per locale with the recipients of that locale. After U2:
-`MailLocale` is `Locale`, `MailOptions.locale?: Locale` (default `'de'`), `MailService` takes the `I18nService` as
-its fifth constructor argument (`new MailService(db, box, env, log, i18n)`), and the builders take `(data, tr: Tr)`.
+`platform_role = 'superadmin'`, one `ctx.mail.send` per locale with the recipients of that locale. From F18 on:
+`export type MailLocale = Locale`, `MailOptions.locale?: Locale` (default `'de'`), and `renderMail` maps fr, it and
+nl to the English texts (`const legacy = locale === 'de' ? 'de' : 'en'`, comment `// i18n: U2 replaces this`), so
+U3 passes the recipient's `users.locale` as it is and needs no change when U2 merges. F17 already gives
+`MailService` the `I18nService` as its fifth constructor argument (`new MailService(db, box, env, log, i18n)`);
+after U2 the builders take `(data, tr: Tr)`.
 
 ### 2.9 Web contracts
 
@@ -920,7 +929,9 @@ export type ExplainHandler = (err: unknown) => void;
 export function registerExplainHandler(handler: ExplainHandler | null): void;
 /** A handler is registered and err is an ApiError whose code does not start with "ai_". */
 export function explainAvailable(err: unknown): boolean;
-/** The same, re-rendering when a handler is registered or removed (useSyncExternalStore). */
+/** The same, re-rendering when a handler is registered or removed (useSyncExternalStore with the same
+ *  snapshot function as getServerSnapshot: the web tests render with renderToStaticMarkup, and React throws
+ *  "Missing getServerSnapshot" without it; on the server snapshot no handler is registered, so false). */
 export function useExplainAvailable(err: unknown): boolean;
 export function explainError(err: unknown): void; // F: no-op
 
@@ -961,6 +972,22 @@ Other units link with plain URLs and import nothing of U1:
 
 Fixed links: the KI page notice card `/admin/translations?tab=entries&q=ai.notice.text`; job failures
 `/admin/translations?tab=entries&keys=<k1>,<k2>&locale=<l>`.
+
+**Web tests** (every unit; checked against `apps/web/package.json` at `c6c51ad`): the web has no DOM test
+environment and no testing library (vitest runs in Node; `pages/media/requests.test.tsx` renders with
+`renderToStaticMarkup`), and no unit may add one (0). So:
+
+- Components are tested as static markup through `withI18n`; interactive behaviour is tested through the pure
+  functions and reducers behind it (for the assistant: `parseSseFrame`, `buildHistory` and a reducer
+  `applySseEvent(state, event)` exported by U4, applied to a scripted event list, then the panel rendered from
+  that state; for the translation editor: its validation state rendered from props).
+- Hooks built on `useSyncExternalStore` pass a `getServerSnapshot` (see `useExplainAvailable`); `lib/i18n.tsx`
+  keeps its state in a small store that tests can drive without rendering (`setLocale`, `applyOverride`).
+- `fetch`, `localStorage` and `sessionStorage` are stubbed on `globalThis` in the test (`vi.stubGlobal`), and every
+  access in the code stays inside try/catch as today.
+- Source scans (`lib/i18n-imports.test.ts`) read files with `import.meta.glob('/src/**/*.{ts,tsx}', { query: '?raw',
+  import: 'default', eager: true })`, not `node:fs`: the web tsconfig has only `vite/client` types, so a Node import
+  would fail `pnpm typecheck`.
 
 ### 2.10 Error codes and their texts (frozen by F)
 
@@ -1578,8 +1605,10 @@ restricted and billing do not; support has `ai:use`, `platform:ai:use`, `platfor
 ### 4.2 Gates per area
 
 Every route checks a permission; an invisible organization or resource is 404 (`loadOrg`, `ConsoleReader.owned`,
-O26). Order of checks inside a route: session, body, organization, availability, permission, organization state,
-reservation, so a refusal is always the first one that applies.
+O26). Order of checks inside a route: session, body, organization, availability, the AI gate of ai 9.1 (members and
+reseller staff: organization state, then `ai:use`, so a declined organization answers `ai_org_disabled` and not the
+boundary's `forbidden`; platform staff: `ai:use` and `platform:ai:use`, then `assertOrgData`), the feature's own
+permission, reservation, so a refusal is always the first one that applies.
 
 **AI routes** (ai 4.1, 5.4, 5.5, 9.1, 10):
 
@@ -1821,7 +1850,9 @@ One engineer, branch `ai-i18n/f` from `c6c51ad`. Ordered checklist. Commit messa
   `translations: z.partialRecord(z.enum(TARGET_LOCALES), z.object({ name: z.string().trim().min(1).max(200), description: z.string().max(1000).nullable() })).optional()`
   (`partialRecord`: `z.record` with an enum key requires every key in zod 4, 2.7);
   `modules/settings/routes.ts` integrations `ai: await ctx.ai.integrationStatus()`; `mail/types.ts` template
-  `ai_budget` (2.8) and `mail/templates.ts` builder `ai_budget` in today's de/en style with the texts of 5.3;
+  `ai_budget` (2.8) and `export type MailLocale = Locale` with the English mapping in `renderMail` of 2.8 (also
+  `mailLocale()` returns `normalizeLocale(value) ?? 'de'`), and `mail/templates.ts` builder `ai_budget` in today's
+  de/en style with the texts of 5.3;
   `db/seed.ts` calls `await seedI18nDemo(db)` from a new `db/seed-i18n.ts` stub (`export async function seedI18nDemo(db: Database): Promise<void> {}`).
   Fix every other compile error from the wider `Locale` with the smallest change (English fallback), comment
   `// i18n: U2 replaces this`.
@@ -1862,8 +1893,11 @@ One engineer, branch `ai-i18n/f` from `c6c51ad`. Ordered checklist. Commit messa
   redacted original; `retryOnMaxTokens: false` sends no second request; budget reservation 429; platform
   concurrency cap 429 `concurrent`; tokens and cost on the row; demo translations `[FR] ...` with cost 0;
   availability reasons), `test/i18n-service.test.ts` (A1: 200 without cookie, ETag, 304, 404 for `es`, orphan
-  rows not served; `t` fallback chain fr -> en -> de; `demo` rows served only with `ENABLE_DEMO_PROVIDER`; a stale
-  fr override of `ai.notice.text` is not served and `payload('fr')` carries the English text for that key),
+  rows not served; `t` fallback chain fr -> en -> de; `demo` rows served only with `ENABLE_DEMO_PROVIDER` and
+  without `ANTHROPIC_API_KEY`; a stale fr override of `ai.notice.text` is not served and `payload('fr')` carries
+  the English text for that key; a `de` override of `ai.notice.text` is served by `t('de', ...)` and
+  `payload('de')`, and makes the compiled fr and en values of the key stale, so `payload('fr')` carries the German
+  override),
   `test/i18n-stamps.test.ts` (i18n 4.3 and the `I18N_REQUIRE_LEGAL` case), `test/migrations.test.ts` (i18n 10:
   migration on data from `0009`, journal order). Fix existing tests broken by the label move.
 
@@ -1932,7 +1966,8 @@ empty). F writes a short hand-off note in the PR description (German): commit SH
 
 ## 6. Build units
 
-Each unit: read section 1, 2 and its design sections; build; tests; final report (0).
+Each unit: read section 1, 2 and its design sections; build; tests (web tests by the rule at the end of 2.9);
+final report (0).
 
 ### U1: i18n admin API, Mass Translate job, translation admin page
 
@@ -2036,8 +2071,8 @@ locale cases), 20.3 (all except the admin page tests).
   `features/{explain,dns-check,audit-summary,server-health,product-texts}.ts` (ai 10.1 to 10.4 and 10.6, all
   through `ctx.ai.structured()` with `system: SYSTEM_TEXT[feature]`; `loadDnsContext` shared with the propose
   tool), `usage.ts` additions (usage report, errors page, `checkBudgetWarning` with mail and audit ai 7.2),
-  `maintenance.ts` (ai 7.3: runs at start, stale bound), `service.ts` (`assertOrgData`, `budgetExceeded`,
-  `liveReadAllowed`, chat helpers), `demo.ts` (assistant tool flow, JSON features ai 14),
+  `maintenance.ts` (ai 7.3: runs at start, stale bound), `service.ts` (`assertOrgData`, `liveReadAllowed`, chat
+  helpers; `budgetExceeded` is F's, 2.4), `demo.ts` (assistant tool flow, JSON features ai 14),
   `test/claude-mock.ts` additions (`toolUses`, `thinking`, `fallbackTo`, `streamDelayMs`, `closedEarly`).
 - No `customer_summary` and no `propose_monitor` (O31).
 - Keeps green: F's `ai-settings.test.ts`, `ai-structured.test.ts`; keeps every 2.4 signature.
@@ -2057,11 +2092,13 @@ changes only, each listed in the final report.
 - `apps/web/src/lib/api/ai.ts` (hooks, `streamAiChat`, `parseSseFrame`, `buildHistory` (ai 12.3), `aiErrorText(t, err)`
   = `localizeError(err, t)` (O25); SSE `error` events are turned into an `ApiError` first; the switch hooks are not
   gated by AI status) + `lib/api/ai.test.ts`.
-- `components/ai/ai-provider.tsx` (DNS proposals only), `assistant.tsx` (ai 12.3 as revised: launcher
+- `components/ai/ai-provider.tsx` (the DNS proposal hand-over, and `registerExplainHandler` while the explain
+  feature is available, ai 12.5; nothing else), `assistant.tsx` (ai 12.3 as revised: launcher
   `bottom-20` below `sm`, `useAiLauncherVisible`, icon buttons in the header, model badge in the footer, page per
   user message, tool-limit and budget notes), `ai-text.tsx`, `explain-dialog.tsx`, `explain-action.ts`,
   `storage.ts`, `bits.tsx` (incl. the unverified badge and its confirm dialog), tests `ai-text.test.tsx`,
-  `assistant.test.tsx` (render with `withI18n`).
+  `assistant.test.tsx` (static render with `withI18n` of the panel state that `applySseEvent` builds from a
+  scripted event list, 2.9).
 - `pages/admin/ai.tsx` (`AdminAiPage`, three tabs, seven feature switches, the go-live confirm when the master
   switch is turned on; notice card links to `/admin/translations?tab=entries&q=ai.notice.text`).
 - Placements of ai 12.5 in: `pages/admin/customers.tsx` (only `AdminAiCard`, shown whatever the platform state),
@@ -2405,10 +2442,10 @@ Choices made where the designs or the owner's request left room (defaults the ow
 | `apps/api/src/i18n/{filters,export,import,translator}.ts`, `modules/i18n/**`, `scripts/i18n-{apply,report}.ts`, `db/seed-i18n.ts`, `test/i18n.test.ts`, `test/i18n-jobs.test.ts`, `test/i18n-fixtures.ts` | stubs where named | U1 |
 | `apps/api/src/mail/**`, `modules/billing/{pdf,invoices,routes,dto}.ts`, `modules/payments/checkout.ts`, `modules/auth/routes.ts`, `modules/admin/routes.ts`, `modules/orgs/routes.ts`, `modules/reseller/routes.ts`, `modules/settings/routes.ts`, `test/i18n-mail.test.ts`, `test/i18n-locale.test.ts` | small F edits | U2 |
 | `apps/web/src/App.tsx`, `lib/api.ts`, `lib/queries.ts`, `components/ui/primitives.tsx` | edits | F only |
-| `apps/web/src/lib/{i18n.tsx,i18n-loader.ts,format.ts,api-errors.ts,i18n.test.ts,i18n-imports.test.ts}`, `main.tsx`, `apps/web/index.html`, `src/test/i18n.tsx`, `components/language-picker*.tsx`, `components/server-bits.tsx`, `components/layout/app-shell.tsx`, `components/metric-chart.tsx`, `scripts/check-i18n-chunks.mjs`, `apps/web/package.json` | edits or stubs | U2 |
+| `apps/web/src/lib/{i18n.tsx,i18n-loader.ts,format.ts,api-errors.ts,i18n.test.ts,i18n-imports.test.ts,api-errors.test.ts}`, `main.tsx`, `apps/web/index.html`, `src/test/i18n.tsx`, `components/language-picker*.tsx`, `components/server-bits.tsx`, `components/layout/app-shell.tsx`, `components/metric-chart.tsx`, `scripts/check-i18n-chunks.mjs`, `apps/web/package.json` | edits or stubs | U2 |
 | `apps/web/src/pages/{auth/login,auth/invite,account/account,admin/users,admin/mail,billing/profile-form,billing/invoice-editor,mail/bits,mail/mailboxes,mail/overview,monitoring/bits,media/bits,org/policies,servers/list,servers/tabs/settings}.tsx`, `pages/billing/money.ts`, `pages/mail/units.ts`, their tests, `pages/media/requests.test.tsx` | label codemod only | U2 |
-| `apps/web/src/lib/api/i18n.ts`, `pages/admin/translations*.tsx`, `pages/admin/translations-query.ts` | stub page | U1 |
-| `apps/web/src/lib/api/ai.ts`, `components/ai/**`, `pages/admin/ai.tsx` | stubs | U4 |
+| `apps/web/src/lib/api/i18n.ts`, `pages/admin/translations*.tsx`, `pages/admin/translations-query.ts`, `pages/admin/translations-query.test.ts` | stub page | U1 |
+| `apps/web/src/lib/api/ai.ts`, `lib/api/ai.test.ts`, `components/ai/**`, `pages/admin/ai.tsx` | stubs | U4 |
 | `apps/web/src/pages/{admin/customers,admin/dashboard,admin/providers,admin/settings,admin/audit,org/settings,org/dashboard,org/audit,reseller/customers,reseller/bits,hosting/domain-dns,hosting/website,mail/dns-setup,servers/tabs/graphs,servers/tabs/activity,monitoring/detail,billing/products,billing/seller-dialogs}.tsx` | label codemod only | U4 |
 | other web files touched by the F codemods (type imports, labels) | edits | F only |
 | `.github/workflows/ci.yml` | | I |

@@ -149,7 +149,7 @@ from `./policy`. U3 may only add to it (plan 11). Plan 2.3 adds to the file belo
 
 ```ts
 import type { PolicyStatement } from './policy';
-import type { Locale, TargetLocale } from './i18n/locales';
+import type { Locale } from './i18n/locales';
 
 // --- Models ------------------------------------------------------------------------------------
 
@@ -1179,8 +1179,9 @@ Turn, step by step:
    `eager_input_streaming` could not be parsed at all. Only that case is re-issued, at most once per turn, and it
    counts as an API call (its cost is charged as the call's estimate, the real usage is unknown). Typed API errors
    are rethrown to `classifyAiError` (6.8).
-5. **Accounting after every call**: `usage.addCall(row, message)` (tokens, cost of 6.7, `api_calls + 1`, served
-   model, request id). Then `if (await ctx.ai.budgetExceeded())` stop with notice `budget_stop` (the monthly
+5. **Accounting after every call**: `ctx.ai.addCall(row, message, { requestId: stream.request_id ?? null })`
+   (tokens, cost of 6.7, `api_calls + 1`, served model, request id; `request_id` is a getter of the SDK's
+   `BetaMessageStream` in 1.3.0). Then `if (await ctx.ai.budgetExceeded())` stop with notice `budget_stop` (the monthly
    budget is a hard stop also in the middle of an answer, plan decision 34), and `if (row.costMicros >
    CHAT_LIMITS.costFactor * turnEstimate)` stop with notice `tool_limit`. `turnEstimate` is the estimate of the
    first call.
@@ -1617,8 +1618,9 @@ export type ReadError = 'not_found' | 'forbidden' | 'unsupported' | 'provider_er
   429: `rate_limited`. 502 or another 5xx (`ProviderError`): `provider_error` with `message: redactText(message)`
   cut to 300 characters (the provider's text is third-party data). Anything else: `provider_error` without text.
 - **Escaping.** `toolJson(value)` (`modules/ai/redact.ts`, plan F13) is `JSON.stringify` with every `<` and `>`
-  replaced by `<` and `>`, so a value can never open or close a tag of the prompt (`</third_party>`,
-  `<context>`); the model still reads the characters.
+  replaced by the JSON escapes `\u003c` and `\u003e` (still valid JSON), so a value can never open or close a tag
+  of the prompt (`</third_party>`, `<context>`); the model still reads the characters. `thirdParty()` (10) and the
+  `page` and `page_title` lines of the context block (9.2) use the same escapes.
 - **Organization switch.** The chat and the features run only while the organization's AI is on (9.1); the reader
   does not check it again per call.
 
@@ -1908,7 +1910,10 @@ What each source reads:
 - **`audit`** (organization): `audit:read` in the organization; the row is read directly, `select ... from
   audit_logs where id = $1 and org_id = $orgId`, mapped like `queryAudit` (`modules/audit/routes.ts:54-69`). This is
   the one direct table read of the module, because the audit API has no lookup by id; it is filtered by the
-  organization like the route. Personal redaction.
+  organization like the route. Personal redaction. The blocked-customer filter of 8.3 applies to the single row
+  too: when it concerns an organization whose AI is off (`resourceType = 'org'` with that `resourceId`, or
+  `details` naming it as `customerOrgId`, `customerId` or `orgId`), the answer is 403 `ai_org_disabled` (review #4:
+  a reseller's log must not carry a declined customer's data to the model by the explain path either).
 - **`audit`** (admin): `platform:audit:read`; the row by id without organization filter; then
   `assertOrgData(row.orgId)` when set, and also for `resourceId` when `resourceType = 'org'` (a reseller entry about a
   declined customer). 403 `ai_org_disabled` otherwise (plan 8.4 scenario 2a). Personal redaction.
@@ -2211,7 +2216,7 @@ export function initAiSecrets(env: Env): void;
 export function setAnthropicKeys(keys: string[]): void;
 export function redactText(s: string): string;
 export function redactForAi(value: unknown, opts?: { personal?: boolean }): unknown;
-/** JSON.stringify with < and > as < and > (8.1). */
+/** JSON.stringify with < and > written as the JSON escapes \u003c and \u003e (8.1). */
 export function toolJson(value: unknown): string;
 ```
 
@@ -2298,10 +2303,11 @@ export function buildHistory(messages: ChatMessage[]): AiChatMessageInput[];
 export function aiErrorText(t: TFunction, err: unknown): string; // = localizeError(err, t), plan O25
 ```
 
-- `streamAiChat`: `fetch('/api/v1/orgs/' + orgId + '/ai/chat', { method: 'POST', credentials: 'same-origin',
-  headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json', 'X-Requested-With':
-  'weblion-console' }, body, signal })` (the same CSRF header as `lib/api.ts`). A non-2xx answer is parsed like
-  `request()` in `lib/api.ts` and thrown as `ApiError` (401 calls the unauthorized handler). The body is read with a
+- `streamAiChat`: `fetch(apiUrl('/orgs/' + orgId + '/ai/chat'), { method: 'POST', credentials: 'same-origin',
+  headers: { ...WRITE_HEADERS, Accept: 'text/event-stream', 'Content-Type': 'application/json' }, body, signal })`
+  with `apiUrl` and `WRITE_HEADERS` of `lib/api.ts` (plan 2.9, F26; the same CSRF header as every write). A non-2xx
+  answer is thrown as `await apiErrorFromResponse(res, path)` (plan 2.9: exactly like `request()`, proxy pages
+  included; a 401 calls the unauthorized handler). The body is read with a
   `TextDecoder`, split at blank lines, and each frame goes through `parseSseFrame`. An `error` event is turned into
   `new ApiError(data.status, data.code, data.message, data.details)` and thrown (after `onEvent`). A stream that
   ends without `done` or `error` throws `ApiError(502, 'ai_upstream', ..., { reason: 'network' })`.
@@ -2398,9 +2404,11 @@ for the console's own: output validation, timeouts, stale rows), pagination, the
 - **Storage**: `components/ai/storage.ts` keeps each organization's chat in `sessionStorage` under
   `wl-ai-chat:<orgId>` (at most 40 messages, the tab only; plan decision 22); `clearAiChats()` removes every
   `wl-ai-chat:*` key and is called by the shell's logout (`components/layout/app-shell.tsx:191`, plan F25).
-- **Tests** `assistant.test.tsx` (with `withI18n`): hidden without `ai:use`; launcher position classes; a scripted
-  stream with tool chips, a source, a proposal with the unverified badge and its confirm; error event shows the
-  translated text; `clearAiChats` empties storage.
+- **Tests** `assistant.test.tsx` (static markup with `withI18n`; the web has no DOM test library, plan 2.9): hidden
+  without `ai:use`; launcher position classes; the panel state is built by the exported reducer
+  `applySseEvent(state, event)` from a scripted event list and rendered: tool chips, a source, a proposal with the
+  unverified badge, the confirm dialog rendered open from state; an `error` event shows the translated text and drops
+  the partial answer; `clearAiChats` empties a stubbed `sessionStorage`.
 
 ### 12.4 Switch cards
 
@@ -2840,7 +2848,7 @@ Behaviour per feature (answers in German for `language: de`, else English; texts
 | `audit_summary` | Counts per action prefix and failures of the entries sent, with their ids. |
 | `server_health` | Status per metric from the compressed maximum values (CPU above 85 percent problem, above 70 watch; the same for memory and disk), one recommendation. |
 | `product_texts` | `write`: the German name unchanged and a fixed description; other languages and `translate`: `[FR] <German text>` (target code in capitals). |
-| `translations` | Every item `[FR] <German text>` (target code in capitals; the German text keeps placeholders, line breaks and glossary terms, so the i18n checks pass, plan O11); the input and output fields are those of the translator (i18n 12, 17). |
+| `translations` | Every item `[FR] <German text>` (target code in capitals; the German text keeps placeholders, line breaks and glossary terms, so the i18n checks pass, plan O11); the input and output fields are those of the translator (i18n 12.4). |
 
 Marking: `meta.demo = true` on the `meta` event and in every `AiResultMeta`; the panel and every result show the
 badge `ai.demoBadge` with the tooltip `ai.demoHint`; the KI page shows `admin.ai.status.demo`; translation jobs get
@@ -2899,7 +2907,7 @@ saved through `PUT /admin/ai/key` and the platform switched on through `PUT /adm
 | `apps/api/test/ai-org.test.ts` | U3 | staff switch off and on (audit); reseller switch; 409 `ai_platform_locked`; 409 `ai_reseller_blocked`; customer decline and allow (audit), also while suspended and while the platform is off; reseller off caps its customers' members and its own staff (chat 403); members of a declined org get 403 `ai_org_disabled`; staff explain on a declined org 403; usage counts include staff requests, no cost field in `OrgAiDto` and `ResellerCustomerAiDto`, cost in `AdminOrgAiDto`; none of the routes is 404 while AI is off |
 | `apps/api/test/ai-limits.test.ts` | U3 | each kind of 7.1 in order; translations (`countsForUser: false`) skip person and organization limits but not the budget; staff requests do not count against the customer's daily limit; stale rows ignored and marked by `AiMaintenance`; maintenance deletes rows older than 400 days and error texts older than 30 days; warning and exhaustion mails to superadmins and audit entries exactly once per month, both at once on a jump; `Retry-After` |
 | `apps/api/test/ai-chat.test.ts` | U3 | SSE headers (`X-Accel-Buffering: no`) and event order; a scripted chat with two tool calls and text; pings with `streamDelayMs`; caps: 8 calls, 24 tool calls, 8 live calls, 120,000 characters, 5 x estimate, each with `FINAL_STEP_NOTE` or the notice; `tool_choice` auto on every recorded request and the note as the last block after the results; budget exhausted after call 2 stops with `budget_stop`; mid-stream fallback: a `tool_use` before the fallback block is neither run nor re-sent; refusal ends with an `error` event 422; `max_tokens` with a `tool_use` runs nothing; invalid tool input gives an `INVALID_JSON` result; unparseable JSON re-issued once; mid-stream `overloaded_error` gives `ai_busy`; `closedEarly` gives `ai_upstream network`; client disconnect gives status `cancelled`; timeout gives `ai_timeout`; history validation (41 messages, alternation, 4,000 and 16,000 characters); context block carries role and page, never the person's name or e-mail; page per user message |
-| `apps/api/test/ai-features.test.ts` | U3 | explain for each source kind, org and admin, with their permissions; admin explain of a declined org's audit row 403; DNS check verified, unverified and `textOnly` proposals, dropped invalid ones, no NS and no delete; audit summary: personal fields gone, declined customers filtered in the reseller log and in the admin summary, `cut` and `hidden`; server health; product texts admin and reseller, then saved through `PATCH /billing/products` with `translations` and returned by `productText` |
+| `apps/api/test/ai-features.test.ts` | U3 | explain for each source kind, org and admin, with their permissions; admin explain of a declined org's audit row 403; org explain of a reseller's audit row about a declined customer 403; DNS check verified, unverified and `textOnly` proposals, dropped invalid ones, no NS and no delete; audit summary: personal fields gone, declined customers filtered in the reseller log and in the admin summary, `cut` and `hidden`; server health; product texts admin and reseller, then saved through `PATCH /billing/products` with `translations` and returned by `productText` |
 | `apps/api/test/ai-isolation.test.ts` | U3 | a member of two orgs asks for the other org's server, domain, website, mail domain, monitor: `not_found`, nothing of it in any recorded request; a server with `org: null`; a sub-path without verified parent refused; reseller staff in a customer cannot read a sibling customer; a declined org's data never appears in recorded requests of any feature |
 | `apps/api/test/ai-secrets.test.ts` | U3 | env secrets, the saved key and provider passwords never in recorded request bodies, responses, audit details, `ai_usage` rows or captured log lines (logger with a capture stream); a TXT record with a fake key is redacted; the 402 "credit balance" text only in `ai_usage.error_message` and the errors tab |
 | `apps/api/test/ai-demo.test.ts` | U3 | demo only with the demo provider and without a key; the assistant flow with the tool chip; each JSON feature returns a valid result with `demo: true`; the DMARC proposal verified; translations `[FR] ...` at cost 0; a saved key ends demo mode |
