@@ -7,6 +7,7 @@ import {
   type AiAvailabilityDto,
   type TranslationJobDetailDto,
   type TranslationJobDto,
+  type TranslationFailureReason,
   type TranslationJobStatus,
 } from '@weblion/shared';
 import { useI18n, type TFunction } from '@/lib/i18n';
@@ -51,6 +52,40 @@ const STATUS_TONE: Record<TranslationJobStatus, 'neutral' | 'info' | 'success' |
 
 const active = (job: Pick<TranslationJobDto, 'status'>) =>
   job.status === 'queued' || job.status === 'running';
+
+/**
+ * The detail of a failed item in the language of the console. The API stores a short English detail (i18n 12.1,
+ * it also goes into the repair prompt), so only its language-neutral parts are shown: the placeholder names with
+ * the chips' texts, a new URL, address or number, the glossary terms, the informal word or the character.
+ * Line break counts, lengths and French typography notes add nothing to the translated reason and are left out.
+ */
+export function failureDetailText(
+  t: TFunction,
+  failure: { reason: TranslationFailureReason; detail: string | null },
+): string | null {
+  const detail = failure.detail;
+  if (!detail) return null;
+  switch (failure.reason) {
+    case 'placeholders': {
+      const parts = [...detail.matchAll(/\b(missing|extra) (\{[^}]+\})/g)].map(([, kind, name]) =>
+        t(kind === 'missing' ? 'admin.i18n.cell.placeholderMissing' : 'admin.i18n.cell.placeholderExtra', {
+          name: name!,
+        }),
+      );
+      return parts.length > 0 ? parts.join(', ') : null;
+    }
+    case 'content':
+      return /^new (?:URL|e-mail address|number) (.+)$/.exec(detail)?.[1] ?? null;
+    case 'glossary':
+      return /^glossary term (.+)$/.exec(detail)?.[1] ?? null;
+    case 'formality':
+      return /^informal word "(.+)"$/.exec(detail)?.[1] ?? null;
+    case 'characters':
+      return /^forbidden character (.+)$/.exec(detail)?.[1] ?? null;
+    default:
+      return null;
+  }
+}
 
 /** The text of a job error code (plan 2.6); the budget stop has its own key. */
 export function jobErrorText(t: TFunction, error: { code: string; message: string }): string {
@@ -326,22 +361,25 @@ function JobDetail({
             }
           />
           <ul className="divide-y divide-border">
-            {data.failures.map((f, i) => (
-              <li
-                key={`${f.locale}:${f.key}:${i}`}
-                className="grid gap-1 px-5 py-2.5 text-sm sm:grid-cols-[minmax(0,2fr)_auto_minmax(0,2fr)] sm:gap-3"
-              >
-                <span className="font-mono text-[12.5px] break-all text-text">{f.key}</span>
-                <span className="inline-flex items-center gap-1 text-muted">
-                  <Flag country={LOCALE_META[f.locale].flag} decorative />
-                  {LOCALE_META[f.locale].native}
-                </span>
-                <span className="min-w-0 break-words text-muted">
-                  {t(`admin.i18n.job.reason.${f.reason}`)}
-                  {f.detail ? ` (${f.detail})` : ''}
-                </span>
-              </li>
-            ))}
+            {data.failures.map((f, i) => {
+              const detail = failureDetailText(t, f);
+              return (
+                <li
+                  key={`${f.locale}:${f.key}:${i}`}
+                  className="grid gap-1 px-5 py-2.5 text-sm sm:grid-cols-[minmax(0,2fr)_auto_minmax(0,2fr)] sm:gap-3"
+                >
+                  <span className="font-mono text-[12.5px] break-all text-text">{f.key}</span>
+                  <span className="inline-flex items-center gap-1 text-muted">
+                    <Flag country={LOCALE_META[f.locale].flag} decorative />
+                    {LOCALE_META[f.locale].native}
+                  </span>
+                  <span className="min-w-0 break-words text-muted">
+                    {t(`admin.i18n.job.reason.${f.reason}`)}
+                    {detail ? ` (${detail})` : ''}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </Card>
       )}
