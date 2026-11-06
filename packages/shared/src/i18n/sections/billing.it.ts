@@ -118,6 +118,10 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.payments.topup': 'Credito',
   'billing.service.quantity': '× {quantity}',
   'billing.service.endsAt': 'Termina il {date}',
+  'billing.service.cancelledPer': 'Disdetto con effetto al {date}',
+  'billing.service.endWaitsForBilling':
+    'Disdetto con effetto al {date}, termina non appena è fatturato fino a quella data',
+  'billing.service.moduleOffAtEnd': 'Il modulo "{module}" verrà disattivato in quella data',
   'billing.service.billedOnce': 'Fatturato',
   'billing.invoice.title': 'Fattura {number}',
   'billing.invoice.draftTitle': 'Bozza di fattura',
@@ -368,7 +372,21 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.deactivateModule': 'Disattiva il modulo "{module}"',
   'billing.service.deactivateModuleHint':
     'Solo se il cliente non ha più nessun altro servizio con questo modulo.',
+  'billing.service.moduleKept':
+    'Il modulo resta attivo finché il cliente ha ancora un altro servizio con questo modulo: {names}.',
   'billing.service.cancelled': 'Servizio "{name}" disdetto',
+  'billing.service.cancelledLater': 'Servizio "{name}" disdetto con effetto al {date}',
+  'billing.service.endsAtLaterHint':
+    'Con una data successiva il servizio continua fino a quel giorno e un modulo selezionato viene disattivato solo allora. Ogni periodo che inizia entro quel giorno viene fatturato per intero, non pro rata.',
+  'billing.service.fullPeriod':
+    'Il periodo a partire dal {date} viene ancora fatturato per intero ({price}).',
+  'billing.service.endBeforePeriod': 'Disdici invece con effetto al {date}',
+  'billing.service.changeCancel': 'Modifica disdetta',
+  'billing.service.withdrawCancel': 'Revoca disdetta',
+  'billing.service.withdrawCancelTitle': 'Revocare la disdetta di "{name}"?',
+  'billing.service.withdrawCancelText':
+    'In seguito il servizio continua senza data di fine e viene fatturato come finora.',
+  'billing.service.cancelWithdrawn': 'Disdetta di "{name}" revocata',
   'billing.products.title': 'Prodotti',
   'billing.products.text':
     'Listino prezzi per nuovi servizi. Le modifiche di prezzo valgono solo per i nuovi servizi.',
@@ -477,6 +495,7 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.unit.yearly': 'anno',
   'billing.profile.locale': 'Lingua delle fatture',
   'billing.profile.localeOwner': 'Lingua del proprietario ({language})',
+  'billing.profile.localeOwnerPlain': 'Lingua del proprietario',
   'billing.profile.localeHint':
     'Fatture, solleciti di pagamento e conferme di pagamento vengono inviati in questa lingua. Le fatture già emesse mantengono la loro lingua.',
   'billing.invoice.locale': 'Lingua',
@@ -486,5 +505,6 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.product.translations.hint':
     'Nome e descrizione in altre lingue. Se lasciati vuoti, vale il testo tedesco.',
   'billing.product.translations.name': 'Nome ({language})',
+  'billing.product.translations.nameRequired': 'Inserisca un nome o svuoti la descrizione.',
   'billing.product.translations.description': 'Descrizione ({language})',
 };

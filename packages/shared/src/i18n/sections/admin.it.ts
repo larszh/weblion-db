@@ -218,6 +218,7 @@ export const adminIt: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.mail.template.payment_received': 'Pagamento ricevuto',
   'admin.mail.template.credit_booked': 'Registrazione di credito',
   'admin.mail.template.test': 'Test',
+  'admin.mail.template.ai_budget': 'Budget IA',
   'admin.int.intro':
     "Le credenziali di accesso per Stripe e Zoho Books vengono impostate solo tramite variabili d'ambiente, non qui. Dopo una modifica nel file .env, riavviare l'API.",
   'admin.int.configured': 'Configurato',
