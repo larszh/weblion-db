@@ -15,7 +15,7 @@ export const allowlist: Allowlist = {
     // Same idiom "in Rechnung gestellt": "est facturé" is the natural French.
     'billing.service.addText',
     // The menu path names labels of the Hetzner Console, which has no French interface; they stay in English
-    // ("Generate API token") so the reader finds them, so "jeton API" cannot appear in the path.
+    // ("Project", "Generate API token") so the reader finds them, so "projet" and "jeton API" cannot appear.
     'providers.hetzner.tokenHint',
     // "das Abmelden" (of devices) is a noun here, and the console signs devices out: French uses the noun
     // "déconnexion", not the reflexive verb "se déconnecter" (signing yourself out).
