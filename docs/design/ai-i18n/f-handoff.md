@@ -343,6 +343,10 @@ zusammen 4602.
 
 ## Teil 4: Web-Hülle und Abschluss des Fundaments (F24 bis F26, Prüfung nach Plan 5.5)
 
+**F-Commit: `fe93f9698be8b79d157546345f503bd62e23b801`** ("Fundament für KI-Modul und fünf Sprachen"). Der einzige
+Commit danach trägt nur diese Zeile ein. Die Einheiten zweigen von der Spitze von `ai-i18n/f` ab; Code und Schlüssel
+sind dort dieselben wie im F-Commit.
+
 ### Gebaut
 
 - **F24** `App.tsx`: lazy `AdminAiPage` (`@/pages/admin/ai`) unter `/admin/ai` und `TranslationsPage`
