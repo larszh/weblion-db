@@ -1573,7 +1573,7 @@ Running it at start clears rows a crash or deploy left behind before the first r
 `apps/api/src/modules/ai/reader.ts`. Tools never query customer tables. They call an allowlist of existing `GET`
 routes in-process with `app.inject`, as the person who asked, so the existing permission, module and suspension
 checks apply unchanged (the loaders `loadServer`, `loadDomain`, `loadWebspace`, `loadMailDomain`, `loadMonitor`,
-`loadOrg` all need the live request, map 7).
+`loadOrg` all need the live request: item 7 of the code map summary in `summaries.md`).
 
 ```ts
 export class ConsoleReader {
@@ -2380,7 +2380,7 @@ for the console's own: output validation, timeouts, stale rows), pagination, the
   (textarea, Enter sends, Shift+Enter new line, at most 4,000 characters), send or stop button, below it the model
   badge `ai.assistant.model` and `AiFootnote`, plus `ai.assistant.sessionHint` once per chat.
 - **A turn**: the user message gets `page: { path: location.pathname, title: document.title }` (per message, plan
-  U4); the body is `{ messages: buildHistory(chat), locale: useI18n().locale }`; `streamAiChat` with an
+  U4); the body is `{ messages: buildHistory(chat), locale: useI18n().locale }` (`buildHistory` of 12.1); `streamAiChat` with an
   `AbortController` (stop button and closing the panel abort; the server marks the row `cancelled`). `text`
   events append to the streaming answer; `tool` events show chips under it (`ai.tool.<name>`, spinner while
   `running`, an icon for `error`); `source` events collect links shown as "Quellen" (`ai.assistant.sources`)
@@ -2446,7 +2446,7 @@ results open in `explain-dialog.tsx` or a feature dialog with `AiText` and `AiFo
 | Monitoring detail (`pages/monitoring/detail.tsx`) | `MonitorView` while down or with a failed last event (`EventsCard`): "Mit KI erklären" | `explain` `monitor` |
 | Billing products (`pages/billing/products.tsx`) | `ProductDialog`: "Texte mit KI" (write or translate), name and description fields for each of the four other languages with flags (`<Flag country="GB" decorative />`, ...) and the `billing.product.translations.*` labels, saved with the product; `ProductCatalog` shows `productText(product, locale)` | `product_texts`, plan O14 |
 | Seller dialogs (`pages/billing/seller-dialogs.tsx`) | `AddServiceDialog` product picker through `productText` | plan O14 |
-| Everywhere (`lib/queries.ts` `useApiMutation`, `components/ui/primitives.tsx` `ErrorState`) | error toasts get the sonner action "Mit KI erklären", error boxes a small button, through `components/ai/explain-action.ts` (`registerExplainHandler`, `explainAvailable()`, `explainError(err)`), registered by `AiProvider` while `explain` is available; never for AI errors themselves | `explain` `error` |
+| Everywhere (`lib/queries.ts` `useApiMutation`, `components/ui/primitives.tsx` `ErrorState`) | error toasts get the sonner action "Mit KI erklären", error boxes a small button, through `components/ai/explain-action.ts` (`registerExplainHandler`, `explainAvailable(err)`, `useExplainAvailable(err)`, `explainError(err)`, plan 2.9), registered by `AiProvider` while `explain` is available; never for AI errors themselves | `explain` `error` |
 
 `pages/monitoring/dialogs.tsx` and `pages/monitoring/monitoring.tsx` are not touched (no monitor proposals, plan
 U4).
