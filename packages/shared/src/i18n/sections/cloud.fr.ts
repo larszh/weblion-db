@@ -13,17 +13,17 @@ export const cloudFr: Partial<Record<keyof typeof cloudDe, string>> = {
   'plans.dedicated': 'Dédié',
   'plans.diskTooSmall': 'Disque trop petit',
   'plans.diskTooSmallHint':
-    'Le disque du serveur fait {disk} Go. Les types avec un disque plus petit ne sont pas possibles, car un disque ne peut pas être réduit.',
+    'Le disque du serveur fait {disk} GB. Les types avec un disque plus petit ne sont pas possibles, car un disque ne peut pas être réduit.',
   'plans.empty': 'Aucun type de serveur correspondant',
   'plans.select': 'Choisissez un type de serveur.',
-  'plans.upgradeDisk': 'Agrandir le disque à {disk} Go',
+  'plans.upgradeDisk': 'Agrandir le disque à {disk} GB',
   'plans.upgradeDiskHint':
-    "Un disque agrandi ne peut plus être réduit. Il n'est ensuite plus possible de passer à un type avec un disque plus petit. Sans cette option, le disque reste à {current} Go et le changement peut être annulé.",
+    "Un disque agrandi ne peut plus être réduit. Il n'est ensuite plus possible de passer à un type avec un disque plus petit. Sans cette option, le disque reste à {current} GB et le changement peut être annulé.",
   'plans.hetznerOff':
     "Hetzner ne change le type de serveur que lorsque le serveur est éteint. Arrêtez-le d'abord sous Alimentation et redémarrez-le ensuite.",
   'plans.hint': 'Un autre type de serveur modifie les coûts et peut nécessiter un redémarrage.',
   'plans.confirmText': 'Le serveur passe à {plan} ({cores} vCPU, {memory} RAM).',
-  'plans.confirmDisk': 'Le disque est agrandi à {disk} Go. Cette action est irréversible.',
+  'plans.confirmDisk': 'Le disque est agrandi à {disk} GB. Cette action est irréversible.',
   'inventory.plan': 'Type de serveur',
   'inventory.location': 'Emplacement',
   'inventory.image': 'Image',
@@ -45,7 +45,7 @@ export const cloudFr: Partial<Record<keyof typeof cloudDe, string>> = {
   'backups.hetznerHint':
     'Les sauvegardes doivent être activées chez Hetzner pour ce serveur (coûte 20 % du prix du serveur). Hetzner conserve les 7 dernières. La restauration écrase le disque avec la sauvegarde.',
   'snapshots.hetznerHint':
-    'Les snapshots sauvegardent le disque sans la mémoire vive et sont facturés par Go et par mois chez Hetzner. La restauration écrase le disque avec le snapshot.',
+    'Les snapshots sauvegardent le disque sans la mémoire vive et sont facturés par GB et par mois chez Hetzner. La restauration écrase le disque avec le snapshot.',
   'delete.hetznerHint':
     'Hetzner supprime le serveur même en cours de fonctionnement, immédiatement et avec toutes les données.',
   'password.title': 'Mot de passe root',

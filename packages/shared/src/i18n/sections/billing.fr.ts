@@ -409,7 +409,7 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.product.editTitle': 'Modifier le produit',
   'billing.product.editText': 'Les services existants conservent leur prix.',
   'billing.product.namePlaceholder': 'p. ex. Serveur cloud M',
-  'billing.product.descriptionHint': 'Figure sur la facture, p. ex. 4 vCPU, 8 Go de RAM.',
+  'billing.product.descriptionHint': 'Figure sur la facture, p. ex. 4 vCPU, 8 GB de RAM.',
   'billing.product.moduleHint': "Est activé pour le client lors de l'ajout du service.",
   'billing.product.active': 'Est proposé',
   'billing.product.activeHint':

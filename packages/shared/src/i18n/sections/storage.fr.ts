@@ -80,9 +80,9 @@ export const storageFr: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.quota': 'Contingent de stockage',
   'storage.quota.freeHint': 'Encore libre dans le contingent : {free}',
   'storage.quota.maxHint': 'Au maximum {max} (encore libre dans le contingent : {free})',
-  'storage.quota.invalid': 'Saisissez un nombre entier à partir de 1 Go.',
+  'storage.quota.invalid': 'Saisissez un nombre entier à partir de 1 GB.',
   'storage.quota.step':
-    'À partir de 1024 Go, uniquement par paliers de 512 Go (1024, 1536, 2048 …), Nextcloud arrondit les autres valeurs.',
+    'À partir de 1024 GB, uniquement par paliers de 512 GB (1024, 1536, 2048 …), Nextcloud arrondit les autres valeurs.',
   'storage.quota.tooLarge': 'Le contingent ne permet pas plus de {max}.',
   'storage.quota.current': 'Actuellement {quota}. Laissez vide pour le conserver.',
   'storage.quota.currentUnlimited': 'Actuellement illimité. Laissez vide pour le conserver.',
