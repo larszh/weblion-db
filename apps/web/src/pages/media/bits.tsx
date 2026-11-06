@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
 import {
+  intlLocale,
   MEDIA_MAX_BITRATE_MBIT,
   MEDIA_REQUESTS_DEFAULT,
   MEDIA_REQUEST_QUOTA_DAYS_MAX,
@@ -129,7 +130,6 @@ export function IssueBadges({ issues, className }: { issues: MediaAccountIssue[]
 // --- Last activity -------------------------------------------------------------------
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
-const intlLocale = (locale: Locale) => (locale === 'de' ? 'de-CH' : 'en-GB');
 
 /** Today's calendar day where the days of last activity are counted (Europe/Zurich). */
 export function mediaToday(now: Date = new Date()): string {

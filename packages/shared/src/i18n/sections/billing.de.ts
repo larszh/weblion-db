@@ -509,6 +509,7 @@ export const billingDe = {
   'billing.unit.yearly': 'Jahr',
   'billing.profile.locale': 'Sprache für Rechnungen',
   'billing.profile.localeOwner': 'Sprache des Owners ({language})',
+  'billing.profile.localeOwnerPlain': 'Sprache des Owners',
   'billing.profile.localeHint':
     'Rechnungen, Zahlungserinnerungen und Zahlungsbestätigungen werden in dieser Sprache verschickt. Bereits ausgestellte Rechnungen behalten ihre Sprache.',
   'billing.invoice.locale': 'Sprache',

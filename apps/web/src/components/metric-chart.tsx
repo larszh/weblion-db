@@ -11,7 +11,7 @@ import {
   type TooltipValueType,
 } from 'recharts';
 import { BarChart3, Table2 } from 'lucide-react';
-import type { MetricPoint, MetricRange } from '@weblion/shared';
+import { intlLocale, type Locale, type MetricPoint, type MetricRange } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/lib/i18n';
 import { Card, EmptyState } from './ui/primitives';
@@ -46,8 +46,8 @@ function useChartTokens() {
   return tokens;
 }
 
-function tickFormatter(range: MetricRange, locale: string) {
-  const intl = locale === 'de' ? 'de-CH' : 'en-GB';
+function tickFormatter(range: MetricRange, locale: Locale) {
+  const intl = intlLocale(locale);
   const opts: Intl.DateTimeFormatOptions =
     range === 'hour' || range === 'day'
       ? { hour: '2-digit', minute: '2-digit' }
@@ -58,8 +58,8 @@ function tickFormatter(range: MetricRange, locale: string) {
   return (t: number) => fmt.format(new Date(t * 1000));
 }
 
-function fullTime(t: number, locale: string) {
-  return new Intl.DateTimeFormat(locale === 'de' ? 'de-CH' : 'en-GB', {
+function fullTime(t: number, locale: Locale) {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(t * 1000));
