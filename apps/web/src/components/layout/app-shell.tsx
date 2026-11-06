@@ -33,6 +33,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Sun,
   Tags,
   Terminal,
@@ -49,6 +50,8 @@ import { useTheme } from '@/lib/theme';
 import { useMe } from '@/lib/queries';
 import type { TranslationKey } from '@weblion/shared';
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/menu';
+import { AiAssistant, useAiLauncherVisible } from '@/components/ai/assistant';
+import { clearAiChats } from '@/components/ai/storage';
 
 interface NavItem {
   to: string;
@@ -190,6 +193,8 @@ function UserMenu({ me }: { me: MeDto }) {
   const qc = useQueryClient();
   const logout = async () => {
     await api.post('/auth/logout').catch(() => null);
+    // The next person in this tab must not see the chats (ai 12.3).
+    clearAiChats();
     qc.clear();
     navigate('/login');
   };
@@ -459,6 +464,18 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
                 show: p.includes('platform:audit:read'),
               },
               {
+                to: '/admin/ai',
+                label: 'nav.admin.ai',
+                icon: <Sparkles />,
+                show: p.includes('platform:settings'),
+              },
+              {
+                to: '/admin/translations',
+                label: 'nav.admin.translations',
+                icon: <Languages />,
+                show: p.includes('platform:i18n:read'),
+              },
+              {
                 to: '/admin/settings',
                 label: 'nav.admin.settings',
                 icon: <SlidersHorizontal />,
@@ -492,6 +509,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const me = useMe();
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  // The assistant's launcher is fixed at the bottom right; room below the content keeps it free on phones.
+  const launcher = useAiLauncherVisible();
   useEffect(() => setOpen(false), [location.pathname]);
   if (!me.data) return null;
 
@@ -526,7 +545,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
           <img src="/logo-horizontal.png" alt="weblion.one" className="h-6 w-auto" />
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main className={cn('min-h-0 flex-1 overflow-y-auto', launcher && 'pb-20 sm:pb-0')}>
           <div className="mx-auto w-full max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {/* Lazy pages load inside the shell so the sidebar stays put. */}
             <Suspense
@@ -541,6 +560,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </main>
       </div>
+      <AiAssistant />
     </div>
   );
 }

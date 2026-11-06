@@ -36,7 +36,10 @@ import type {
   ProviderType,
   UserDto,
 } from '@weblion/shared';
-import { api, ApiError, errorMessage } from './api';
+import { api, ApiError } from './api';
+import { localizeError } from './api-errors';
+import { useT } from './i18n';
+import { explainAvailable, explainError } from '@/components/ai/explain-action';
 
 export const qk = {
   me: ['me'] as const,
@@ -400,9 +403,12 @@ export function useApiMutation<TVars, TResult = unknown>(
     onSuccess?: (result: TResult, vars: TVars) => void;
     /** 0 for answers with secrets: dropped from the mutation cache as soon as nobody shows them. */
     gcTime?: number;
+    /** false: no error toast; the caller shows the error itself (the AI feature dialogs). Default true. */
+    errorToast?: boolean;
   } = {},
 ) {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationFn: fn,
     ...(options.gcTime !== undefined ? { gcTime: options.gcTime } : {}),
@@ -415,7 +421,14 @@ export function useApiMutation<TVars, TResult = unknown>(
       options.onSuccess?.(result, vars);
     },
     onError: (err) => {
-      toast.error(errorMessage(err));
+      if (options.errorToast === false) return;
+      const message = localizeError(err, t);
+      // "Mit KI erklären" while the explain feature is available (ai 12.5); never for errors of the AI itself.
+      if (explainAvailable(err)) {
+        toast.error(message, { action: { label: t('ai.explain.button'), onClick: () => explainError(err) } });
+      } else {
+        toast.error(message);
+      }
     },
   });
 }

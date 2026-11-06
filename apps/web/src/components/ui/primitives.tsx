@@ -7,10 +7,11 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
-import { AlertTriangle, Check, Copy, Inbox, Loader2 } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Inbox, Loader2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useT } from '@/lib/i18n';
-import { errorMessage } from '@/lib/api';
+import { localizeError } from '@/lib/api-errors';
+import { explainError, useExplainAvailable } from '@/components/ai/explain-action';
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
@@ -159,7 +160,10 @@ export function Field({
 }
 
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={cn('size-5 animate-spin text-muted', className)} aria-label="Loading" />;
+  const t = useT();
+  return (
+    <Loader2 className={cn('size-5 animate-spin text-muted', className)} aria-label={t('aria.loading')} />
+  );
 }
 
 export function Skeleton({ className }: { className?: string }) {
@@ -203,13 +207,25 @@ export function EmptyState({
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const t = useT();
+  // "Erklären" while the explain feature is available (ai 12.5); never for errors of the AI itself.
+  const explain = useExplainAvailable(error);
   return (
     <div
       className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger"
       role="alert"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-      <div className="min-w-0 flex-1 break-words">{errorMessage(error)}</div>
+      <div className="min-w-0 flex-1 break-words">{localizeError(error, t)}</div>
+      {explain && (
+        <button
+          type="button"
+          className="inline-flex shrink-0 items-center gap-1 font-medium underline underline-offset-2"
+          onClick={() => explainError(error)}
+        >
+          <Sparkles className="size-3.5" aria-hidden />
+          {t('ai.explain.short')}
+        </button>
+      )}
       {onRetry && (
         <button className="shrink-0 font-medium underline underline-offset-2" onClick={onRetry}>
           {t('common.retry')}

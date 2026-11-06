@@ -18,22 +18,28 @@ import {
   type Locale,
   type TranslationKey,
 } from '@weblion/shared';
-// Static dictionaries for now (F22): the only web module that imports them. U2 replaces this with one lazy
-// chunk per locale (lib/i18n-loader.ts, i18n 5.1) and keeps the exported names and types.
+// Static dictionaries for now (F22): the only app module that imports them (tests and src/test/i18n.tsx may
+// too). U2 replaces this with one lazy chunk per locale (lib/i18n-loader.ts, i18n 5.1) and keeps the exported
+// names and types.
 import { de } from '@weblion/shared/i18n/de';
 import { en } from '@weblion/shared/i18n/en';
 import { fr } from '@weblion/shared/i18n/fr';
 import { it } from '@weblion/shared/i18n/it';
 import { nl } from '@weblion/shared/i18n/nl';
 
-/** fr, it and nl are partial: English fills their gaps (fallbackChain without German, i18n 5.1). */
-const DICTIONARIES: Record<Locale, Dictionary> = {
-  de,
-  en,
-  fr: { ...en, ...fr },
-  it: { ...en, ...it },
-  nl: { ...en, ...nl },
-};
+type Overrides = Partial<Record<Locale, Record<string, string>>>;
+
+/**
+ * The dictionary on screen, highest first: overrides of the locale, its bundle, en overrides, the en bundle
+ * (i18n 5.3). fr, it and nl are partial, so English fills their gaps; German is never a fallback in the web.
+ */
+function compile(locale: Locale, overrides: Overrides): Dictionary {
+  if (locale === 'de') return { ...de, ...overrides.de };
+  const base: Dictionary = { ...en, ...overrides.en };
+  if (locale === 'en') return base;
+  const bundle = { fr, it, nl }[locale];
+  return { ...base, ...bundle, ...overrides[locale] } as Dictionary;
+}
 
 const STORAGE_KEY = 'wl-locale';
 
@@ -76,13 +82,13 @@ function initialLocale(): Locale {
 /** U2 loads the chunk and the overrides here (i18n 5.2); F resolves with the static dictionary. */
 export async function bootI18n(): Promise<I18nBoot> {
   const locale = initialLocale();
-  return { locale, dictionary: DICTIONARIES[locale], overrides: {} };
+  return { locale, dictionary: compile(locale, {}), overrides: {} };
 }
-
-const noop = () => {};
 
 export function I18nProvider({ boot, children }: { boot?: I18nBoot; children: ReactNode }): JSX.Element {
   const [locale, setLocaleState] = useState<Locale>(() => boot?.locale ?? initialLocale());
+  // The static bundles are the compiled dictionaries (F), so boot.dictionary adds nothing; its overrides count.
+  const [overrides, setOverrides] = useState<Overrides>(() => boot?.overrides ?? {});
 
   const setLocale = useCallback(async (next: Locale) => {
     setLocaleState(next);
@@ -93,18 +99,32 @@ export function I18nProvider({ boot, children }: { boot?: I18nBoot; children: Re
     }
   }, []);
 
+  // In memory only for now; U2 adds the cached copy per locale and the background revalidation (i18n 5.3).
+  const applyOverride = useCallback((target: Locale, key: string, value: string | null) => {
+    setOverrides((prev) => {
+      const values = { ...prev[target] };
+      if (value === null) delete values[key];
+      else values[key] = value;
+      return { ...prev, [target]: values };
+    });
+  }, []);
+  const applyOverrides = useCallback((target: Locale, values: Record<string, string>) => {
+    setOverrides((prev) => ({ ...prev, [target]: { ...values } }));
+  }, []);
+
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
 
+  const dictionary = useMemo(() => compile(locale, overrides), [locale, overrides]);
   const t = useCallback<TFunction>(
-    (key, params) => interpolate(DICTIONARIES[locale][key] ?? key, params),
-    [locale],
+    (key, params) => interpolate(dictionary[key] ?? key, params),
+    [dictionary],
   );
 
   const value = useMemo<I18nContextValue>(
-    () => ({ locale, setLocale, t, applyOverride: noop, applyOverrides: noop }),
-    [locale, setLocale, t],
+    () => ({ locale, setLocale, t, applyOverride, applyOverrides }),
+    [locale, setLocale, t, applyOverride, applyOverrides],
   );
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
