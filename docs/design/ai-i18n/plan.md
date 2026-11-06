@@ -348,6 +348,8 @@ export function allowlistFor(locale: TargetLocale): Required<Allowlist>;
 
 export function missingKeys(source: Readonly<Record<string, string>>, bundle: Readonly<Record<string, string | undefined>>): string[]; // 1
 export function unknownKeys(source: Readonly<Record<string, string>>, bundle: Readonly<Record<string, string | undefined>>): string[]; // 1
+/** Keys defined in more than one section (the aggregators would let the later one win silently). */
+export function duplicateKeys(sections: Readonly<Record<string, Readonly<Record<string, string>>>>): string[]; // 1
 export function placeholdersMatch(source: string, value: string): { ok: boolean; missing: string[]; extra: string[]; lineBreaks: boolean }; // 2
 export function looksGerman(value: string, source: string, locale: TargetLocale): boolean; // 3
 export function informalWord(value: string, locale: TargetLocale): string | null; // 4
@@ -589,8 +591,10 @@ U3 adds the chat entry point (`chat(...)`, ai 6.4 and 9) and its helpers to the 
 `modules/ai` calls them, so their signatures are U3's.
 
 Wiring (F17): `apps/api/src/context.ts` gains `ai: AiService; i18n: I18nService; i18nJobs: TranslationJobRunner`.
-`buildApp` builds the context object first (`i18n` created and loaded before `MailService`, which receives it), then
-assigns `ctx.ai = new AiService(ctx)` and `ctx.i18nJobs = new TranslationJobRunner(ctx, pool)`, and calls
+`buildApp` builds the context object first (`i18n` created and loaded before `MailService`, which receives it; the
+literal at `app.ts:75-88` is typed `AppContext`, so it is declared without the two fields and completed right
+after, for example `const ctx = { ... } as AppContext`), then assigns `ctx.ai = new AiService(ctx)` and
+`ctx.i18nJobs = new TranslationJobRunner(ctx, pool)`, and calls
 `ctx.ai.attach(app)` after the plugins. `index.ts` starts `ctx.i18n`, `ctx.i18nJobs` (when `I18N_JOB_ENABLED`) and
 `new AiMaintenance(ctx, pool)` and stops them in `shutdown` before `app.close()`.
 
@@ -693,7 +697,9 @@ export async function cleanup(tx: DbOrTx, i18n: I18nService, input: TranslationC
 export async function deleteDemoOverrides(tx: DbOrTx): Promise<number>;
 
 // glossary.ts (F)
-/** Inserts the DEFAULT_GLOSSARY terms that are missing (by lower(term)) with built_in = true; never updates rows. */
+/** Inserts the DEFAULT_GLOSSARY terms that are missing (by lower(term)) with built_in = true, as one
+ *  `insert ... on conflict do nothing`, so two API processes starting at once cannot fail on the unique index;
+ *  never updates rows. */
 export async function seedGlossary(db: DbOrTx): Promise<void>;
 /** The table as GlossaryTerm[] for the translator and the checks: built-in first, then by term. */
 export async function loadGlossary(db: DbOrTx): Promise<GlossaryTerm[]>;
@@ -2490,3 +2496,47 @@ designs now carry.
 
 Finding 18 is the only rejection: the risk it describes does not exist in the code, so changing the parser would
 add behaviour without fixing anything; the tests pin the existing behaviour for the Dutch and French forms.
+
+### After the restart
+
+A second review (06.11.2026) checked the regenerated plan sections 2 to 4, `ai.md` and `i18n.md` against each
+other, against the code at `c6c51ad`, against the Claude API reference (claude-api skill, SDK 1.3.0 tarball) and
+against the 24 findings above, before the parallel build. It found 21 problems (1 H, 8 M, 12 L) and fixed all of
+them in the documents. Verified and left unchanged: every Claude call (adaptive thinking, explicit effort, no
+sampling fields or `budget_tokens`, `tool_choice` auto only, no prefill, streaming with `finalMessage()`,
+`stop_reason` first, `fallbacks: 'default'` with `server-side-fallback-2026-07-01` on Opus and Sonnet only, cache
+breakpoint on the system prompt plus top-level `cache_control` in the chat, typed errors and mid-stream `err.type`;
+the SDK 1.3.0 types have `cache_control`, `fallbacks`, `eager_input_streaming`, `stream.request_id`); every cited
+file, function, route, DTO field, permission and line range of sections 2 to 4 (spot checks of about 60); migration
+numbering after `0009` and the journal; no dependency beyond `@anthropic-ai/sdk` 1.3.0; findings 1 to 24 (18 still
+rejected: `parseMoney` at `apps/web/src/pages/billing/money.ts:21-27` refuses three decimals).
+
+| # | Sev. | Document, section | Change | Reason |
+|---|---|---|---|---|
+| R1 | H | plan 2.5, F20; i18n 8.1 rule 3, 20.2 | The legal rule (servable only with a current `source_hash`) applies to target locales only; a `de` row of a legal key is always servable | A German override stores the hash of the compiled German, while `source(key)` is computed from the override itself, so the owner's edit of `ai.notice.text` (decision 25, O18) would never have been served |
+| R2 | M | ai 10.1, 15.2 | The organization explain of one audit row applies the blocked-customer filter of ai 8.3 (403 `ai_org_disabled`) | Finding 4 was closed for the audit tool and the summaries only; explaining a reseller's audit row about a declined customer still sent that customer's data to the model |
+| R3 | M | ai 8.1, 11.2 | `toolJson` writes `<` and `>` as the JSON escapes `<` and `>` | The regenerated text read "replaced by `<` and `>`" (the escapes were lost), which describes a no-op and would reopen the `</third_party>` injection of ai 11.1 |
+| R4 | M | plan 2.1, 2.8, F18 | F widens `MailLocale` to `Locale` (fr, it, nl rendered in English until U2) | U3 sends the `ai_budget` mail per recipient language before U2 merges; with `'de' \| 'en'` it would have hard-coded a mapping that kept French, Italian and Dutch superadmins on English after the merge |
+| R5 | M | i18n 12.8 | The claim statement and every job timestamp use the injected `now()` and `staleAfterMs` instead of the database clock and a literal 2 minutes | Test case m (takeover with an injected `now`) could not pass as specified |
+| R6 | M | i18n 12.4 | B1 does not call `translateBatch`; it calls `structured()` once per locale with `countsForUser: true`, no retries, then `validateItem` | `translateBatch` passes `countsForUser: false`, waits up to 5 minutes on `ai_busy` and throws `JobStop`, contradicting O9, 2.6 and i18n 14.3 |
+| R7 | M | plan 2.9 (web tests rule), 6, U4; ai 12.3; i18n 20.3 | Web tests render static markup through `withI18n`, test interaction through pure functions and reducers (`applySseEvent`), stub `fetch` and storage, pass `getServerSnapshot` to `useSyncExternalStore`, and scan sources with `import.meta.glob` | The web has no DOM test environment or testing library and units may add no dependency; `useExplainAvailable` without `getServerSnapshot` throws under `renderToStaticMarkup` (every test that renders `ErrorState`); `node:fs` in a web test fails the typecheck (only `vite/client` types) |
+| R8 | M | i18n 6.3, 20.3 | `ProfileLocaleSync` adopts a choice that the old user menu stored only in `localStorage` once into the profile (marker `wl-locale-v`) | Today's toggle never saves `users.locale`, so every existing person who works in English would have been switched to German at the first login after the deploy |
+| R9 | M | plan 2.5; i18n 14.2 | `seedGlossary` inserts with `on conflict do nothing` | Two API processes starting at once (secondary processes exist, `I18N_JOB_ENABLED=false`) would race on `translation_glossary_term_idx` and fail `buildApp` |
+| R10 | L | plan 6 U4 | `ai-provider.tsx` also registers the explain handler | "DNS proposals only" contradicted 2.9 and ai 12.5; "Mit KI erklären" on toasts and error boxes would never have appeared |
+| R11 | L | plan 6 U3 | `budgetExceeded` removed from U3's list | It is F's (2.4, F15) and F's tests need it |
+| R12 | L | plan O11, 2.5, F20; i18n 8.1 rule 2, 20.2 | Demo rows are served only while `ENABLE_DEMO_PROVIDER` is true and `ANTHROPIC_API_KEY` is unset | With an env key demo mode has ended (ai 14) but `[FR]` rows stayed live; finding 15 says never after a key exists |
+| R13 | L | plan 4.2 | The general order of checks names the AI gate of ai 9.1 (organization state before `ai:use` for members) | The sentence said permission before organization state, which would answer a declined organization with the boundary's `forbidden` instead of `ai_org_disabled` |
+| R14 | L | plan 11 | Owners for `lib/api-errors.test.ts` (U2), `lib/api/ai.test.ts` (U4), `pages/admin/translations-query.test.ts` (U1) | New files named in the specs had no owner in the matrix |
+| R15 | L | plan 2.2; i18n 19.4 check 1 | `duplicateKeys()` and the rule that no key is defined in two sections | The aggregators spread sections, so a duplicate (none today, 3,860 keys checked) would win silently and break `sectionOf`, stamps and overrides |
+| R16 | L | ai 3.1 | `ai.ts` imports `Locale` only | Matches plan 2.3; `TargetLocale` was unused |
+| R17 | L | ai 6.4 | The chat calls `ctx.ai.addCall(row, message, { requestId: stream.request_id ?? null })` | The two-argument call did not match the 2.4 signature |
+| R18 | L | ai 12.1 | `streamAiChat` uses `apiUrl`, `WRITE_HEADERS` and `apiErrorFromResponse` of 2.9 | It re-implemented URL, CSRF header and error parsing that F exports for exactly this caller |
+| R19 | L | ai 14 | Citation "i18n 12, 17" -> "i18n 12.4" | i18n 17 is the admin page, the field contract is 12.4 |
+| R20 | L | i18n 10.3 | "three new tables" -> "four" (with `ai_usage`) | Matches 3.1 and the test that F writes |
+| R21 | L | plan 2.4 (wiring) | The `AppContext` literal of `app.ts:75-88` is completed after `AiService` and `TranslationJobRunner` are constructed | The literal is typed `AppContext`; both constructors take the context itself |
+
+Left for the owner (no document change): task "AI per customer default off (O34)" is pending outside this review
+and would change decision 16, the `ai_enabled` default of 3.1 and its hand edit, ai 5.5 and 5.6, and the tests of
+3.1; the data notice sentence, the transfer basis and the prices of ai 16 remain on the go-live checklist; the
+term table of i18n 19.3 needs a native-speaker review; `GET /ai/status` (`requireAuth`) and A1 (public) stay the
+two routes without a permission, by design.
