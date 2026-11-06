@@ -108,7 +108,7 @@ export const AI_DEFAULT_MODEL: AiModel = 'claude-opus-5-5';
 
 ### 2.2 Prices
 
-USD per million tokens, first-party Claude API, from the claude-api skill's model table (cached 2026-10-06). The
+USD per million tokens, first-party Claude API, from the model table of the Claude API skill (cached 2026-10-06). The
 owner rechecks them on Anthropic's pricing page before go-live (16, item 7); a change is a code change in
 `packages/shared/src/ai.ts`.
 
@@ -563,7 +563,7 @@ export interface AiProductTextsResult {
 Test cases of `packages/shared/src/ai.test.ts` (plan F6):
 
 1. `AI_MODELS` is exactly the three ids in this order; `AI_DEFAULT_MODEL === 'claude-opus-5-5'`; `isAiModel` rejects
-   `''`, `'claude-opus'`, an id with a date suffix and `'gpt-4o'`.
+   `''`, `'opus'`, any of the three ids with a date suffix appended, and `'unknown-model'`.
 2. `hasRefusalFallback`: true for Opus and Sonnet, false for Haiku.
 3. `AI_FEATURES` has seven entries; `AI_FEATURE_EFFORT` is `medium` for assistant, dns_check, server_health,
    translations and `low` for the other three (plan decision 30).
@@ -713,6 +713,8 @@ tab (7.3). The web translates every code (plan O25, O32); the key column names t
 | `ai_reseller_blocked` | 409 | `aiResellerBlocked()` | none | AI is switched off for your own organization, so it cannot be switched on for a customer. | `ai.error.resellerBlocked` |
 | `ai_admin_key` | 400 | `aiAdminKey()` | none | This is an Admin API key. Save a normal API key from the Claude Console. | `ai.error.adminKey` |
 | `ai_not_configured` | 409 | `aiNotConfigured(reason)` (used by i18n routes) | `{ reason: AiUnavailableReason }` | AI is not available. Set it up under Administration > AI. | `ai.error.notConfigured` |
+
+The three reason types are exported from `packages/shared/src/ai.ts` (the web and `AiTestResultDto` use them):
 
 ```ts
 export type AiLimitKind =
@@ -2739,3 +2741,159 @@ The staff-facing reason texts `admin.ai.reason.billing` mention credit on purpos
 
 ---
 
+## 14. Demo mode
+
+Demo mode exists only with `ENABLE_DEMO_PROVIDER=true` **and** no key (neither saved nor `ANTHROPIC_API_KEY`):
+`resolveAiKey` gives `{ source: 'none', demo: true }` (5.2). Any key ends it; saving a key also deletes the demo
+translations (5.4). With the demo provider the master switch starts on (5.1), so the demo installation shows every
+feature without an Anthropic account.
+
+**Real SDK, emulated transport.** `createAnthropic` builds the normal SDK client with `baseURL:
+'http://claude-demo.invalid'` and `fetch: demoFetch` (6.1). Every code path of the module runs unchanged: params,
+streaming, `finalMessage()`, `stop_reason` handling, tool loop, validation, accounting, error classes. Only the
+HTTP exchange happens in process. `apps/api/src/modules/ai/demo.ts`:
+
+```ts
+/** A fetch for the SDK: answers the Claude API routes the module uses, in process. */
+export const demoFetch: typeof fetch;
+/** The emulator behind it; also the fallback of the test mock (15.1). */
+export function emulateMessages(body: BetaMessageStreamParams): EmulatedTurn;
+interface EmulatedTurn {
+  content: Array<{ type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: unknown }>;
+  stop_reason: 'end_turn' | 'tool_use';
+  usage: { input_tokens: number; output_tokens: number };
+}
+```
+
+- `GET /v1/models/:id`: a model object for the ids of `AI_MODELS`, else 404 `not_found_error` (the test button,
+  5.2).
+- `POST /v1/messages`: with `stream: true` an SSE response in the API's frame shapes (`message_start`,
+  `content_block_start`, `content_block_delta` with `text_delta` or `input_json_delta`, `content_block_stop`,
+  `message_delta` with `stop_reason` and `usage`, `message_stop`), text in chunks of about 20 characters 30 ms
+  apart so the panel visibly streams; else JSON. Header `request-id: req_demo_<n>`.
+- Routing by the first line of the system prompt, `# Feature: <feature>` (all prompts of 10.8 and the
+  translator's start with it, plan O4).
+- Token numbers: input about request JSON length / 4, output about answer length / 4. The usage row gets `demo =
+  true` and cost 0.
+
+Behaviour per feature (answers in German for `language: de`, else English; texts start with `[Demo]`):
+
+| Feature | Emulated answer |
+|---|---|
+| `assistant` | Turn 1: a short text and `tool_use` `get_org_overview {}`. After the tool result: a text with the counts it returned ("[Demo] Ihre Organisation hat 3 Server, 2 Domains ..."). When the newest question mentions DNS, e-mail, SPF, DKIM or DMARC: `list_mail_domains`, then `get_mail_dns_setup` for the first one, then `propose_dns_record` with the first expected record whose status is `missing` (copied exactly, so the proposal is verified), then the text. |
+| `explain` | Summary, cause and two steps built from the code and status of the item in the `<third_party>` block, severity from the status (`failure` -> `error`). |
+| `dns_check` | Topics from the console's own statuses of the expected records (`ok` -> ok, `missing` and required -> problem, else warning); one proposal per missing expected record, copied exactly (verified). On the demo mail domains this is the DMARC record (plan 8.4 scenario 1). |
+| `audit_summary` | Counts per action prefix and failures of the entries sent, with their ids. |
+| `server_health` | Status per metric from the compressed maximum values (CPU above 85 percent problem, above 70 watch; the same for memory and disk), one recommendation. |
+| `product_texts` | `write`: the German name unchanged and a fixed description; other languages and `translate`: `[FR] <German text>` (target code in capitals). |
+| `translations` | Every item `[FR] <German text>` (target code in capitals; the German text keeps placeholders, line breaks and glossary terms, so the i18n checks pass, plan O11); the input and output fields are those of the translator (i18n 12, 17). |
+
+Marking: `meta.demo = true` on the `meta` event and in every `AiResultMeta`; the panel and every result show the
+badge `ai.demoBadge` with the tooltip `ai.demoHint`; the KI page shows `admin.ai.status.demo`; translation jobs get
+`demo = true` and the "Demo" badge (plan O11).
+
+---
+
+## 15. Tests
+
+### 15.1 The Claude mock
+
+`apps/api/test/claude-mock.ts`: F writes the skeleton of plan F19 (verbatim there: `MockTurn` with `text`, `json`,
+`stopReason`, `refusalCategory`, `model`, `usage`, `error`, `delayMs`, `gate`, `midStreamError`;
+`RecordedClaudeRequest`; `startClaudeMock({ apiKey, port, script })` with `url`, `requests`, `setScript`, `close`;
+`x-api-key` check against `sk-ant-test-0000000000000000000000`; `GET /v1/models/:id`; SSE or JSON; errors as `{
+type: 'error', error: { type, message }, request_id }`; `request-id: req_mock_<n>`; no scripted answer ->
+`emulateMessages(body)`). U3 adds to `MockTurn`:
+
+```ts
+  /** tool_use blocks after the text, streamed as input_json_delta; stop_reason 'tool_use' unless stopReason is set.
+   *  rawJson replaces the serialized input (invalid or truncated JSON for the eager streaming tests). */
+  toolUses?: Array<{ name: string; input: unknown; id?: string; rawJson?: string }>;
+  /** A thinking block before the text: true = empty thinking text with a signature (display "omitted"). */
+  thinking?: boolean | string;
+  /** Server-side fallback: after `afterFrames` frames (0 = before any output) a `fallback` content block from the
+   *  requested model to `model`, then the rest of the turn; usage.iterations gets a 'message' entry (with
+   *  declinedUsage) and a 'fallback_message' entry; the message's `model` is `model`. Tests pass a model id outside
+   *  AI_MODELS (the mock's GET /v1/models accepts it). */
+  fallbackTo?: { model: string; afterFrames: number; declinedUsage?: MockTurn['usage'] };
+  /** Delay between SSE frames (stream and cancel tests). */
+  streamDelayMs?: number;
+  /** Close the socket after the frames without message_stop (lost connection). */
+  closedEarly?: boolean;
+```
+
+Recorded requests let tests assert on the exact body: model, `thinking`, `output_config`, `anthropic-beta` header,
+`fallbacks`, system `cache_control`, top-level `cache_control`, `tool_choice`, tools (`strict`,
+`eager_input_streaming`), `metadata.user_id`, no sampling fields, the last message a user turn, `FINAL_STEP_NOTE`
+only where expected.
+
+### 15.2 Test files and cases
+
+Every API test runs against `createTestApp` (`apps/api/test/helpers.ts`) with a mock started per file; the key is
+saved through `PUT /admin/ai/key` and the platform switched on through `PUT /admin/ai/settings` (plan U1).
+
+| File | Owner | Cases |
+|---|---|---|
+| `packages/shared/src/ai.test.ts` | F | 3.1 cases 1 to 10 |
+| `packages/shared/src/access.test.ts` | F | plan F9: org off, decline, reseller cascade through a parent boundary, `ai:settings` still allowed, suspended boundary has no `ai:use` but `ai:settings`, viewer and member have `ai:use`, restricted and billing do not, support has `ai:use` and `platform:ai:use` |
+| `apps/api/src/modules/ai/schema.test.ts` | F | 6.5 list; every tool input and every feature output schema converts |
+| `apps/api/src/modules/ai/redact.test.ts` | F | each pattern of 11.2; exact env values; the saved Anthropic key after `setAnthropicKeys`; 4,000 cap; personal mode drops `ip`, `userAgent`, `user_agent`, `email`, `inviterEmail` and replaces addresses; non-personal mode keeps a DMARC `mailto:`; `toolJson` escapes `<` and `>` and stays valid JSON |
+| `apps/api/src/modules/ai/prompts.test.ts` | F | 10.8 checks |
+| `apps/api/src/modules/ai/tools.test.ts` | U3 | 22 tools, names equal `AI_TOOL_NAMES`; every input schema strict-convertible; `live` and `personal` flags as in 8.2 and 8.3; every route template exists as a `GET` route of the app (`app.printRoutes` or `hasRoute`); every `ai.tool.<name>` key exists; `validateDnsProposal` unit cases (verified equality with case, trailing dot and TXT quotes; NS and delete impossible; MX and apex A/AAAA change only verified; `textOnly` reasons) |
+| `apps/api/test/ai-settings.test.ts` | F | defaults (off without the demo provider, Opus, 100 USD, 80 percent, 200, 50, seven features on); validation ranges; switching on without `goLive` 400, with `announcedOn` 29 days ago 400, 30 days ago 200 and audited; demo mode needs no `goLive`; `noticeChecked` stores date and person; key: admin key 400 `ai_admin_key`, saved key wins over `ANTHROPIC_API_KEY`, never returned by any route, not in audit details, `demoOverridesDeleted` counted and the demo overrides gone in the same transaction; delete falls back to env; test button ok against the mock and `ok: false, reason: 'auth'` with a wrong key; `platform:settings` required (support 403); `GET /ai/status` reasons `disabled`, `not_configured`, `feature_off`, demo |
+| `apps/api/test/ai-structured.test.ts` | F | plan F20 list (request shape per model, refusal 422, max_tokens retry then 502, 401, 529, 500, mid-stream errors, 402 fixed message with the redacted original kept, `retryOnMaxTokens: false`, budget 429, platform cap 429 `concurrent`, tokens and cost on the row, demo translations at cost 0, availability reasons) plus: fallback iterations priced per entry, served model stored |
+| `apps/api/test/ai-org.test.ts` | U3 | staff switch off and on (audit); reseller switch; 409 `ai_platform_locked`; 409 `ai_reseller_blocked`; customer decline and allow (audit), also while suspended and while the platform is off; reseller off caps its customers' members and its own staff (chat 403); members of a declined org get 403 `ai_org_disabled`; staff explain on a declined org 403; usage counts include staff requests, no cost field in `OrgAiDto` and `ResellerCustomerAiDto`, cost in `AdminOrgAiDto`; none of the routes is 404 while AI is off |
+| `apps/api/test/ai-limits.test.ts` | U3 | each kind of 7.1 in order; translations (`countsForUser: false`) skip person and organization limits but not the budget; staff requests do not count against the customer's daily limit; stale rows ignored and marked by `AiMaintenance`; maintenance deletes rows older than 400 days and error texts older than 30 days; warning and exhaustion mails to superadmins and audit entries exactly once per month, both at once on a jump; `Retry-After` |
+| `apps/api/test/ai-chat.test.ts` | U3 | SSE headers (`X-Accel-Buffering: no`) and event order; a scripted chat with two tool calls and text; pings with `streamDelayMs`; caps: 8 calls, 24 tool calls, 8 live calls, 120,000 characters, 5 x estimate, each with `FINAL_STEP_NOTE` or the notice; `tool_choice` auto on every recorded request and the note as the last block after the results; budget exhausted after call 2 stops with `budget_stop`; mid-stream fallback: a `tool_use` before the fallback block is neither run nor re-sent; refusal ends with an `error` event 422; `max_tokens` with a `tool_use` runs nothing; invalid tool input gives an `INVALID_JSON` result; unparseable JSON re-issued once; mid-stream `overloaded_error` gives `ai_busy`; `closedEarly` gives `ai_upstream network`; client disconnect gives status `cancelled`; timeout gives `ai_timeout`; history validation (41 messages, alternation, 4,000 and 16,000 characters); context block carries role and page, never the person's name or e-mail; page per user message |
+| `apps/api/test/ai-features.test.ts` | U3 | explain for each source kind, org and admin, with their permissions; admin explain of a declined org's audit row 403; DNS check verified, unverified and `textOnly` proposals, dropped invalid ones, no NS and no delete; audit summary: personal fields gone, declined customers filtered in the reseller log and in the admin summary, `cut` and `hidden`; server health; product texts admin and reseller, then saved through `PATCH /billing/products` with `translations` and returned by `productText` |
+| `apps/api/test/ai-isolation.test.ts` | U3 | a member of two orgs asks for the other org's server, domain, website, mail domain, monitor: `not_found`, nothing of it in any recorded request; a server with `org: null`; a sub-path without verified parent refused; reseller staff in a customer cannot read a sibling customer; a declined org's data never appears in recorded requests of any feature |
+| `apps/api/test/ai-secrets.test.ts` | U3 | env secrets, the saved key and provider passwords never in recorded request bodies, responses, audit details, `ai_usage` rows or captured log lines (logger with a capture stream); a TXT record with a fake key is redacted; the 402 "credit balance" text only in `ai_usage.error_message` and the errors tab |
+| `apps/api/test/ai-demo.test.ts` | U3 | demo only with the demo provider and without a key; the assistant flow with the tool chip; each JSON feature returns a valid result with `demo: true`; the DMARC proposal verified; translations `[FR] ...` at cost 0; a saved key ends demo mode |
+| `apps/web/src/lib/api/ai.test.ts` | U4 | 12.1 list |
+| `apps/web/src/components/ai/ai-text.test.tsx` | U4 | no HTML is rendered; only console paths are links; bare URLs are text |
+| `apps/web/src/components/ai/assistant.test.tsx` | U4 | 12.3 list |
+
+---
+
+## 16. Go-live checklist
+
+For the owner, before turning the master switch on in production (also in `docs/ai.md`, section "Vor dem
+Einschalten", plan 9). The go-live dialog of the KI page asks for items 1 to 5 (5.1, 12.2).
+
+1. **AGB and AVV**: add Anthropic PBC (USA) to the list of sub-processors in the terms and the data processing
+   agreement: purpose (AI features of the console), data categories (resource names and metrics, DNS records, error
+   messages, audit entries without IP and e-mail addresses, questions to the assistant), location (USA), link to
+   Anthropic's DPA. Publish the change as the contract's change clause requires.
+2. **Legal basis for the US transfer** (nDSG; GDPR for customers in the EU): check on the official list whether
+   Anthropic is certified under the Swiss-U.S. Data Privacy Framework; otherwise rely on the standard contractual
+   clauses of Anthropic's DPA with the Swiss addendum and a transfer assessment. Record the result and the date.
+3. **The notice sentence on training and retention**: check "Nach den kommerziellen Bedingungen von Anthropic ..."
+   (13.10) against Anthropic's Commercial Terms and DPA in force on that day, including the retention period and any
+   zero data retention arrangement; change `ai.notice.text` in Verwaltung > Übersetzungen if needed; mark the
+   notice as checked on the KI page.
+4. **Workspace location**: in the Claude Console check the workspace the key belongs to: its data residency or
+   processing location settings, if offered, and a spend limit at least as low as the console's budget (a second
+   safety net). Adjust the notice if the location differs from it.
+5. **Announcement**: a mail to the owner of every organization at least 30 days before the switch: what the AI does,
+   Anthropic as sub-processor, which data, that weblion staff can use it on the organization's data, the planned
+   date, and the link to the decline setting (`<APP_URL>/o/<slug>/settings`, card "KI-Funktionen"). The console
+   does not send it (no template is planned); enter the sending date in the go-live dialog, which refuses dates less
+   than 30 days ago.
+6. **Key**: save the API key on the KI page, "Verbindung testen".
+7. **Prices**: compare `AI_PRICES` (2.2) with Anthropic's pricing page; a difference is a code change.
+8. **Budget, limits, features**: set them, then switch on.
+
+---
+
+## 17. Contract with the i18n design
+
+| # | Point | AI side | i18n side |
+|---|---|---|---|
+| 1 | Shared `Locale` type | `ai.ts` imports `Locale`, `TargetLocale` from `./i18n/locales` (plan O1); chat and feature requests carry `locale: Locale`; prompts answer in the `language` of the context block | `packages/shared/src/i18n/locales.ts` (`LOCALES`, `TARGET_LOCALES`, `LOCALE_META`), i18n 2 |
+| 2 | One path for translations | `structured()` (6.6) with `feature: 'translations'`, `scope: 'platform'`, `orgId: null`; batches `countsForUser: false`, `retryOnMaxTokens: false`; suggest `countsForUser: true` after `countRate()`; effort medium, `max_tokens` 32,000, streamed (plan O8); one `ai_usage` row per call (plan O22); `availability('translations')` and `budgetState()`; `aiCostMicros(model, usage, AI_DEFAULT_MODEL)` for estimates (plan O7); errors are the codes of 4.2 (plan O6) | the translator (`apps/api/src/i18n/translator.ts`) owns prompt (first line `# Feature: translations`), batching, checks, repair and retries (i18n 12); 409 `ai_not_configured` with `details.reason` (plan O5, O10); the job's error mapping (plan 2.6) |
+| 3 | `ai.notice.text` | the notice of 13.10; the KI page links to `/admin/translations?tab=entries&q=ai.notice.text` (plan O18) and shows it read-only | `LEGAL_KEYS` (`ai.notice.title`, `ai.notice.text`): editable, never machine-translated (skipped by batches, counted as `legal` in the estimate), never served outdated (fallback English, then German), `I18N_REQUIRE_LEGAL` (i18n 8.1, plan O28) |
+| 4 | Demo translations | the emulator answers `[FR] <German text>` (14); demo mode only with the demo provider and no key; `PUT /admin/ai/key` calls `deleteDemoOverrides(tx)` in its transaction (5.4) | results saved with origin `ai`, unreviewed, `translation_overrides.demo = true`, job `demo = true`; served only while `ENABLE_DEMO_PROVIDER` is true; cleanup A8 with `demo: true` (plan O11, i18n 8.1, 12.10). The batch input and output field names are i18n 12's; the emulator follows them |
+| 5 | `products.translations` | column in `0010_ai.sql` (5.6), product texts feature (10.6) | `ProductTranslations` keyed by `TargetLocale` in `billing.ts`, `productText()`, `billing.product.translations.*`, the invoice editor in the invoice's language (plan O14) |
+| 6 | Error texts in the web | every code of 4.2 with the keys of 13.8; `aiErrorText(t, err)` = `localizeError(err, t)` | `localizeError` in `lib/api-errors.ts` maps them (plan O25, the frozen table plan 2.10) |
+| 7 | Budget mail | `ai_budget` template data (7.2) | keys `email.aiBudget.*` (plan O15, 5.3), rendered in each recipient's language |
+| 8 | Section `ai` | the keys of 13 (de, en) in `sections/ai.{de,en}.ts`, late keys only by U4 | fr, it, nl by T-<L>-A with the rules of plan 7.2 and the glossary of plan 7.3 |
