@@ -25,6 +25,7 @@ import {
   translationOverrides,
   users,
 } from '../src/db/schema';
+import { loadCatalog } from '@weblion/shared/i18n/catalog';
 import { insertI18nDemo } from '../src/db/seed-i18n';
 import { saveOverride } from '../src/i18n/entries';
 import { seedGlossary } from '../src/i18n/glossary';
@@ -999,6 +1000,9 @@ describe('demo seed', () => {
       'nl:login.hero.title',
     ]);
     expect(rows.every((r) => !r.demo && r.updatedBy === adminId)).toBe(true);
+    // None equals the compiled text of the repository, so "Aufräumen" keeps all three examples.
+    const compiled = loadCatalog().bundles;
+    for (const r of rows) expect(r.value).not.toBe(compiled[r.locale][r.key as ServerTranslationKey]);
     expect(t.ctx.i18n.cell('fr', 'common.save' as ServerTranslationKey)).toMatchObject({
       origin: 'manual',
       state: 'current',

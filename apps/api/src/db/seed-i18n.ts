@@ -19,11 +19,12 @@ const DEMO_OVERRIDES: {
   /** The German text the value counts as written against; null = the current one. */
   writtenAgainst: string | null;
 }[] = [
-  // "Manuell", current.
+  // "Manuell", current. Each value differs from the compiled text, or "Aufräumen" would count it as already in the
+  // code and delete the example.
   {
     key: 'common.save',
     locale: 'fr',
-    value: 'Enregistrer',
+    value: 'Sauvegarder',
     origin: 'manual',
     reviewed: true,
     writtenAgainst: null,
@@ -32,7 +33,7 @@ const DEMO_OVERRIDES: {
   {
     key: 'nav.billing',
     locale: 'it',
-    value: 'Fatturazione',
+    value: 'Fatture',
     origin: 'ai',
     reviewed: false,
     writtenAgainst: null,
