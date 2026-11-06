@@ -13,6 +13,7 @@ import {
   type Locale,
   type ServerTranslationKey,
   type TranslationCellDto,
+  type TranslationCheckName,
 } from '@weblion/shared';
 import { loadCatalog, type I18nCatalog } from '@weblion/shared/i18n/catalog';
 import { checkValue } from '@weblion/shared/i18n/checks';
@@ -26,8 +27,8 @@ import { sourceHash } from './hash';
 /** A translator bound to one locale (mails, PDF, server texts). */
 export type Tr = (key: ServerTranslationKey, params?: I18nParams) => string;
 
-/** One row of translation_overrides as the service keeps it in memory. */
-interface OverrideRow {
+/** One row of translation_overrides as the service keeps it in memory (orphans and hidden rows included). */
+export interface OverrideRow {
   key: string;
   locale: Locale;
   value: string;
@@ -57,6 +58,14 @@ export class I18nService {
   private timer: NodeJS.Timeout | null = null;
   /** Loads run one after the other, so a reload() after a write never loses against an older refresh. */
   private queue: Promise<void> = Promise.resolve();
+  private loads = 0;
+  /**
+   * Soft check results per cell input (key, locale, German, value, demo). They only depend on these and on
+   * the glossary, so they survive reloads: after one save only that cell is checked again, not all 23,000
+   * (the checks build a regular expression per glossary term and value). Cleared when the glossary changes.
+   */
+  private warningsMemo = new Map<string, TranslationCheckName[]>();
+  private glossarySignature = '';
 
   constructor(
     private readonly db: Database,
@@ -65,6 +74,33 @@ export class I18nService {
     catalog: I18nCatalog = loadCatalog(),
   ) {
     this.catalog = catalog;
+  }
+
+  /** Increments with every load; caches of derived data (filters, statistics) are keyed by it. */
+  get version(): number {
+    return this.loads;
+  }
+
+  /** Every override row as loaded, servable or not (orphans, hidden demo rows, stale legal rows). */
+  rows(): OverrideRow[] {
+    const out: OverrideRow[] = [];
+    for (const byKey of this.overrides.values()) out.push(...byKey.values());
+    return out;
+  }
+
+  /** The stored override of one cell, servable or not. */
+  override(locale: Locale, key: string): OverrideRow | undefined {
+    return this.overrides.get(locale)?.get(key);
+  }
+
+  /** The glossary as loaded (the built-in terms while the table is still empty). */
+  glossaryTerms(): readonly GlossaryTerm[] {
+    return this.glossary;
+  }
+
+  /** Rules 1 to 3 of i18n 8.1: the row is served to the console, the mails and the PDF. */
+  isServable(row: OverrideRow): boolean {
+    return this.servable(row);
   }
 
   /** Reads every override (and the glossary for the cell warnings) into memory. */
@@ -174,16 +210,7 @@ export class I18nService {
     else state = this.catalog.stamps[locale][key]?.[0] === source.hash ? 'current' : 'stale';
 
     const warnings =
-      value === null || locale === 'de'
-        ? []
-        : checkValue({
-            key,
-            source: source.text,
-            value,
-            locale,
-            glossary: this.glossary,
-            skipLanguage: served?.demo ?? false,
-          }).soft;
+      value === null || locale === 'de' ? [] : this.warnings(key, locale, source.text, value, !!served?.demo);
 
     return {
       locale,
@@ -198,6 +225,24 @@ export class I18nService {
       updatedAt: row ? row.updatedAt.toISOString() : null,
       warnings,
     };
+  }
+
+  /** The soft checks of one value (memoized, see warningsMemo). */
+  private warnings(
+    key: string,
+    locale: Locale,
+    source: string,
+    value: string,
+    demo: boolean,
+  ): TranslationCheckName[] {
+    const memoKey = `${locale}\u0000${key}\u0000${demo ? 1 : 0}\u0000${source}\u0000${value}`;
+    const cached = this.warningsMemo.get(memoKey);
+    if (cached) return cached;
+    const soft = checkValue({ key, source, value, locale, glossary: this.glossary, skipLanguage: demo }).soft;
+    // Bounded: a long session of edits must not grow the map forever.
+    if (this.warningsMemo.size > 100_000) this.warningsMemo.clear();
+    this.warningsMemo.set(memoKey, soft);
+    return soft;
   }
 
   /** Demo rows exist only from demo jobs; they are served only while the emulator answers (plan O11). */
@@ -279,8 +324,12 @@ export class I18nService {
     this.overrides = overrides;
     // An empty table (first start before seedGlossary) still checks against the built-in terms.
     this.glossary = glossary.length > 0 ? glossary : [...DEFAULT_GLOSSARY];
+    const glossarySignature = JSON.stringify(this.glossary);
+    if (glossarySignature !== this.glossarySignature) this.warningsMemo.clear();
+    this.glossarySignature = glossarySignature;
     this.signature = signature;
     this.hashes.clear();
     this.payloads.clear();
+    this.loads++;
   }
 }
