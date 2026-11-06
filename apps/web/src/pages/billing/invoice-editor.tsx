@@ -5,6 +5,8 @@ import {
   formatMoney,
   invoiceTotals,
   lineTotal,
+  LOCALE_META,
+  productText,
   type InvoiceDetailDto,
   type InvoiceLineInput,
   type ProductDto,
@@ -17,6 +19,7 @@ import { billingKeys, useIssuerOf, useProducts, useSellerCustomer } from '@/lib/
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select, Textarea } from '@/components/ui/primitives';
+import { LanguageFlag } from '@/components/language-picker';
 import {
   formatDay,
   formatRate,
@@ -101,6 +104,9 @@ export function InvoiceEditorDialog({
   const issuer = useIssuerOf(sellerOrgId, open);
   const products = useProducts(sellerOrgId, { active: true, enabled: open });
   const currency = invoice?.currency ?? customer.data?.profile.currency ?? 'CHF';
+  // The invoice's language: fixed at finalize, for drafts the customer's billing language (i18n 9). Product
+  // names and descriptions of new lines follow it (plan O14); lines keep their text once added.
+  const invoiceLocale = invoice?.locale ?? customer.data?.profile.effectiveLocale ?? 'de';
   const defaultRate = customer.data?.profile.taxRateBp ?? issuer?.defaultTaxRateBp ?? DEFAULT_TAX_RATE_BP;
 
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -162,10 +168,11 @@ export function InvoiceEditorDialog({
 
   const addProduct = (product: ProductDto) =>
     setLines((prev) => {
+      const text = productText(product, invoiceLocale);
       const line: LineDraft = {
         ...emptyLine(),
-        description: product.description ? `${product.name}, ${product.description}` : product.name,
-        unit: unitForInterval(product.interval, locale),
+        description: text.description ? `${text.name}, ${text.description}` : text.name,
+        unit: unitForInterval(product.interval, t),
         unitPrice: moneyInput(product.unitPrice),
         taxRate: percentInput(product.taxRateBp),
       };
@@ -237,6 +244,14 @@ export function InvoiceEditorDialog({
       }
     >
       <div className="space-y-5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span className="text-muted">{t('billing.invoice.locale')}:</span>
+          <span className="inline-flex items-center gap-1.5 font-medium text-text">
+            <LanguageFlag locale={invoiceLocale} />
+            {LOCALE_META[invoiceLocale].native}
+          </span>
+          <span className="w-full text-xs text-muted">{t('billing.invoice.localeHint')}</span>
+        </div>
         <div>
           <div className="mb-2 hidden grid-cols-[minmax(0,1fr)_76px_84px_112px_76px_104px_32px] gap-2 px-0.5 text-xs font-medium tracking-wide text-muted uppercase md:grid">
             <span>{t('billing.line.description')}</span>
@@ -366,7 +381,7 @@ export function InvoiceEditorDialog({
                 <option value="">{t('billing.line.fromProduct')}</option>
                 {catalog.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} · {formatMoney(p.unitPrice, p.currency, locale)}
+                    {productText(p, invoiceLocale).name} · {formatMoney(p.unitPrice, p.currency, locale)}
                   </option>
                 ))}
               </Select>

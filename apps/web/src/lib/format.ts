@@ -1,7 +1,7 @@
 export type { Locale } from '@weblion/shared';
-import type { Locale } from '@weblion/shared';
+import { intlLocale, type Locale } from '@weblion/shared';
 
-const intlLocale = (locale: Locale) => (locale === 'de' ? 'de-CH' : 'en-GB');
+/** Every Intl call takes the tag of LOCALE_META (de-CH, en-GB, fr-CH, it-CH, nl-NL; i18n 2.3). */
 
 export function formatBytes(bytes: number | null | undefined, decimals = 1): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return '–';
@@ -54,12 +54,15 @@ export function formatRelative(value: string | number | Date | null | undefined,
   return formatDate(d, locale, false);
 }
 
+/** The day unit of formatDuration; hours and minutes are h and m in every language. */
+const DAY_UNIT: Record<Locale, string> = { de: 'T', en: 'd', fr: 'j', it: 'g', nl: 'd' };
+
 export function formatDuration(seconds: number | null | undefined, locale: Locale): string {
   if (seconds === null || seconds === undefined) return '–';
   const d = Math.floor(seconds / 86_400);
   const h = Math.floor((seconds % 86_400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  const days = locale === 'de' ? 'T' : 'd';
+  const days = DAY_UNIT[locale];
   if (d > 0) return `${d}${days} ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;

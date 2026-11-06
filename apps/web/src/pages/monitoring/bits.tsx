@@ -1,5 +1,6 @@
 import { SearchX } from 'lucide-react';
 import {
+  intlLocale,
   MONITOR_DEFAULT_INTERVAL_SECONDS,
   MONITOR_INTERVAL_CHOICES,
   MONITOR_MAX_INTERVAL_SECONDS,
@@ -28,7 +29,8 @@ import { Badge, Card, EmptyState, ErrorState, Mono } from '@/components/ui/primi
 
 /** Shared pieces of the monitoring pages (customer list and detail, related card, admin area). */
 
-const intl = (locale: Locale) => (locale === 'de' ? 'de-CH' : 'en-GB');
+/** Every Intl call takes the tag of LOCALE_META (i18n 2.3). */
+const intl = intlLocale;
 
 // --- Status ------------------------------------------------------------------------------
 
