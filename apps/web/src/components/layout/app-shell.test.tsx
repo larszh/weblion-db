@@ -56,7 +56,7 @@ describe('AppShell navigation (plan O16)', () => {
     expect(html).toContain('>AI</a>');
     expect(html).toContain('>Translations</a>');
     // No assistant yet: the main area keeps its padding.
-    expect(html).not.toContain('pb-20');
+    expect(html).not.toContain('pb-32');
   });
 
   it('shows each item only with its permission', () => {

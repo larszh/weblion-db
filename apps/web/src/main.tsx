@@ -10,6 +10,7 @@ import './styles.css';
 import { bootI18n, I18nProvider } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
 import { TooltipProvider } from '@/components/ui/menu';
+import { TOAST_OFFSET_ABOVE_LAUNCHER, useLauncherVisible } from '@/components/ai/launcher-visible';
 import { App } from './App';
 
 const queryClient = new QueryClient({
@@ -22,6 +23,20 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/** The toasts, moved above the assistant launcher while it shows (it sits in the same corner from 600 px). */
+function AppToaster() {
+  const launcher = useLauncherVisible();
+  return (
+    <Toaster
+      position="bottom-right"
+      richColors
+      closeButton
+      theme="system"
+      offset={launcher ? TOAST_OFFSET_ABOVE_LAUNCHER : undefined}
+    />
+  );
+}
 
 // After a deploy an open tab may ask for a chunk that no longer exists: reload once (the usual Vite advice).
 // The time of the last reload guards against a loop when the chunk is missing for another reason.
@@ -65,7 +80,7 @@ if (!boot) {
             <BrowserRouter>
               <App />
             </BrowserRouter>
-            <Toaster position="bottom-right" richColors closeButton theme="system" />
+            <AppToaster />
           </TooltipProvider>
         </I18nProvider>
       </QueryClientProvider>

@@ -31,6 +31,7 @@ import { aiAllowed, AiFootnote, DemoBadge, modelLabel, ProposalCard, useCachedMe
 import { setAssistantListener } from './assistant-bus';
 import { useApplyProposal } from './ai-provider';
 import { loadAiChat, saveAiChat } from './storage';
+import { showLauncher } from './launcher-visible';
 
 /**
  * The assistant (ai 12.3): a launcher at the bottom right and a side panel (full screen below sm) with the
@@ -502,6 +503,7 @@ export function AssistantPanel(props: AssistantPanelProps): JSX.Element {
 /** The launcher: a round button above the toasts on phones (bottom-20), in the corner from sm (ai 12.3). */
 export function AssistantLauncher({ onOpen }: { onOpen: () => void }): JSX.Element {
   const { t } = useI18n();
+  useEffect(() => showLauncher(), []);
   return (
     <button
       type="button"
