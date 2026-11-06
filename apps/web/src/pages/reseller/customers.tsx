@@ -66,6 +66,7 @@ import { ResellerCloudAllowanceCard } from './cloud-allowance';
 import { ResellerMediaAllowanceCard } from './media-allowance';
 import { ResellerMonitorAllowanceCard } from './monitor-allowance';
 import { ResellerWebsiteAllowanceCard } from './website-allowance';
+import { ResellerAiCard } from '@/components/ai/cards';
 
 /** Resource types a reseller hands out, with the module each one belongs to. */
 const RESOURCE_TYPES: {
@@ -476,6 +477,13 @@ function OverviewTab({ customer }: { customer: ResellerCustomerDto }) {
             />
           </CardBody>
         </Card>
+        {/* Whatever the platform state (plan O27); switching on asks for the customer's consent (plan O34). */}
+        <ResellerAiCard
+          resellerId={org.id}
+          customerId={customer.id}
+          customerName={customer.name}
+          canWrite={canWrite}
+        />
         {canWrite && <DeleteCard customer={customer} />}
       </div>
       <ConfirmDialog

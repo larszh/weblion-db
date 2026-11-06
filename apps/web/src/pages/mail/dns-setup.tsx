@@ -33,6 +33,7 @@ import {
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { ProviderBadge } from '@/components/server-bits';
 import { mailDnsApplyOutcome, type MailDnsApplyOutcome } from './dns-apply';
+import { DnsCheckButton } from '@/components/ai/feature-dialogs';
 
 /**
  * DNS tab of a mail domain: the records Mailcow needs, compared with the panel's DNS zone of
@@ -259,6 +260,8 @@ function RecordsCard({
         }
         actions={
           <>
+            {/* "Mit KI prüfen" (ai 10.2): proposals for a zone in the console open its DNS form. */}
+            <DnsCheckButton orgId={org.id} target={{ mailDomainId: domain.id }} />
             {zoneHere && zone && (
               <Link
                 to={`${base}/domains/${zone.domainId}?tab=dns`}

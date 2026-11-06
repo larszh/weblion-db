@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -15,6 +15,7 @@ import {
   DNS_RECORD_TYPES,
   DNS_TTL_AUTO,
   type DnsRecord,
+  type AiDnsProposalDto,
   type DnsRecordType,
   type DomainDetailDto,
 } from '@weblion/shared';
@@ -59,6 +60,10 @@ import {
 } from './dns-format';
 import { linkedStatus } from './bits';
 import { DnsElsewhereCard, zoneState } from './domain-zone';
+import { useOptionalOrg } from '@/lib/org-context';
+import { useAiProposal } from '@/components/ai/ai-provider';
+import { ProposalBadge } from '@/components/ai/bits';
+import { DnsCheckButton } from '@/components/ai/feature-dialogs';
 
 /** "DNS" tab of a domain: the zone at the provider, edited record by record. */
 
@@ -166,6 +171,16 @@ export function DomainDns({ domain }: { domain: DomainDetailDto }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'type', dir: 1 });
   const [editing, setEditing] = useState<DnsRecord | 'new' | null>(null);
   const [deleting, setDeleting] = useState<DnsRecord | null>(null);
+  // A DNS proposal of the AI (ai 8.4, 12.3): from the check below, or handed over by the assistant.
+  const orgCtx = useOptionalOrg();
+  const [draft, setDraft] = useState<AiDnsProposalDto | null>(null);
+  const handOver = useAiProposal(domain.id);
+  const { proposal: waiting, clear: takeProposal } = handOver;
+  useEffect(() => {
+    if (!waiting) return;
+    setDraft(waiting);
+    takeProposal();
+  }, [waiting, takeProposal]);
   const mutations = useDnsMutations(domain.id, {
     added: t('hosting.dns.added'),
     updated: t('hosting.dns.updated'),
@@ -231,6 +246,9 @@ export function DomainDns({ domain }: { domain: DomainDetailDto }) {
                     </option>
                   ))}
                 </Select>
+              )}
+              {orgCtx && !unsupported && (
+                <DnsCheckButton orgId={orgCtx.org.id} target={{ domainId: domain.id }} onApply={setDraft} />
               )}
               {writable && domain.dnsRecordTypes.length > 0 && (
                 <Button
@@ -420,6 +438,27 @@ export function DomainDns({ domain }: { domain: DomainDetailDto }) {
             </TBody>
           </Table>
         )}
+        {/* A proposal opens the normal form pre-filled; saving is the normal save (ai 1.2). A change
+            waits for the records, so it edits the record the proposal names. */}
+        {draft && writable && !records.isPending && (
+          <DnsRecordDialog
+            key={`ai-${draft.id}`}
+            zone={domain.name}
+            record={
+              draft.action === 'change'
+                ? ((records.data ?? []).find((r) => r.id === draft.recordId) ?? null)
+                : null
+            }
+            initial={{ type: draft.type, name: draft.name, data: draft.data, ttl: draft.ttl }}
+            proposal={draft}
+            types={domain.dnsRecordTypes}
+            options={options}
+            flattening={caps.includes('cnameFlattening')}
+            provider={provider}
+            mutations={mutations}
+            onClose={() => setDraft(null)}
+          />
+        )}
         {editing && (
           <DnsRecordDialog
             key={editing === 'new' ? 'new' : editing.id}
@@ -524,6 +563,8 @@ function ProxyCell({
 function DnsRecordDialog({
   zone,
   record,
+  initial,
+  proposal,
   types,
   options,
   flattening,
@@ -533,6 +574,10 @@ function DnsRecordDialog({
 }: {
   zone: string;
   record: DnsRecord | null;
+  /** Pre-filled values (an AI proposal); for a change they replace the record's. */
+  initial?: { type: string; name: string; data: string; ttl: number | null };
+  /** The AI proposal the form was opened from: shown with its badge above the fields. */
+  proposal?: AiDnsProposalDto;
   /** Types the provider accepts (DomainDetailDto.dnsRecordTypes). */
   types: DnsRecordType[];
   /** TTL per record, automatic TTL and proxy (capabilities "dnsTtl", "dnsTtlAuto", "dnsProxy"). */
@@ -546,10 +591,13 @@ function DnsRecordDialog({
   const { t } = useI18n();
   const offered = types as readonly string[];
   const { withTtl, withProxy } = options;
-  const [type, setType] = useState<string>(record?.type ?? (offered.includes('A') ? 'A' : (types[0] ?? 'A')));
-  const [name, setName] = useState(record ? (APEX.has(record.name) ? '@' : record.name) : '');
-  const [data, setData] = useState(record?.data ?? '');
-  const initialTtl = record?.ttl ?? defaultTtl(options);
+  const [type, setType] = useState<string>(
+    initial?.type ?? record?.type ?? (offered.includes('A') ? 'A' : (types[0] ?? 'A')),
+  );
+  const startName = initial?.name ?? record?.name;
+  const [name, setName] = useState(startName !== undefined ? (APEX.has(startName) ? '@' : startName) : '');
+  const [data, setData] = useState(initial?.data ?? record?.data ?? '');
+  const initialTtl = initial?.ttl ?? record?.ttl ?? defaultTtl(options);
   const [ttl, setTtl] = useState(initialTtl);
   const [proxied, setProxied] = useState(record?.proxied === true);
   const [touched, setTouched] = useState(false);
@@ -634,6 +682,14 @@ function DnsRecordDialog({
       }
     >
       <form id="dns-record-form" onSubmit={submit} className="space-y-4">
+        {proposal && (
+          <Notice tone={proposal.verified ? 'info' : 'warning'}>
+            <span className="mb-1 flex">
+              <ProposalBadge verified={proposal.verified} />
+            </span>
+            {proposal.verified ? t('ai.proposal.opened') : t('ai.proposal.unverifiedHint')}
+          </Notice>
+        )}
         <div className={withTtl ? 'grid gap-4 sm:grid-cols-[1fr_180px]' : undefined}>
           <Field
             label={t('hosting.dns.type')}
