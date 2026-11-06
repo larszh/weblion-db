@@ -11,7 +11,13 @@ import {
 } from '@weblion/shared';
 import { useI18n, type TFunction } from '@/lib/i18n';
 import { formatNumber, formatRelative } from '@/lib/format';
-import { i18nKeys, useCancelTranslationJob, useTranslationJob, useTranslationJobs } from '@/lib/api/i18n';
+import {
+  i18nKeys,
+  useCancelTranslationJob,
+  useRefreshConsoleTexts,
+  useTranslationJob,
+  useTranslationJobs,
+} from '@/lib/api/i18n';
 import { Flag } from '@/components/server-bits';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
@@ -220,13 +226,17 @@ function JobDetail({
   const [retryOpen, setRetryOpen] = useState(false);
   const wasActive = useRef<boolean | null>(null);
 
-  // When the job ends, the texts and the overview have new values.
+  const refreshTexts = useRefreshConsoleTexts();
+
+  // When the job ends, the texts, the overview and the console's own texts have new values.
   const isActive = job.data ? active(job.data) : null;
   useEffect(() => {
-    if (isActive === false && wasActive.current === true)
+    if (isActive === false && wasActive.current === true) {
       void qc.invalidateQueries({ queryKey: i18nKeys.all });
+      void refreshTexts();
+    }
     if (isActive !== null) wasActive.current = isActive;
-  }, [isActive, qc]);
+  }, [isActive, qc, refreshTexts]);
 
   const back = (
     <Button size="sm" variant="ghost" icon={<ArrowLeft className="size-4" aria-hidden />} onClick={onBack}>

@@ -315,8 +315,9 @@ export async function i18nRoutes(app: FastifyInstance, ctx: AppContext) {
     await audit.record(req, {
       action: 'i18n.cleanup',
       orgId: null,
-      resourceType: 'settings',
-      resourceId: 'translation_overrides',
+      // Many cells at once: the resource type of the cells, no single id.
+      resourceType: 'translation',
+      resourceId: null,
       details: {
         orphans: result.orphans,
         sameAsCompiled: result.sameAsCompiled,
@@ -533,8 +534,8 @@ export async function i18nRoutes(app: FastifyInstance, ctx: AppContext) {
       await audit.record(req, {
         action: 'i18n.import',
         orgId: null,
-        resourceType: 'settings',
-        resourceId: 'translation_overrides',
+        resourceType: 'translation',
+        resourceId: null,
         details: {
           locales: [...new Set(rows.map((r) => r.locale))].sort(
             (a, b) => LOCALES.indexOf(a as Locale) - LOCALES.indexOf(b as Locale),

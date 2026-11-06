@@ -1,6 +1,8 @@
+import { useCallback } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type {
   GlossaryEntryDto,
+  I18nOverridesDto,
   GlossaryInput,
   Locale,
   Paginated,
@@ -23,6 +25,7 @@ import type {
   TranslationSummaryDto,
 } from '@weblion/shared';
 import { api, apiUrl } from '@/lib/api';
+import { useI18n } from '@/lib/i18n';
 import { useApiMutation } from '@/lib/queries';
 
 /**
@@ -272,3 +275,22 @@ export const useTranslationJob = (id: string | undefined) =>
     enabled: !!id,
     refetchInterval: (q) => (isActive(q.state.data?.status) ? 2_000 : false),
   });
+
+/**
+ * After a job: the texts of the console itself change at once (i18n 12.1 step 8). Loads the overrides of the UI
+ * language and of its English fallback (A1) and hands them to the provider.
+ */
+export function useRefreshConsoleTexts(): () => Promise<void> {
+  const { locale, applyOverrides } = useI18n();
+  return useCallback(async () => {
+    const locales: Locale[] = locale === 'de' || locale === 'en' ? [locale] : [locale, 'en'];
+    for (const l of locales) {
+      try {
+        const body = await api.get<I18nOverridesDto>(`/i18n/overrides/${l}`);
+        applyOverrides(l, body.values);
+      } catch {
+        // The next page load fetches them anyway.
+      }
+    }
+  }, [locale, applyOverrides]);
+}
