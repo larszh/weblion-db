@@ -71,6 +71,20 @@
       "when": 1793721844339,
       "tag": "0009_media_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793986103243,
+      "tag": "0010_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793986173869,
+      "tag": "0011_i18n",
+      "breakpoints": true
     }
   ]
 }
