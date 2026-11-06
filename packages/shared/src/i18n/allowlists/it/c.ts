@@ -21,6 +21,10 @@ export const allowlist: Allowlist = {
     // A menu path of the Hetzner Console, which has no Italian interface: the labels stay in English as the
     // reader sees them there ("API tokens", "Generate API token"), so "token API" cannot appear.
     'providers.hetzner.tokenHint',
+    // "das Abmelden" is signing devices out of Jellyfin (the action "Disconnetti tutti i dispositivi"), rendered
+    // as "disconnessione"; the glossary's "esci" is the console's own sign-out button and does not fit here.
+    'media.devices.failed',
+    'media.requests.sessionHint',
   ],
   typographyOk: [],
 };
