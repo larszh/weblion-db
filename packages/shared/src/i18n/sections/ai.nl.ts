@@ -4,7 +4,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.assistant.title': 'AI-assistent',
   'ai.assistant.open': 'AI-assistent openen',
   'ai.assistant.close': 'AI-assistent sluiten',
-  'ai.assistant.ask': 'Vraag stellen aan de AI-assistent',
+  'ai.assistant.ask': 'AI-assistent raadplegen',
   'ai.assistant.newChat': 'Nieuw gesprek',
   'ai.assistant.placeholder': 'Uw vraag over deze organisatie',
   'ai.assistant.send': 'Verzenden',
