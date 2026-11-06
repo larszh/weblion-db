@@ -27,7 +27,12 @@ import { toUserDto } from '../src/lib/dto';
 import { I18nService } from '../src/i18n/service';
 import { saveOverride } from '../src/i18n/entries';
 import { catalogTranslator } from '../src/mail/templates';
-import { billingLocale } from '../src/modules/billing/dto';
+import {
+  billingLocale,
+  billingProfileLocales,
+  loadProfile,
+  toBillingProfileDto,
+} from '../src/modules/billing/dto';
 import {
   invoicePdfTexts,
   paymentReference,
@@ -303,6 +308,42 @@ describe('billing language (i18n 9)', () => {
         )[0]!.id,
       ),
     ).toBe('de');
+  });
+
+  it('names the owner’s language in the profile, also while the profile has a language of its own', async () => {
+    await t.db.update(users).set({ locale: 'nl' }).where(eq(users.email, 'olga@lingua.example'));
+    await olga.request('PUT', `/orgs/${lingId}/billing/profile`, { locale: null });
+    expect(json<BillingProfileDto>(await olga.get(`/orgs/${lingId}/billing/profile`))).toMatchObject({
+      locale: null,
+      effectiveLocale: 'nl',
+      ownerLocale: 'nl',
+    });
+    expect(
+      json<{ profile: BillingProfileDto }>(await admin.get(`/billing/customers/${lingId}`)).profile,
+    ).toMatchObject({ effectiveLocale: 'nl', ownerLocale: 'nl' });
+
+    // With a language of its own the billing language changes, the owner's stays (one owner lookup for both).
+    await olga.request('PUT', `/orgs/${lingId}/billing/profile`, { locale: 'fr' });
+    const profile = await loadProfile(t.db, lingId);
+    expect(await billingProfileLocales(t.db, lingId)).toEqual({ effectiveLocale: 'fr', ownerLocale: 'nl' });
+    expect(await billingProfileLocales(t.db, lingId, profile)).toEqual({
+      effectiveLocale: 'fr',
+      ownerLocale: 'nl',
+    });
+    const issuer = { defaultPaymentTermsDays: 30, defaultCurrency: 'CHF' } as const;
+    expect(toBillingProfileDto(lingId, profile, issuer, 'fr', 'nl')).toMatchObject({
+      locale: 'fr',
+      effectiveLocale: 'fr',
+      ownerLocale: 'nl',
+    });
+    // Without a profile row the owner's language is the billing language.
+    expect(toBillingProfileDto(lingId, null, issuer, 'nl')).toMatchObject({
+      locale: null,
+      ownerLocale: 'nl',
+    });
+
+    await olga.request('PUT', `/orgs/${lingId}/billing/profile`, { locale: null });
+    await t.db.update(users).set({ locale: 'it' }).where(eq(users.email, 'olga@lingua.example'));
   });
 
   it('fixes the invoice language at finalize; drafts follow the current billing language', async () => {

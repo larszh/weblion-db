@@ -135,14 +135,31 @@ export async function billingLocale(
 }
 
 /**
- * `issuer` is the seller's: its defaults apply while the organization has no profile. `effectiveLocale` is
- * billingLocale() of the organization.
+ * Both languages of BillingProfileDto with a single owner lookup: the billing language (billingLocale) and the
+ * owner's language, which the profile form names also while the profile has a language of its own.
+ */
+export async function billingProfileLocales(
+  db: DbOrTx,
+  orgId: string,
+  profile?: BillingProfile | null,
+): Promise<{ effectiveLocale: Locale; ownerLocale: Locale }> {
+  const row = profile === undefined ? await loadProfile(db, orgId) : profile;
+  const owner = await ownerLocale(db, orgId);
+  return { effectiveLocale: normalizeLocale(row?.locale) ?? owner, ownerLocale: owner };
+}
+
+/**
+ * `issuer` is the seller's: its defaults apply while the organization has no profile. `effectiveLocale` and
+ * `ownerLocale` come from billingProfileLocales() (the builder is synchronous, so the caller looks them up).
+ * Without `ownerLocale` the effective language stands in for it, which is the owner's only while the profile
+ * has no language of its own.
  */
 export function toBillingProfileDto(
   orgId: string,
   profile: BillingProfile | null | undefined,
   issuer: Pick<InvoiceIssuerSettings, 'defaultPaymentTermsDays' | 'defaultCurrency'>,
   effectiveLocale: Locale,
+  ownerLocale?: Locale,
 ): BillingProfileDto {
   return {
     orgId,
@@ -161,6 +178,7 @@ export function toBillingProfileDto(
     taxRateBp: profile?.taxRateBp ?? null,
     locale: normalizeLocale(profile?.locale) ?? null,
     effectiveLocale,
+    ownerLocale: ownerLocale ?? effectiveLocale,
     updatedAt: iso(profile?.updatedAt),
   };
 }

@@ -102,11 +102,8 @@ export function BillingProfileForm({
     { success: t('billing.profile.saved'), invalidate: [billingKeys.all] },
   );
 
-  // The owner's language is known while the profile has none of its own: then it is the effective one.
-  const ownerLabel =
-    profile.locale === null
-      ? t('billing.profile.localeOwner', { language: LOCALE_META[profile.effectiveLocale].native })
-      : t('billing.profile.localeOwnerPlain');
+  // The option names the owner's language even while the profile has one of its own (ownerLocale).
+  const ownerLabel = t('billing.profile.localeOwner', { language: LOCALE_META[profile.ownerLocale].native });
 
   if (readOnly) {
     const v = (value: string | null) => value || <span className="text-subtle">–</span>;
@@ -263,10 +260,7 @@ export function BillingProfileForm({
               id="bp-locale"
               value={draft.locale}
               onChange={(next) => set({ locale: next })}
-              nullOption={{
-                label: ownerLabel,
-                locale: profile.locale === null ? profile.effectiveLocale : (draft.locale ?? 'de'),
-              }}
+              nullOption={{ label: ownerLabel, locale: profile.ownerLocale }}
             />
           </Field>
         </CardBody>
