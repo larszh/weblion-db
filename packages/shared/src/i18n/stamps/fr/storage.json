@@ -9,7 +9,7 @@
   "storage.none.textReseller": ["f08bd98da1da2ddd", "1e702d51c70393b8"],
   "storage.noAllowanceAccounts": ["1829051536b6ba31", "da82c6f6ffe5b08b"],
   "storage.limit.accounts": ["2a6eb1d64cd70185", "8ac0557b50bb4868"],
-  "storage.limit.storage": ["03e6addb8aeac111", "fd4343c9c3cc63ca"],
+  "storage.limit.storage": ["03e6addb8aeac111", "9fb61713cc355bdd"],
   "storage.allowance": ["184539d2fc32b3e2", "0274388b1691f09b"],
   "storage.allowanceText": ["283c6a1ba4e12c80", "1dc585ecea1a1cef"],
   "storage.toCustomers": ["56e34e5cfcf17318", "0f05f1f3b7950cb3"],
@@ -146,7 +146,7 @@
   "storage.admin.noModule": ["3bd9265ef9181bb3", "0b9d24b5196ed4ef"],
   "storage.admin.needsAllowance": ["f85685f69d398622", "2808b350454127d6"],
   "storage.admin.assignText": ["1913a56aad86ed93", "20c0e3161d9179d8"],
-  "storage.admin.assignQuotaHint": ["8b329a9f21a064ce", "85df1e74d963ca61"],
+  "storage.admin.assignQuotaHint": ["8b329a9f21a064ce", "b2f653686c4d08fe"],
   "storage.admin.unassignText": ["e9de6c67a7ad0d60", "ced8541b2410c549"],
   "storage.unmanaged.title": ["9847e5e470d8f981", "4da906ad5b599e14"],
   "storage.unmanaged.text": ["77d331d7d3b70cdb", "d8793841160629dc"],
@@ -158,7 +158,7 @@
   "storage.unmanaged.importTitle": ["1a165226d61b07fc", "c3a2cf562d2b6981"],
   "storage.unmanaged.importText": ["120ce96ee7810295", "77124f5b0c0c9965"],
   "storage.unmanaged.noCustomer": ["7cc99eeae7b15c1a", "f4c9040f64a77556"],
-  "storage.unmanaged.unlimitedHint": ["fc76c6cd4c4fc583", "ee893480cfe29691"],
+  "storage.unmanaged.unlimitedHint": ["fc76c6cd4c4fc583", "62341fa06ec93f88"],
   "storage.unmanaged.imported": ["fb3f2e9a3ee6688b", "64ed78a315894527"],
   "storage.reseller.cardText": ["b546ae7733f3fdb1", "a9e6dc0488085b1d"],
   "storage.reseller.none": ["ba85812ad6a85d47", "464391a46281a813"],
@@ -187,5 +187,5 @@
   "providers.nextcloud.accountsText": ["f4848bd5a02bfa77", "14eafebf160bf251"],
   "providers.nextcloud.toAccounts": ["c792f1d5df134f3e", "b9fa6fed83965dfb"],
   "explorer.nextcloudPath": ["61c50466d65264a5", "54aeebeb82bfb7e7"],
-  "explorer.nextcloudBodyHint": ["550885388f7a85fc", "bf23b74dea4953a8"]
+  "explorer.nextcloudBodyHint": ["550885388f7a85fc", "9b60660a0e22ecdc"]
 }

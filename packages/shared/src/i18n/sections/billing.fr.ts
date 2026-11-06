@@ -20,7 +20,7 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.summary.open': 'Montant dû',
   'billing.summary.openCount': '{n} facture(s) ouverte(s)',
   'billing.summary.overdue': 'dont {amount} en retard',
-  'billing.summary.monthly': 'Récurrent mensuel',
+  'billing.summary.monthly': 'Montant mensuel récurrent',
   'billing.summary.monthlyHint': 'Net, hors TVA',
   'billing.summary.services': 'Services actifs',
   'billing.summary.seller': 'Facturé par {name}',

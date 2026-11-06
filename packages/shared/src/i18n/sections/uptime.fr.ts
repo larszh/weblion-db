@@ -4,7 +4,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'nav.uptime': 'Surveillance',
   'nav.admin.uptime': 'Surveillance',
   'perm.group.monitoring': 'Surveillance',
-  'uptime.admin.synced': '{seen} sondes synchronisées, {missing} plus signalées',
+  'uptime.admin.synced': '{seen} sondes synchronisées, {missing} qui ne sont plus signalées',
   'uptime.subtitle':
     'Disponibilité de vos sites web et services : statut, taux de disponibilité, temps de réponse et expiration des certificats.',
   'uptime.noAccess': 'Aucun accès aux sondes',

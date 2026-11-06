@@ -266,5 +266,5 @@ export const phoneFr: Partial<Record<keyof typeof phoneDe, string>> = {
   'explorer.threecxPath':
     'Chemins XAPI relatifs à /xapi/v1, p. ex. /Users?$top=10. Les mots de passe, les codes PIN, les clés de licence et les liens de provisioning sont masqués dans les réponses.',
   'explorer.threecxBodyHint':
-    'GET et DELETE envoient les paramètres en tant que query, POST et PATCH en JSON, p. ex. { "FirstName": "Anna" }.',
+    'GET et DELETE envoient les paramètres sous forme de chaîne de requête, POST et PATCH au format JSON, p. ex. { "FirstName": "Anna" }.',
 };

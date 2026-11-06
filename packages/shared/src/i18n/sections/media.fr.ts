@@ -327,7 +327,7 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
     'Le contingent streaming de cette organisation se trouve sur {instance}, pas sur cette instance.',
   'media.admin.targetAllowance': 'Contingent : {n} accès attribués sur {max}, code {code}.',
   'media.admin.targetFull':
-    "Le contingent est épuisé. Vous pouvez quand même attribuer l'accès, il compte alors au-delà du maximum.",
+    "Le contingent est épuisé. Vous pouvez quand même attribuer l'accès, il est alors compté au-delà du maximum.",
   'media.admin.noModule': 'sans streaming',
   'media.admin.cardText': "Accès Jellyfin de l'organisation et ce que chaque accès peut faire.",
   'media.admin.none': 'Aucun streaming',
@@ -393,7 +393,8 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.requests.open': 'Ouvrir les demandes',
   'media.requests.address': 'Adresse des demandes',
   'media.requests.copyAddress': "Copier l'adresse",
-  'media.requests.signIn': "Connectez-vous-y avec le nom de connexion et le mot de passe de l'accès.",
+  'media.requests.signIn':
+    "Connectez-vous sur cette page avec le nom de connexion et le mot de passe de l'accès.",
   'media.requests.included': 'Inclus',
   'media.requests.movies': 'Films',
   'media.requests.tv': 'Séries',
@@ -461,7 +462,7 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.seerr.manage': 'Demandes…',
   'media.seerr.title': 'Demandes sur {instance}',
   'media.seerr.text':
-    'Seerr est la page de demandes de cette instance Jellyfin. La console y crée les accès des clients qui ont les demandes et définit leurs droits et leurs limites. Vous approuvez les demandes dans Seerr.',
+    'Seerr est la page de demandes de cette instance Jellyfin. La console y crée les accès des clients disposant des demandes et définit leurs droits et leurs limites. Vous approuvez les demandes dans Seerr.',
   'media.seerr.version': 'Version {version}',
   'media.seerr.checkedAt': 'Vérifié {when}',
   'media.seerr.recheck': 'Vérifier à nouveau',
@@ -550,5 +551,5 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
   'explorer.jellyfinPath':
     "Chemins relatifs à l'adresse de l'instance, p. ex. /Users ou /Library/VirtualFolders. Les clés, les jetons d'accès et les mots de passe sont masqués dans les réponses. /Auth/Keys et les endpoints de connexion sont bloqués.",
   'explorer.jellyfinBodyHint':
-    'GET et DELETE envoient les paramètres en tant que query, POST en JSON. Toujours envoyer une politique (POST /Users/<id>/Policy) complète : Jellyfin réinitialise les champs manquants.',
+    'GET et DELETE envoient les paramètres sous forme de chaîne de requête, POST au format JSON. Toujours envoyer une politique (POST /Users/<id>/Policy) complète : Jellyfin réinitialise les champs manquants.',
 };
