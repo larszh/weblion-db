@@ -4,6 +4,7 @@ import {
   BILLING_INTERVALS,
   MODULES,
   formatMoney,
+  lineTotal,
   type BillingInterval,
   type CreditTransactionDto,
   type Currency,
@@ -39,7 +40,7 @@ import {
   percentInput,
   todayISO,
 } from './money';
-import { scheduledEndOf, servicesKeepingModule } from './service-end';
+import { fullPeriodAhead, scheduledEndOf, servicesKeepingModule } from './service-end';
 
 /** Dialogs of the seller panel: credit, services and billing due services. */
 
@@ -844,6 +845,9 @@ export function CancelServiceDialog({
         >
           <Input id="cs-ends" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
         </Field>
+        {service && (
+          <FullPeriodNotice service={service} endsAt={endsAt} today={todayISO()} onEndBefore={setEndsAt} />
+        )}
         {service?.module && (
           <SwitchRow
             label={t('billing.service.deactivateModule', { module: labels.module(service.module) })}
@@ -859,6 +863,37 @@ export function CancelServiceDialog({
         )}
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Says when an end date still bills a whole period, e.g. "per Ende November" on a service whose period
+ * starts on 30 November, and offers the end before that period with one click.
+ */
+export function FullPeriodNotice({
+  service,
+  endsAt,
+  today,
+  onEndBefore,
+}: {
+  service: ServiceDto;
+  endsAt: string;
+  today: string;
+  onEndBefore: (date: string) => void;
+}) {
+  const { t, locale } = useI18n();
+  const ahead = fullPeriodAhead(service, endsAt, today);
+  if (!ahead) return null;
+  const price = formatMoney(lineTotal(service.quantity, service.unitPrice), service.currency, locale);
+  return (
+    <Notice tone="warning">
+      <p>{t('billing.service.fullPeriod', { date: formatDay(ahead.from, locale), price })}</p>
+      {ahead.endBefore && (
+        <Button size="sm" className="mt-2" onClick={() => onEndBefore(ahead.endBefore!)}>
+          {t('billing.service.endBeforePeriod', { date: formatDay(ahead.endBefore, locale) })}
+        </Button>
+      )}
+    </Notice>
   );
 }
 

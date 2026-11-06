@@ -1,4 +1,5 @@
 import type { ServiceDto } from '@weblion/shared';
+import { addDaysISO } from './money';
 
 /**
  * The rules of a scheduled cancellation as the API applies them (apps/api/src/modules/billing/
@@ -51,4 +52,24 @@ export function servicesKeepingModule(service: ServiceDto, all: ServiceDto[], to
       s.status !== 'cancelled' &&
       (s.endsAt === null || s.endsAt >= today),
   );
+}
+
+/**
+ * The next period that an end date still bills in full. The run bills every period that starts on or
+ * before the end date at its whole price, not pro rata (the line only ends on the end date), so an end
+ * on or just after a billing date costs one more period. null when the end date bills nothing more:
+ * not active (a paused service is not billed), billed once, ending at once (today or earlier) or
+ * before the next billing date. `endBefore` is the day before that period, the end without a further
+ * invoice, unless that day has passed (the period has begun and is due already).
+ */
+export function fullPeriodAhead(
+  service: Pick<ServiceDto, 'status' | 'interval' | 'nextBillingAt'>,
+  endsAt: string,
+  today: string,
+): { from: string; endBefore: string | null } | null {
+  const next = service.nextBillingAt;
+  if (service.status !== 'active' || service.interval === 'once' || !next) return null;
+  if (!endsAt || endsAt <= today || endsAt < next) return null;
+  const endBefore = addDaysISO(next, -1);
+  return { from: next, endBefore: endBefore >= today ? endBefore : null };
 }

@@ -395,7 +395,9 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.service.cancelled': 'Service "{name}" cancelled',
   'billing.service.cancelledLater': 'Service "{name}" cancelled effective {date}',
   'billing.service.endsAtLaterHint':
-    'With a later date the service keeps running and is billed until that day, a chosen module is only deactivated then.',
+    'With a later date the service keeps running until that day, a chosen module is only deactivated then. Every period that starts up to that day is billed in full, not pro rata.',
+  'billing.service.fullPeriod': 'The period from {date} is still billed in full ({price}).',
+  'billing.service.endBeforePeriod': 'Cancel effective {date} instead',
   'billing.service.changeCancel': 'Change cancellation',
   'billing.service.withdrawCancel': 'Withdraw cancellation',
   'billing.service.withdrawCancelTitle': 'Withdraw the cancellation of "{name}"?',

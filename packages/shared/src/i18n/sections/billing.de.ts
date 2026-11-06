@@ -404,7 +404,9 @@ export const billingDe = {
   'billing.service.cancelled': 'Dienst «{name}» gekündigt',
   'billing.service.cancelledLater': 'Dienst «{name}» gekündigt per {date}',
   'billing.service.endsAtLaterHint':
-    'Mit einem späteren Datum läuft der Dienst bis zu diesem Tag weiter und wird bis dahin abgerechnet, ein gewähltes Modul wird erst dann gesperrt.',
+    'Mit einem späteren Datum läuft der Dienst bis zu diesem Tag weiter, ein gewähltes Modul wird erst dann gesperrt. Jede Periode, die bis zu diesem Tag beginnt, wird voll verrechnet, nicht anteilig.',
+  'billing.service.fullPeriod': 'Die Periode ab {date} wird noch voll verrechnet ({price}).',
+  'billing.service.endBeforePeriod': 'Stattdessen per {date} kündigen',
   'billing.service.changeCancel': 'Kündigung ändern',
   'billing.service.withdrawCancel': 'Kündigung zurücknehmen',
   'billing.service.withdrawCancelTitle': 'Kündigung von «{name}» zurücknehmen?',

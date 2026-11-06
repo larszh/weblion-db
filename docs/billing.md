@@ -47,7 +47,11 @@ Ohne Datum, mit heute oder einem früheren Datum endet ein Dienst sofort: Er wir
 abgerechnet, und "Modul sperren" schaltet das Modul gleich aus. Mit einem späteren Datum ist die
 Kündigung vorgemerkt ("Gekündigt per ..."): Der Dienst läuft bis zu diesem Tag weiter, behält seinen
 Status (aktiv oder pausiert) und wird für jede Periode abgerechnet, die bis zu diesem Tag beginnt, die
-letzte bis zum Enddatum. Am Tag danach beendet ihn der tägliche Job (Audit-Eintrag `service.end`,
+letzte bis zum Enddatum, aber zum vollen Periodenpreis (nicht anteilig). Liegt das Datum auf oder nach
+der nächsten Rechnung, sagt der Dialog, dass diese Periode noch voll verrechnet wird, und bietet den Tag
+davor an ("Stattdessen per ... kündigen"). Wichtig bei Diensten, die gegen Ende eines Monats begonnen
+haben: Fällt der Rechnungstag auf das Monatsende (ein Start am 31. rechnet im November am 30. ab),
+kostet "per Ende Monat" eine ganze Periode mehr. Am Tag danach beendet ihn der tägliche Job (Audit-Eintrag `service.end`,
 Akteur "Abrechnungsjob") und sperrt erst dann das Modul, falls gewählt. Der Job rechnet zuerst ab und
 beendet danach. Hat ein aktiver Dienst noch eine Periode bis zum Enddatum offen (etwa weil sie in einer
 anderen Währung steht oder der Betrag nicht passt), bleibt er aktiv, bis sie abgerechnet ist. Das

@@ -1,17 +1,18 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { ServiceDto } from '@weblion/shared';
+import { formatMoney, type ServiceDto } from '@weblion/shared';
 import { en } from '@weblion/shared/i18n/en';
 import { I18nProvider } from '@/lib/i18n';
 import { TooltipProvider } from '@/components/ui/menu';
 import { formatDay } from './money';
+import { FullPeriodNotice } from './seller-dialogs';
 import { ServiceTable } from './tables';
 
 /**
  * A scheduled cancellation (end date, status still active or paused) shows its date instead of looking
- * ended; an ended service shows the end date only. Rendered on the server like the media tests; English is
- * the test's locale.
+ * ended; an ended service shows the end date only. The cancel dialog warns when the end date still bills a
+ * whole period. Rendered on the server like the media tests; English is the test's locale.
  */
 
 const html = (node: ReactNode) =>
@@ -116,5 +117,27 @@ describe('ServiceTable', () => {
     expect(ended).toContain(endsLabel('2026-11-06'));
     expect(ended).not.toContain(en['billing.service.cancelledPer'].split('{')[0]!);
     expect(ended).toContain(en['billing.serviceStatus.cancelled']);
+  });
+});
+
+describe('FullPeriodNotice', () => {
+  it('names the period billed in full with its price and offers the end before it', () => {
+    const svc = service({ unitPrice: 5000, quantity: 1, nextBillingAt: '2026-11-30' });
+    const markup = html(
+      <FullPeriodNotice service={svc} endsAt="2026-11-30" today="2026-11-06" onEndBefore={() => {}} />,
+    );
+    expect(markup).toContain(
+      escaped(
+        en['billing.service.fullPeriod']
+          .replace('{date}', formatDay('2026-11-30', 'en'))
+          .replace('{price}', formatMoney(5000, 'CHF', 'en')),
+      ),
+    );
+    expect(markup).toContain(
+      escaped(en['billing.service.endBeforePeriod'].replace('{date}', formatDay('2026-11-29', 'en'))),
+    );
+    expect(
+      html(<FullPeriodNotice service={svc} endsAt="2026-11-29" today="2026-11-06" onEndBefore={() => {}} />),
+    ).toBe('');
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ServiceDto } from '@weblion/shared';
-import { endPassed, servicesKeepingModule, waitsForBilling } from './service-end';
+import { endPassed, fullPeriodAhead, servicesKeepingModule, waitsForBilling } from './service-end';
 
 /** The rules of a scheduled cancellation as the pages apply them, the same as the API's. */
 
@@ -68,5 +68,40 @@ describe('endPassed and waitsForBilling', () => {
     expect(endPassed(service(), '2026-11-27')).toBe(false);
     // An ended service is not a scheduled cancellation any more.
     expect(endPassed(service({ status: 'cancelled', endsAt: '2026-11-01' }), '2026-11-27')).toBe(false);
+  });
+});
+
+describe('fullPeriodAhead', () => {
+  it('names the period an end on or after the next billing date still bills in full', () => {
+    // Anchored on the 31st: the November period starts on 30 November, "end of November" bills it.
+    const monthly = service();
+    expect(fullPeriodAhead(monthly, '2026-11-30', today)).toEqual({
+      from: '2026-11-30',
+      endBefore: '2026-11-29',
+    });
+    expect(fullPeriodAhead(monthly, '2027-03-01', today)).toEqual({
+      from: '2026-11-30',
+      endBefore: '2026-11-29',
+    });
+    // Before the next period, today (an immediate end) or nothing to bill: no notice.
+    expect(fullPeriodAhead(monthly, '2026-11-29', today)).toBeNull();
+    expect(fullPeriodAhead({ ...monthly, nextBillingAt: '2026-11-06' }, today, today)).toBeNull();
+    expect(fullPeriodAhead({ ...monthly, status: 'suspended' }, '2026-12-15', today)).toBeNull();
+    expect(fullPeriodAhead({ ...monthly, interval: 'once' }, '2026-12-15', today)).toBeNull();
+    expect(fullPeriodAhead({ ...monthly, nextBillingAt: null }, '2026-12-15', today)).toBeNull();
+    expect(fullPeriodAhead(monthly, '', today)).toBeNull();
+  });
+
+  it('offers the end before the period only while that day is not past', () => {
+    const yearly = service({ interval: 'yearly', nextBillingAt: '2026-11-16' });
+    expect(fullPeriodAhead(yearly, '2026-12-02', '2026-11-15')).toEqual({
+      from: '2026-11-16',
+      endBefore: '2026-11-15',
+    });
+    // The period has begun and is due: it is billed in any case.
+    expect(fullPeriodAhead(yearly, '2026-12-02', '2026-11-20')).toEqual({
+      from: '2026-11-16',
+      endBefore: null,
+    });
   });
 });
