@@ -1,6 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { BetaMessage, BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import {
   AI_FEATURE_EFFORT,
@@ -26,7 +26,17 @@ import {
   createAnthropic,
   systemBlocks,
 } from './client';
-import { AiCancelled, aiIncomplete, aiRefusal, aiUpstream, attachUsage, classifyAiError } from './errors';
+import { runChatTurn, type ChatInput } from './chat';
+import {
+  AiCancelled,
+  aiIncomplete,
+  aiOrgDisabled,
+  aiRefusal,
+  aiUpstream,
+  attachUsage,
+  classifyAiError,
+} from './errors';
+import { aiOrgState, loadOrgWithParent } from './org-state';
 import { setAnthropicKeys } from './redact';
 import { toStrictJsonSchema } from './schema';
 import { readAiSettings, resolveAiKey, type AiSettings, type ResolvedAiKey } from './settings';
@@ -88,6 +98,7 @@ export type AiFinishStatus = Exclude<AiUsageStatus, 'running' | 'stale'>;
 
 /** Settings, key and availability are read at most every 10 s per process (ai 5.3). */
 const CACHE_MS = 10_000;
+const LIVE_WINDOW_MS = 60_000;
 
 interface Cached<T> {
   at: number;
@@ -99,6 +110,10 @@ export class AiService {
   private settingsCache: Cached<AiSettings> | null = null;
   private keyCache: Cached<ResolvedAiKey> | null = null;
   private clientCache: { fingerprint: string; client: Anthropic } | null = null;
+  /** The SSE ping interval of the chat; tests shorten it (default 15 s, ai 9.3). */
+  chatPingMs: number | undefined = undefined;
+  /** Live reads per organization in the last minute (timestamps), per process (ai 7.1). */
+  private readonly liveReads = new Map<string, number[]>();
 
   /** Stores ctx and reads nothing from it before the first call, so app.ts creates it after the context object. */
   constructor(private readonly ctx: AppContext) {}
@@ -367,15 +382,33 @@ export class AiService {
     return usage.budgetExceeded(this.ctx.db, this.ctx.env, await this.settings());
   }
 
-  // --- U3 (declared with their signatures; U3 implements them) -----------------------------------------
+  // --- Organization state, live reads, chat (U3) --------------------------------------------------
 
-  /** 403 ai_org_disabled with details.reasons unless aiOrgState(org, parent).enabled (ai 5.5). */
-  async assertOrgData(_orgId: string): Promise<void> {
-    throw new Error('not implemented');
+  /** 403 ai_org_disabled with details.reasons unless aiOrgState(org, parent).enabled (ai 5.5). 404 when the
+   *  organization does not exist. Staff pass every boundary, so this is what makes a decline win over them. */
+  async assertOrgData(orgId: string): Promise<void> {
+    const loaded = await loadOrgWithParent(this.ctx.db, orgId);
+    if (!loaded) throw notFound('Organization');
+    const state = aiOrgState(loaded.org, loaded.parent);
+    if (!state.enabled) throw aiOrgDisabled(state.offReasons);
   }
 
-  /** Sliding one-minute window per organization in this process, 30 live reads (O29). */
-  liveReadAllowed(_orgId: string): boolean {
-    throw new Error('not implemented');
+  /** Sliding one-minute window per organization in this process, 30 live reads (O29). Counts the read when
+   *  allowed. */
+  liveReadAllowed(orgId: string): boolean {
+    const now = Date.now();
+    const recent = (this.liveReads.get(orgId) ?? []).filter((at) => now - at < LIVE_WINDOW_MS);
+    if (recent.length >= usage.AI_LIMITS.orgLiveReadsPerMinute) {
+      this.liveReads.set(orgId, recent);
+      return false;
+    }
+    recent.push(now);
+    this.liveReads.set(orgId, recent);
+    return true;
+  }
+
+  /** One chat turn as server-sent events (ai 6.4, 9). The route has run every gate before; see chat.ts. */
+  chat(req: FastifyRequest, reply: FastifyReply, input: ChatInput): Promise<void> {
+    return runChatTurn(this.ctx, req, reply, { pingMs: this.chatPingMs, ...input });
   }
 }
