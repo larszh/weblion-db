@@ -214,6 +214,7 @@ export const adminNl: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.mail.template.payment_received': 'Betaling ontvangen',
   'admin.mail.template.credit_booked': 'Tegoedboeking',
   'admin.mail.template.test': 'Test',
+  'admin.mail.template.ai_budget': 'AI-budget',
   'admin.int.intro':
     'Inloggegevens voor Stripe en Zoho Books worden alleen via omgevingsvariabelen ingesteld, niet hier. Start de API opnieuw na een wijziging in het .env-bestand.',
   'admin.int.configured': 'Ingesteld',
