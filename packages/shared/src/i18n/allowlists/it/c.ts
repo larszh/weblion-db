@@ -25,6 +25,31 @@ export const allowlist: Allowlist = {
     // as "disconnessione"; the glossary's "esci" is the console's own sign-out button and does not fit here.
     'media.devices.failed',
     'media.requests.sessionHint',
+    // "Verwaltung" here is the management sign-in of an Uptime Kuma instance (the console may create and change
+    // monitors there), rendered as "gestione"; the glossary's "amministrazione" is the weblion admin area.
+    'uptime.managementOff',
+    'uptime.managementError',
+    'uptime.noHistory',
+    'uptime.admin.subtitle',
+    'uptime.admin.syncManagementError',
+    'uptime.admin.instancesText',
+    'uptime.admin.management.ok',
+    'uptime.admin.management.error',
+    'uptime.admin.demoManagement',
+    'uptime.admin.signIn',
+    'uptime.admin.signInTitle',
+    'uptime.admin.signedIn',
+    'uptime.admin.signedInVersion',
+    'uptime.allowance.instanceHint',
+    'uptime.allowance.noManagedInstance',
+    'uptime.allowance.notManaged',
+    'providers.uptimekuma.management',
+    'providers.uptimekuma.managementHint',
+    'explorer.uptimekumaPath',
+    'explorer.uptimekumaBodyHint',
+    // The button signs the Uptime Kuma instance out of management ("Disconnetti"); the glossary's "Esci" is the
+    // user's own sign-out of the console and would read as logging out.
+    'uptime.admin.signOut',
   ],
   typographyOk: [],
 };
