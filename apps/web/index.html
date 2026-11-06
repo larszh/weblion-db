@@ -10,9 +10,54 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>weblion.one Console</title>
     <script src="/theme-init.js"></script>
+    <!-- Shown while the first language chunk loads (i18n 5.2); React replaces it. No text: the language is not
+         known yet. Only after 150 ms, so a cached load shows nothing. -->
+    <style>
+      .wl-boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #f3f5f8;
+      }
+      html.dark .wl-boot {
+        background: #0b1320;
+      }
+      .wl-boot span {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid #d9dee3;
+        border-top-color: #00c8cb;
+        opacity: 0;
+        animation:
+          wl-fade 0.2s ease-out 150ms forwards,
+          wl-spin 0.8s linear infinite;
+      }
+      html.dark .wl-boot span {
+        border-color: #22344d;
+        border-top-color: #00c8cb;
+      }
+      @keyframes wl-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes wl-fade {
+        to {
+          opacity: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .wl-boot span {
+          animation: none;
+          opacity: 1;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="wl-boot" role="progressbar" aria-busy="true" aria-label="weblion.one Console"><span></span></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

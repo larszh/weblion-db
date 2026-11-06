@@ -394,7 +394,7 @@ function LabelConditions({
           onChange={(e) => setK(e.target.value)}
           placeholder="env"
           className="h-8 w-32 font-mono text-xs"
-          aria-label="Label key"
+          aria-label={t('aria.labelKey')}
         />
         <span className="text-subtle">=</span>
         <Input
@@ -402,7 +402,7 @@ function LabelConditions({
           onChange={(e) => setV(e.target.value)}
           placeholder="prod"
           className="h-8 w-32 font-mono text-xs"
-          aria-label="Label value"
+          aria-label={t('aria.labelValue')}
         />
         <Button
           size="sm"

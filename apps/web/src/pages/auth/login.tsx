@@ -9,9 +9,20 @@ import { qk, useMe } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
 import { ErrorState, Field, Input } from '@/components/ui/primitives';
 import { Flag } from '@/components/server-bits';
+import { LanguageMenu } from '@/components/language-picker';
 
-export function AuthLayout({ children }: { children: ReactNode }) {
-  const { t, locale, setLocale } = useI18n();
+/**
+ * The frame of the login and invite pages. The language menu in the corner stores the choice in this browser
+ * only (i18n 6.2); the invite form shows its own, because there the choice also becomes the new account's.
+ */
+export function AuthLayout({
+  children,
+  languageMenu = true,
+}: {
+  children: ReactNode;
+  languageMenu?: boolean;
+}) {
+  const { t } = useI18n();
   return (
     <div className="grid min-h-full lg:grid-cols-[1.05fr_1fr]">
       <div className="relative hidden overflow-hidden bg-[#0d1726] lg:block">
@@ -36,14 +47,7 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
       <div className="flex flex-col bg-surface">
-        <div className="flex justify-end p-4">
-          <button
-            className="rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-3"
-            onClick={() => setLocale(locale === 'de' ? 'en' : 'de')}
-          >
-            {locale === 'de' ? 'English' : 'Deutsch'}
-          </button>
-        </div>
+        <div className="flex min-h-[68px] justify-end p-4">{languageMenu && <LanguageMenu />}</div>
         <div className="flex flex-1 items-center justify-center px-6 pb-16">
           <div className="w-full max-w-sm">
             <img src="/logo-horizontal.png" alt="weblion.one" className="mb-10 h-8 w-auto" />

@@ -147,7 +147,7 @@ export function SettingsTab() {
                   value={k}
                   placeholder="key"
                   className="font-mono"
-                  aria-label="Label key"
+                  aria-label={t('aria.labelKey')}
                   onChange={(e) => setLabels(labels.map((l, j) => (j === i ? [e.target.value, l[1]] : l)))}
                 />
                 <span className="text-subtle">=</span>
@@ -155,7 +155,7 @@ export function SettingsTab() {
                   value={v}
                   placeholder="value"
                   className="font-mono"
-                  aria-label="Label value"
+                  aria-label={t('aria.labelValue')}
                   onChange={(e) => setLabels(labels.map((l, j) => (j === i ? [l[0], e.target.value] : l)))}
                 />
                 <Button
