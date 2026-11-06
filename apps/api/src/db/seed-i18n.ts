@@ -72,11 +72,10 @@ export async function insertI18nDemo(db: Database): Promise<void> {
 }
 
 /**
- * Demo data of the translation admin, called at the end of seedDemo. The test suites seed every database
- * through seedDemo as well, and some of them assert the exact override rows they wrote; they get the rows only
- * where they ask for them (insertI18nDemo).
+ * Demo data of the translation admin, called at the end of seedDemo. The test suites seed every database through
+ * seedDemo as well, so they start with these rows; a test that asserts the exact override rows it wrote empties
+ * the table first.
  */
 export async function seedI18nDemo(db: Database): Promise<void> {
-  if (process.env.VITEST) return;
   await insertI18nDemo(db);
 }

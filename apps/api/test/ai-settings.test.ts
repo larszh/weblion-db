@@ -242,6 +242,8 @@ describe('the key', () => {
   });
 
   it('saves the key, deletes the demo translations in the same request, and never returns the key', async () => {
+    // The seed's overrides (i18n 21.3) are not demo rows and would stay; the test counts only its own rows.
+    await t.db.delete(translationOverrides);
     const hash = t.ctx.i18n.source('ai.notice.title' as ServerTranslationKey).hash;
     await saveOverride(t.db, {
       key: 'nav.dashboard',
