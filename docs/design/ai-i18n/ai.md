@@ -875,6 +875,16 @@ optional.
 audit entry. After the commit: `ctx.ai.resetClient()`, `ctx.i18n` reloads its overrides (i18n 8.1). A key is
 saved even while the master switch is off.
 
+Staff routes of `modules/ai/admin-routes.ts` (U3; the feature routes are in 10):
+
+| Route | Gate | Answer |
+|---|---|---|
+| `GET /admin/ai/usage?month=YYYY-MM` | `requireSession`, `platform:settings` | `AiUsageReportDto` (default: the current month, Europe/Zurich; at most 13 months back) |
+| `GET /admin/ai/errors?page&perPage&feature&status&source` | `requireSession`, `platform:settings` | `Paginated<AiErrorDto>` (`status` in `refusal`, `incomplete`, `error`, `stale`; `source` `api` for `error_code` `ai_upstream` and `ai_busy`, `internal` for the rest), newest first |
+| `POST /admin/ai/explain`, `/admin/ai/audit-summary`, `/admin/ai/product-texts` | 10.1, 10.3, 10.6 | the feature results |
+
+Reservations of staff requests carry the customer's `orgId` whenever the data belongs to one (plan U3).
+
 ### 5.5 Per-organization routes and cards
 
 Columns on `organizations` (5.6): `ai_enabled` (default `true`), `ai_disabled_by` (`'platform' | 'reseller' |
@@ -1526,7 +1536,7 @@ exhaustion `admin.ai.dashboard.exhausted`.
 
 `class AiMaintenance` (`apps/api/src/modules/ai/maintenance.ts`, plan F15, U3), `constructor(ctx: AppContext,
 pool: pg.Pool)`, started in `index.ts` and stopped in `shutdown` (plan F17). `start()` runs once 5 seconds after
-start, then every 10 minutes (timers `unref()`ed like `BillingJob.start`, `modules/billing/recurring.ts:224-231`).
+start, then every 10 minutes (timers `unref()`ed like `BillingJob.start`, `modules/billing/recurring.ts:226-233`).
 Each run takes `pg_try_advisory_xact_lock(hashtextextended('ai:maintenance', 0))` in one transaction on a pool
 client and skips when another process holds it:
 
@@ -1568,7 +1578,8 @@ export type ReadError = 'not_found' | 'forbidden' | 'unsupported' | 'provider_er
   accept: 'application/json' } })` (`SESSION_COOKIE` from `apps/api/src/auth/sessions.ts`). Only `GET`, so the
   CSRF rule for writes (`auth/plugin.ts`) never comes into play and nothing can be written. Paths are built from
   fixed templates with the run's `orgId` and zod-validated UUIDs; the model never supplies a path.
-- **`owned(kind, id)`** (plan O26): loads the parent route and accepts the body only if `body.org?.id === orgId`.
+- **`owned(kind, id)`** (plan O26): loads the parent route and accepts the body only if `assertSameOrg(body,
+  orgId)` holds, which is the strict test `body.org?.id === orgId`.
   A body with `org: null` (an unassigned server, a domain without customer) or without `org` fails the same way.
   Any failure is `not_found`, the same answer as for an id that does not exist, so the model learns nothing about
   other organizations. A member of two organizations, or reseller staff, cannot pull another organization's data
@@ -1602,6 +1613,22 @@ absent values as `null`), `live` (calls a provider, counts against 8 per turn an
 that keeps the fields the model needs (drops `permissions`, `capabilities` and other UI-only arrays) to save
 tokens. Lists are cut to 50 items (`truncated`, `total`). Every tool returns `sources`: the console paths of what
 it read (`/o/<slug>/servers/<id>`, ...).
+
+Files (U3): `modules/ai/tools/registry.ts` (`AI_TOOLS`, sorted by name, and `toolDefinitions()` for the request),
+one file per group: `tools/servers.ts`, `tools/domains.ts`, `tools/websites.ts`, `tools/mail.ts`,
+`tools/monitoring.ts`, `tools/services.ts` (cloud, phone, streaming), `tools/org.ts` (overview, billing, audit) and
+`tools/proposals.ts`.
+
+```ts
+export interface AiTool<I> {
+  name: AiToolName;
+  description: string;
+  input: z.ZodType<I>;
+  live: boolean;
+  personal: boolean;
+  run(input: I, ctx: ToolContext): Promise<{ result: unknown; sources: AiPageRef[]; proposal?: AiDnsProposalDto }>;
+}
+```
 
 | # | Tool | Input | Reads | Live |
 |---|---|---|---|---|
@@ -2393,7 +2420,7 @@ results open in `explain-dialog.tsx` or a feature dialog with `AiText` and `AiFo
 | Server graphs (`pages/servers/tabs/graphs.tsx`) | `MetricsSection` header: "Mit KI auswerten" with the range | `server_health` |
 | Server activity (`pages/servers/tabs/activity.tsx`) | `ActivityTab`: failed actions "Erklären" | `explain` `server_action` |
 | Monitoring detail (`pages/monitoring/detail.tsx`) | `MonitorView` while down or with a failed last event (`EventsCard`): "Mit KI erklären" | `explain` `monitor` |
-| Billing products (`pages/billing/products.tsx`) | `ProductDialog`: "Texte mit KI" (write or translate), four translation field pairs per language with flags (`<Flag country="GB" decorative />`, ...) and the `billing.product.translations.*` labels, saved with the product; `ProductCatalog` shows `productText(product, locale)` | `product_texts`, plan O14 |
+| Billing products (`pages/billing/products.tsx`) | `ProductDialog`: "Texte mit KI" (write or translate), name and description fields for each of the four other languages with flags (`<Flag country="GB" decorative />`, ...) and the `billing.product.translations.*` labels, saved with the product; `ProductCatalog` shows `productText(product, locale)` | `product_texts`, plan O14 |
 | Seller dialogs (`pages/billing/seller-dialogs.tsx`) | `AddServiceDialog` product picker through `productText` | plan O14 |
 | Everywhere (`lib/queries.ts` `useApiMutation`, `components/ui/primitives.tsx` `ErrorState`) | error toasts get the sonner action "Mit KI erklären", error boxes a small button, through `components/ai/explain-action.ts` (`registerExplainHandler`, `explainAvailable()`, `explainError(err)`), registered by `AiProvider` while `explain` is available; never for AI errors themselves | `explain` `error` |
 
@@ -2775,6 +2802,9 @@ interface EmulatedTurn {
   translator's start with it, plan O4).
 - Token numbers: input about request JSON length / 4, output about answer length / 4. The usage row gets `demo =
   true` and cost 0.
+- Build order: F writes `demoFetch`, the models route, the `translations` answer and a per-feature constant
+  `DEMO_JSON` with a valid minimal object for every JSON feature, and lets `assistant` answer the marker text without
+  tool use; U3 completes the behaviour below (plan F15).
 
 Behaviour per feature (answers in German for `language: de`, else English; texts start with `[Demo]`):
 
