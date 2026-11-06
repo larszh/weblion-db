@@ -464,5 +464,6 @@
   "billing.product.translations.title": ["22c9ef6d49705370", "266a41b90d4f831e"],
   "billing.product.translations.hint": ["b6bc26b60e214ef1", "02838ebe7ec936ff"],
   "billing.product.translations.name": ["010ac0092ceac6ed", "010ac0092ceac6ed"],
+  "billing.product.translations.nameRequired": ["9e0cd1860efda1df", "1a8565d4a1670943"],
   "billing.product.translations.description": ["c4ee492e60bdb453", "9c3602d9949b85b9"]
 }

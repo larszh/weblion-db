@@ -530,5 +530,6 @@ export const billingDe = {
   'billing.product.translations.hint':
     'Name und Beschreibung in weiteren Sprachen. Leer gelassen gilt der deutsche Text.',
   'billing.product.translations.name': 'Name ({language})',
+  'billing.product.translations.nameRequired': 'Geben Sie einen Namen ein oder leeren Sie die Beschreibung.',
   'billing.product.translations.description': 'Beschreibung ({language})',
 } as const;

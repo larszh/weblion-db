@@ -229,6 +229,7 @@ export const adminDe = {
   'admin.mail.template.payment_received': 'Zahlungseingang',
   'admin.mail.template.credit_booked': 'Guthabenbuchung',
   'admin.mail.template.test': 'Test',
+  'admin.mail.template.ai_budget': 'KI-Budget',
 
   // Admin: integrations
   'admin.int.intro':

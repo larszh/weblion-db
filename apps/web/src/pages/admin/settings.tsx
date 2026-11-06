@@ -90,6 +90,7 @@ const MAIL_TEMPLATES = [
   'payment_received',
   'credit_booked',
   'test',
+  'ai_budget',
 ] as const;
 const MAIL_STATUSES: MailLogDto['status'][] = ['sent', 'failed', 'skipped'];
 

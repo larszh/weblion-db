@@ -519,5 +519,6 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.product.translations.hint':
     'Name and description in other languages. If left empty, the German text is used.',
   'billing.product.translations.name': 'Name ({language})',
+  'billing.product.translations.nameRequired': 'Enter a name or clear the description.',
   'billing.product.translations.description': 'Description ({language})',
 };

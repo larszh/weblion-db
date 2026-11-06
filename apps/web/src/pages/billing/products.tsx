@@ -373,8 +373,8 @@ function ProductDialog({
                     </span>
                   }
                   htmlFor={`pr-name-${l}`}
-                  // i18n: shares the generic "enter a name" text until billing has its own (report U4).
-                  error={translationIssue(entry) ? t('uptime.form.nameRequired') : undefined}
+                  // A description without a name cannot be saved: the API needs a name per language.
+                  error={translationIssue(entry) ? t('billing.product.translations.nameRequired') : undefined}
                 >
                   <Input
                     id={`pr-name-${l}`}
