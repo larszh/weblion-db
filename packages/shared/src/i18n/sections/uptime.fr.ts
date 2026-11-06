@@ -20,7 +20,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.statusPages': 'Pages de statut',
   'uptime.allowance.title': 'Contingent',
   'uptime.allowance.text':
-    'Le nombre de sondes propres que vous pouvez créer et la fréquence maximale de leurs vérifications.',
+    'Le nombre de sondes que vous pouvez créer vous-même et la fréquence maximale de leurs vérifications.',
   'uptime.allowance.monitors': 'Sondes',
   'uptime.allowance.used': '{n} sondes sur {max}',
   'uptime.allowance.toCustomers': 'dont {n} attribuées à {customers} clients',
@@ -28,7 +28,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.allowance.full':
     'Votre contingent est épuisé. Veuillez supprimer une sonde ou vous adresser à votre prestataire.',
   'uptime.managementOff':
-    "Il n'est actuellement pas possible de créer ou de modifier des sondes propres, car l'instance Uptime Kuma n'est pas connectée pour l'administration. Le statut et le taux de disponibilité restent visibles.",
+    "Il n'est actuellement pas possible de créer ou de modifier vos propres sondes, car l'instance Uptime Kuma n'est pas connectée pour l'administration. Le statut et le taux de disponibilité restent visibles.",
   'uptime.monitors': 'Sondes',
   'uptime.monitorsText': 'Statut, taux de disponibilité et temps de réponse de vos sondes.',
   'uptime.lastSync': 'Dernière synchronisation {when}',
@@ -261,7 +261,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.admin.kumaReadOnly':
     'Les sondes créées dans Uptime Kuma restent en lecture seule pour les clients.',
   'uptime.admin.unassignText': '{org} ne voit ensuite plus la sonde. Rien ne change dans Uptime Kuma.',
-  'uptime.admin.cardText': 'Contingent de sondes propres et pages de statut associées.',
+  'uptime.admin.cardText': 'Contingent pour les sondes personnalisées et pages de statut associées.',
   'uptime.admin.showMonitors': 'Afficher les sondes',
   'uptime.admin.noAllowance': 'Aucun contingent de surveillance',
   'uptime.admin.noAllowanceText': 'Sans contingent, le client ne voit que les sondes que vous lui attribuez.',
@@ -269,7 +269,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.allowance.setUpTitle': 'Configurer le contingent de surveillance de {name}',
   'uptime.allowance.editTitle': 'Modifier le contingent de surveillance de {name}',
   'uptime.allowance.dialogText':
-    "Combien de sondes propres l'organisation peut créer, sur quelle instance, et à quelle fréquence maximale elles effectuent leurs vérifications.",
+    "Combien de sondes personnalisées l'organisation peut créer, sur quelle instance, et à quelle fréquence maximale elles effectuent leurs vérifications.",
   'uptime.allowance.instance': 'Instance',
   'uptime.allowance.instanceHint': "Uniquement les instances connectées pour l'administration.",
   'uptime.allowance.instanceLocked':
@@ -281,7 +281,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.allowance.maxBelowCommitted':
     "Au moins {n} : c'est le nombre de sondes qui existent déjà ou sont attribuées.",
   'uptime.allowance.maxResellerHint':
-    'Comprend les sondes propres et tout ce que le revendeur attribue à ses clients.',
+    'Comprend ses propres sondes et tout ce que le revendeur attribue à ses clients.',
   'uptime.allowance.minIntervalHint': "L'organisation ne peut pas choisir d'intervalles plus courts.",
   'uptime.allowance.noManagedInstance':
     "Aucune instance n'est connectée pour l'administration. Connectez d'abord une instance sous Admin > Surveillance.",
@@ -292,7 +292,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.allowance.remove': 'Retirer le contingent',
   'uptime.allowance.removeTitle': 'Retirer le contingent de surveillance de {name}?',
   'uptime.allowance.removeText':
-    "L'organisation ne pourra ensuite plus créer de sondes propres. Les sondes attribuées sont conservées.",
+    "L'organisation ne pourra ensuite plus créer ses propres sondes. Les sondes attribuées sont conservées.",
   'uptime.allowance.removeBlocked':
     "L'organisation a {n} sondes créées dans la console. Veuillez les supprimer ou d'abord les attribuer à une autre organisation.",
   'uptime.allowance.removeBlockedCustomers':
@@ -333,7 +333,7 @@ export const uptimeFr: Partial<Record<keyof typeof uptimeDe, string>> = {
     "Votre organisation n'a pas de contingent de surveillance. Adressez-vous à weblion.",
   'uptime.reseller.removeBlocked': "Le client a ses propres sondes. Il doit d'abord les supprimer.",
   'uptime.reseller.removeText':
-    'Le client ne pourra ensuite plus créer de sondes propres. Les sondes retournent dans votre contingent.',
+    'Le client ne pourra ensuite plus créer ses propres sondes. Les sondes retournent dans votre contingent.',
   'uptime.reseller.dialogText':
     'Les sondes fonctionnent sur la même instance que les vôtres ({instance}) et comptent dans votre contingent.',
   'uptime.reseller.left': 'Disponible pour ce client : {n}',

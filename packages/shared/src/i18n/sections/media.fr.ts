@@ -15,10 +15,10 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.none.textReseller':
     "Vous souscrivez le streaming (Jellyfin) auprès de {reseller}. Dès qu'un contingent est configuré pour votre organisation, vous créez ici des accès.",
   'media.noAllowanceAccounts':
-    "Aucun contingent streaming n'est plus configuré pour cette organisation. Les accès existants continuent de fonctionner, mais il n'est pas possible d'en créer de nouveaux.",
+    "Aucun contingent de streaming n'est plus configuré pour cette organisation. Les accès existants continuent de fonctionner, mais il n'est pas possible d'en créer de nouveaux.",
   'media.limit.accounts':
     "Tous les accès de votre contingent sont attribués. Pour en créer d'autres, veuillez supprimer un accès ou étendre votre contingent.",
-  'media.allowance': 'Contingent streaming',
+  'media.allowance': 'Contingent de streaming',
   'media.allowanceText':
     "Ce que chaque accès de votre organisation peut faire. La console l'applique à tous les accès.",
   'media.figure.accounts': 'Accès',
@@ -244,12 +244,12 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.allowance.resellerHint':
     'Un revendeur répartit ce contingent entre ses propres accès et ses clients. Ses clients reçoivent au maximum ces droits.',
   'media.allowance.parentNone':
-    "{reseller} n'a pas lui-même de contingent streaming. Vous pouvez quand même en configurer un.",
+    "{reseller} n'a pas lui-même de contingent de streaming. Vous pouvez quand même en configurer un.",
   'media.allowance.beyondParent':
     'Dépasse le contingent de {reseller} ({list}). Vous pouvez quand même enregistrer.',
   'media.allowance.policyHint':
     "Dès que vous cliquez sur Enregistrer, la console applique les droits à tous les accès de l'organisation.",
-  'media.allowance.saved': 'Contingent streaming enregistré',
+  'media.allowance.saved': 'Contingent de streaming enregistré',
   'media.allowance.applied': 'Droits appliqués à tous les accès ({n})',
   'media.allowance.policyFailed':
     "La politique n'a pas pu être appliquée à ces accès. La synchronisation réessaiera.",
@@ -261,7 +261,7 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
     'Possible uniquement sans accès. Veuillez supprimer les accès ou les attribuer à une autre organisation.',
   'media.allowance.removeBlockedCustomers':
     "Possible uniquement sans contingents de clients. Retirez d'abord les contingents des {n} clients.",
-  'media.allowance.removed': 'Contingent streaming retiré',
+  'media.allowance.removed': 'Contingent de streaming retiré',
   'media.conflict.libraries': 'Bibliothèques',
   'media.conflict.streams': 'Flux',
   'media.conflict.downloads': 'Téléchargements',
@@ -271,7 +271,7 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
     'Instances Jellyfin, tous les accès streaming et la reprise des utilisateurs créés directement dans Jellyfin.',
   'media.admin.addProvider': 'Connecter une instance',
   'media.admin.hint':
-    'Vous configurez les contingents streaming chez le client, les clients créent eux-mêmes les accès.',
+    'Vous configurez les contingents de streaming chez le client, les clients créent eux-mêmes les accès.',
   'media.admin.instances': 'Instances',
   'media.admin.instancesText':
     'Partagée : plusieurs organisations y ont un contingent, dédiée : une seule. Activité uniquement sous forme de nombre.',
@@ -318,13 +318,13 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.admin.repaired': 'Politique de {username} appliquée',
   'media.admin.assignText': "L'accès se trouve sur {instance}. Le client le gère ensuite dans sa console.",
   'media.admin.assignHint':
-    "Le client a besoin d'un contingent streaming sur cette instance. Ses droits sont appliqués à l'accès. Vous pouvez dépasser le nombre d'accès du contingent.",
+    "Le client a besoin d'un contingent de streaming sur cette instance. Ses droits sont appliqués à l'accès. Vous pouvez dépasser le nombre d'accès du contingent.",
   'media.admin.unassignText':
     "{org} ne voit ensuite plus l'accès. L'accès continue de fonctionner dans Jellyfin jusqu'à ce que vous le désactiviez ou le supprimiez.",
   'media.admin.targetNone':
-    "Cette organisation n'a pas de contingent streaming. Configurez-en d'abord un sur cette instance.",
+    "Cette organisation n'a pas de contingent de streaming. Configurez-en d'abord un sur cette instance.",
   'media.admin.targetOtherInstance':
-    'Le contingent streaming de cette organisation se trouve sur {instance}, pas sur cette instance.',
+    'Le contingent de streaming de cette organisation se trouve sur {instance}, pas sur cette instance.',
   'media.admin.targetAllowance': 'Contingent : {n} accès attribués sur {max}, code {code}.',
   'media.admin.targetFull':
     "Le contingent est épuisé. Vous pouvez quand même attribuer l'accès, il est alors compté au-delà du maximum.",
@@ -371,7 +371,7 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
     "Attribuez au client une partie de votre contingent pour qu'il puisse créer des accès streaming.",
   'media.reseller.pool': 'Votre contingent : {free} accès libres sur {max}',
   'media.reseller.noPool':
-    "Votre organisation n'a pas encore de contingent streaming. Adressez-vous à weblion.one pour souscrire le streaming.",
+    "Votre organisation n'a pas encore de contingent de streaming. Adressez-vous à weblion.one pour souscrire le streaming.",
   'media.reseller.dialogText': 'Issu de votre contingent sur {instance}, au maximum avec vos propres droits.',
   'media.reseller.accountsLeft': 'Au maximum {n} de votre contingent',
   'media.reseller.maxTooHigh': 'Accès libres dans votre contingent : {n}.',
@@ -547,7 +547,7 @@ export const mediaFr: Partial<Record<keyof typeof mediaDe, string>> = {
   'providers.jellyfin.seerrRemove': 'Retirer Seerr',
   'admin.resources.mediaAccounts': 'Accès streaming',
   'admin.blocker.mediaAccounts': 'Accès streaming : {n}',
-  'admin.blocker.mediaAllowances': 'Contingent streaming',
+  'admin.blocker.mediaAllowances': 'Contingent de streaming',
   'explorer.jellyfinPath':
     "Chemins relatifs à l'adresse de l'instance, p. ex. /Users ou /Library/VirtualFolders. Les clés, les jetons d'accès et les mots de passe sont masqués dans les réponses. /Auth/Keys et les endpoints de connexion sont bloqués.",
   'explorer.jellyfinBodyHint':

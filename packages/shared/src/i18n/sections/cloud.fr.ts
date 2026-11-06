@@ -35,7 +35,7 @@ export const cloudFr: Partial<Record<keyof typeof cloudDe, string>> = {
   'inventory.importHint.hetzner': "L'ID numérique du serveur dans la Hetzner Console, p. ex. 42817193.",
   'providers.hetzner.token': 'Jeton API',
   'providers.hetzner.tokenHint':
-    'Hetzner Console > projet > Security > API tokens > Generate API token, autorisation "Read & Write".',
+    'Hetzner Console > Project > Security > API tokens > Generate API token, autorisation "Read & Write".',
   'providers.hetzner.help':
     "Une connexion par projet Hetzner : un jeton ne voit que les serveurs du projet dans lequel il a été créé. Hetzner indique l'emplacement par serveur, le pays et la ville indiqués ici ne sont que la valeur par défaut.",
   'providers.baseUrlDefault': 'Par défaut : {url}',

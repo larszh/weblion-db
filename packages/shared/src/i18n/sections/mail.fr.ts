@@ -375,7 +375,7 @@ export const mailFr: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.limit.mailboxSize': 'Une boîte e-mail de ce domaine ne peut pas dépasser {max}.',
   'mail.units.unit': 'Unité',
   'mail.units.unlimited': 'illimité',
-  'mail.units.invalid': 'Un nombre entier de MB (p. ex. 500 MB ou 2.5 GB).',
+  'mail.units.invalid': 'Un nombre entier de MB (p. ex. 500 MB ou 2,5 GB).',
   'mail.units.required': 'Indiquez une taille.',
   'mail.admin.tabHint':
     'Les domaines de messagerie sont créés sur une instance Mailcow et attribués à un client. Les domaines existants apparaissent après la synchronisation. Vous gérez les instances sous Fournisseurs.',
@@ -455,5 +455,5 @@ export const mailFr: Partial<Record<keyof typeof mailDe, string>> = {
   'dashboard.mail.summary': '{domains} domaines, {mailboxes} boîtes e-mail utilisées',
   'dashboard.mail.summaryOne': '1 domaine, {mailboxes} boîtes e-mail utilisées',
   'dashboard.mail.mailboxes': '{count} boîtes e-mail',
-  'dashboard.mail.none': 'Aucun domaine de messagerie pour le moment.',
+  'dashboard.mail.none': "Aucun domaine de messagerie pour l'instant.",
 };
