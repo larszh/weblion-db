@@ -35,6 +35,7 @@ import { platformScope, requireAuth, requireSession } from '../../auth/access';
 import { mailDomains, organizations, providerConnections } from '../../db/schema';
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import type {
   MailAliasPatch,
   MailDomainLimitsInput,
@@ -190,7 +191,6 @@ const LIMIT_KEYS = [
   'maxMailboxQuotaMb',
 ] as const;
 
-const like = (q: string) => `%${q.replace(/[%_]/g, '')}%`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Passwords must not end up in browser or proxy caches. */
@@ -358,7 +358,10 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
         and(
           eq(mailDomains.orgId, orgId),
           query.q
-            ? or(ilike(mailDomains.name, like(query.q)), ilike(mailDomains.externalId, like(query.q)))
+            ? or(
+                ilike(mailDomains.name, containsPattern(query.q)),
+                ilike(mailDomains.externalId, containsPattern(query.q)),
+              )
             : undefined,
         ),
       )
@@ -789,7 +792,10 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
       query.providerId ? eq(mailDomains.providerConnectionId, query.providerId) : undefined,
       query.orgId ? eq(mailDomains.orgId, query.orgId) : undefined,
       query.q
-        ? or(ilike(mailDomains.name, like(query.q)), ilike(mailDomains.externalId, like(query.q)))
+        ? or(
+            ilike(mailDomains.name, containsPattern(query.q)),
+            ilike(mailDomains.externalId, containsPattern(query.q)),
+          )
         : undefined,
     ];
     const rows = await mailDomainRowsQuery(ctx)

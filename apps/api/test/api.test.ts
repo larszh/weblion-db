@@ -11,6 +11,7 @@ import {
   phoneSystems,
   providerConnections,
 } from '../src/db/schema';
+import { escapeLike } from '../src/lib/like';
 import { redactExplorerBody, redactExplorerPath } from '../src/modules/admin/routes';
 import { DemoAdapter } from '../src/providers/demo/adapter';
 import type {
@@ -896,6 +897,47 @@ describe('administration', () => {
       await admin.get('/admin/audit?action=auth.login&status=failure'),
     );
     expect(log.items.some((i) => i.actor.name === 'ghost@nowhere.example')).toBe(true);
+  });
+
+  it('searches the audit log for % and _ literally', async () => {
+    // "_" and "%" are LIKE wildcards: unescaped, "like_test.org_switch" would also find "orgXswitch".
+    await t.db.insert(auditLogs).values([
+      { action: 'like_test.org_switch', actorName: 'like-tester', status: 'success' },
+      { action: 'like_test.orgXswitch', actorName: 'like-tester', status: 'success' },
+      { action: 'like_test.percent', actorName: '100% like-tester', status: 'success' },
+      { action: 'like_test.backslash', actorName: 'dom\\like-tester', status: 'success' },
+    ]);
+    type Log = {
+      total: number;
+      items: { action: string; actor: { name: string | null }; ip: string | null }[];
+    };
+    const search = async (params: Record<string, string>) => {
+      const res = await admin.get(`/admin/audit?${new URLSearchParams({ perPage: '200', ...params })}`);
+      expect(res.statusCode).toBe(200);
+      return json<Log>(res);
+    };
+    const actions = (log: Log) => log.items.map((i) => i.action).sort();
+    expect(escapeLike('a\\b%c_d')).toBe('a\\\\b\\%c\\_d');
+
+    expect(actions(await search({ q: 'like_test.org_switch' }))).toEqual(['like_test.org_switch']);
+    expect(actions(await search({ action: 'like_test.org_' }))).toEqual(['like_test.org_switch']);
+    expect(actions(await search({ q: 'org_sw' }))).toEqual(['like_test.org_switch']);
+
+    // A lone wildcard must not match every entry.
+    const all = await search({});
+    const fields = (i: Log['items'][number]) => [i.action, i.actor.name ?? '', i.ip ?? ''].join(' ');
+    for (const char of ['%', '_']) {
+      const log = await search({ q: char });
+      expect(log.total).toBeLessThan(all.total);
+      expect(log.items.every((i) => fields(i).includes(char))).toBe(true);
+    }
+    expect(actions(await search({ q: '100%' }))).toEqual(['like_test.percent']);
+    expect(actions(await search({ action: '%' }))).toEqual([]);
+
+    // A backslash is an ordinary character, also at the end where it would escape the closing %.
+    expect(actions(await search({ q: 'dom\\like' }))).toEqual(['like_test.backslash']);
+    expect(actions(await search({ q: '\\' }))).toEqual(['like_test.backslash']);
+    expect(actions(await search({ action: 'like_test.backslash\\' }))).toEqual([]);
   });
 });
 

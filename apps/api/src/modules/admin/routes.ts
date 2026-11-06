@@ -46,6 +46,7 @@ import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
 import { SECRET_KEY_PATTERN } from '../../lib/redact';
+import { containsPattern } from '../../lib/like';
 import { dropMediaRequestsOf, forgetSeerrUsers, pendingSeerrRevocations } from '../media/seerr';
 import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
 import {
@@ -984,9 +985,9 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       query.includeMissing ? undefined : sql`${servers.status} <> 'missing'`,
       query.q
         ? or(
-            ilike(servers.name, `%${query.q.replace(/[%_]/g, '')}%`),
-            ilike(servers.externalId, `%${query.q.replace(/[%_]/g, '')}%`),
-            sql`${servers.ips}::text ilike ${`%${query.q.replace(/[%_]/g, '')}%`}`,
+            ilike(servers.name, containsPattern(query.q)),
+            ilike(servers.externalId, containsPattern(query.q)),
+            sql`${servers.ips}::text ilike ${containsPattern(query.q)}`,
           )
         : undefined,
     ];
@@ -1214,10 +1215,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .where(
         and(
           q
-            ? or(
-                ilike(organizations.name, `%${q.replace(/[%_]/g, '')}%`),
-                ilike(organizations.slug, `%${q.replace(/[%_]/g, '')}%`),
-              )
+            ? or(ilike(organizations.name, containsPattern(q)), ilike(organizations.slug, containsPattern(q)))
             : undefined,
           kind ? eq(organizations.kind, kind) : undefined,
           parentOrgId ? eq(organizations.parentOrgId, parentOrgId) : undefined,
@@ -1448,12 +1446,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .select()
       .from(users)
       .where(
-        q
-          ? or(
-              ilike(users.email, `%${q.replace(/[%_]/g, '')}%`),
-              ilike(users.name, `%${q.replace(/[%_]/g, '')}%`),
-            )
-          : undefined,
+        q ? or(ilike(users.email, containsPattern(q)), ilike(users.name, containsPattern(q))) : undefined,
       )
       .orderBy(users.name)
       .limit(500);
