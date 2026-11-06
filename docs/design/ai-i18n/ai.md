@@ -1878,7 +1878,9 @@ export class SseWriter {
   nginx (`proxy_read_timeout` at least 60 s, plan 9 deployment notes) and browsers keep the connection.
 - Frames: `event: <name>\ndata: <JSON on one line>\n\n`. Event names and payloads: `AiSseEvent` (3.1): `meta`,
   `text`, `tool`, `source`, `proposal`, `notice`, `error`, `done`. A turn is `meta`, then any number of `text`,
-  `tool`, `source`, `proposal`, `notice`, then exactly one `done` or one `error`.
+  `tool`, `source`, `proposal`, `notice`, then exactly one `done` or one `error`. The `text` deltas of all API
+  calls of a turn form one answer; text that resumes after a tool round starts with `\n\n`, so the sentences
+  before and after the tool step do not run together.
 - `send()` returns `false` and writes nothing once closed. `reply.raw` `close` aborts `signal` and stops the ping
   (the request emits `close` once its body is read, the response only when the connection ends).
 - `error(err)`: one `error` event `{ status, code, message, details }` built from the `AppError` (so the web turns
