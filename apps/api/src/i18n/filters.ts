@@ -36,7 +36,7 @@ export function fold(text: string): string {
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .toLowerCase()
-    .replace(/[ßẞ]/g, 'ss')
+    .replace(/[\u00DF\u1E9E]/g, 'ss')
     .replace(/\s+/g, ' ')
     .trim();
 }

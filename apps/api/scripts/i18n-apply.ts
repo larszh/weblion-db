@@ -121,7 +121,9 @@ const capitalized = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** A string literal as the section files write it; prettier then picks the quotes. */
 export function literal(value: string): string {
-  return JSON.stringify(value).replace(/ /g, '\\u00A0').replace(/ /g, '\\u202F');
+  return JSON.stringify(value)
+    .replace(/\u00A0/g, '\\u00A0')
+    .replace(/\u202F/g, '\\u202F');
 }
 
 /** A whole fr, it or nl section file: keys in German order, no comments (step 3). */
@@ -187,9 +189,10 @@ export interface FileChange {
 }
 
 async function formatTs(path: string, text: string): Promise<string> {
-  // The repository's prettier (a root dev dependency); the script only runs in a checkout.
+  // The repository's prettier (a root dev dependency) with the repository's configuration, also for copies of
+  // the files outside the checkout (the test); the script only runs in a checkout.
   const prettier = await import('prettier');
-  const config = (await prettier.resolveConfig(path)) ?? {};
+  const config = (await prettier.resolveConfig(resolve(SECTIONS_DIR, 'index.ts'))) ?? {};
   return prettier.format(text, { ...config, filepath: path });
 }
 
