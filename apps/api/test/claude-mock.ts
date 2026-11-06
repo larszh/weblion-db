@@ -42,7 +42,24 @@ export interface MockTurn {
    * block from the requested model to `model`, then the rest of the turn; usage.iterations gets a 'message'
    * entry (with declinedUsage) and a 'fallback_message' entry; the message's `model` is `model`.
    */
-  fallbackTo?: { model: string; afterFrames: number; declinedUsage?: MockTurn['usage'] };
+  fallbackTo?: {
+    model: string;
+    afterFrames: number;
+    declinedUsage?: MockTurn['usage'];
+    /** tool_use blocks of the declined part, before the fallback block (never to be run or re-sent). */
+    toolUsesBefore?: Array<{ name: string; input: unknown; id?: string }>;
+  };
+  /**
+   * tool_use blocks after the text, streamed as input_json_delta; stop_reason 'tool_use' unless stopReason is set.
+   * rawJson replaces the serialized input (invalid or truncated JSON for the eager streaming tests).
+   */
+  toolUses?: Array<{ name: string; input: unknown; id?: string; rawJson?: string }>;
+  /** A thinking block before the text: true = empty thinking text with a signature (display "omitted"). */
+  thinking?: boolean | string;
+  /** Delay between SSE frames (stream, ping and cancel tests). */
+  streamDelayMs?: number;
+  /** Close the stream after the content frames without message_delta and message_stop (lost connection). */
+  closedEarly?: boolean;
 }
 
 export interface RecordedClaudeRequest {
@@ -65,7 +82,8 @@ const DEFAULT_USAGE = {
 
 type Block =
   | { type: 'text'; text: string }
-  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown; rawJson?: string }
   | {
       type: 'fallback';
       from: { model: string };
@@ -74,6 +92,7 @@ type Block =
     };
 
 const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+let toolCounter = 0;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function chunks(text: string, size = 40): string[] {
@@ -104,7 +123,24 @@ function answerOf(body: any, turn: MockTurn | undefined): Answer {
   }
   const text = turn.text ?? (turn.json !== undefined ? JSON.stringify(turn.json) : '');
   const usage = { ...DEFAULT_USAGE, ...turn.usage };
-  const stopReason = turn.stopReason ?? 'end_turn';
+  const tools: Block[] = (turn.toolUses ?? []).map((t, i) => ({
+    type: 'tool_use',
+    id: t.id ?? `toolu_mock_${++toolCounter}_${i}`,
+    name: t.name,
+    input: t.input,
+    ...(t.rawJson !== undefined ? { rawJson: t.rawJson } : {}),
+  }));
+  const thinking: Block[] =
+    turn.thinking === undefined || turn.thinking === false
+      ? []
+      : [
+          {
+            type: 'thinking',
+            thinking: typeof turn.thinking === 'string' ? turn.thinking : '',
+            signature: `sig_mock_${++toolCounter}`,
+          },
+        ];
+  const stopReason = turn.stopReason ?? (tools.length > 0 ? 'tool_use' : 'end_turn');
   const stopDetails =
     stopReason === 'refusal'
       ? {
@@ -120,7 +156,7 @@ function answerOf(body: any, turn: MockTurn | undefined): Answer {
   if (!fb) {
     return {
       model: turn.model ?? body.model,
-      blocks: text ? [{ type: 'text', text }] : [],
+      blocks: [...thinking, ...(text ? [{ type: 'text' as const, text }] : []), ...tools],
       stopReason,
       stopDetails,
       usage,
@@ -135,6 +171,12 @@ function answerOf(body: any, turn: MockTurn | undefined): Answer {
     model: fb.model,
     blocks: [
       ...(before ? [{ type: 'text' as const, text: before }] : []),
+      ...(fb.toolUsesBefore ?? []).map((t, i): Block => ({
+        type: 'tool_use',
+        id: t.id ?? `toolu_mock_before_${++toolCounter}_${i}`,
+        name: t.name,
+        input: t.input,
+      })),
       {
         type: 'fallback',
         from: { model: body.model },
@@ -142,6 +184,7 @@ function answerOf(body: any, turn: MockTurn | undefined): Answer {
         trigger: { category: 'cyber' },
       },
       ...(after ? [{ type: 'text' as const, text: after }] : []),
+      ...tools,
     ],
     stopReason,
     stopDetails,
@@ -207,7 +250,32 @@ function framesOf(body: any, answer: Answer, id: string): string[] {
         frame('content_block_delta', {
           type: 'content_block_delta',
           index,
-          delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input ?? {}) },
+          delta: {
+            type: 'input_json_delta',
+            partial_json: block.rawJson ?? JSON.stringify(block.input ?? {}),
+          },
+        }),
+      );
+    } else if (block.type === 'thinking') {
+      frames.push(
+        frame('content_block_start', {
+          type: 'content_block_start',
+          index,
+          content_block: { type: 'thinking', thinking: '', signature: '' },
+        }),
+        ...(block.thinking
+          ? [
+              frame('content_block_delta', {
+                type: 'content_block_delta',
+                index,
+                delta: { type: 'thinking_delta', thinking: block.thinking },
+              }),
+            ]
+          : []),
+        frame('content_block_delta', {
+          type: 'content_block_delta',
+          index,
+          delta: { type: 'signature_delta', signature: block.signature },
         }),
       );
     } else {
@@ -311,7 +379,11 @@ export async function startClaudeMock(
               type: 'message',
               role: 'assistant',
               model: answer.model,
-              content: answer.blocks,
+              content: answer.blocks.map((b) => {
+                if (b.type !== 'tool_use') return b;
+                const { rawJson: _raw, ...rest } = b;
+                return rest;
+              }),
               stop_reason: answer.stopReason,
               stop_sequence: null,
               stop_details: answer.stopDetails,
@@ -321,6 +393,8 @@ export async function startClaudeMock(
           );
         }
         let frames = framesOf(body, answer, id);
+        // A lost connection: the content, but no message_delta and no message_stop.
+        if (turn?.closedEarly) frames = frames.slice(0, -2);
         const mid = turn?.midStreamError;
         if (mid) {
           frames = [
@@ -336,7 +410,8 @@ export async function startClaudeMock(
           'cache-control': 'no-cache',
           ...base,
         });
-        for (const f of frames) {
+        for (const [i, f] of frames.entries()) {
+          if (i > 0 && turn?.streamDelayMs) await sleep(turn.streamDelayMs);
           if (res.destroyed) return;
           res.write(f);
         }
@@ -365,4 +440,25 @@ export async function startClaudeMock(
         server.close(() => resolve());
       }),
   };
+}
+
+/** One server-sent event of the chat (ai 9.3). */
+export interface SseFrame {
+  event: string;
+  data: any;
+}
+
+/** The events of a chat response body; comment lines (": open", ": ping") are skipped. */
+export function parseSse(body: string): SseFrame[] {
+  const frames: SseFrame[] = [];
+  for (const chunk of body.split('\n\n')) {
+    const lines = chunk.split('\n').filter((l) => l && !l.startsWith(':'));
+    const event = lines.find((l) => l.startsWith('event: '))?.slice(7);
+    const data = lines
+      .filter((l) => l.startsWith('data: '))
+      .map((l) => l.slice(6))
+      .join('\n');
+    if (event) frames.push({ event, data: data ? JSON.parse(data) : null });
+  }
+  return frames;
 }
