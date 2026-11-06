@@ -1,4 +1,4 @@
-import { and, count, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { DEFAULT_CUSTOMER_BOUNDARY } from '@weblion/shared';
 import type { Database } from './client';
 import {
@@ -14,6 +14,7 @@ import { hashPassword } from '../lib/crypto';
 import { seedBillingDemo } from './seed-billing';
 import { seedCloudDemo } from './seed-cloud';
 import { seedHostingDemo } from './seed-hosting';
+import { seedI18nDemo } from './seed-i18n';
 import { seedMailDemo } from './seed-mail';
 import { seedMediaDemo } from './seed-media';
 import { seedMonitoringDemo } from './seed-monitoring';
@@ -162,6 +163,23 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
 
   // Area specific demo data. Order matters: resellers create organizations the other two use.
   await seedResellerDemo(db, log, hash);
+
+  // AI is opt-in per customer (plan O34). The demo switches on Anna's Muster AG and the reseller Alpen Hosting,
+  // so the features show; Beispiel GmbH and Bäckerei Huber stay off to show the switch. Only organizations
+  // nobody switched off or declined yet, so a later run keeps a demo choice.
+  const aiOn = await db
+    .update(organizations)
+    .set({ aiEnabled: true })
+    .where(
+      and(
+        inArray(organizations.slug, ['muster-ag', 'alpen-hosting']),
+        eq(organizations.aiEnabled, false),
+        isNull(organizations.aiDisabledBy),
+        isNull(organizations.aiOptOutAt),
+      ),
+    )
+    .returning({ name: organizations.name });
+  for (const o of aiOn) log.push(`AI on for ${o.name}`);
   await seedHostingDemo(db, log);
   await seedCloudDemo(db, log);
   await seedMailDemo(db, log);
@@ -170,5 +188,6 @@ export async function seedDemo(db: Database, password: string): Promise<string[]
   await seedMediaDemo(db, log);
   await seedMonitoringDemo(db, log);
   await seedBillingDemo(db, log);
+  await seedI18nDemo(db);
   return log;
 }

@@ -126,9 +126,9 @@ export function toBillingProfileDto(
     currency: profile?.currency ?? issuer.defaultCurrency,
     paymentTermsDays: profile?.paymentTermsDays ?? issuer.defaultPaymentTermsDays,
     taxRateBp: profile?.taxRateBp ?? null,
-    // i18n: F12/F18 replace this with billing_profiles.locale and the owner's language (column of 0011_i18n).
-    locale: null,
-    effectiveLocale: 'de',
+    locale: profile?.locale ?? null,
+    // i18n: U2 replaces this with billingLocale() (the oldest active owner's language while locale is null, i18n 9).
+    effectiveLocale: profile?.locale ?? 'de',
     updatedAt: iso(profile?.updatedAt),
   };
 }
@@ -262,8 +262,9 @@ export async function toInvoiceDetailDto(
       send: sellerWrite && (open || invoice.status === 'paid'),
     },
     payMethods,
-    // i18n: F12/F18 replace this with invoices.locale ?? the billing language (column of 0011_i18n).
-    locale: 'de',
+    // Fixed at finalize; drafts and old invoices follow the billing language.
+    // i18n: U2 replaces the 'de' with billingLocale(db, invoice.orgId) (i18n 9).
+    locale: invoice.locale ?? 'de',
   };
 }
 
@@ -414,8 +415,7 @@ export function toProductDto(product: Product): ProductDto {
     interval: product.interval,
     taxRateBp: product.taxRateBp,
     active: product.active,
-    // i18n: F12/F18 replace this with products.translations (column of 0010_ai).
-    translations: {},
+    translations: product.translations,
     createdAt: product.createdAt.toISOString(),
   };
 }

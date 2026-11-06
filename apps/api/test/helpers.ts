@@ -6,12 +6,13 @@ import { ensureBootstrapAdmin, syncEnvProviders } from '../src/bootstrap';
 import { loadEnv } from '../src/config/env';
 import { createDb, type Database } from '../src/db/client';
 import { runMigrations } from '../src/db/migrate';
-import { providerConnections } from '../src/db/schema';
+import { organizations, providerConnections } from '../src/db/schema';
 import { seedDemo } from '../src/db/seed';
 import { SecretBox } from '../src/lib/crypto';
 import { DemoAdapter } from '../src/providers/demo/adapter';
 import { DemoCloudPanelAdapter } from '../src/providers/demo/cloudpanel';
 import type { AppContext } from '../src/context';
+import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
 
 export const ADMIN = { email: 'admin@test.local', password: 'admin-password-123' };
 export const DEMO_PASSWORD = 'demo-password-123';
@@ -26,6 +27,8 @@ export interface TestApp {
 export interface TestAppOptions {
   /** Extra environment variables, e.g. { ENABLE_DEMO_CLOUDFLARE: 'true' } or { ENABLE_DEMO_CLOUDPANEL: 'true' }. */
   env?: Record<string, string>;
+  /** A small catalog instead of the repository texts (testCatalog() of i18n-fixtures.ts). */
+  i18nCatalog?: I18nCatalog;
 }
 
 /** Fresh schema, migrations, bootstrap admin, demo provider synced and seeded. */
@@ -40,6 +43,9 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     ENABLE_DEMO_PROVIDER: 'true',
     LOG_LEVEL: 'fatal',
     LOGIN_RATE_LIMIT: '1000',
+    // No test may reach the Claude API: a closed local port unless a test starts the mock, and no SDK retries.
+    ANTHROPIC_BASE_URL: 'http://127.0.0.1:9',
+    ANTHROPIC_MAX_RETRIES: '0',
     ...options.env,
   });
   const { db, pool } = createDb(env.DATABASE_URL);
@@ -50,7 +56,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
 
   DemoAdapter.reset();
   DemoCloudPanelAdapter.reset();
-  const { app, ctx } = await buildApp({ env, db, pool, logger: false });
+  const { app, ctx } = await buildApp({ env, db, pool, logger: false, i18nCatalog: options.i18nCatalog });
   const log = pino({ level: 'silent' });
   await ensureBootstrapAdmin(db, env, log);
   await syncEnvProviders(db, new SecretBox(env.ENCRYPTION_KEY), env, log);
@@ -71,6 +77,17 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       await pool.end();
     },
   };
+}
+
+/**
+ * Switches AI on for one organization as staff or its reseller would (plan O34: opt-in per customer). Leaves a
+ * decline (ai_opt_out_at) as it is, like the routes do.
+ */
+export async function enableAiForOrg(db: Database, orgId: string): Promise<void> {
+  await db
+    .update(organizations)
+    .set({ aiEnabled: true, aiDisabledBy: null })
+    .where(eq(organizations.id, orgId));
 }
 
 /** Minimal cookie aware client around fastify.inject. */

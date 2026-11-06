@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { SessionDto } from '@weblion/shared';
+import { LOCALES, type SessionDto } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { requireSession } from '../../auth/access';
 import { clearSessionCookie, createSession } from '../../auth/sessions';
@@ -119,7 +119,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
     const body = parse(
       z.object({
         name: z.string().trim().min(1).max(100).optional(),
-        locale: z.enum(['de', 'en']).optional(),
+        locale: z.enum(LOCALES).optional(),
       }),
       req.body,
     );

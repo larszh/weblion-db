@@ -11,7 +11,6 @@ import {
   PROVIDER_TYPES,
   TOKEN_SCOPES,
 } from '@weblion/shared';
-import { serverDe, serverEn } from '@weblion/shared/i18n/server';
 import type { AppContext } from '../../context';
 import { requireAuth } from '../../auth/access';
 
@@ -19,15 +18,17 @@ export const API_VERSION = '0.1.0';
 
 /**
  * The permission catalog in the shape API clients know: every action with `label: { de, en }`. The labels are
- * the dictionary keys perm.<action> (i18n 3.3); no other locale is added, /meta is a stable API.
- * F17 switches to ctx.i18n.t('de' | 'en', `perm.${p}`) so the labels include the text overrides.
+ * the dictionary keys perm.<action> (i18n 3.3), read per request so the text overrides of the translation
+ * admin apply; no other locale is added, /meta is a stable API.
  */
-const PERMISSIONS_WITH_LABELS = Object.fromEntries(
-  ALL_PERMISSIONS.map((p) => [
-    p,
-    { ...PERMISSIONS[p], label: { de: serverDe[`perm.${p}`], en: serverEn[`perm.${p}`] } },
-  ]),
-);
+function permissionsWithLabels(ctx: AppContext) {
+  return Object.fromEntries(
+    ALL_PERMISSIONS.map((p) => [
+      p,
+      { ...PERMISSIONS[p], label: { de: ctx.i18n.t('de', `perm.${p}`), en: ctx.i18n.t('en', `perm.${p}`) } },
+    ]),
+  );
+}
 
 /** Static metadata the UI needs, e.g. for the policy editor. */
 export async function metaRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -35,7 +36,7 @@ export async function metaRoutes(app: FastifyInstance, ctx: AppContext) {
     requireAuth(req);
     return {
       version: API_VERSION,
-      permissions: PERMISSIONS_WITH_LABELS,
+      permissions: permissionsWithLabels(ctx),
       permissionGroups: PERMISSION_GROUPS,
       orgRoles: ORG_ROLES,
       orgRolePolicies: ORG_ROLE_POLICIES,

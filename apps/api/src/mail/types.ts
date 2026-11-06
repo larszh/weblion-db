@@ -1,3 +1,5 @@
+import type { Locale } from '@weblion/shared';
+
 /**
  * Mail contract used by every module that sends email. The implementation lives in
  * mail/service.ts (SMTP via nodemailer, settings from env or the admin area).
@@ -6,7 +8,11 @@
  * render German or English (mail/templates.ts) and share one HTML layout.
  */
 
-export type MailLocale = 'de' | 'en';
+/**
+ * Any of the five console languages, so senders pass the recipient's users.locale as it is. Until the
+ * templates render from the email.* keys, fr, it and nl get the English texts (plan 2.8).
+ */
+export type MailLocale = Locale;
 
 export interface MailTemplates {
   /** Someone was invited to an organization (also used for new customer owners). */

@@ -6,6 +6,7 @@ import {
   CURRENCIES,
   MODULES,
   SERVICE_RESOURCE_TYPES,
+  TARGET_LOCALES,
   formatMoney,
   normalizeModules,
   type BillingStatsDto,
@@ -13,6 +14,7 @@ import {
   type InvoiceIssuerSettings,
   type ModuleKey,
   type Paginated,
+  type TargetLocale,
   type InvoiceDto,
   type SellerCustomerBillingDto,
 } from '@weblion/shared';
@@ -172,6 +174,16 @@ const productFields = {
   interval: z.enum(BILLING_INTERVALS),
   taxRateBp: taxRateSchema.nullish(),
   active: z.boolean(),
+  /**
+   * Name and description per target language (plan O14, 2.7); German stays in name and description. A PATCH
+   * replaces the whole object. partialRecord: z.record with an enum key requires every key in zod 4.
+   */
+  translations: z
+    .partialRecord(
+      z.enum(TARGET_LOCALES),
+      z.object({ name: z.string().trim().min(1).max(200), description: z.string().max(1000).nullable() }),
+    )
+    .optional(),
 };
 const productBody = z.object({
   ...productFields,
@@ -938,7 +950,13 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       orgId: product!.ownerOrgId,
       resourceType: 'product',
       resourceId: product!.id,
-      details: { name: product!.name, unitPrice: product!.unitPrice, interval: product!.interval },
+      details: {
+        name: product!.name,
+        unitPrice: product!.unitPrice,
+        interval: product!.interval,
+        // The languages filled, not the texts (plan 4.3).
+        translations: Object.keys(product!.translations) as TargetLocale[],
+      },
     });
     return toProductDto(product!);
   });

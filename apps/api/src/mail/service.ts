@@ -4,6 +4,7 @@ import type { Env } from '../config/env';
 import type { Database } from '../db/client';
 import { mailLog } from '../db/schema';
 import type { SecretBox } from '../lib/crypto';
+import type { I18nService } from '../i18n/service';
 import { renderMail, type RenderedMail } from './templates';
 import { configFingerprint, resolveSmtp, senderAddress, type SmtpConfig } from './settings';
 import type { Mailer, MailOptions, MailResult, MailTemplateName, MailTemplates } from './types';
@@ -40,6 +41,8 @@ export class MailService implements Mailer {
     private readonly box: SecretBox,
     private readonly env: Env,
     private readonly log: FastifyBaseLogger,
+    /** The server texts with their overrides; the templates render from the email.* keys after U2. */
+    private readonly i18n: I18nService,
   ) {}
 
   /** For tests: deliver through e.g. a nodemailer jsonTransport or a custom transport. */

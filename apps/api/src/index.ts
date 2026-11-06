@@ -18,11 +18,17 @@ async function main() {
   ctx.sync.start(env.SYNC_INTERVAL_SECONDS);
   const billingJob = new BillingJob(ctx, pool);
   if (env.BILLING_JOB_ENABLED) billingJob.start();
+  ctx.i18n.start();
+  // Secondary processes set I18N_JOB_ENABLED=false; the runner's advisory lock guards the rest.
+  if (env.I18N_JOB_ENABLED) ctx.i18nJobs.start();
 
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'shutting down');
     ctx.sync.stop();
     billingJob.stop();
+    ctx.i18n.stop();
+    // Re-queues a job this process owns, so the next start (here or elsewhere) resumes it.
+    await ctx.i18nJobs.stop();
     await app.close();
     await pool.end();
     process.exit(0);

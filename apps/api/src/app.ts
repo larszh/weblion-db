@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import type pg from 'pg';
 import type { ApiErrorBody } from '@weblion/shared';
+import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
 import type { Env } from './config/env';
 import type { Database } from './db/client';
 import type { AppContext } from './context';
@@ -42,12 +43,19 @@ import { resellerRoutes } from './modules/reseller/routes';
 import { settingsRoutes } from './modules/settings/routes';
 import { MailService } from './mail/service';
 import { ZohoService } from './integrations/zoho';
+import { I18nService } from './i18n/service';
+import { seedGlossary } from './i18n/glossary';
+import { TranslationJobRunner } from './i18n/jobs';
+import { i18nRoutes } from './modules/i18n/routes';
+import { i18nAiRoutes } from './modules/i18n/ai-routes';
 
 export interface BuildOptions {
   env: Env;
   db: Database;
   pool: pg.Pool;
   logger?: boolean;
+  /** Compiled texts; tests pass a small catalog (plan 2.2). Default: the repository (loadCatalog()). */
+  i18nCatalog?: I18nCatalog;
 }
 
 export async function buildApp({
@@ -55,6 +63,7 @@ export async function buildApp({
   db,
   pool,
   logger = true,
+  i18nCatalog,
 }: BuildOptions): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const app = Fastify({
     trustProxy: env.TRUST_PROXY,
@@ -72,7 +81,12 @@ export async function buildApp({
 
   const box = new SecretBox(env.ENCRYPTION_KEY);
   const providers = new ProviderRegistry(db, box);
-  const ctx: AppContext = {
+  // The texts first: the mail service renders with them, and every route may answer in a language.
+  const i18n = new I18nService(db, env, app.log, i18nCatalog);
+  await i18n.load();
+  await seedGlossary(db);
+  // The services below that take the context itself are assigned right after the literal.
+  const base: Omit<AppContext, 'i18nJobs'> = {
     env,
     db,
     box,
@@ -82,10 +96,13 @@ export async function buildApp({
     audit: new AuditService(db, app.log),
     consoleTickets: new ConsoleTickets(),
     sync: new SyncService(db, pool, providers, app.log),
-    mail: new MailService(db, box, env, app.log),
+    mail: new MailService(db, box, env, app.log, i18n),
     zoho: new ZohoService(db, env, app.log),
+    i18n,
     secureCookies: env.APP_URL.startsWith('https://'),
   };
+  const ctx = base as AppContext;
+  ctx.i18nJobs = new TranslationJobRunner(ctx, pool, { concurrency: env.I18N_AI_CONCURRENCY });
 
   await app.register(cookie);
   await app.register(helmet, {
@@ -167,6 +184,8 @@ export async function buildApp({
         paymentRoutes,
         resellerRoutes,
         settingsRoutes,
+        i18nRoutes,
+        i18nAiRoutes,
       ]) {
         await register(api, ctx);
       }

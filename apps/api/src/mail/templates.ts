@@ -1,5 +1,13 @@
-import type { OrgRole } from '@weblion/shared';
+import { normalizeLocale, type OrgRole } from '@weblion/shared';
 import type { MailLocale, MailTemplateName, MailTemplates } from './types';
+
+/** The two languages the templates below are written in. i18n: U2 replaces this with the email.* keys. */
+type TemplateLocale = 'de' | 'en';
+
+/** fr, it and nl read the English texts until the templates render from keys (plan 2.8). */
+function templateLocale(locale: MailLocale): TemplateLocale {
+  return locale === 'de' ? 'de' : 'en'; // i18n: U2 replaces this
+}
 
 /**
  * Email templates in German and English. Every template is described as a short list of
@@ -36,7 +44,7 @@ const MUTED = '#5a6a7e';
 const SUBTLE = '#8593a5';
 const FONT = "-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
-const ROLE_LABELS: Record<OrgRole, Record<MailLocale, string>> = {
+const ROLE_LABELS: Record<OrgRole, Record<TemplateLocale, string>> = {
   owner: { de: 'Owner', en: 'Owner' },
   admin: { de: 'Admin', en: 'Admin' },
   member: { de: 'Member', en: 'Member' },
@@ -47,22 +55,24 @@ const ROLE_LABELS: Record<OrgRole, Record<MailLocale, string>> = {
 
 /** Role name as shown in the console, for the invitation template. */
 export function roleLabel(role: OrgRole, locale: MailLocale): string {
-  return ROLE_LABELS[role]?.[locale] ?? role;
+  return ROLE_LABELS[role]?.[templateLocale(locale)] ?? role;
 }
 
+/** A stored language (users.locale) as a mail language; unknown values give German. */
 export function mailLocale(value: string | null | undefined): MailLocale {
-  return value?.toLowerCase().startsWith('en') ? 'en' : 'de';
+  return normalizeLocale(value) ?? 'de';
 }
 
 /** Date for mail texts, e.g. "14. Oktober 2026" or "14 October 2026" (Swiss time). */
 export function mailDate(date: Date, locale: MailLocale): string {
+  // fr, it and nl get the English date like the English texts. i18n: U2 replaces this
   return new Intl.DateTimeFormat(locale === 'de' ? 'de-CH' : 'en-GB', {
     dateStyle: 'long',
     timeZone: 'Europe/Zurich',
   }).format(date);
 }
 
-type Builders = { [K in MailTemplateName]: (data: MailTemplates[K], locale: MailLocale) => Content };
+type Builders = { [K in MailTemplateName]: (data: MailTemplates[K], locale: TemplateLocale) => Content };
 
 const TEMPLATES: Builders = {
   invitation: (d, l) => {
@@ -272,12 +282,12 @@ const TEMPLATES: Builders = {
         },
 };
 
-const FOOTER: Record<MailLocale, string> = {
+const FOOTER: Record<TemplateLocale, string> = {
   de: `Diese E-Mail wurde automatisch von ${BRAND} versendet.`,
   en: `This email was sent automatically by ${BRAND}.`,
 };
 
-const BUTTON_FALLBACK: Record<MailLocale, string> = {
+const BUTTON_FALLBACK: Record<TemplateLocale, string> = {
   de: 'Falls der Button nicht funktioniert, öffnen Sie diesen Link:',
   en: 'If the button does not work, open this link:',
 };
@@ -285,9 +295,10 @@ const BUTTON_FALLBACK: Record<MailLocale, string> = {
 export function renderMail<T extends MailTemplateName>(
   template: T,
   data: MailTemplates[T],
-  locale: MailLocale = 'de',
+  requested: MailLocale = 'de',
 ): RenderedMail {
-  const content = (TEMPLATES[template] as (d: MailTemplates[T], l: MailLocale) => Content)(data, locale);
+  const locale = templateLocale(requested);
+  const content = (TEMPLATES[template] as (d: MailTemplates[T], l: TemplateLocale) => Content)(data, locale);
   // Header injection: a subject is one line, whatever the data contains.
   const subject = content.subject.replace(/[\r\n]+/g, ' ').trim();
   return { subject, text: renderText(content, locale), html: renderHtml(content, subject, locale) };
@@ -309,7 +320,7 @@ function safeHref(href: string): string | null {
 
 const html = (value: string) => escapeHtml(value).replace(/\n/g, '<br>');
 
-function renderText(content: Content, locale: MailLocale): string {
+function renderText(content: Content, locale: TemplateLocale): string {
   const parts: string[] = [content.heading, ''];
   for (const block of content.blocks) {
     if ('p' in block) parts.push(block.p, '');
@@ -321,7 +332,7 @@ function renderText(content: Content, locale: MailLocale): string {
   return parts.join('\n');
 }
 
-function renderHtml(content: Content, subject: string, locale: MailLocale): string {
+function renderHtml(content: Content, subject: string, locale: TemplateLocale): string {
   const body = content.blocks.map((block) => renderBlock(block, locale)).join('\n');
   return `<!doctype html>
 <html lang="${locale}">
@@ -350,7 +361,7 @@ ${body}
 `;
 }
 
-function renderBlock(block: Block, locale: MailLocale): string {
+function renderBlock(block: Block, locale: TemplateLocale): string {
   if ('p' in block) return `<p style="margin:0 0 16px 0;">${html(block.p)}</p>`;
   if ('note' in block) {
     return `<p style="margin:0 0 16px 0;font-size:13px;color:${MUTED};">${html(block.note)}</p>`;
