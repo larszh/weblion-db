@@ -202,7 +202,7 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
     "Un CNAME n'est pas autorisé pour le domaine lui-même. Utilisez ALIAS ou un enregistrement A.",
   'hosting.dns.propagation':
     'Selon le TTL, les modifications sont visibles dans le monde entier après quelques minutes.',
-  'hosting.dns.invalid.name': 'Nom non valide. Sont autorisés p. ex. www, mail, _dmarc ou *.dev.',
+  'hosting.dns.invalid.name': 'Nom non valide. Exemples autorisés : www, mail, _dmarc ou *.dev.',
   'hosting.dns.invalid.ipv4': 'Veuillez saisir une adresse IPv4, p. ex. 185.101.20.10.',
   'hosting.dns.invalid.ipv6': 'Veuillez saisir une adresse IPv6, p. ex. 2a0e:3e9::10.',
   'hosting.dns.invalid.host': "Veuillez saisir un nom d'hôte complet, p. ex. cible.example.ch.",
@@ -214,7 +214,7 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
     'Veuillez saisir le flag, le tag et la valeur, p. ex. 0 issue "letsencrypt.org".',
   'hosting.dns.invalid.naptr':
     'Veuillez saisir Order, Preference, "Flags", "Service", "Regexp" et le remplacement, p. ex. 100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .',
-  'hosting.dns.invalid.txtQuotes': 'Veuillez saisir le texte sans guillemets autour.',
+  'hosting.dns.invalid.txtQuotes': "Veuillez saisir le texte sans l'entourer de guillemets.",
   'hosting.dns.invalid.url':
     'Veuillez saisir une adresse commençant par http:// ou https://, p. ex. https://www.example.ch.',
   'hosting.dns.invalid.email': 'Veuillez saisir une adresse e-mail, p. ex. reception@example.ch.',
@@ -266,7 +266,7 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.dns.hint.NAPTR':
     'Order, Preference, Flags, Service et Regexp (entre guillemets) ainsi que le remplacement, p. ex. pour ENUM ou SIP.',
   'hosting.dns.hint.MAILFW': 'Adresse vers laquelle les e-mails pour ce nom sont redirigés.',
-  'hosting.dns.hint.other': 'Valeur telle que livrée par le fournisseur.',
+  'hosting.dns.hint.other': 'Valeur telle que transmise par le fournisseur.',
   'hosting.dns.ph.A': '185.101.20.10',
   'hosting.dns.ph.AAAA': '2a0e:3e9::10',
   'hosting.dns.ph.CNAME': 'cible.example.ch',
@@ -318,11 +318,11 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
     "Ces données donnent un accès complet à l'espace web. La consultation est consignée dans le journal d'audit.",
   'hosting.creds.openPlesk': 'Ouvrir Plesk',
   'hosting.creds.loginUrlHint':
-    'Ce lien vous connecte une seule fois et expire après peu de temps. Ne le transmettez pas.',
+    'Ce lien vous connecte une seule fois et expire peu après. Ne le transmettez pas.',
   'hosting.creds.loginConfirmText':
-    "Un lien de connexion unique pour Plesk est créé. La consultation est consignée dans le journal d'audit.",
+    "Un lien de connexion à usage unique pour Plesk va être créé. La consultation est consignée dans le journal d'audit.",
   'hosting.mail.title': 'Configurer un client de messagerie',
-  'hosting.mail.text': 'Paramètres usuels pour Outlook, Apple Mail, Thunderbird et smartphones.',
+  'hosting.mail.text': 'Paramètres usuels pour Outlook, Apple Mail, Thunderbird et les smartphones.',
   'hosting.mail.incoming': 'Courrier entrant (IMAP)',
   'hosting.mail.outgoing': 'Courrier sortant (SMTP)',
   'hosting.mail.server': 'Serveur',

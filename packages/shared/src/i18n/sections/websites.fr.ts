@@ -15,13 +15,13 @@ export const websitesFr: Partial<Record<keyof typeof websitesDe, string>> = {
     "Clé OpenSSH non chiffrée (-----BEGIN OPENSSH PRIVATE KEY-----). Elle est enregistrée sous forme chiffrée et n'est plus jamais affichée. Recommandé : une clé dédiée par serveur.",
   'providers.cloudpanel.generate': 'Générer une paire de clés',
   'providers.cloudpanel.generated':
-    "Nouvelle paire de clés générée. Elle ne s'applique qu'une fois que vous enregistrez; installez la clé publique sur le serveur.",
+    "Nouvelle paire de clés générée. Elle ne s'applique qu'après l'enregistrement; installez la clé publique sur le serveur.",
   'providers.cloudpanel.publicKey': 'Clé publique',
   'providers.cloudpanel.publicKeyHint':
     "Transmettez cette clé à install.sh sur le serveur (--public-key). Elle n'est pas secrète.",
   'providers.cloudpanel.hostKey': "Empreinte de la clé d'hôte",
   'providers.cloudpanel.hostKeyHint':
-    "SHA256:..., tel qu'affiché par install.sh ou \"ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub\" sur le serveur. Une autre clé d'hôte bloque la connexion jusqu'à ce que vous la modifiiez ici.",
+    "SHA256:..., tel qu'affiché par install.sh ou \"ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub\" sur le serveur. Une clé d'hôte différente interrompt la connexion jusqu'à ce que vous la mettiez à jour ici.",
   'providers.cloudpanel.hostKeyInvalid': 'SHA256: suivi de 43 caractères, p. ex. SHA256:Ab3...',
   'providers.cloudpanel.accessHost': 'Hôte pour les clients (SFTP/SSH, facultatif)',
   'providers.cloudpanel.accessHostHint':
@@ -180,7 +180,7 @@ export const websitesFr: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.create.databaseNoRoom': "Votre contingent n'a plus de place pour d'autres bases de données.",
   'websites.create.password': 'Mot de passe pour SFTP/SSH',
   'websites.create.after':
-    'Utilisation ensuite : {sites} sur {maxSites} sites web, {databases} sur {maxDatabases} bases de données.',
+    'Après la création : {sites} sur {maxSites} sites web, {databases} sur {maxDatabases} bases de données.',
   'websites.create.submit': 'Créer un site web',
   'websites.create.pending':
     "Configuration du site web en cours. Cela prend généralement moins d'une minute (plus longtemps pour Node.js).",
@@ -450,7 +450,7 @@ export const websitesFr: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.reseller.removeBlocked':
     'Possible uniquement sans sites web. Le client en a encore {n}; supprimez-les ou reprenez-les dans votre parc.',
   'websites.reseller.releaseText':
-    "S'il s'agit d'un site web et que votre contingent de sites web n'a plus de place pour lui, il emporte sa place dans le contingent du client : celui-ci diminue du site web et de ses bases de données.",
+    "S'il s'agit d'un site web et que votre contingent de sites web n'a plus de place pour lui, il emporte sa place dans le contingent du client : celui-ci est réduit du site web et de ses bases de données.",
   'websites.errors.no_allowance': "Aucun contingent de sites web n'est configuré pour cette organisation.",
   'websites.errors.allowance_exceeded': 'Le contingent est épuisé.',
   'websites.errors.type_not_allowed': "Ce type de site web n'est pas inclus dans le contingent.",
