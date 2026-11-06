@@ -16,8 +16,8 @@ import {
   ZohoBadge,
   useBillingLabels,
 } from './bits';
-import { formatDay, formatQuantity } from './money';
-import { scheduledEndOf } from './service-end';
+import { formatDay, formatQuantity, todayISO } from './money';
+import { scheduledEndOf, waitsForBilling } from './service-end';
 
 /** Tables shared by the customer view, the seller panel and the admin overview. */
 
@@ -201,6 +201,7 @@ export function ServiceTable({
   base,
   linkable,
   actions,
+  today = todayISO(),
 }: {
   services: ServiceDto[];
   /** /o/<slug> of the customer, to link resources. */
@@ -208,6 +209,8 @@ export function ServiceTable({
   /** Whether the resource of a service has a page to link to. Default: yes. */
   linkable?: (service: ServiceDto) => boolean;
   actions?: (service: ServiceDto) => ReactNode;
+  /** YYYY-MM-DD, for tests. */
+  today?: string;
 }) {
   const { t, locale } = useI18n();
   const labels = useBillingLabels();
@@ -266,7 +269,16 @@ export function ServiceTable({
               <ServiceStatusBadge status={s.status} />
               {scheduledEndOf(s) && (
                 <div className="mt-1 text-xs text-warning">
-                  {t('billing.service.cancelledPer', { date: formatDay(scheduledEndOf(s)!, locale) })}
+                  {/* Past its end date with a period up to it unbilled (e.g. in another currency or with
+                      the automatic run off): it only ends once that period is billed, so say so. */}
+                  {t(
+                    waitsForBilling(s, today)
+                      ? 'billing.service.endWaitsForBilling'
+                      : 'billing.service.cancelledPer',
+                    {
+                      date: formatDay(scheduledEndOf(s)!, locale),
+                    },
+                  )}
                 </div>
               )}
               {scheduledEndOf(s) && s.deactivateModuleAtEnd && s.module && (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ServiceDto } from '@weblion/shared';
-import { servicesKeepingModule } from './service-end';
+import { endPassed, servicesKeepingModule, waitsForBilling } from './service-end';
 
 /** The rules of a scheduled cancellation as the pages apply them, the same as the API's. */
 
@@ -52,5 +52,21 @@ describe('servicesKeepingModule', () => {
       'DNS Later',
     ]);
     expect(servicesKeepingModule(service({ module: null }), all, today)).toEqual([]);
+  });
+});
+
+describe('endPassed and waitsForBilling', () => {
+  it('can be changed until the end date, and waits for billing only with a period up to it open', () => {
+    const scheduled = service({ endsAt: '2026-11-26', nextBillingAt: '2026-11-01' });
+    expect(endPassed(scheduled, '2026-11-26')).toBe(false);
+    expect(endPassed(scheduled, '2026-11-27')).toBe(true);
+    expect(waitsForBilling(scheduled, '2026-11-26')).toBe(false);
+    expect(waitsForBilling(scheduled, '2026-11-27')).toBe(true);
+    // Billed up to the end date, paused (not billed) or without a cancellation: nothing to wait for.
+    expect(waitsForBilling({ ...scheduled, nextBillingAt: '2026-12-01' }, '2026-11-27')).toBe(false);
+    expect(waitsForBilling({ ...scheduled, status: 'suspended' }, '2026-11-27')).toBe(false);
+    expect(endPassed(service(), '2026-11-27')).toBe(false);
+    // An ended service is not a scheduled cancellation any more.
+    expect(endPassed(service({ status: 'cancelled', endsAt: '2026-11-01' }), '2026-11-27')).toBe(false);
   });
 });

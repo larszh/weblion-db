@@ -128,6 +128,7 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.service.quantity': '× {quantity}',
   'billing.service.endsAt': 'Ends on {date}',
   'billing.service.cancelledPer': 'Cancelled effective {date}',
+  'billing.service.endWaitsForBilling': 'Cancelled effective {date}, ends once it is billed up to then',
   'billing.service.moduleOffAtEnd': 'The module "{module}" is deactivated then',
   'billing.service.billedOnce': 'Billed',
 

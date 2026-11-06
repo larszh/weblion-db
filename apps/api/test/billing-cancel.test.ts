@@ -313,6 +313,53 @@ describe('scheduled cancellation', () => {
     expect((await admin.post(`/services/${svc.id}/cancel/withdraw`)).statusCode).toBe(409);
   });
 
+  it('cannot be changed once the end date has passed, so the periods up to it stay due', async () => {
+    // Invoicing off (or the job down): the period up to the end date waits to be billed.
+    const orgId = await customer('cancel-passed-change', ['servers', 'dns']);
+    const startsAt = addMonths(today, -1);
+    const svc = await service(orgId, { module: 'dns', startsAt });
+    const endsAt = addDays(today, -1);
+    await cancel(svc.id, { endsAt: addDays(today, 5) });
+    await t.db.update(services).set({ endsAt }).where(eq(services.id, svc.id));
+
+    // Neither an end today (which would clear the billing date) nor a later date (a withdrawal).
+    for (const body of [{}, { endsAt: today }, { endsAt: '2099-12-31' }, { deactivateModule: true }]) {
+      const res = await cancel(svc.id, body);
+      expect(res.statusCode, JSON.stringify(body)).toBe(409);
+    }
+    expect(await load(svc.id)).toMatchObject({ status: 'active', nextBillingAt: startsAt, endsAt });
+    expect(await modulesOf(orgId)).toEqual(['servers', 'dns']);
+
+    // "Fällige Dienste abrechnen" bills the period up to the end date (the next one starts today), then
+    // the end step ends the service.
+    await generate(orgId, today);
+    expect(await billedPeriods(svc.id)).toEqual([{ start: startsAt, end: endsAt }]);
+    await job.endDue(today);
+    expect((await load(svc.id)).status).toBe('cancelled');
+  });
+
+  it('keeps a service the run skips until the seller clears its billing date', async () => {
+    // In another currency than the customer's: every run skips it, so the end step never may end it.
+    const orgId = await customer('cancel-currency', ['servers', 'dns']);
+    const startsAt = addMonths(today, -1);
+    const svc = await service(orgId, { module: 'dns', startsAt });
+    await t.db.update(services).set({ currency: 'EUR' }).where(eq(services.id, svc.id));
+    const endsAt = addDays(today, 3);
+    await cancel(svc.id, { endsAt, deactivateModule: true });
+    const later = addDays(endsAt, 30);
+    await job.runDue(later);
+    await job.endDue(later);
+    expect(await load(svc.id)).toMatchObject({ status: 'active', nextBillingAt: startsAt });
+    expect(await billedPeriods(svc.id)).toHaveLength(0);
+    expect(await modulesOf(orgId)).toEqual(['servers', 'dns']);
+
+    // The way out (docs/billing.md): billed by hand, the seller clears the billing date.
+    expect((await admin.patch(`/services/${svc.id}`, { nextBillingAt: null })).statusCode).toBe(200);
+    await job.endDue(later);
+    expect((await load(svc.id)).status).toBe('cancelled');
+    expect(await modulesOf(orgId)).toEqual(['servers']);
+  });
+
   it('lets only the seller cancel and withdraw', async () => {
     const platformService = await service(await customer('cancel-perms'));
     await cancel(platformService.id, { endsAt: addDays(today, 30) });

@@ -127,6 +127,7 @@ export const billingDe = {
   'billing.service.quantity': '× {quantity}',
   'billing.service.endsAt': 'Endet am {date}',
   'billing.service.cancelledPer': 'Gekündigt per {date}',
+  'billing.service.endWaitsForBilling': 'Gekündigt per {date}, endet, sobald bis dahin abgerechnet ist',
   'billing.service.moduleOffAtEnd': 'Modul «{module}» wird dann gesperrt',
   'billing.service.billedOnce': 'Abgerechnet',
 

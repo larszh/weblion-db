@@ -38,7 +38,7 @@ import { paginationQuery, parse } from '../../lib/validation';
 import { containsPattern } from '../../lib/like';
 import { loadOrg } from '../orgs/routes';
 import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockOrgBilling } from './ledger';
-import { endModule, moduleEndDetails } from './service-end';
+import { endModule, isScheduledEnd, moduleEndDetails } from './service-end';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
@@ -876,7 +876,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
    * running and is billed up to that day, the daily billing job ends it afterwards and only
    * then switches the module off (if chosen and no other running service has it). Today, an
    * earlier date or none ends it at once.
-   * Calling it again on a scheduled cancellation sets the new date and module choice.
+   * Calling it again on a scheduled cancellation sets the new date and module choice, until its
+   * end date has passed.
    */
   app.post('/services/:id/cancel', async (req) => {
     const { id } = parse(idParams, req.params);
@@ -893,6 +894,12 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       await lockOrgBilling(tx, service.orgId);
       const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
       if (!current || current.status === 'cancelled') throw conflict('The service is already cancelled');
+      // After the end date the service only waits to be ended, maybe for its last periods to be billed.
+      // Cancelling again would drop those periods (an end today clears the billing date) or reopen the
+      // service with a later date, which withdraw refuses for the same reason.
+      if (isScheduledEnd(current) && current.endsAt! < today) {
+        throw conflict('The end date of the cancellation has passed');
+      }
       const [row] = await tx
         .update(services)
         .set(
