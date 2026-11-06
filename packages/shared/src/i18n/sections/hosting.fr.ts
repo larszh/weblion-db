@@ -28,9 +28,9 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
     "Il n'existe plus, ou vous n'y avez pas accès. En cas de question, adressez-vous au propriétaire de votre organisation.",
   'hosting.moduleOff.title': "Le module {module} n'est pas activé",
   'hosting.moduleOff.text':
-    "Cette section n'est pas active pour votre organisation. Adressez-vous à votre fournisseur si vous souhaitez l'utiliser.",
+    "Cette section n'est pas active pour votre organisation. Adressez-vous à votre prestataire si vous souhaitez l'utiliser.",
   'hosting.moduleOff.staff':
-    "Le module n'est pas activé pour cette organisation. Vous ne voyez les données que parce que vous faites partie du personnel weblion.",
+    "Le module n'est pas activé pour cette organisation. Vous ne voyez les données que parce que vous faites partie du personnel de weblion.",
   'hosting.liveError.title': 'Données en direct indisponibles',
   'hosting.liveError.text':
     '{provider} est injoignable pour le moment. Les données affichées sont celles de la dernière synchronisation.',
@@ -52,7 +52,7 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.tab.dns': 'DNS',
   'hosting.domains.subtitle': "Vos domaines avec date d'expiration, serveurs de noms et enregistrements DNS.",
   'hosting.domains.search': 'Rechercher un domaine…',
-  'hosting.domains.empty': 'Aucun domaine pour le moment',
+  'hosting.domains.empty': "Aucun domaine pour l'instant",
   'hosting.domains.emptyText':
     "Dès qu'un domaine aura été enregistré ou transféré pour vous, il apparaîtra ici.",
   'hosting.domain.details': 'Détails',
@@ -133,7 +133,7 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.registrant.none': "Le registraire n'a pas indiqué de données sur le titulaire.",
   'hosting.renewal.title': 'Renouvellement',
   'hosting.renewal.text':
-    'Les renouvellements sont payants chez le registraire et sont donc réservés au personnel weblion.',
+    'Les renouvellements sont payants chez le registraire et sont donc réservés au personnel de weblion.',
   'hosting.renewal.staffOnly': 'Interne',
   'hosting.renewal.autoOnText':
     'Le registraire renouvelle le domaine avant son expiration et débite le compte weblion.',
@@ -286,7 +286,7 @@ export const hostingFr: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.dns.ph.MAILFW': 'reception@example.ch',
   'hosting.dns.ph.other': '',
   'hosting.webspaces.subtitle': 'Espaces web avec Plesk, boîtes e-mail et bases de données.',
-  'hosting.webspaces.empty': 'Aucun espace web pour le moment',
+  'hosting.webspaces.empty': "Aucun espace web pour l'instant",
   'hosting.webspaces.emptyText': "Dès qu'un espace web aura été configuré pour vous, il apparaîtra ici.",
   'hosting.res.domains': 'Domaines',
   'hosting.res.subdomains': 'Sous-domaines',

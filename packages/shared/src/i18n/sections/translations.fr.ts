@@ -89,7 +89,7 @@ export const translationsFr: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.check.emDash':
     'Contient un tiret cadratin. Veuillez utiliser une virgule, un deux-points ou des parenthèses.',
   'admin.i18n.check.typography':
-    'Espaces en français : espace insécable avant : et %, aucune espace avant ? ! ;',
+    'Espaces en français : espace insécable avant ":" et "%", aucune espace avant "?", "!" et ";"',
   'admin.i18n.check.content':
     'Contient des liens, des adresses e-mail ou des nombres absents du texte allemand.',
   'admin.i18n.ai.button': "Traduire avec l'IA",

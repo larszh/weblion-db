@@ -69,14 +69,14 @@ export const websitesFr: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.list.full': "Votre contingent est épuisé. Pour d'autres sites web, contactez-nous.",
   'websites.list.serverDown': 'Serveur injoignable',
   'websites.list.optionsError': 'Contingent indisponible',
-  'websites.list.empty': 'Aucun site web pour le moment',
+  'websites.list.empty': "Aucun site web pour l'instant",
   'websites.list.emptyText':
     'Créez le premier. Vous recevez un accès SFTP/SSH et, si vous le souhaitez, une base de données.',
   'websites.list.noAllowance': 'Aucun contingent de sites web',
   'websites.list.noAllowanceText':
     "Aucun contingent de sites web n'est configuré pour votre organisation. Adressez-vous à weblion.",
   'websites.list.noAllowanceReseller':
-    "Aucun contingent de sites web n'est configuré pour votre organisation. Adressez-vous à votre fournisseur {reseller}.",
+    "Aucun contingent de sites web n'est configuré pour votre organisation. Adressez-vous à votre prestataire {reseller}.",
   'websites.list.credentialsPending': 'Identifiants manquants : définissez un nouveau mot de passe.',
   'websites.allowance.title': 'Contingent de sites web',
   'websites.allowance.sites': 'Sites web',
