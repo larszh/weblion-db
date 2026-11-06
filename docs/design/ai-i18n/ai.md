@@ -568,8 +568,9 @@ Test cases of `packages/shared/src/ai.test.ts` (plan F6):
 3. `AI_FEATURES` has seven entries; `AI_FEATURE_EFFORT` is `medium` for assistant, dns_check, server_health,
    translations and `low` for the other three (plan decision 30).
 4. `aiCostMicros` per model for one million tokens of each kind: Opus 4,000,000 / 20,000,000 / 5,000,000 (cache
-   write) / 200,000 (cache read); Sonnet 2,000,000 / 10,000,000 / 2,500,000 / 200,000; Haiku 100,000 / 500,000 /
-   125,000 / 10,000.
+   write) / 200,000 (cache read); Sonnet 2,000,000 / 10,000,000 / 2,500,000 / 200,000; Haiku at its base rate 100,000
+   / 500,000 / 125,000 / 10,000 per million (one million input or cache tokens are long context, case 5, so the test
+   prices those three kinds below 100,000 tokens and scales; output alone stays at the base rate).
 5. Haiku long context: 150,000 input tokens cost 75,000 (0.50 per million, the whole call priced at the long-context
    rate because input plus cache tokens exceed 100,000); 100,000 input tokens cost 10,000.
 6. Rounding: one Haiku output token costs 1 (0.5 rounded up); zero tokens cost 0.

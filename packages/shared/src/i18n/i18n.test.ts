@@ -321,6 +321,37 @@ describe('check 10: legal keys', () => {
   });
 });
 
+describe('glossary', () => {
+  it('has unique terms (translation_glossary has a unique index on lower(term))', () => {
+    const lower = DEFAULT_GLOSSARY.map((g) => g.term.toLowerCase());
+    expect(lower.filter((term, i) => lower.indexOf(term) !== i)).toEqual([]);
+  });
+
+  it('keeps names without translations and translates every other term into all four languages', () => {
+    for (const entry of DEFAULT_GLOSSARY) {
+      if (entry.keep) expect(entry.translations, entry.term).toEqual({});
+      else expect(Object.keys(entry.translations).sort(), entry.term).toEqual([...TARGET_LOCALES].sort());
+    }
+    for (const name of ['Anthropic', 'Claude', 'Claude Opus 5.5', 'Claude Console', 'USD', 'CHF']) {
+      expect(DEFAULT_GLOSSARY.find((g) => g.term === name)?.keep, name).toBe(true);
+    }
+    expect(DEFAULT_GLOSSARY.find((g) => g.term === 'KI')?.translations).toEqual({
+      en: 'AI',
+      fr: 'IA',
+      it: 'IA',
+      nl: 'AI',
+    });
+  });
+
+  it('contains no sharp s and no em dash', () => {
+    for (const entry of DEFAULT_GLOSSARY) {
+      for (const text of [entry.term, entry.note ?? '', ...Object.values(entry.translations)]) {
+        expect(hasSharpS(text) || hasEmDash(text), text).toBe(false);
+      }
+    }
+  });
+});
+
 describe('check predicates', () => {
   it('finds placeholder and line break differences', () => {
     expect(placeholdersMatch('{a} von {b}', '{b} of {a}').ok).toBe(true);
@@ -369,27 +400,29 @@ describe('check predicates', () => {
 
   it('finds forbidden characters', () => {
     expect(hasSharpS('Grüsse')).toBe(false);
-    expect(hasSharpS('Grüße')).toBe(true);
+    expect(hasSharpS('Grü\u00DFe')).toBe(true);
     expect(hasEmDash('a, b')).toBe(false);
-    expect(hasEmDash('a — b')).toBe(true);
+    expect(hasEmDash('a \u2014 b')).toBe(true);
   });
 
   it('checks and fixes French spacing', () => {
-    expect(typographyProblems('Statut : actif, 12 %, voir https://x.ch, {count} ?')).toEqual([
+    expect(typographyProblems('Statut\u00A0: actif, 12\u00A0%, voir https://x.ch, {count}\u00A0?')).toEqual([
       'space before "?"',
     ]);
     expect(typographyProblems('Statut : 12 %')).toHaveLength(2);
     expect(typographyProblems('Vraiment ?')).toEqual(['space before "?"']);
     expect(typographyProblems('Vraiment?')).toEqual([]);
     expect(fixFrenchTypography('Statut : 12 % ! Oui ; non  ? https://x.ch')).toBe(
-      'Statut : 12 %! Oui; non? https://x.ch',
+      'Statut\u00A0: 12\u00A0%! Oui; non? https://x.ch',
     );
     expect(typographyProblems(fixFrenchTypography('A : b ? c ; d !'))).toEqual([]);
   });
 
   it('runs the hard checks everywhere and the soft checks for fr, it and nl', () => {
     const base = { key: 'x.y', glossary: DEFAULT_GLOSSARY };
-    expect(checkValue({ ...base, source: '{a} Server', value: 'Server — ß', locale: 'en' })).toEqual({
+    expect(
+      checkValue({ ...base, source: '{a} Server', value: 'Server \u2014 \u00DF', locale: 'en' }),
+    ).toEqual({
       hard: ['placeholders', 'sharpS', 'emDash'],
       soft: [],
     });

@@ -192,7 +192,7 @@ export function informalWord(value: string, locale: TargetLocale): string | null
   const text = value.replace(PLACEHOLDER_TOKEN, ' ');
   if (locale === 'fr') {
     // The elided form: t'inscrire, t'aider (not the n't of English loan words).
-    const elided = /(?<!\p{L})[tT]['’](?=\p{L})/u.exec(text);
+    const elided = /(?<!\p{L})[tT]['\u2019](?=\p{L})/u.exec(text);
     if (elided) return elided[0];
   }
   const informal = INFORMAL_WORDS[locale];
@@ -251,12 +251,12 @@ export function glossaryProblems(
 
 /** U+00DF (and its capital U+1E9E): Swiss spelling uses ss in every language (rule 7). */
 export function hasSharpS(value: string): boolean {
-  return /[ßẞ]/.test(value);
+  return /[\u00DF\u1E9E]/.test(value);
 }
 
 /** U+2014: never used anywhere (rule 8). */
 export function hasEmDash(value: string): boolean {
-  return value.includes('—');
+  return value.includes('\u2014');
 }
 
 // --- Checks 9 and 10: completeness, legal keys --------------------------------------------------
@@ -292,7 +292,7 @@ export function legalProblems(
 
 // --- Check 11: French typography ----------------------------------------------------------------
 
-const NBSP = ' ';
+const NBSP = '\u00A0';
 
 /** Placeholders and "://" never take part in the spacing rules. */
 function typographyMask(value: string): string {

@@ -295,7 +295,11 @@ export interface I18nCatalog {
   serverOnly: ReadonlySet<string>;
 }
 /** Defaults: SECTION_SOURCES and the 64 stamp files, imported statically as JSON. */
-export function buildCatalog(sources?: typeof SECTION_SOURCES, stamps?: StampFiles): I18nCatalog;
+/** Sections as buildCatalog takes them; SECTION_SOURCES fits, tests pass a few sections and locales only. */
+export type CatalogSources = Partial<Record<SectionName, Partial<Record<Locale, Readonly<Record<string, string | undefined>>>>>>;
+/** The 64 stamp files of the repository, checked to be pairs of hashes (the default of buildCatalog). */
+export function repositoryStamps(): StampFiles;
+export function buildCatalog(sources?: CatalogSources /* SECTION_SOURCES */, stamps?: Partial<StampFiles> /* repositoryStamps() */): I18nCatalog;
 /** buildCatalog() once, memoized. */
 export function loadCatalog(): I18nCatalog;
 ```
