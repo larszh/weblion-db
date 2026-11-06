@@ -19,6 +19,7 @@ import {
   exportUrl,
   useCleanupTranslations,
   useImportTranslations,
+  useRefreshConsoleTexts,
   useTranslationEntries,
   useTranslationSummary,
 } from '@/lib/api/i18n';
@@ -72,6 +73,15 @@ export function TranslationsPage() {
     setParams(new URLSearchParams(translationsQueryString(nextQuery(query, patch))), { replace: true });
   const summary = useTranslationSummary();
   const ai = summary.data?.ai;
+  const refreshTexts = useRefreshConsoleTexts();
+  // A job that ended while the overview polled: the console's own texts change too.
+  const activeJob = summary.data ? (summary.data.activeJob?.id ?? null) : undefined;
+  const lastJob = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (activeJob === undefined) return;
+    if (lastJob.current && activeJob === null) void refreshTexts();
+    lastJob.current = activeJob;
+  }, [activeJob, refreshTexts]);
   const canSuggest = canAi && !!ai?.available;
   const [translate, setTranslate] = useState<{
     narrowing: Pick<TranslationJobScope, 'area' | 'section' | 'q' | 'keys'>;

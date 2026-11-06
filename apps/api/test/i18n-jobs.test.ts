@@ -686,6 +686,44 @@ describe('i. transient errors', () => {
   });
 });
 
+describe('stops of plan 2.6', () => {
+  it('stops after three batches in a row that failed completely', async () => {
+    // A malformed request is not retried: the items of each batch fail at once.
+    answerWith(good, () => ({
+      error: { status: 400, type: 'invalid_request_error', message: 'bad request' },
+    }));
+    const job = await startJob(scopeOf({ locales: ['fr', 'it', 'nl', 'en'], keys: ['jobs.rename'] }));
+    await run();
+    const row = await jobRow(job.id);
+    expect(row).toMatchObject({ status: 'failed', done: 0, failed: 3 });
+    expect(row.error).toEqual({ code: 'ai_failed', message: 'Stopped: three batches in a row failed.' });
+    expect(mock.requests).toHaveLength(3);
+    expect(row.failures.map((f) => f.reason)).toEqual(['error', 'error', 'error']);
+  });
+
+  it('stops when the translations feature is switched off during the job', async () => {
+    const hold = gate();
+    answerWith(good, (_body, index) => (index === 0 ? { gate: hold.promise } : undefined));
+    const job = await startJob(scopeOf({ locales: ['fr', 'it'], keys: ['jobs.rename'] }));
+    await runner.tick();
+    await until(() => mock.requests.length === 1, 'the first batch');
+    await configureAi(admin, { features: { translations: false } });
+    hold.open();
+    await runner.whenIdle();
+    try {
+      const row = await jobRow(job.id);
+      expect(row).toMatchObject({ status: 'failed', done: 1 });
+      expect(row.error).toEqual({
+        code: 'ai_not_configured',
+        message: 'Stopped: AI was switched off during the job.',
+      });
+      expect(mock.requests).toHaveLength(1);
+    } finally {
+      await configureAi(admin);
+    }
+  });
+});
+
 describe('j. refusal and max_tokens', () => {
   it('isolates a refused item by halves and splits a cut-off answer without a same-size retry', async () => {
     answerWith(good, (body) =>
