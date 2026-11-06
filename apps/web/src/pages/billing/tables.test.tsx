@@ -63,6 +63,7 @@ describe('ServiceTable', () => {
             deactivateModuleAtEnd: true,
           }),
         ]}
+        today="2026-11-06"
       />,
     );
     expect(markup).toContain(scheduledLabel('2026-12-15'));
@@ -84,6 +85,23 @@ describe('ServiceTable', () => {
     const paused = html(<ServiceTable services={[service({ status: 'suspended', endsAt: '2026-12-15' })]} />);
     expect(paused).toContain(scheduledLabel('2026-12-15'));
     expect(paused).toContain(en['billing.serviceStatus.suspended']);
+  });
+
+  it('says that a service past its end date ends once its last period is billed', () => {
+    const waiting = service({ endsAt: '2026-11-26', nextBillingAt: '2026-11-01' });
+    const markup = html(<ServiceTable services={[waiting]} today="2026-11-27" />);
+    expect(markup).toContain(
+      escaped(en['billing.service.endWaitsForBilling'].replace('{date}', formatDay('2026-11-26', 'en'))),
+    );
+    // Before the end date, or once billed up to it, the usual label.
+    expect(html(<ServiceTable services={[waiting]} today="2026-11-26" />)).toContain(
+      scheduledLabel('2026-11-26'),
+    );
+    const billed = html(
+      <ServiceTable services={[{ ...waiting, nextBillingAt: '2026-12-01' }]} today="2026-11-27" />,
+    );
+    expect(billed).toContain(scheduledLabel('2026-11-26'));
+    expect(billed).not.toContain(escaped(en['billing.service.endWaitsForBilling'].split('{date}')[1]!));
   });
 
   it('shows neither label without a cancellation and only the end date once it ended', () => {

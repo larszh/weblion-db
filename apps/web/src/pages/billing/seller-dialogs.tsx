@@ -840,7 +840,12 @@ export function CancelServiceDialog({
         <Field
           label={t('billing.service.endsAt.label')}
           htmlFor="cs-ends"
-          hint={`${t('billing.service.endsAtHint')} ${t('billing.service.endsAtLaterHint')}`}
+          hint={
+            // Prefilled with the scheduled date, "today by default" would not be true.
+            scheduled
+              ? t('billing.service.endsAtLaterHint')
+              : `${t('billing.service.endsAtHint')} ${t('billing.service.endsAtLaterHint')}`
+          }
         >
           <Input id="cs-ends" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
         </Field>

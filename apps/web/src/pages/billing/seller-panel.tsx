@@ -56,7 +56,7 @@ import {
   GenerateDialog,
 } from './seller-dialogs';
 import { formatDay, todayISO } from './money';
-import { scheduledEndOf } from './service-end';
+import { endPassed, scheduledEndOf } from './service-end';
 import { SummaryCards, SummarySkeleton } from './summary';
 import { CreditTable, InvoiceTable, ServiceTable } from './tables';
 
@@ -193,12 +193,6 @@ function InvoicesSection({
   );
 }
 
-/** A scheduled cancellation can be withdrawn until its end date; afterwards the job only has to end the service. */
-function withdrawable(service: ServiceDto): boolean {
-  const end = scheduledEndOf(service);
-  return !!end && end >= todayISO();
-}
-
 function ServicesSection({
   customer,
   canWrite,
@@ -308,14 +302,22 @@ function ServicesSection({
                           {t('billing.service.resume')}
                         </MenuItem>
                       )}
-                      <MenuSeparator />
-                      <MenuItem icon={<Ban />} danger onSelect={() => setCancelling(s)}>
-                        {scheduledEndOf(s) ? t('billing.service.changeCancel') : t('billing.service.cancel')}
-                      </MenuItem>
-                      {withdrawable(s) && (
-                        <MenuItem icon={<Undo2 />} onSelect={() => setWithdrawing(s)}>
-                          {t('billing.service.withdrawCancel')}
-                        </MenuItem>
+                      {/* A scheduled cancellation can be changed or withdrawn until its end date (the API
+                          refuses both afterwards), then the service only waits to be ended. */}
+                      {!endPassed(s, todayISO()) && (
+                        <>
+                          <MenuSeparator />
+                          <MenuItem icon={<Ban />} danger onSelect={() => setCancelling(s)}>
+                            {scheduledEndOf(s)
+                              ? t('billing.service.changeCancel')
+                              : t('billing.service.cancel')}
+                          </MenuItem>
+                          {scheduledEndOf(s) && (
+                            <MenuItem icon={<Undo2 />} onSelect={() => setWithdrawing(s)}>
+                              {t('billing.service.withdrawCancel')}
+                            </MenuItem>
+                          )}
+                        </>
                       )}
                     </Menu>
                   )

@@ -64,7 +64,12 @@ Diensten mit demselben Modul kann es also erst der sperren, der zuletzt endet.
 Eine vorgemerkte Kündigung lässt sich bis zum Enddatum ändern (nochmals kündigen, mit heute endet der
 Dienst sofort) oder mit "Kündigung zurücknehmen" aufheben (`POST /services/:id/cancel/withdraw`,
 Audit-Eintrag `service.cancel_withdraw`). Die Abrechnung geht dann mit der Periode nach dem alten
-Enddatum weiter. Ein beendeter Dienst lässt sich nicht mehr ändern. Gutschriften für Perioden, die
+Enddatum weiter. Nach dem Enddatum lehnen beide Routen ab (409), auch wenn der Dienst noch auf die
+Abrechnung seiner letzten Periode wartet: Eine neue Kündigung würde diese Periode verwerfen oder den
+Dienst wieder öffnen. Die Tabelle zeigt einen solchen Dienst als "Gekündigt per ..., endet, sobald bis
+dahin abgerechnet ist". Lässt sich die Periode nicht automatisch abrechnen (andere Währung), stellt der
+Verkäufer sie von Hand in Rechnung und leert unter "Bearbeiten" die nächste Rechnung; danach beendet
+der Job den Dienst. Ein beendeter Dienst lässt sich nicht mehr ändern. Gutschriften für Perioden, die
 schon über das Enddatum hinaus verrechnet sind (etwa ein Jahresdienst), entstehen nicht von selbst.
 
 ### Domain-Verlängerungen

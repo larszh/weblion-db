@@ -115,6 +115,7 @@
   "billing.service.quantity": ["e4d3344d124c6e9c", "e4d3344d124c6e9c"],
   "billing.service.endsAt": ["b5121dd2b4a7f5d8", "c11f88a4e97f821d"],
   "billing.service.cancelledPer": ["ddb345ae2358ae69", "60faf2d6efc85698"],
+  "billing.service.endWaitsForBilling": ["380e5ff151ed9904", "afb355fef52a5b50"],
   "billing.service.moduleOffAtEnd": ["64902816b83ee9da", "9e97cc73df9fe503"],
   "billing.service.billedOnce": ["3cbcdc31e8dd5353", "b3a9f29f68ac9c39"],
   "billing.invoice.title": ["cad9b303737f9f8f", "46bb2fa98e111e6f"],
