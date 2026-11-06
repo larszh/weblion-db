@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { DEMO_JSON } from './demo';
+import { auditSummaryOutput } from './features/audit-summary';
+import { dnsCheckOutput } from './features/dns-check';
+import { explainOutput } from './features/explain';
+import { productTextsOutput } from './features/product-texts';
+import { serverHealthOutput } from './features/server-health';
 import { toStrictJsonSchema } from './schema';
+import { AI_TOOLS } from './tools/registry';
 
 describe('toStrictJsonSchema', () => {
   it('closes every object and requires every property, nested ones too', () => {
@@ -136,5 +143,66 @@ describe('toStrictJsonSchema', () => {
       required: ['items'],
       additionalProperties: false,
     });
+  });
+
+  it('converts every tool input and every feature output schema of the module', () => {
+    for (const tool of AI_TOOLS) expect(() => toStrictJsonSchema(tool.input), tool.name).not.toThrow();
+    for (const schema of [
+      explainOutput,
+      dnsCheckOutput,
+      auditSummaryOutput,
+      serverHealthOutput,
+      productTextsOutput,
+    ]) {
+      expect(() => toStrictJsonSchema(schema)).not.toThrow();
+    }
+  });
+
+  it('the demo answers match the feature output schemas (ai 14)', () => {
+    const ctx = '<context>\nlanguage: de\n</context>';
+    const block = (kind: string, value: unknown) =>
+      `${ctx}\n\n<third_party kind="${kind}">\n${JSON.stringify(value)}\n</third_party>`;
+    expect(
+      explainOutput.safeParse(DEMO_JSON.explain('de', block('error', { status: 500, code: 'x' }))).success,
+    ).toBe(true);
+    expect(explainOutput.safeParse(DEMO_JSON.explain('en', ctx)).success).toBe(true);
+    const dns = DEMO_JSON.dns_check(
+      'de',
+      block('dns', {
+        expected: [
+          { key: 'mx', type: 'MX', name: '@', data: '10 mail.example.ch', status: 'ok', required: true },
+          {
+            key: 'dmarc',
+            type: 'TXT',
+            name: '_dmarc',
+            data: 'v=DMARC1; p=none',
+            status: 'missing',
+            required: false,
+          },
+        ],
+      }),
+    );
+    expect(dnsCheckOutput.parse(dns).proposals).toHaveLength(1);
+    expect(
+      auditSummaryOutput.safeParse(
+        DEMO_JSON.audit_summary(
+          'de',
+          block('audit_entries', { entries: [{ id: '1', action: 'a.b', status: 'failure' }] }),
+        ),
+      ).success,
+    ).toBe(true);
+    expect(
+      serverHealthOutput.safeParse(
+        DEMO_JSON.server_health('de', block('server_data', { metrics: { series: { cpu: { max: 90 } } } })),
+      ).success,
+    ).toBe(true);
+    expect(
+      productTextsOutput.safeParse(
+        DEMO_JSON.product_texts(
+          'de',
+          block('product_draft', { mode: 'write', name: 'P', languages: ['de', 'fr'] }),
+        ),
+      ).success,
+    ).toBe(true);
   });
 });
