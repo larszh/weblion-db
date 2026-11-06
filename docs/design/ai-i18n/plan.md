@@ -1473,7 +1473,240 @@ the chance is negligible, as for the existing hashed locks.
 
 ## 4. Permissions, roles, audit actions, rate limits
 
-> Being restored.
+### 4.1 Permissions (`packages/shared/src/permissions.ts`, group `ai` after `monitoring`)
+
+F5 removes the labels (O3, i18n 3.3): `PermissionDef` loses `label`, `def(group, extra)` takes no texts, and every
+label becomes the `core` key `perm.<action>`. Today 93 actions; F adds 5, so 98 (and 98 `perm.*` keys).
+
+```ts
+export type PermissionGroup = /* ... */ | 'media' | 'monitoring' | 'ai' | 'billing' | 'reseller' | 'platform';
+
+export interface PermissionDef {
+  group: PermissionGroup;
+  /** Destructive or cost relevant. The UI asks for confirmation and highlights these. */
+  dangerous?: boolean;
+  /** Only meaningful for weblion staff, never granted through organization roles. */
+  platform?: boolean;
+}
+const def = (group: PermissionGroup, extra: Partial<Pick<PermissionDef, 'dangerous' | 'platform'>> = {}): PermissionDef =>
+  ({ group, ...extra });
+
+export const PERMISSIONS = {
+  // ... Monitoring (module "monitoring", Uptime Kuma) as today, then:
+
+  // AI (Claude): use the AI features on the organization's data, and decline or allow them
+  'ai:use': def('ai'),
+  'ai:settings': def('ai'),
+
+  // ... Billing, Reseller as today; Platform as today, then at its end:
+  'platform:ai:use': def('platform', { platform: true }),
+  'platform:i18n:read': def('platform', { platform: true }),
+  'platform:i18n:write': def('platform', { platform: true, dangerous: true }),
+} as const satisfies Record<string, PermissionDef>;
+
+export const PERMISSION_GROUPS: PermissionGroup[] = [
+  'organization', 'members', 'security', 'projects', 'servers', 'backups', 'snapshots', 'networking', 'domains',
+  'webhosting', 'storage', 'mail', 'phone', 'media', 'monitoring', 'ai', 'billing', 'reseller', 'platform',
+];
+```
+
+| Action | Group | Flags | `perm.<action>` de | en |
+|---|---|---|---|---|
+| `ai:use` | `ai` | | KI-Funktionen verwenden | Use AI features |
+| `ai:settings` | `ai` | | KI-Funktionen für die Organisation ablehnen oder erlauben | Decline or allow AI features for the organization |
+| `platform:ai:use` | `platform` | `platform` | KI-Funktionen in der Verwaltung verwenden | Use AI features in the admin area |
+| `platform:i18n:read` | `platform` | `platform` | Übersetzungen ansehen | View translations |
+| `platform:i18n:write` | `platform` | `platform`, `dangerous` (AI costs money; every edit is live for everyone at once) | Übersetzungen bearbeiten und mit KI übersetzen | Edit translations and translate them with AI |
+
+`perm.group.ai` (core): KI / AI. No new module: AI is not a service module (`MODULES` and `MODULE_DEFS` stay as they
+are, apart from losing their labels), it is switched per organization by the columns of 3.1.
+
+**Grants** (`packages/shared/src/roles.ts`, checked against the file at `c6c51ad`). `READ_ACTIONS` (`roles.ts:19`) is
+shared by member, viewer, support and the read token scope, so `ai:use` is added to the named statements, never to
+`READ_ACTIONS`:
+
+| Role | `ai:use` | `ai:settings` | `platform:ai:use` | `platform:i18n:read` | `platform:i18n:write` | Change |
+|---|---|---|---|---|---|---|
+| owner | yes | yes | | | | none: `OwnerFullAccess` `*` |
+| admin | yes | yes | | | | none: `AdminFullAccess` `*` minus `AdminNoOrgDelete` (`org:delete`, `billing:write`) |
+| member | yes | no | | | | `'ai:use'` appended to `MemberOperate` (`roles.ts:48`) |
+| viewer | yes | no | | | | `'ai:use'` appended to `ReadOnly` (`roles.ts:76`; plan decision 20) |
+| restricted ("Eingeschränkt") | no | no | | | | none; grantable by a custom policy |
+| billing ("Buchhaltung") | no | no | | | | none (`org:read`, `billing:*`); grantable by a custom policy |
+| superadmin | yes | yes | yes | yes | yes | none: `SuperAdmin` `*` |
+| support | yes | no | yes | yes | no | `'ai:use'`, `'platform:ai:use'`, `'platform:i18n:read'` appended to `SupportRead` (`roles.ts:84`) |
+
+Platform roles may not be granted to organization members (`platform: true`), and `can()` refuses every
+`platform:*` action outside `PLATFORM_ROLE_POLICIES` (`packages/shared/src/access.ts:59`).
+
+**Boundaries.** `DEFAULT_CUSTOMER_BOUNDARY`, `DEFAULT_RESELLER_BOUNDARY` and `DEFAULT_INTERNAL_BOUNDARY` allow
+`ai:use` and `ai:settings` through `Everything` `*`; `platform:*` stays denied in all three. An organization whose
+boundary an admin narrowed to an explicit list without `ai:*` has no AI, as for any other action. The switches of
+3.1 reach the engine through `effectiveBoundary` (`apps/api/src/auth/access.ts:164-170`, F14, ai 3.4):
+
+```ts
+const SUSPENDED_ALLOWED = [...READ_ONLY, 'billing:*', 'reseller:customer:access', 'ai:settings']; // access.ts:35
+
+export function effectiveBoundary(
+  org: Pick<Organization, 'boundary' | 'status' | 'modules' | 'aiEnabled' | 'aiOptOutAt'>,
+  suspendedAllowed: string[] = SUSPENDED_ALLOWED,
+): PolicyStatement[] {
+  const base = org.status === 'suspended' ? suspendedBoundary(org.boundary, suspendedAllowed) : org.boundary;
+  return [...base, ...moduleDenyStatements(org.modules), ...aiDenyStatements(org)];
+}
+```
+
+`aiDenyStatements` (2.3) denies only `ai:use` (`sid: 'AiNotAllowed'`) while `ai_enabled` is false or `ai_opt_out_at`
+is set; `ai:settings` is never denied, so a customer can always withdraw a decline. Through the parent boundary
+(`apps/api/src/auth/access.ts:84`) a reseller that is off or declined denies `ai:use` in every customer. The
+suspended reseller variant (`effectiveBoundary(parent, READ_ONLY)`, `apps/api/src/auth/access.ts:100`) gets no
+`ai:settings`. Platform staff pass `can()` before any boundary (`packages/shared/src/access.ts:55`), so the
+switches stop staff only through `ctx.ai.assertOrgData(orgId)` (4.2).
+
+**API tokens.** `TOKEN_SCOPE_POLICIES.read` gets nothing new; `read_write` covers `ai:*` through `*`, but every AI
+route and every i18n route except A1 calls `requireSession` (`apps/api/src/auth/access.ts:44`), so tokens get 403 there (the tool layer replays
+the session cookie, ai 8.1). The policy validator accepts `ai:*` patterns once the actions exist.
+
+**Shared test** (`packages/shared/src/access.test.ts`, F9): as listed there, plus member and viewer have `ai:use`,
+restricted and billing do not; support has `ai:use`, `platform:ai:use`, `platform:i18n:read` and not
+`platform:i18n:write`; `platform:ai:use` is never allowed through an organization role.
+
+### 4.2 Gates per area
+
+Every route checks a permission; an invisible organization or resource is 404 (`loadOrg`, `ConsoleReader.owned`,
+O26). Order of checks inside a route: session, body, organization, availability, permission, organization state,
+reservation, so a refusal is always the first one that applies.
+
+**AI routes** (ai 4.1, 5.4, 5.5, 9.1, 10):
+
+| Area | Routes | Gate in order | Refusals |
+|---|---|---|---|
+| Status | `GET /ai/status` | `requireAuth` | 401 |
+| KI page | `GET`, `PUT /admin/ai/settings`; `PUT`, `DELETE /admin/ai/key`; `POST /admin/ai/test`; `GET /admin/ai/usage`; `GET /admin/ai/errors` | `requireSession`; `platform:settings` on `platformScope` | 403 `forbidden`; 400 `bad_request`, `ai_admin_key`; never `assertFeature` (works while AI is off) |
+| Organization card | `GET /orgs/:orgId/ai`, `PUT /orgs/:orgId/ai/decline` | `requireSession`; `loadOrg`; `ai:settings` on `orgScope(orgId)` | 404; 403; works while suspended (4.1) and while the platform is off (O27) |
+| Admin customer card | `GET /admin/orgs/:orgId/ai`; `PUT /admin/orgs/:orgId/ai` | `requireSession`; `platform:org:read`; `PUT`: `platform:org:write` | 403, 404 |
+| Reseller customer card | `GET`, `PUT /orgs/:orgId/customers/:customerId/ai` | `requireSession`; `loadOrg` and `kind = 'reseller'` (else 404); `reseller:customer:read`, `PUT`: `reseller:customer:write`; the customer's `parent_org_id = orgId` (else 404), the pattern of `loadReseller`/`loadCustomer` (`modules/reseller/routes.ts:103-117`) | 404, 403, 409 `ai_platform_locked`, 409 `ai_reseller_blocked` |
+| Organization features and chat | `POST /orgs/:orgId/ai/chat`, `/explain`, `/dns-check`, `/audit-summary`, `/server-health`, `/product-texts` | `requireSession`; body; `loadOrg`; `ctx.ai.assertFeature(feature)`; `aiRequestGate` (`modules/ai/gates.ts`, ai 9.1): member or reseller staff: `aiOrgState(org, parent).enabled`, then `ai:use` on `orgScope`; platform staff: `ai:use` and `platform:ai:use`, then `assertOrgData(orgId)`; then the feature's own permission (`audit:read` for the audit summary; `product-texts`: reseller organization and `reseller:billing`; the others through the routes `ConsoleReader` calls: `server:metrics`, `domain:read`, `mail:read`, ...); `ctx.ai.reserve()` | 404 (AI or feature off, resource invisible); 403 `ai_org_disabled`; 403 `forbidden`; 429 `ai_limit` |
+| Admin features | `POST /admin/ai/explain`, `/admin/ai/audit-summary`, `/admin/ai/product-texts` | `requireSession`; body; `assertFeature`; `platform:ai:use`; the source's permission (`explain`: `audit` `platform:audit:read`, `provider` `platform:provider:read`, `mail_log` `platform:settings`; audit summary `platform:audit:read`; product texts `platform:billing:write`); `assertOrgData` for every organization whose data is read (also `resourceId` of `resourceType = 'org'`, ai 10.1); `reserve()` | 404, 403 `forbidden`, 403 `ai_org_disabled`, 429 |
+
+**i18n routes** (i18n 11.1, 13, 14; O10). `platformScope` throughout:
+
+| Area | Routes | Gate | Refusals |
+|---|---|---|---|
+| Public overrides | A1 `GET /i18n/overrides/:locale` | none (the login page needs it) | 404 for an unknown locale |
+| Read | A2, A3, A9, A13, A16 (export); B4, B5 (jobs) | `requireSession`; `platform:i18n:read` | 403 |
+| Write without AI | A4 to A8, A10 to A12, A14, A15; B6 (cancel) | `requireSession`; `platform:i18n:write` | 403; the i18n codes of 2.10 |
+| AI | B1 (suggest), B2 (estimate), B3 (start), B7 (retry) | `requireSession`; `platform:i18n:write` and `platform:ai:use`; `ctx.ai.availability('translations')`, not available -> 409 `ai_not_configured` `{ reason }` (`aiNotConfigured`, 2.4) | 403; 409; B1: `countRate` and the codes of the call; B3, B7: 429 `ai_limit` budget, 409 `estimate_changed`, `job_running`, `nothing_to_translate` |
+
+Manual editing, import and export work while AI is off (O10). The runner (i18n 12.8) acts for the starter and
+checks no permission at run time; a starter who loses the permission meanwhile does not stop a running job.
+
+**Other API changes**: `PATCH /auth/me` (`requireSession`, own profile, `locale`), the invite accept (`locale` of the
+new account), `POST /admin/users` (`platform:user:write`, `locale`), the billing profile routes (`billing:write`,
+`platform:billing:write` as today, `locale`), the product routes (`assertCatalog`, `modules/billing/routes.ts`, as
+today, `translations`) keep their gates; only their bodies grow (F18, 2.7).
+
+**Web** (hides what the API would refuse; the API gate is the authority):
+
+| What | Shown when |
+|---|---|
+| Nav "KI" (`/admin/ai`) | `me.platformPermissions` includes `platform:settings` (O16) |
+| Nav "Übersetzungen" (`/admin/translations`) | `platform:i18n:read` |
+| Translation admin write controls (cell editor, glossary editing, style notes, import, cleanup, cancel) | `platform:i18n:write` |
+| "Mit KI übersetzen", "KI-Vorschlag" | `platform:i18n:write`, `platform:ai:use` and `summary.ai.available` (demo included); otherwise the dialog explains why (`admin.i18n.ai.featureOff`, `notConfigured`) |
+| Assistant launcher | `useAiLauncherVisible()` (2.9) |
+| Organization feature buttons | `useAiStatus()` available with the feature, `can('ai:use')`, and the feature's permission |
+| Admin feature buttons | the same with `platform:ai:use` and the source's platform permission |
+| "Mit KI erklären" on toasts and error boxes | `explainAvailable(err)` (2.9) |
+| `OrgAiCard` | `can('ai:settings')`, whatever the platform state (O27) |
+| `AdminAiCard` | `platform:org:read`; the switch with `platform:org:write` |
+| `ResellerAiCard` | `reseller:customer:read`; the switch with `reseller:customer:write` |
+| Language pickers, flags, billing language | everyone who sees the page today (no new permission) |
+
+### 4.3 Audit actions (all through `ctx.audit.record`, secrets never in details)
+
+`ctx.audit.record(req, entry)` (`apps/api/src/audit.ts:23-48`) writes with its own database handle and never throws,
+so routes record after their transaction committed. `req = null` for system entries (actor from
+`actorUserId`/`actorName`, no IP). Never in details: the API key or any part or hash of it, `ENCRYPTION_KEY`,
+provider credentials, prompts, answers, tool inputs or results, Anthropic's error text (it stays redacted in
+`ai_usage.error_message`). AI feature and chat requests change nothing and are not audit entries; `ai_usage` records
+them (ai 5.6). Text values in i18n details are cut to 300 characters.
+
+**AI** (U3 except where F is named):
+
+| Action | Route or trigger | `orgId`, resource | Details |
+|---|---|---|---|
+| `ai.settings_update` | `PUT /admin/ai/settings` (F) | null, `settings` / `ai` | changed fields `{ field: { from, to } }`; on the off -> on switch also `goLive: { announcedOn, contracts, transferBasis, noticeChecked, workspaceChecked }`; `noticeChecked: true` when the notice was marked checked |
+| `ai.key_update` | `PUT /admin/ai/key` (F) | null, `settings` / `ai_key` | `{ source: 'ui', replaced: boolean, demoOverridesDeleted: number }` |
+| `ai.key_delete` | `DELETE /admin/ai/key` (F) | null, `settings` / `ai_key` | `{ envFallback: boolean }` |
+| `ai.test` | `POST /admin/ai/test` (F) | null, `settings` / `ai` | `{ model, reason }`; status `success` or `failure` |
+| `ai.org_switch` | `PUT /admin/orgs/:orgId/ai` | the customer, `org` / customer id | `{ enabled, by: 'platform' }` |
+| `ai.org_switch` | `PUT /orgs/:orgId/customers/:customerId/ai` | two entries: the reseller (`org` / customer id, like `reseller.customer_update`) and the customer (`org` / customer id) | `{ enabled, by: 'reseller' }` |
+| `ai.org_decline`, `ai.org_allow` | `PUT /orgs/:orgId/ai/decline` | the organization, `org` / its id | `{ declined }` |
+| `ai.budget_warning` | `checkBudgetWarning` (`req = null`, `actorName: 'AI budget'`) | null, `settings` / `ai_budget_notice` | `{ month, percent, spentMicros, budgetMicros }` |
+| `ai.budget_exhausted` | the same | null, `settings` / `ai_budget_notice` | `{ month, spentMicros, budgetMicros }` |
+
+**i18n** (U1; i18n 11.2): `orgId` null, `resourceType: 'translation'` with `resourceId: '<locale>:<key>'` for cells,
+`'glossary'` (id), `'translation_job'` (id) or `'settings'` (`i18n_style`) otherwise.
+
+| Action | Route | Details |
+|---|---|---|
+| `i18n.override_update` | A4 | `{ key, locale, origin: 'manual', reviewed, before, after, typographyFixed }` |
+| `i18n.override_revert` | A5 | `{ key, locale, origin, before }` |
+| `i18n.override_review` | A6 | `{ key, locale, reviewed }` |
+| `i18n.override_confirm` | A7 | `{ key, locale }` |
+| `i18n.cleanup` | A8 (not for `dryRun`) | `{ orphans, sameAsCompiled, demo, deleted }` |
+| `i18n.glossary_create`, `i18n.glossary_update`, `i18n.glossary_delete` | A10, A11, A12 | `{ id, term, keep, changed }` |
+| `i18n.style_update` | A14 | `{ locale, length }` |
+| `i18n.import` | A15 (not for dry runs) | `{ locales, created, updated, unchanged, skipped, replaceManual, markReviewed }` |
+| `i18n.job_start` | B3 | `{ jobId, locales, keys, estimateMicros, replaceManual, demo, model }` |
+| `i18n.job_cancel` | B6 | `{ jobId, status }` |
+| `i18n.job_retry` | B7 | `{ jobId, retryOf, keys }` |
+| `i18n.job_finish` | runner (`req = null`, `actorUserId` = starter, `actorName: 'Translation job'`) | `{ jobId, status, done, failed, skipped, costMicros, error }` |
+
+Not audited: reads, exports, B1 suggestions and B2 estimates (their AI calls leave `ai_usage` rows).
+
+**Existing actions that change** (U2 unless noted): new `auth.profile_update` for `PATCH /auth/me` (`resourceType:
+'user'`, `{ changed: ('name' | 'locale')[], locale }`); `billing.profile_update` details carry `locale` (they record
+the body today, `modules/billing/routes.ts:382, 582`); `user.create` (`modules/admin/routes.ts:1523`) and the
+invitation accept record the new account's `locale`; `product.create` adds `translations: TargetLocale[]` (the
+locales filled) and `product.update` records the body as today, `translations` included (U4 sends it; the route is
+F18's).
+
+### 4.4 Rate limits
+
+**HTTP limits** (`@fastify/rate-limit`, global 600 per minute per address, `apps/api/src/app.ts:106`):
+
+| Route | Limit | How |
+|---|---|---|
+| A1 `GET /i18n/overrides/:locale` | 120 per minute per address | route config `config: { rateLimit: { max: 120, timeWindow: '1 minute' } }` (the pattern of `loginRateLimit`, `modules/auth/routes.ts:24`) |
+| `POST /admin/ai/test` | 10 per minute per address | route config |
+| A15 import, A16 export | 10 per minute per person, each | `app.createRateLimit({ max: 10, timeWindow: '1 minute', keyGenerator: (req) => \`i18n-import:${req.auth!.user.id}\` })` (and `i18n-export:`), counted in the handler after the permission check, 429 `rate_limited` with `retry-after` (the pattern of `modules/media/routes.ts:814-831`) |
+| everything else, the chat and B1 to B7 included | global | |
+
+**AI limits** (checked against `ai_usage` in the database by `reserve()`, so they hold across processes; 429
+`ai_limit` with `details.limit` and `Retry-After` when known; ai 7.1):
+
+| Kind | Limit | Applies to | Setting or constant |
+|---|---|---|---|
+| `budget` | spent + reserved + estimate above the monthly budget (Europe/Zurich month); 0 refuses all | every request, Mass Translate batches included (O9, O22) | `ai.budgetUsd` (100) |
+| `concurrent` | 6 live requests on the platform | every request | `AI_LIMITS.platformConcurrent` |
+| `org_concurrent` | 3 live requests of an organization | scope `org` | `AI_LIMITS.orgConcurrent` |
+| `org_daily` | requests of an organization today (Europe/Zurich) | scope `org` | `ai.dailyOrgLimit` (200) |
+| `user_concurrent` | 2 live requests of a person | `countsForUser` | `AI_LIMITS.userConcurrent` |
+| `user_rate` | 12 requests of a person in 60 seconds | `countsForUser` | `AI_LIMITS.userPerMinute` |
+| `user_daily` | requests of a person today | `countsForUser` | `ai.dailyUserLimit` (50) |
+
+A row is live while `status = 'running'` and younger than `AI_TURN_TIMEOUT_SECONDS + 60` seconds (O29). Staff
+requests on a customer's data (scope `staff`) count for the staff member and in the customer's usage, not against
+the customer's organization limits. Mass Translate batches (`countsForUser: false`) meet only `budget` and
+`concurrent` and run at most `I18N_AI_CONCURRENCY` (default 2) at a time. B1 calls `countRate({ userId })` once
+before its calls. Beyond the reservation (ai 6.4, 7.1, O29): per chat turn at most 8 API calls, 24 tool calls, 8 live
+tool calls, 120,000 tool-result characters and 5 x the turn's estimate; `budgetExceeded()` after every chat API call;
+30 live reads per organization and minute (`liveReadAllowed`, per process); a translation job stops at 1.5 x its
+estimate and is refused at start when the estimate rose more than 25 percent (i18n 12.6).
+
+---
 
 ## 5. Foundation (F)
 
