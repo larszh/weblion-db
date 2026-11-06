@@ -119,7 +119,7 @@ Claude API, webhook, and endpoint (the term Stripe's French dashboard uses).
    The participles after `{email}` and `{name}` use the masculine.
 6. **Button and label length.** A few short labels are more than a third longer than German but within check 5.
    `nav.platform` and `nav.logout` are fixed by the glossary. The others are `status.stopping` "Arrêt en cours",
-   `tab.rescale` "Redimensionnement", `settings.protect.*` "Verrou de ...", `power.more`,
+   `tab.rescale` "Redimensionnement", `settings.protect.*` "Verrou de ...",
    `providers.joker.useLive` and the empty-state titles "Aucun ... pour l'instant". Please check them at 390 px
    (plan 8.5).
 7. **Glossary check for "Tokens" (suggestion, not my file).** The AI term "Tokens" also matches "API-Tokens" (6
