@@ -29,7 +29,8 @@ const pageRef = z.object({
     .regex(/^\/(o|admin)(\/[^\s]*)?$/),
   title: z.string().max(200).nullable(),
 });
-const auditId = z.string().regex(/^\d{1,18}$/);
+/** Audit ids are bigserial; 15 digits stay exact as a JavaScript number. */
+const auditId = z.string().regex(/^\d{1,15}$/);
 
 /** The browser's ApiError: message at most 2,000 characters, details at most 4,000 as JSON (ai 10.1). */
 const errorSource = z.object({
