@@ -3,7 +3,7 @@ import type { pdfDe } from './pdf.de';
 export const pdfFr: Partial<Record<keyof typeof pdfDe, string>> = {
   'pdf.invoice.title': 'Facture {number}',
   'pdf.invoice.draftTitle': 'Projet de facture',
-  'pdf.invoice.subject': 'Facture pour {org}',
+  'pdf.invoice.subject': 'Facture adressée à {org}',
   'pdf.invoice.draftMark': 'PROJET',
   'pdf.invoice.filename': 'Facture-{number}.pdf',
   'pdf.invoice.draftFilename': 'Projet-de-facture-{id}.pdf',

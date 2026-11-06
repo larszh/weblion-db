@@ -104,7 +104,7 @@ export const phoneFr: Partial<Record<keyof typeof phoneDe, string>> = {
   'phone.user.welcomeSent': 'E-mail de bienvenue envoyé à {email}',
   'phone.user.welcomeNoEmail': "L'utilisateur n'a pas d'adresse e-mail.",
   'phone.user.emailLocked':
-    "Seules les personnes autorisées à gérer les accès de la téléphonie peuvent modifier l'adresse e-mail.",
+    "Seules les personnes autorisées à gérer les identifiants de la téléphonie peuvent modifier l'adresse e-mail.",
   'phone.user.emailLockedProtected': "Seul weblion.one peut modifier l'adresse e-mail de cet utilisateur.",
   'phone.user.protectedHint':
     'Seul weblion.one peut supprimer les administrateurs et les utilisateurs système du central téléphonique.',
@@ -243,7 +243,7 @@ export const phoneFr: Partial<Record<keyof typeof phoneDe, string>> = {
   'phone.admin.unassignedDone': 'Attribution de {name} retirée',
   'phone.admin.openInConsole': 'Ouvrir dans la console',
   'providers.threecx.help':
-    "3CX V20 avec licence Enterprise. Dans l'administration 3CX, sous Intégrations > API, créer un client API dédié uniquement à weblion.one : choisir un ID client, activer \"XAPI Access Enabled\", choisir le groupe par défaut et le rôle System Admin. 3CX n'affiche la clé API qu'une seule fois.",
+    "3CX V20 avec licence Enterprise. Dans l'administration 3CX, sous Intégrations > API, créez un client API réservé à weblion.one : choisissez un ID client, activez \"XAPI Access Enabled\", sélectionnez le groupe par défaut et le rôle System Admin. 3CX n'affiche la clé API qu'une seule fois.",
   'providers.threecx.url': 'Adresse du central téléphonique',
   'providers.threecx.urlHint':
     "https://… avec le port s'il ne s'agit pas du 443, p. ex. https://exemple.3cx.ch. Vos clients ouvrent aussi le client web 3CX à cette adresse.",
