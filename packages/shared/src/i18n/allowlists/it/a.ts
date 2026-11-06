@@ -9,6 +9,21 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "Reseller" is plural here ("{resellers} Reseller"); the Italian plural "rivenditori" does not contain the
+    // singular "rivenditore" the check looks for.
+    'admin.stat.orgsSub',
+    // Same plural case: "Kunden, Reseller und interne Organisationen" lists resellers, Italian "rivenditori".
+    'admin.orgs.subtitle',
+    // A file name: the words of "bozza di fattura" are joined by hyphens ("Bozza-fattura-{id}.pdf"), as the
+    // German file name joins "Rechnungsentwurf" to the id, so the spaced term cannot appear.
+    'pdf.invoice.draftFilename',
+    // "beim Abmelden" is the noun "on signing out", rendered with the verb "quando esce"; the glossary term
+    // "esci" is the label of the sign-out button and would not fit this sentence.
+    'ai.assistant.sessionHint',
+    // A button: Italian buttons use the short imperative "Rifiuta" (rule 3, like "Salva", "Annulla"); the
+    // glossary infinitive "rifiutare" is used in the running texts of the same feature.
+    'ai.org.declineConfirm.action',
+  ],
   typographyOk: [],
 };
