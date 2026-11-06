@@ -116,6 +116,9 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.payments.topup': 'Tegoed',
   'billing.service.quantity': '× {quantity}',
   'billing.service.endsAt': 'Eindigt op {date}',
+  'billing.service.cancelledPer': 'Opgezegd per {date}',
+  'billing.service.endWaitsForBilling': 'Opgezegd per {date}, eindigt zodra er tot dan is gefactureerd',
+  'billing.service.moduleOffAtEnd': 'Module "{module}" wordt dan gedeactiveerd',
   'billing.service.billedOnce': 'Gefactureerd',
   'billing.invoice.title': 'Factuur {number}',
   'billing.invoice.draftTitle': 'Conceptfactuur',
@@ -366,7 +369,20 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.deactivateModule': 'Module "{module}" deactiveren',
   'billing.service.deactivateModuleHint':
     'Alleen als de klant geen andere dienst met deze module meer heeft.',
+  'billing.service.moduleKept':
+    'De module blijft actief zolang de klant er nog een andere dienst mee heeft: {names}.',
   'billing.service.cancelled': 'Dienst "{name}" opgezegd',
+  'billing.service.cancelledLater': 'Dienst "{name}" opgezegd per {date}',
+  'billing.service.endsAtLaterHint':
+    'Met een latere datum loopt de dienst door tot en met die dag en wordt een gekozen module pas dan gedeactiveerd. Elke periode die uiterlijk op die dag begint, wordt volledig gefactureerd, niet naar rato.',
+  'billing.service.fullPeriod': 'De periode vanaf {date} wordt nog volledig gefactureerd ({price}).',
+  'billing.service.endBeforePeriod': 'In plaats daarvan per {date} opzeggen',
+  'billing.service.changeCancel': 'Opzegging wijzigen',
+  'billing.service.withdrawCancel': 'Opzegging intrekken',
+  'billing.service.withdrawCancelTitle': 'Opzegging van "{name}" intrekken?',
+  'billing.service.withdrawCancelText':
+    'De dienst loopt daarna zonder einddatum door en wordt zoals voorheen gefactureerd.',
+  'billing.service.cancelWithdrawn': 'Opzegging van "{name}" ingetrokken',
   'billing.products.title': 'Producten',
   'billing.products.text':
     'Prijslijst voor nieuwe diensten. Prijswijzigingen gelden alleen voor nieuwe diensten.',
@@ -474,6 +490,7 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.unit.yearly': 'jaar',
   'billing.profile.locale': 'Taal voor facturen',
   'billing.profile.localeOwner': 'Taal van de eigenaar ({language})',
+  'billing.profile.localeOwnerPlain': 'Taal van de eigenaar',
   'billing.profile.localeHint':
     'Facturen, betalingsherinneringen en betalingsbevestigingen worden in deze taal verstuurd. Reeds opgemaakte facturen behouden hun taal.',
   'billing.invoice.locale': 'Taal',
@@ -483,5 +500,6 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.product.translations.hint':
     'Naam en omschrijving in andere talen. Als u ze leeg laat, geldt de Duitse tekst.',
   'billing.product.translations.name': 'Naam ({language})',
+  'billing.product.translations.nameRequired': 'Voer een naam in of maak de omschrijving leeg.',
   'billing.product.translations.description': 'Omschrijving ({language})',
 };
