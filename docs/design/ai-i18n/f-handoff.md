@@ -265,7 +265,8 @@ zusammen 4602.
 - **F19 (zweite Hälfte)** `test/claude-mock.ts` nach Plan 5.2; zusätzlich `fallbackTo` (siehe Abweichungen),
   `MOCK_API_KEY`, `MOCK_FALLBACK_MODELS`. `test/helpers.ts`: `configureAi(admin, { key?, model?, features?,
   budgetUsd? })` speichert den Schlüssel und schaltet die Plattform mit der Go-live-Checkliste ein.
-- **F20 (KI-Teil)** `test/ai-settings.test.ts` (33 Fälle) und `test/ai-structured.test.ts` (31 Fälle) mit allen
+- **F20 (KI-Teil)** `test/ai-settings.test.ts` (33 Fälle) und `test/ai-structured.test.ts` (32 Fälle, dazu ein Durchlauf der Organisations- und
+  Personengrenzen in der Reihenfolge von ai 7.1) mit allen
   Fällen aus Plan F20 und ai 15.2.
 
 ### Abweichungen und Entscheide
@@ -304,6 +305,9 @@ zusammen 4602.
     `finish()`, das Kosten hinzufügte").
 13. `usageTokens` (usage.ts) bildet `BetaUsage` des SDK auf `AiUsageTokens` ab, Feld für Feld; so passen auch
     Iterationen ohne Modell (Kompaktierung) in die Preisfunktion von `@weblion/shared`.
+14. **`Retry-After`**: der Fehler-Handler in `app.ts` setzt den Header für `ai_limit` und `ai_busy`, wenn
+    `details.retryAfterSeconds` eine Zahl ist (ai 4.2: "429 answers also carry Retry-After when the value is
+    known"); `app.ts` gehört nur F, deshalb schon hier. U3 prüft ihn in `ai-limits.test.ts` über eine echte Route.
 
 ### Was die nächsten Teile wissen müssen
 

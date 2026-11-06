@@ -34,6 +34,8 @@ async function configure(extra: {
   model?: AiModel;
   enabled?: boolean;
   features?: Record<AiFeature, boolean>;
+  dailyOrgLimit?: number;
+  dailyUserLimit?: number;
 }) {
   const res = await admin.request('PUT', '/admin/ai/settings', {
     enabled: extra.enabled ?? true,
@@ -41,8 +43,8 @@ async function configure(extra: {
     features: extra.features ?? ALL_ON,
     budgetUsd: 100,
     warnPercent: 80,
-    dailyOrgLimit: 200,
-    dailyUserLimit: 50,
+    dailyOrgLimit: extra.dailyOrgLimit ?? 200,
+    dailyUserLimit: extra.dailyUserLimit ?? 50,
     goLive: GO_LIVE,
   });
   expect(res.statusCode).toBe(200);
@@ -485,6 +487,59 @@ describe('limits', () => {
       .where(sql`${aiUsage.id} in ${rows.map((r) => r.id)}`);
     expect((await explain()).data).toEqual(ANSWER);
     expect(await t.ctx.ai.budgetState()).toMatchObject({ reservedMicros: 0 });
+  });
+
+  it('applies the organization and person limits in the order of ai 7.1', async () => {
+    const insert = (n: number, values: Partial<typeof aiUsage.$inferInsert>) =>
+      t.db.insert(aiUsage).values(
+        Array.from({ length: n }, () => ({
+          feature: 'explain' as const,
+          scope: 'org' as const,
+          model: 'claude-opus-5-5' as const,
+          status: 'ok' as const,
+          ...values,
+        })),
+      );
+    const limitOf = async (promise: Promise<unknown>) =>
+      ((await failure(promise)).details as { limit: string; retryAfterSeconds: number | null }) ?? null;
+
+    // Three live requests of the organization (by someone else): org_concurrent; staff work is not counted there.
+    await insert(3, { orgId: musterId, userId: null, status: 'running' });
+    expect(await limitOf(explain())).toMatchObject({ limit: 'org_concurrent', retryAfterSeconds: 5 });
+    expect((await explain({ scope: 'staff', actor: { userId: adminId } })).data).toEqual(ANSWER);
+    await t.db.delete(aiUsage);
+
+    // Two live requests of the person: user_concurrent.
+    await insert(2, { orgId: null, scope: 'platform', userId: annaId, status: 'running' });
+    expect(await limitOf(explain())).toMatchObject({ limit: 'user_concurrent', retryAfterSeconds: 5 });
+    await t.db.delete(aiUsage);
+
+    // Twelve requests of the person in the last minute: user_rate until the oldest leaves the minute.
+    await insert(12, { orgId: null, scope: 'platform', userId: annaId });
+    const rate = await limitOf(explain());
+    expect(rate.limit).toBe('user_rate');
+    expect(rate.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    expect(rate.retryAfterSeconds).toBeLessThanOrEqual(60);
+    // Mass Translate batches skip every person and organization limit (plan O9).
+    expect((await explain({ countsForUser: false, scope: 'platform', orgId: null })).data).toEqual(ANSWER);
+    await expect(t.ctx.ai.countRate({ userId: annaId })).rejects.toMatchObject({ code: 'ai_limit' });
+    await t.db.delete(aiUsage);
+
+    // Daily limits (set to 1 here): org_daily before user_daily, both until midnight in Zurich.
+    await configure({ dailyOrgLimit: 1, dailyUserLimit: 1 });
+    try {
+      await insert(1, { orgId: musterId, userId: adminId });
+      const daily = await failure(explain());
+      expect(daily.details).toMatchObject({ limit: 'org_daily' });
+      expect(Date.parse((daily.details as { resetsAt: string }).resetsAt)).toBeGreaterThan(Date.now());
+      await t.db.delete(aiUsage);
+      await insert(1, { orgId: null, scope: 'platform', userId: annaId });
+      expect(await limitOf(explain())).toMatchObject({ limit: 'user_daily' });
+      await expect(t.ctx.ai.countRate({ userId: annaId })).rejects.toMatchObject({ code: 'ai_limit' });
+      await expect(t.ctx.ai.countRate({ userId: adminId })).resolves.toBeUndefined();
+    } finally {
+      await configure({});
+    }
   });
 
   it('countsForUser needs a person', async () => {

@@ -755,7 +755,8 @@ export type AiBusyReason = 'overloaded' | 'rate_limit';
 
 `retryAfterSeconds` and `resetsAt`: `user_rate` until the oldest of the last 12 requests leaves the minute;
 `org_daily` and `user_daily` until midnight Europe/Zurich; `budget` until the first day of the next month
-(`resetsAt` only); the concurrency kinds 5 seconds. 429 answers also carry `Retry-After` when the value is known.
+(`resetsAt` only); the concurrency kinds 5 seconds. 429 answers also carry `Retry-After` when the value is known;
+the error handler of `apps/api/src/app.ts` sets it for `ai_limit` and `ai_busy` from `details.retryAfterSeconds` (F).
 
 ---
 

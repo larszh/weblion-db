@@ -145,6 +145,11 @@ export async function buildApp({
   app.setErrorHandler((error: FastifyError | AppError, req, reply) => {
     if (error instanceof AppError) {
       if (error.statusCode >= 500) req.log.error({ err: error }, error.message);
+      // AI limits and a busy Claude API name the wait when it is known (ai 4.2).
+      const retryAfter = (error.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+      if ((error.code === 'ai_limit' || error.code === 'ai_busy') && typeof retryAfter === 'number') {
+        reply.header('retry-after', String(retryAfter));
+      }
       const body: ApiErrorBody = {
         error: { code: error.code, message: error.message, details: error.details },
       };
