@@ -34,6 +34,10 @@ export const allowlist: Allowlist = {
     'websites.reseller.none',
     'websites.reseller.noPool',
     'websites.errors.no_allowance',
+    // "DNS-Verwaltung" is the DNS management page of a domain, "gestione DNS"; the glossary's "amministrazione"
+    // is reserved for the weblion admin area.
+    'mail.dns.toZone',
+    'mail.dns.explain.conflicts',
   ],
   typographyOk: [],
 };
