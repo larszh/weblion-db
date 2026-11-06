@@ -89,7 +89,17 @@ function demoDnsCheck(l: DemoLanguage, data: unknown): unknown {
   const proposals: unknown[] = [];
   const topics = new Map<string, { status: string; findings: string[]; proposal_indexes: number[] }>();
   const rank: Record<string, number> = { ok: 0, warning: 1, problem: 2 };
+  // The topics keep the console's order; the proposals put DMARC first, the short record the demo shows best
+  // (plan 8.4 scenario 1, as the demo assistant does), so the dialog opens with it instead of a long DKIM key.
   for (const e of expected) {
+    const topic = TOPIC_OF[String(e.key)] ?? 'other';
+    if (!topics.has(topic)) topics.set(topic, { status: 'ok', findings: [], proposal_indexes: [] });
+  }
+  const dmarcFirst = [
+    ...expected.filter((e) => e.key === 'dmarc'),
+    ...expected.filter((e) => e.key !== 'dmarc'),
+  ];
+  for (const e of dmarcFirst) {
     const topic = TOPIC_OF[String(e.key)] ?? 'other';
     const status = e.status === 'ok' ? 'ok' : e.status === 'missing' && e.required ? 'problem' : 'warning';
     const entry = topics.get(topic) ?? { status: 'ok', findings: [], proposal_indexes: [] };

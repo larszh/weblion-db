@@ -132,6 +132,8 @@ describe('the JSON features', () => {
     expect(check.topics.length).toBeGreaterThan(0);
     expect(check.droppedProposals).toBe(0);
     for (const p of check.proposals) expect(p.verified).toBe(true);
+    // DMARC first (plan 8.4 scenario 1): muster-ag.ch has no DMARC record in the demo.
+    expect(check.proposals[0]).toMatchObject({ type: 'TXT', name: expect.stringMatching(/^_dmarc/) });
 
     const audit = await anna.post(`/orgs/${musterId}/ai/audit-summary`, {
       period: 'month',
