@@ -327,6 +327,44 @@ describe('store: merge order, overrides, switching', () => {
     expect(storage.getItem(LOCALE_VERSION_KEY)).toBe('2');
   });
 
+  it('keeps overrides that arrive while the new chunk still loads', async () => {
+    let releaseChunk: () => void = () => {};
+    const chunkGate = new Promise<void>((resolve) => {
+      releaseChunk = resolve;
+    });
+    let releaseFetch: () => void = () => {};
+    const fetchGate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const server: FakeServer = { values: { it: { 'common.close': 'Chiudi' } }, etag: {}, requests: [] };
+    const loader = createI18nLoader({
+      chunks: chunks([], {
+        it: async () => {
+          await chunkGate;
+          return { I18N_CHUNK: 'wl-i18n-chunk:it', dict: BUNDLES.it as PartialDictionary };
+        },
+      }),
+      storage: () => storage,
+      fetch: async (url, init) => {
+        await fetchGate;
+        return fakeFetch(server)(url, init);
+      },
+    });
+    const store = createI18nStore(
+      { locale: 'de', dictionary: BUNDLES.de as Dictionary, overrides: {} },
+      loader,
+    );
+    // The overrides are late for the boot limit (none yet), then arrive before the chunk.
+    const switching = store.setLocale('it');
+    await new Promise((resolve) => setTimeout(resolve, 1600));
+    releaseFetch();
+    await flush();
+    await flush();
+    releaseChunk();
+    await switching;
+    expect(store.getSnapshot().t('common.close')).toBe('Chiudi');
+  });
+
   it('a failed switch rejects and keeps the locale', async () => {
     const loader = createI18nLoader({
       chunks: chunks([], {

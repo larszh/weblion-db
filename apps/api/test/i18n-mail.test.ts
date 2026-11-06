@@ -346,14 +346,12 @@ describe('the language of each mail (i18n 8.2)', () => {
     await override('email.invoice.subject', 'fr', 'Facture {number} de {issuer}');
     await override('email.payment.subject', 'fr', 'Paiement reçu : {amount}');
     await override('email.credit.subject', 'it', 'Credito registrato: {amount}');
-    await t.db
-      .insert(billingProfiles)
-      .values({
-        orgId: sprachId,
-        companyName: 'Sprach AG',
-        email: 'buchhaltung@sprach.example',
-        locale: 'fr',
-      });
+    await t.db.insert(billingProfiles).values({
+      orgId: sprachId,
+      companyName: 'Sprach AG',
+      email: 'buchhaltung@sprach.example',
+      locale: 'fr',
+    });
 
     const draft = await admin.post(`/billing/customers/${sprachId}/invoices`, {
       lines: [{ description: 'Cloud Server S', quantity: 1, unitPrice: 1000 }],
