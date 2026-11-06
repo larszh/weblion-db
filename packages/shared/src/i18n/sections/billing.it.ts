@@ -495,7 +495,6 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.unit.yearly': 'anno',
   'billing.profile.locale': 'Lingua delle fatture',
   'billing.profile.localeOwner': 'Lingua del proprietario ({language})',
-  'billing.profile.localeOwnerPlain': 'Lingua del proprietario',
   'billing.profile.localeHint':
     'Fatture, solleciti di pagamento e conferme di pagamento vengono inviati in questa lingua. Le fatture già emesse mantengono la loro lingua.',
   'billing.invoice.locale': 'Lingua',

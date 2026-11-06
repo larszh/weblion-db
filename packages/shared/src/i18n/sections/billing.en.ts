@@ -514,7 +514,6 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.unit.yearly': 'year',
   'billing.profile.locale': 'Invoice language',
   'billing.profile.localeOwner': "Owner's language ({language})",
-  'billing.profile.localeOwnerPlain': "Owner's language",
   'billing.profile.localeHint':
     'Invoices, payment reminders and payment confirmations are sent in this language. Invoices already issued keep their language.',
   'billing.invoice.locale': 'Language',

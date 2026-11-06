@@ -490,7 +490,6 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.unit.yearly': 'jaar',
   'billing.profile.locale': 'Taal voor facturen',
   'billing.profile.localeOwner': 'Taal van de eigenaar ({language})',
-  'billing.profile.localeOwnerPlain': 'Taal van de eigenaar',
   'billing.profile.localeHint':
     'Facturen, betalingsherinneringen en betalingsbevestigingen worden in deze taal verstuurd. Reeds opgemaakte facturen behouden hun taal.',
   'billing.invoice.locale': 'Taal',
