@@ -1,3 +1,4 @@
+import { intlLocale, type Locale, type TargetLocale } from './i18n/locales';
 import type { ModuleKey } from './modules';
 
 /**
@@ -79,6 +80,10 @@ export interface BillingProfileDto extends PostalAddress {
   paymentTermsDays: number;
   /** Overrides the issuer's default tax rate, e.g. 0 for customers abroad. */
   taxRateBp: number | null;
+  /** "Sprache für Rechnungen"; null = the owner's language (i18n 9). */
+  locale: Locale | null;
+  /** locale ?? users.locale of the oldest active owner ?? 'de'. */
+  effectiveLocale: Locale;
   updatedAt: string | null;
 }
 
@@ -113,6 +118,9 @@ export interface BillingSettingsDto {
   autoApplyCredit: boolean;
 }
 
+/** Name and description per target language; German stays in ProductDto.name and description (plan O14). */
+export type ProductTranslations = Partial<Record<TargetLocale, { name: string; description: string | null }>>;
+
 export interface ProductDto {
   id: string;
   /** null for the platform catalog, otherwise the reseller organization. */
@@ -126,6 +134,8 @@ export interface ProductDto {
   /** null means the issuer's default rate. */
   taxRateBp: number | null;
   active: boolean;
+  /** Texts in the other languages; read them through productText(). */
+  translations: ProductTranslations;
   createdAt: string;
 }
 
@@ -212,6 +222,8 @@ export interface InvoiceDetailDto extends InvoiceDto {
   can: { edit: boolean; finalize: boolean; void: boolean; markPaid: boolean; pay: boolean; send: boolean };
   /** Online payment methods available for this invoice right now. */
   payMethods: PaymentMethod[];
+  /** invoices.locale (fixed at finalize) ?? the current billing language for drafts and old invoices. */
+  locale: Locale;
 }
 
 export interface CreditTransactionDto {
@@ -294,9 +306,28 @@ export interface InvoiceLineInput {
   periodEnd?: string | null;
 }
 
-/** Formats an amount in minor units, e.g. formatMoney(12345, 'CHF', 'de') → "CHF 123.45". */
-export function formatMoney(amount: number, currency: Currency | string, locale: 'de' | 'en' = 'de'): string {
-  return new Intl.NumberFormat(locale === 'de' ? 'de-CH' : 'en-CH', {
+/**
+ * The product text in a language: per field the translation when set, else the German text (plan O14).
+ * de: name and description as stored.
+ */
+export function productText(
+  product: Pick<ProductDto, 'name' | 'description' | 'translations'>,
+  locale: Locale,
+): { name: string; description: string | null } {
+  if (locale === 'de') return { name: product.name, description: product.description };
+  const translated = product.translations?.[locale];
+  return {
+    name: translated?.name?.trim() ? translated.name : product.name,
+    description: translated?.description?.trim() ? translated.description : product.description,
+  };
+}
+
+/**
+ * Formats an amount in minor units in the Intl format of the locale, e.g. formatMoney(12345, 'CHF', 'de') gives
+ * "CHF 123.45" and 'en' gives en-GB. Billing mails and the PDF pass 'de' (Swiss format in every language).
+ */
+export function formatMoney(amount: number, currency: Currency | string, locale: Locale = 'de'): string {
+  return new Intl.NumberFormat(intlLocale(locale), {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,

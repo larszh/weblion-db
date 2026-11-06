@@ -23,13 +23,17 @@ export type PermissionGroup =
   | 'phone'
   | 'media'
   | 'monitoring'
+  | 'ai'
   | 'billing'
   | 'reseller'
   | 'platform';
 
+/**
+ * One action of the catalog. Its label is the dictionary key `perm.<action>` (section core, plan O3), so it can
+ * be translated like every other text; `GET /meta` still answers `label: { de, en }` from the dictionaries.
+ */
 export interface PermissionDef {
   group: PermissionGroup;
-  label: { de: string; en: string };
   /** Destructive or cost relevant. The UI asks for confirmation and highlights these. */
   dangerous?: boolean;
   /** Only meaningful for weblion staff, never granted through organization roles. */
@@ -38,308 +42,143 @@ export interface PermissionDef {
 
 const def = (
   group: PermissionGroup,
-  de: string,
-  en: string,
   extra: Partial<Pick<PermissionDef, 'dangerous' | 'platform'>> = {},
-): PermissionDef => ({ group, label: { de, en }, ...extra });
+): PermissionDef => ({ group, ...extra });
 
 export const PERMISSIONS = {
   // Organization
-  'org:read': def('organization', 'Organisation ansehen', 'View organization'),
-  'org:update': def('organization', 'Organisation bearbeiten', 'Edit organization'),
-  'org:delete': def('organization', 'Organisation löschen', 'Delete organization', { dangerous: true }),
-  'audit:read': def('organization', 'Audit-Log ansehen', 'View audit log'),
+  'org:read': def('organization'),
+  'org:update': def('organization'),
+  'org:delete': def('organization', { dangerous: true }),
+  'audit:read': def('organization'),
 
   // Members & access
-  'member:read': def('members', 'Mitglieder ansehen', 'View members'),
-  'member:invite': def('members', 'Mitglieder einladen', 'Invite members'),
-  'member:update': def('members', 'Rollen und Policies zuweisen', 'Change roles and policies'),
-  'member:remove': def('members', 'Mitglieder entfernen', 'Remove members', { dangerous: true }),
-  'policy:read': def('members', 'Access Policies ansehen', 'View access policies'),
-  'policy:write': def('members', 'Access Policies verwalten', 'Manage access policies'),
-  'apitoken:read': def('security', 'API-Tokens ansehen', 'View API tokens'),
-  'apitoken:write': def('security', 'API-Tokens erstellen/widerrufen', 'Create/revoke API tokens'),
+  'member:read': def('members'),
+  'member:invite': def('members'),
+  'member:update': def('members'),
+  'member:remove': def('members', { dangerous: true }),
+  'policy:read': def('members'),
+  'policy:write': def('members'),
+  'apitoken:read': def('security'),
+  'apitoken:write': def('security'),
 
   // Projects
-  'project:read': def('projects', 'Projekte ansehen', 'View projects'),
-  'project:create': def('projects', 'Projekte erstellen', 'Create projects'),
-  'project:update': def('projects', 'Projekte bearbeiten', 'Edit projects'),
-  'project:delete': def('projects', 'Projekte löschen', 'Delete projects', { dangerous: true }),
+  'project:read': def('projects'),
+  'project:create': def('projects'),
+  'project:update': def('projects'),
+  'project:delete': def('projects', { dangerous: true }),
 
   // Servers
-  'server:read': def('servers', 'Server ansehen', 'View servers'),
-  'server:metrics': def('servers', 'Monitoring und Graphen', 'Monitoring and graphs'),
-  'server:task:read': def('servers', 'Aktivität und Tasks ansehen', 'View activity and tasks'),
-  'server:power': def('servers', 'Energie (Start, Stop, Neustart)', 'Power (start, stop, reboot)'),
-  'server:console': def('servers', 'Konsole öffnen', 'Open console'),
-  'server:rename': def('servers', 'Server umbenennen', 'Rename server'),
-  'server:labels': def('servers', 'Labels bearbeiten', 'Edit labels'),
-  'server:protection': def('servers', 'Schutz ein/aus', 'Toggle protection'),
-  'server:config:read': def('servers', 'Technische Konfiguration ansehen', 'View technical config'),
-  'server:iso': def('servers', 'ISO einlegen/auswerfen', 'Mount/unmount ISO'),
-  'server:password-reset': def('servers', 'Root-Passwort zurücksetzen', 'Reset root password', {
-    dangerous: true,
-  }),
-  'server:rebuild': def('servers', 'Neu installieren (Rebuild)', 'Rebuild (reinstall)', { dangerous: true }),
-  'server:rescale': def('servers', 'Ressourcen ändern (Rescale)', 'Rescale resources', { dangerous: true }),
-  'server:move': def('servers', 'In anderes Projekt verschieben', 'Move to another project'),
-  'server:delete': def('servers', 'Server löschen', 'Delete server', { dangerous: true }),
+  'server:read': def('servers'),
+  'server:metrics': def('servers'),
+  'server:task:read': def('servers'),
+  'server:power': def('servers'),
+  'server:console': def('servers'),
+  'server:rename': def('servers'),
+  'server:labels': def('servers'),
+  'server:protection': def('servers'),
+  'server:config:read': def('servers'),
+  'server:iso': def('servers'),
+  'server:password-reset': def('servers', { dangerous: true }),
+  'server:rebuild': def('servers', { dangerous: true }),
+  'server:rescale': def('servers', { dangerous: true }),
+  'server:move': def('servers'),
+  'server:delete': def('servers', { dangerous: true }),
 
   // Backups & snapshots
-  'server:backup:read': def('backups', 'Backups ansehen', 'View backups'),
-  'server:backup:create': def('backups', 'Backups erstellen', 'Create backups'),
-  'server:backup:restore': def('backups', 'Backups wiederherstellen', 'Restore backups', { dangerous: true }),
-  'server:backup:delete': def('backups', 'Backups löschen', 'Delete backups', { dangerous: true }),
-  'server:snapshot:read': def('snapshots', 'Snapshots ansehen', 'View snapshots'),
-  'server:snapshot:create': def('snapshots', 'Snapshots erstellen', 'Create snapshots'),
-  'server:snapshot:rollback': def('snapshots', 'Snapshot zurückspielen', 'Roll back snapshot', {
-    dangerous: true,
-  }),
-  'server:snapshot:delete': def('snapshots', 'Snapshots löschen', 'Delete snapshots', { dangerous: true }),
+  'server:backup:read': def('backups'),
+  'server:backup:create': def('backups'),
+  'server:backup:restore': def('backups', { dangerous: true }),
+  'server:backup:delete': def('backups', { dangerous: true }),
+  'server:snapshot:read': def('snapshots'),
+  'server:snapshot:create': def('snapshots'),
+  'server:snapshot:rollback': def('snapshots', { dangerous: true }),
+  'server:snapshot:delete': def('snapshots', { dangerous: true }),
 
   // Networking
-  'server:network:read': def('networking', 'Netzwerk ansehen', 'View networking'),
-  'server:network:update': def(
-    'networking',
-    'rDNS und DDoS-Schutz ändern',
-    'Change rDNS and DDoS protection',
-  ),
-  'server:firewall:read': def('networking', 'Firewall ansehen', 'View firewall'),
-  'server:firewall:write': def('networking', 'Firewall bearbeiten', 'Edit firewall'),
+  'server:network:read': def('networking'),
+  'server:network:update': def('networking'),
+  'server:firewall:read': def('networking'),
+  'server:firewall:write': def('networking'),
 
   // Domains & DNS (module "dns")
-  'domain:read': def('domains', 'Domains und DNS-Einträge ansehen', 'View domains and DNS records'),
-  'domain:dns:write': def('domains', 'DNS-Einträge bearbeiten', 'Edit DNS records'),
-  'domain:authcode': def('domains', 'Auth-Code (Transfer) anzeigen', 'Show auth code (transfer)', {
-    dangerous: true,
-  }),
-  'domain:manage': def(
-    'domains',
-    'Nameserver, Transfersperre und CDN-Einstellungen ändern',
-    'Change name servers, transfer lock and CDN settings',
-    { dangerous: true },
-  ),
+  'domain:read': def('domains'),
+  'domain:dns:write': def('domains'),
+  'domain:authcode': def('domains', { dangerous: true }),
+  'domain:manage': def('domains', { dangerous: true }),
 
   // Web hosting (module "webhosting"): 24fire web spaces and CloudPanel websites
-  'webspace:read': def('webhosting', 'Webspaces und Websites ansehen', 'View web spaces and websites'),
-  'webspace:credentials': def(
-    'webhosting',
-    'Zugangsdaten anzeigen und neu setzen (Plesk, SFTP/SSH, Datenbanken)',
-    'Show and reset login credentials (Plesk, SFTP/SSH, databases)',
-    { dangerous: true },
-  ),
-  'webspace:write': def(
-    'webhosting',
-    'Websites anlegen, Datenbanken anlegen und löschen, SSL-Zertifikate ausstellen',
-    'Create websites, add and delete databases, issue SSL certificates',
-    { dangerous: true },
-  ),
-  'webspace:delete': def(
-    'webhosting',
-    'Websites löschen (mit allen Dateien und Datenbanken)',
-    'Delete websites (with all files and databases)',
-    { dangerous: true },
-  ),
+  'webspace:read': def('webhosting'),
+  'webspace:credentials': def('webhosting', { dangerous: true }),
+  'webspace:write': def('webhosting', { dangerous: true }),
+  'webspace:delete': def('webhosting', { dangerous: true }),
 
   // Cloud storage (module "storage", Nextcloud)
-  'cloud:read': def('storage', 'Cloud-Konten und Speicherverbrauch ansehen', 'View cloud accounts and usage'),
-  'cloud:write': def(
-    'storage',
-    'Cloud-Konten anlegen, ändern und löschen',
-    'Create, change and delete cloud accounts',
-    { dangerous: true },
-  ),
-  'cloud:password': def(
-    'storage',
-    'Zugang zu Cloud-Konten: Passwort neu setzen, E-Mail-Adresse ändern, Einladung senden',
-    'Access to cloud accounts: set a new password, change the e-mail address, resend the invitation',
-    { dangerous: true },
-  ),
+  'cloud:read': def('storage'),
+  'cloud:write': def('storage', { dangerous: true }),
+  'cloud:password': def('storage', { dangerous: true }),
 
   // E-mail (module "mail", Mailcow)
-  'mail:read': def(
-    'mail',
-    'E-Mail-Domains, Postfächer und Weiterleitungen ansehen',
-    'View e-mail domains, mailboxes and forwarding',
-  ),
-  'mail:write': def(
-    'mail',
-    'Postfächer und Weiterleitungen anlegen, ändern und löschen, DKIM-Schlüssel erzeugen',
-    'Create, change and delete mailboxes and forwarding, generate DKIM keys',
-    { dangerous: true },
-  ),
-  'mail:password': def('mail', 'Passwörter von Postfächern neu setzen', 'Set new mailbox passwords', {
-    dangerous: true,
-  }),
+  'mail:read': def('mail'),
+  'mail:write': def('mail', { dangerous: true }),
+  'mail:password': def('mail', { dangerous: true }),
 
   // Telephony (module "phone", 3CX)
-  'phone:read': def(
-    'phone',
-    'Telefonanlagen, Benutzer, Ringgruppen und Leitungen ansehen',
-    'View phone systems, users, ring groups and trunks',
-  ),
-  'phone:write': def(
-    'phone',
-    'Telefonie-Benutzer anlegen, ändern und löschen, Ringgruppen bearbeiten',
-    'Create, change and delete phone users, edit ring groups',
-    { dangerous: true },
-  ),
-  'phone:credentials': def(
-    'phone',
-    'Zugang zu Telefonie-Benutzern: Willkommens-E-Mail senden, E-Mail-Adresse ändern',
-    'Access to phone users: send the welcome e-mail, change the e-mail address',
-    { dangerous: true },
-  ),
+  'phone:read': def('phone'),
+  'phone:write': def('phone', { dangerous: true }),
+  'phone:credentials': def('phone', { dangerous: true }),
 
   // Streaming (module "media", Jellyfin)
-  'media:read': def('media', 'Streaming-Zugänge ansehen', 'View streaming accounts'),
-  'media:write': def(
-    'media',
-    'Streaming-Zugänge anlegen, sperren, entsperren und löschen',
-    'Create, disable, enable and delete streaming accounts',
-    { dangerous: true },
-  ),
-  'media:password': def(
-    'media',
-    'Passwörter von Streaming-Zugängen neu setzen und Fernseher verbinden',
-    'Set new streaming account passwords and connect TVs',
-    { dangerous: true },
-  ),
+  'media:read': def('media'),
+  'media:write': def('media', { dangerous: true }),
+  'media:password': def('media', { dangerous: true }),
 
   // Monitoring (module "monitoring", Uptime Kuma)
-  'monitor:read': def(
-    'monitoring',
-    'Monitore, Status und Uptime ansehen',
-    'View monitors, status and uptime',
-  ),
-  'monitor:write': def(
-    'monitoring',
-    'Monitore anlegen, ändern, pausieren und fortsetzen',
-    'Create, change, pause and resume monitors',
-  ),
-  'monitor:delete': def('monitoring', 'Monitore löschen (mit Verlauf)', 'Delete monitors (with history)', {
-    dangerous: true,
-  }),
+  'monitor:read': def('monitoring'),
+  'monitor:write': def('monitoring'),
+  'monitor:delete': def('monitoring', { dangerous: true }),
+
+  // AI (Claude): use the AI features on the organization's data, and decline or allow them for it.
+  // Switched per organization (organizations.ai_enabled, opt-in, plan O34), not a service module.
+  'ai:use': def('ai'),
+  'ai:settings': def('ai'),
 
   // Billing
-  'billing:read': def(
-    'billing',
-    'Rechnungen, Guthaben und Dienste ansehen',
-    'View invoices, credit and services',
-  ),
-  'billing:pay': def('billing', 'Rechnungen bezahlen, Guthaben aufladen', 'Pay invoices, top up credit'),
-  'billing:write': def('billing', 'Rechnungsadresse verwalten', 'Manage billing address'),
+  'billing:read': def('billing'),
+  'billing:pay': def('billing'),
+  'billing:write': def('billing'),
 
   // Reseller (only for reseller organizations, see DEFAULT_RESELLER_BOUNDARY)
-  'reseller:customer:read': def('reseller', 'Eigene Kunden ansehen', 'View own customers'),
-  'reseller:customer:write': def(
-    'reseller',
-    'Kunden anlegen, bearbeiten, sperren, Module freischalten',
-    'Create, edit and suspend customers, activate modules',
-  ),
-  'reseller:customer:access': def(
-    'reseller',
-    'In Kunden-Organisationen arbeiten (mit den eigenen Rechten)',
-    'Work inside customer organizations (with own permissions)',
-  ),
-  'reseller:billing': def(
-    'reseller',
-    'Rechnungen, Guthaben, Dienste und Preise für Kunden verwalten',
-    'Manage invoices, credit, services and prices for customers',
-    { dangerous: true },
-  ),
+  'reseller:customer:read': def('reseller'),
+  'reseller:customer:write': def('reseller'),
+  'reseller:customer:access': def('reseller'),
+  'reseller:billing': def('reseller', { dangerous: true }),
 
   // Platform (weblion staff only)
-  'platform:access': def('platform', 'Admin-Bereich öffnen', 'Open admin area', { platform: true }),
-  'platform:org:read': def('platform', 'Alle Kunden ansehen', 'View all customers', { platform: true }),
-  'platform:org:write': def('platform', 'Kunden anlegen/bearbeiten', 'Create/edit customers', {
-    platform: true,
-  }),
-  'platform:user:read': def('platform', 'Alle Benutzer ansehen', 'View all users', { platform: true }),
-  'platform:user:write': def('platform', 'Benutzer verwalten', 'Manage users', { platform: true }),
-  'platform:provider:read': def('platform', 'Provider ansehen', 'View providers', { platform: true }),
-  'platform:provider:write': def(
-    'platform',
-    'Provider verwalten (Zugangsdaten)',
-    'Manage providers (credentials)',
-    {
-      platform: true,
-      dangerous: true,
-    },
-  ),
-  'platform:server:assign': def(
-    'platform',
-    'Server, Domains, Webspaces, Websites, E-Mail-Domains, Telefonanlagen und Monitore Kunden zuweisen',
-    'Assign servers, domains, web spaces, websites, mail domains, phone systems and monitors to customers',
-    { platform: true },
-  ),
-  'platform:server:create': def('platform', 'Server bei Providern erstellen', 'Create servers at providers', {
-    platform: true,
-    dangerous: true,
-  }),
-  'platform:infra:read': def('platform', 'Infrastruktur (Nodes, Storage) ansehen', 'View infrastructure', {
-    platform: true,
-  }),
-  'platform:explorer': def(
-    'platform',
-    'API Explorer (Rohzugriff auf Provider-APIs)',
-    'API explorer (raw provider API)',
-    {
-      platform: true,
-      dangerous: true,
-    },
-  ),
-  'platform:audit:read': def('platform', 'Globales Audit-Log', 'Global audit log', { platform: true }),
-  'platform:billing:read': def(
-    'platform',
-    'Abrechnung aller Kunden ansehen',
-    'View billing of all customers',
-    {
-      platform: true,
-    },
-  ),
-  'platform:billing:write': def(
-    'platform',
-    'Rechnungen erstellen, Guthaben buchen, Dienste und Preise verwalten',
-    'Create invoices, book credit, manage services and prices',
-    { platform: true, dangerous: true },
-  ),
-  'platform:settings': def(
-    'platform',
-    'Plattform-Einstellungen (E-Mail, Rechnungssteller, Integrationen)',
-    'Platform settings (email, invoice issuer, integrations)',
-    { platform: true, dangerous: true },
-  ),
-  'platform:domain:write': def(
-    'platform',
-    'Domains verlängern und automatische Verlängerung schalten (kostet beim Registrar)',
-    'Renew domains and switch auto-renew (charged by the registrar)',
-    { platform: true, dangerous: true },
-  ),
-  'platform:domain:move': def(
-    'platform',
-    'DNS von Domains zu Cloudflare umziehen (Zone anlegen, Nameserver umstellen)',
-    'Move domain DNS to Cloudflare (create zone, switch name servers)',
-    { platform: true, dangerous: true },
-  ),
-  'platform:mail:write': def(
-    'platform',
-    'E-Mail-Domains bei Mailcow anlegen, Limits ändern und löschen',
-    'Create mail domains at Mailcow, change their limits and delete them',
-    { platform: true, dangerous: true },
-  ),
-  'platform:website:write': def(
-    'platform',
-    'Websites auf CloudPanel-Servern für Kunden anlegen, übernehmen, freigeben und löschen',
-    'Create, adopt, release and delete websites on CloudPanel servers for customers',
-    { platform: true, dangerous: true },
-  ),
-  'platform:media:write': def(
-    'platform',
-    'Streaming-Kontingente einrichten, Jellyfin-Benutzer übernehmen, zuweisen und Richtlinien anwenden',
-    'Set up streaming allowances, import and assign Jellyfin users, apply policies',
-    { platform: true, dangerous: true },
-  ),
+  'platform:access': def('platform', { platform: true }),
+  'platform:org:read': def('platform', { platform: true }),
+  'platform:org:write': def('platform', { platform: true }),
+  'platform:user:read': def('platform', { platform: true }),
+  'platform:user:write': def('platform', { platform: true }),
+  'platform:provider:read': def('platform', { platform: true }),
+  'platform:provider:write': def('platform', { platform: true, dangerous: true }),
+  'platform:server:assign': def('platform', { platform: true }),
+  'platform:server:create': def('platform', { platform: true, dangerous: true }),
+  'platform:infra:read': def('platform', { platform: true }),
+  'platform:explorer': def('platform', { platform: true, dangerous: true }),
+  'platform:audit:read': def('platform', { platform: true }),
+  'platform:billing:read': def('platform', { platform: true }),
+  'platform:billing:write': def('platform', { platform: true, dangerous: true }),
+  'platform:settings': def('platform', { platform: true, dangerous: true }),
+  'platform:domain:write': def('platform', { platform: true, dangerous: true }),
+  'platform:domain:move': def('platform', { platform: true, dangerous: true }),
+  'platform:mail:write': def('platform', { platform: true, dangerous: true }),
+  'platform:website:write': def('platform', { platform: true, dangerous: true }),
+  'platform:media:write': def('platform', { platform: true, dangerous: true }),
+  'platform:ai:use': def('platform', { platform: true }),
+  'platform:i18n:read': def('platform', { platform: true }),
+  // Dangerous: an AI translation costs money, and every edit is live for everyone at once.
+  'platform:i18n:write': def('platform', { platform: true, dangerous: true }),
 } as const satisfies Record<string, PermissionDef>;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -370,6 +209,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   'phone',
   'media',
   'monitoring',
+  'ai',
   'billing',
   'reseller',
   'platform',

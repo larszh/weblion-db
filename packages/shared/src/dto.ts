@@ -1,4 +1,6 @@
+import type { AiIntegrationDto } from './ai';
 import type { Currency } from './billing';
+import type { Locale } from './i18n/locales';
 import type { ModuleKey } from './modules';
 import type { Permission } from './permissions';
 import type { PolicyStatement } from './policy';
@@ -30,7 +32,8 @@ export interface UserDto {
   name: string;
   platformRole: PlatformRole | null;
   mfaEnabled: boolean;
-  locale: string;
+  /** One of the five console languages; stored values are normalized (toUserDto). */
+  locale: Locale;
   status: 'active' | 'disabled';
   createdAt: string;
   lastLoginAt: string | null;
@@ -167,6 +170,8 @@ export interface IntegrationsDto {
     lastError: string | null;
     lastSyncAt: string | null;
   };
+  /** Claude (KI page, ai 5.3). */
+  ai: AiIntegrationDto;
 }
 
 export interface ProjectDto {

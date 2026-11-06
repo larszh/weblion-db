@@ -501,4 +501,22 @@ export const billingDe = {
   'billing.admin.zohoSynced': '{synced} übertragen, {failed} fehlgeschlagen',
   'billing.admin.back': 'Zurück zur Abrechnung',
   'billing.admin.openCustomer': 'Kunde {name} öffnen',
+
+  // Invoice units, invoice language and product translations (i18n 18.1, plan 5.3)
+  'billing.unit.once': 'Stk.',
+  'billing.unit.monthly': 'Monat',
+  'billing.unit.quarterly': 'Quartal',
+  'billing.unit.yearly': 'Jahr',
+  'billing.profile.locale': 'Sprache für Rechnungen',
+  'billing.profile.localeOwner': 'Sprache des Owners ({language})',
+  'billing.profile.localeHint':
+    'Rechnungen, Zahlungserinnerungen und Zahlungsbestätigungen werden in dieser Sprache verschickt. Bereits ausgestellte Rechnungen behalten ihre Sprache.',
+  'billing.invoice.locale': 'Sprache',
+  'billing.invoice.localeHint':
+    'Die Rechnung wird in dieser Sprache ausgestellt. Neue Positionen aus Produkten erhalten den Produkttext in dieser Sprache.',
+  'billing.product.translations.title': 'Übersetzungen',
+  'billing.product.translations.hint':
+    'Name und Beschreibung in weiteren Sprachen. Leer gelassen gilt der deutsche Text.',
+  'billing.product.translations.name': 'Name ({language})',
+  'billing.product.translations.description': 'Beschreibung ({language})',
 } as const;

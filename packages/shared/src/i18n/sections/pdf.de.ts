@@ -1,0 +1,53 @@
+/** Invoice PDF and Stripe line item texts, rendered by the API only (i18n 18.4). Every value must be
+ * Windows-1252 encodable (standard PDF fonts). Never part of a web bundle. */
+export const pdfDe = {
+  // Invoice PDF
+  'pdf.invoice.title': 'Rechnung {number}',
+  'pdf.invoice.draftTitle': 'Rechnungsentwurf',
+  'pdf.invoice.subject': 'Rechnung an {org}',
+  'pdf.invoice.draftMark': 'ENTWURF',
+  'pdf.invoice.filename': 'Rechnung-{number}.pdf',
+  'pdf.invoice.draftFilename': 'Rechnungsentwurf-{id}.pdf',
+  'pdf.invoice.issuerVat': 'MWST-Nr. {vatId}',
+  'pdf.invoice.meta.number': 'Rechnungsnummer',
+  'pdf.invoice.meta.draft': 'Entwurf',
+  'pdf.invoice.meta.issueDate': 'Rechnungsdatum',
+  'pdf.invoice.meta.dueDate': 'Fällig am',
+  'pdf.invoice.meta.customerNumber': 'Kundennummer',
+  'pdf.invoice.meta.customerVat': 'Ihre MWST-Nr.',
+  'pdf.invoice.meta.status': 'Status',
+  'pdf.invoice.status.paid': 'Bezahlt',
+  'pdf.invoice.status.void': 'Storniert',
+  'pdf.invoice.col.position': 'Pos.',
+  'pdf.invoice.col.description': 'Beschreibung',
+  'pdf.invoice.col.quantity': 'Menge',
+  'pdf.invoice.col.price': 'Preis',
+  'pdf.invoice.col.tax': 'MWST',
+  'pdf.invoice.col.amount': 'Betrag {currency}',
+  'pdf.invoice.line.period': 'Zeitraum {start} - {end}',
+  'pdf.invoice.line.periodStart': 'Zeitraum {start}',
+  'pdf.invoice.totals.subtotal': 'Zwischensumme netto',
+  'pdf.invoice.totals.tax': 'MWST {rate} auf {net}',
+  'pdf.invoice.totals.total': 'Total {currency}',
+  'pdf.invoice.totals.paid': 'Bereits bezahlt',
+  'pdf.invoice.totals.due': 'Offener Betrag {currency}',
+  'pdf.invoice.terms.payUntil': 'Zahlbar bis {date}.',
+  'pdf.invoice.terms.payTerms': 'Zahlbar innert der vereinbarten Frist.',
+  'pdf.invoice.terms.transfer': 'Bitte überweisen Sie den Betrag auf {iban}.',
+  'pdf.invoice.terms.transferBank': 'Bitte überweisen Sie den Betrag auf {iban} ({bank}).',
+  'pdf.invoice.terms.transferRef':
+    'Bitte überweisen Sie den Betrag auf {iban} mit dem Vermerk "{reference}".',
+  'pdf.invoice.terms.transferBankRef':
+    'Bitte überweisen Sie den Betrag auf {iban} ({bank}) mit dem Vermerk "{reference}".',
+  'pdf.invoice.terms.qrHint': 'Den Zahlteil mit QR-Code finden Sie auf der letzten Seite.',
+  'pdf.invoice.terms.paid': 'Diese Rechnung ist bezahlt. Vielen Dank.',
+  'pdf.invoice.terms.void': 'Diese Rechnung wurde storniert.',
+  'pdf.invoice.terms.voidReason': 'Diese Rechnung wurde storniert. Grund: {reason}',
+  'pdf.invoice.footer.page': 'Seite {page} von {pages}',
+  'pdf.invoice.qr.heading': 'Zahlteil zu Rechnung {number}',
+  'pdf.invoice.qr.due': '{issuer}  ·  fällig am {date}',
+
+  // Stripe Checkout line items
+  'pdf.stripe.invoiceItem': 'Rechnung {number}',
+  'pdf.stripe.creditItem': 'Guthaben weblion.one',
+} as const;

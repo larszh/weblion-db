@@ -490,4 +490,22 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.admin.zohoSynced': '{synced} sent, {failed} failed',
   'billing.admin.back': 'Back to billing',
   'billing.admin.openCustomer': 'Open customer {name}',
+
+  // Invoice units, invoice language and product translations (i18n 18.1, plan 5.3)
+  'billing.unit.once': 'pcs',
+  'billing.unit.monthly': 'month',
+  'billing.unit.quarterly': 'quarter',
+  'billing.unit.yearly': 'year',
+  'billing.profile.locale': 'Invoice language',
+  'billing.profile.localeOwner': "Owner's language ({language})",
+  'billing.profile.localeHint':
+    'Invoices, payment reminders and payment confirmations are sent in this language. Invoices already issued keep their language.',
+  'billing.invoice.locale': 'Language',
+  'billing.invoice.localeHint':
+    'The invoice is issued in this language. New lines from products get the product text in this language.',
+  'billing.product.translations.title': 'Translations',
+  'billing.product.translations.hint':
+    'Name and description in other languages. If left empty, the German text is used.',
+  'billing.product.translations.name': 'Name ({language})',
+  'billing.product.translations.description': 'Description ({language})',
 };
