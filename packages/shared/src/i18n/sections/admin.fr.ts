@@ -220,6 +220,7 @@ export const adminFr: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.mail.template.payment_received': 'Paiement reçu',
   'admin.mail.template.credit_booked': 'Écriture de crédit',
   'admin.mail.template.test': 'Test',
+  'admin.mail.template.ai_budget': 'Budget IA',
   'admin.int.intro':
     "Les identifiants pour Stripe et Zoho Books sont définis uniquement via des variables d'environnement, pas ici. Après une modification du fichier .env, redémarrez l'API.",
   'admin.int.configured': 'Configuré',
