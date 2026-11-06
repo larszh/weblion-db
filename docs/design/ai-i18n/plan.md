@@ -1685,7 +1685,7 @@ F18's).
 |---|---|---|
 | A1 `GET /i18n/overrides/:locale` | 120 per minute per address | route config `config: { rateLimit: { max: 120, timeWindow: '1 minute' } }` (the pattern of `loginRateLimit`, `modules/auth/routes.ts:24`) |
 | `POST /admin/ai/test` | 10 per minute per address | route config |
-| A15 import, A16 export | 10 per minute per person, each | `app.createRateLimit({ max: 10, timeWindow: '1 minute', keyGenerator: (req) => \`i18n-import:${req.auth!.user.id}\` })` (and `i18n-export:`), counted in the handler after the permission check, 429 `rate_limited` with `retry-after` (the pattern of `modules/media/routes.ts:814-831`) |
+| A15 import, A16 export | 10 per minute per person, each | `app.createRateLimit({ max: 10, timeWindow: '1 minute', keyGenerator: (req) => 'i18n-import:' + req.auth!.user.id })` (and `'i18n-export:'`), counted in the handler after the permission check, 429 `rate_limited` with `retry-after` (the pattern of `modules/media/routes.ts:814-831`) |
 | everything else, the chat and B1 to B7 included | global | |
 
 **AI limits** (checked against `ai_usage` in the database by `reserve()`, so they hold across processes; 429
