@@ -27,5 +27,9 @@ export const allowlist: Allowlist = {
     // glossary term with spaces cannot appear literally.
     'pdf.invoice.draftFilename',
   ],
-  typographyOk: [],
+  typographyOk: [
+    // The hint names the marks "?", "!" and ";" themselves, separated by spaces like the German, so the rule
+    // "no space before ? ! ;" does not apply to this text.
+    'admin.i18n.check.typography',
+  ],
 };
