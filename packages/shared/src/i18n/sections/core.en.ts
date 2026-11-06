@@ -6,6 +6,7 @@ export const coreEn: Record<keyof typeof coreDe, string> = {
   'common.cancel': 'Cancel',
   'common.close': 'Close',
   'common.copy': 'Copy',
+  'common.copyFailed': 'Could not copy to the clipboard.',
   'common.create': 'Create',
   'common.days': 'days',
   'common.delete': 'Delete',

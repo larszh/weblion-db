@@ -6,6 +6,7 @@ export const coreIt: Partial<Record<keyof typeof coreDe, string>> = {
   'common.cancel': 'Annulla',
   'common.close': 'Chiudi',
   'common.copy': 'Copia',
+  'common.copyFailed': 'Impossibile copiare negli appunti.',
   'common.create': 'Crea',
   'common.days': 'Giorni',
   'common.delete': 'Elimina',

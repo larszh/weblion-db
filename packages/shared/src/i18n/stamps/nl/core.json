@@ -4,6 +4,7 @@
   "common.cancel": ["f7ff1178af202f6f", "c6a8d25fe37a7cc5"],
   "common.close": ["8b6874e00872f7d1", "5a468430f8781796"],
   "common.copy": ["472050b730a60f23", "0a42fc138a08ed9c"],
+  "common.copyFailed": ["929bd110f6ca05b9", "1c988421d962119f"],
   "common.create": ["5ca419548155adf2", "20094fdb4eefdb03"],
   "common.days": ["6770c319ff7b6302", "27227a6d826e3cdb"],
   "common.delete": ["6c2d352161df5809", "d6c44c3e95df5008"],

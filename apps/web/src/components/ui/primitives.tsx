@@ -8,6 +8,7 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import { AlertTriangle, Check, Copy, Inbox, Loader2, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { useT } from '@/lib/i18n';
 import { localizeError } from '@/lib/api-errors';
@@ -288,10 +289,17 @@ export function CopyButton({
       onClick={(e) => {
         e.stopPropagation();
         e.preventDefault();
-        void navigator.clipboard.writeText(value).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
+        // Without clipboard permission writeText rejects, and outside a secure context the API is missing
+        // and the call throws: either way a toast says so instead of an uncaught error and no feedback.
+        const failed = () => toast.error(t('common.copyFailed'));
+        try {
+          navigator.clipboard.writeText(value).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }, failed);
+        } catch {
+          failed();
+        }
       }}
       aria-label={label ?? t('common.copy')}
       title={label ?? t('common.copy')}

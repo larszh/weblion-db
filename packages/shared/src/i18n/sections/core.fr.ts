@@ -6,6 +6,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'common.cancel': 'Annuler',
   'common.close': 'Fermer',
   'common.copy': 'Copier',
+  'common.copyFailed': 'Impossible de copier dans le presse-papiers.',
   'common.create': 'Créer',
   'common.days': 'jours',
   'common.delete': 'Supprimer',

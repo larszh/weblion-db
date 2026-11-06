@@ -7,6 +7,7 @@ export const coreDe = {
   'common.cancel': 'Abbrechen',
   'common.close': 'Schliessen',
   'common.copy': 'Kopieren',
+  'common.copyFailed': 'Kopieren in die Zwischenablage ist nicht möglich.',
   'common.create': 'Erstellen',
   'common.days': 'Tage',
   'common.delete': 'Löschen',
