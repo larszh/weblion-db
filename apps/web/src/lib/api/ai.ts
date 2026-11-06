@@ -37,7 +37,6 @@ import { localizeError } from '@/lib/api-errors';
 import type { TFunction } from '@/lib/i18n';
 import { useT } from '@/lib/i18n';
 import { useApiMutation } from '@/lib/queries';
-import { adminKeys } from '@/lib/api/admin';
 
 /**
  * Query hooks and the chat stream of the AI module (ai 12.1). The switch hooks (organization card, admin
@@ -85,7 +84,9 @@ export const useAdminAiSettings = () =>
   });
 
 /** Every write on the KI page also refreshes the status (feature buttons) and the integrations card. */
-const settingsInvalidations = [aiKeys.settings, aiKeys.status, adminKeys.integrations];
+// ['settings', 'integrations'] is adminKeys.integrations of lib/api/admin.ts, written out so this module does
+// not pull the admin hooks into the main chunk (the assistant in the shell imports it).
+const settingsInvalidations = [aiKeys.settings, aiKeys.status, ['settings', 'integrations']];
 
 export const useSaveAiSettings = (onSuccess?: (result: AiSettingsDto) => void) => {
   const t = useT();
