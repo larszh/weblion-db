@@ -21,6 +21,8 @@ export const allowlist: Allowlist = {
     // "Abmelden" here signs out another session or device: the transitive "Déconnecter" is right, the
     // reflexive glossary form "se déconnecter" (signing oneself out) would be wrong on that button.
     'account.sessions.revoke',
+    // "beim Abmelden" is the noun here; French uses the noun "déconnexion", not the button verb "se déconnecter".
+    'ai.assistant.sessionHint',
     // A file name: "projet de facture" is joined with hyphens like the German and English file names, so the
     // glossary term with spaces cannot appear literally.
     'pdf.invoice.draftFilename',
