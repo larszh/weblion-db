@@ -102,9 +102,10 @@ export function Flag({
       </svg>
     );
   }
+  // Striped flags fill the 3:2 box like the others (preserveAspectRatio none stretches the stripes only).
   if (c === 'DE') {
     return (
-      <svg viewBox="0 0 5 3" className={base} {...a11y()}>
+      <svg viewBox="0 0 5 3" preserveAspectRatio="none" className={base} {...a11y()}>
         <rect width="5" height="1" y="0" fill="#000" />
         <rect width="5" height="1" y="1" fill="#dd0000" />
         <rect width="5" height="1" y="2" fill="#ffce00" />
@@ -113,7 +114,7 @@ export function Flag({
   }
   if (c === 'AT') {
     return (
-      <svg viewBox="0 0 3 3" className={base} {...a11y()}>
+      <svg viewBox="0 0 3 3" preserveAspectRatio="none" className={base} {...a11y()}>
         <rect width="3" height="3" fill="#ed2939" />
         <rect width="3" height="1" y="1" fill="#fff" />
       </svg>
@@ -121,7 +122,7 @@ export function Flag({
   }
   if (c === 'NL') {
     return (
-      <svg viewBox="0 0 3 3" className={base} {...a11y()}>
+      <svg viewBox="0 0 3 3" preserveAspectRatio="none" className={base} {...a11y()}>
         <rect width="3" height="1" fill="#ae1c28" />
         <rect width="3" height="1" y="1" fill="#fff" />
         <rect width="3" height="1" y="2" fill="#21468b" />

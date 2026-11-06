@@ -186,7 +186,8 @@ export function AccountPage() {
   return (
     <>
       <PageHeader title={t('nav.account')} description={me.data.user.email} />
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* grid-cols-1 below lg: an auto track would take the max-content width of the language tiles. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* The language first and in full width: it is the profile setting people look for most (i18n 6.1). */}
         <Card className="lg:col-span-2">
           <CardHeader title={<span id="acc-lang-label">{t('account.language')}</span>} />
