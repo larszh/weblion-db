@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
 import { Field, Input, Notice, Select, Textarea } from '@/components/ui/primitives';
-import { scheduledEndOf, useBillingLabels } from './bits';
+import { useBillingLabels } from './bits';
 import {
   formatDay,
   formatRate,
@@ -39,6 +39,7 @@ import {
   percentInput,
   todayISO,
 } from './money';
+import { scheduledEndOf, servicesKeepingModule } from './service-end';
 
 /** Dialogs of the seller panel: credit, services and billing due services. */
 
@@ -768,9 +769,12 @@ export function EditServiceDialog({
  */
 export function CancelServiceDialog({
   service,
+  services,
   onOpenChange,
 }: {
   service: ServiceDto | null;
+  /** All services of the customer, to tell when another one keeps the module on. */
+  services: ServiceDto[];
   onOpenChange: (open: boolean) => void;
 }) {
   const { t, locale } = useI18n();
@@ -778,6 +782,8 @@ export function CancelServiceDialog({
   const [endsAt, setEndsAt] = useState(todayISO());
   const [deactivate, setDeactivate] = useState(false);
   const scheduled = service ? scheduledEndOf(service) : null;
+  // The API checks this again when the module would be switched off (at once or at the end date).
+  const keeping = service ? servicesKeepingModule(service, services, todayISO()) : [];
   useEffect(() => {
     if (!service) return;
     setEndsAt(scheduledEndOf(service) ?? todayISO());
@@ -840,6 +846,11 @@ export function CancelServiceDialog({
             checked={deactivate}
             onCheckedChange={setDeactivate}
           />
+        )}
+        {deactivate && keeping.length > 0 && (
+          <Notice tone="info">
+            {t('billing.service.moduleKept', { names: keeping.map((s) => s.name).join(', ') })}
+          </Notice>
         )}
       </div>
     </Dialog>

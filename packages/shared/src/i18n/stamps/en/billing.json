@@ -349,6 +349,7 @@
   "billing.service.endsAtHint": ["f39afd66e7c57507", "b3cf7eca3aefb51f"],
   "billing.service.deactivateModule": ["3baa8cfd20edbf7d", "120a92872e03b1ac"],
   "billing.service.deactivateModuleHint": ["1790a52282088cc4", "dd0f7467e3cf9441"],
+  "billing.service.moduleKept": ["886df09dfbf34688", "536ade8662cc438e"],
   "billing.service.cancelled": ["5a66cf508d3a8a31", "174664eecd921764"],
   "billing.service.cancelledLater": ["a7f95b820be551d9", "4ced9dd998cca7f5"],
   "billing.service.endsAtLaterHint": ["4cdf2ddcb42adbcf", "4778a0c5ed07ba5f"],

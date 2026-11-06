@@ -389,6 +389,8 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.service.endsAtHint': 'Today by default.',
   'billing.service.deactivateModule': 'Deactivate the module "{module}"',
   'billing.service.deactivateModuleHint': 'Only if the customer has no other service with this module.',
+  'billing.service.moduleKept':
+    'The module stays active while the customer still has another service with it: {names}.',
   'billing.service.cancelled': 'Service "{name}" cancelled',
   'billing.service.cancelledLater': 'Service "{name}" cancelled effective {date}',
   'billing.service.endsAtLaterHint':

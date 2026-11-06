@@ -44,7 +44,7 @@ import {
   Notice,
   Select,
 } from '@/components/ui/primitives';
-import { NoBillingAccess, Pager, TabCount, Tabs, scheduledEndOf, useTabParam } from './bits';
+import { NoBillingAccess, Pager, TabCount, Tabs, useTabParam } from './bits';
 import { InvoiceEditorDialog } from './invoice-editor';
 import { InvoiceView, PaymentsTable } from './invoice-view';
 import { BillingProfileForm } from './profile-form';
@@ -56,6 +56,7 @@ import {
   GenerateDialog,
 } from './seller-dialogs';
 import { formatDay, todayISO } from './money';
+import { scheduledEndOf } from './service-end';
 import { SummaryCards, SummarySkeleton } from './summary';
 import { CreditTable, InvoiceTable, ServiceTable } from './tables';
 
@@ -335,7 +336,11 @@ function ServicesSection({
             onOpenChange={(o) => !o && setEditing(null)}
             defaultTaxRateBp={taxDefault}
           />
-          <CancelServiceDialog service={cancelling} onOpenChange={(o) => !o && setCancelling(null)} />
+          <CancelServiceDialog
+            service={cancelling}
+            services={services.data ?? []}
+            onOpenChange={(o) => !o && setCancelling(null)}
+          />
           <ConfirmDialog
             open={!!withdrawing}
             onOpenChange={(o) => !o && setWithdrawing(null)}

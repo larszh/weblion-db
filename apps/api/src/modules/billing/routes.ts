@@ -38,7 +38,7 @@ import { paginationQuery, parse } from '../../lib/validation';
 import { containsPattern } from '../../lib/like';
 import { loadOrg } from '../orgs/routes';
 import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockOrgBilling } from './ledger';
-import { deactivateModule } from './service-end';
+import { endModule, moduleEndDetails } from './service-end';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
@@ -874,7 +874,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
   /**
    * Cancels a service. An end date after today schedules the cancellation: the service keeps
    * running and is billed up to that day, the daily billing job ends it afterwards and only
-   * then switches the module off (if chosen). Today, an earlier date or none ends it at once.
+   * then switches the module off (if chosen and no other running service has it). Today, an
+   * earlier date or none ends it at once.
    * Calling it again on a scheduled cancellation sets the new date and module choice.
    */
   app.post('/services/:id/cancel', async (req) => {
@@ -884,9 +885,10 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       z.object({ endsAt: dateSchema.optional(), deactivateModule: z.boolean().default(false) }),
       req.body ?? {},
     );
-    const endsAt = body.endsAt ?? todayZurich();
-    const scheduled = endsAt > todayZurich();
-    const { updated, deactivated, previousEndsAt } = await db.transaction(async (tx) => {
+    const today = todayZurich();
+    const endsAt = body.endsAt ?? today;
+    const scheduled = endsAt > today;
+    const { updated, moduleEnd, previousEndsAt } = await db.transaction(async (tx) => {
       // Under the billing lock, like a PATCH: the end date limits what a billing run bills.
       await lockOrgBilling(tx, service.orgId);
       const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
@@ -906,11 +908,12 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
         )
         .where(eq(services.id, current.id))
         .returning();
-      const deactivated =
+      // The same rule as the end step: another running service with the module keeps it.
+      const moduleEnd =
         !scheduled && body.deactivateModule && row!.module
-          ? await deactivateModule(tx, row!.orgId, row!.module)
-          : false;
-      return { updated: row!, deactivated, previousEndsAt: current.endsAt };
+          ? await endModule(tx, { id: row!.id, orgId: row!.orgId, module: row!.module }, today)
+          : 'none';
+      return { updated: row!, moduleEnd, previousEndsAt: current.endsAt };
     });
     await audit.record(req, {
       action: 'service.cancel',
@@ -920,7 +923,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       details: {
         endsAt: updated.endsAt,
         scheduled,
-        moduleDeactivated: deactivated ? updated.module : null,
+        ...moduleEndDetails(updated.module, moduleEnd),
         ...(scheduled && updated.deactivateModuleAtEnd && updated.module
           ? { moduleDeactivatedAtEnd: updated.module }
           : {}),
