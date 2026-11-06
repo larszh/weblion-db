@@ -218,6 +218,7 @@ export const adminEn: Record<keyof typeof adminDe, string> = {
   'admin.mail.template.payment_received': 'Payment received',
   'admin.mail.template.credit_booked': 'Credit booking',
   'admin.mail.template.test': 'Test',
+  'admin.mail.template.ai_budget': 'AI budget',
 
   // Admin: integrations
   'admin.int.intro':

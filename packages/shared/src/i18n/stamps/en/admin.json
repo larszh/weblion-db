@@ -184,6 +184,7 @@
   "admin.mail.template.payment_received": ["102adb0e3d999410", "2fef7951de07b776"],
   "admin.mail.template.credit_booked": ["d0d13b96703c6538", "1c4a08349749b972"],
   "admin.mail.template.test": ["532eaabd9574880d", "532eaabd9574880d"],
+  "admin.mail.template.ai_budget": ["3f44f012a1039cfc", "4b897a4da89c4334"],
   "admin.int.intro": ["27ec5ed2b79a258b", "42a282d8c9272069"],
   "admin.int.configured": ["dbac85c110f4370c", "4da10f1fbb17cac2"],
   "admin.int.notConfigured": ["2fed0df55aacc2a5", "94b768af74236a67"],
