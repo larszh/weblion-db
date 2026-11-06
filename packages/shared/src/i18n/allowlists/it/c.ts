@@ -9,6 +9,15 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "{n} Rechnung(en)": the German writes singular and plural at once; Italian uses the plural "fatture" with
+    // the count as a label ("Fatture aperte: {n}"), and the plural does not contain the singular "fattura".
+    'billing.summary.openCount',
+    'billing.admin.count',
+    'billing.admin.zohoErrors',
+    // "Reseller" is plural here ("nur für Reseller"); the Italian plural "rivenditori" does not contain the
+    // singular "rivenditore" that the check looks for.
+    'billing.products.notReseller',
+  ],
   typographyOk: [],
 };
