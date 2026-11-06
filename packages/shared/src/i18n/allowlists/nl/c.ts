@@ -25,6 +25,8 @@ export const allowlist: Allowlist = {
     'media.limit.accounts',
     'media.allowance.removeBlocked',
     'media.seerr.orphans',
+    'uptime.allowance.full',
+    'uptime.allowance.removeBlocked',
   ],
   typographyOk: [],
 };
