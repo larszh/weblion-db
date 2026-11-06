@@ -39,7 +39,7 @@ export const DEFAULT_GLOSSARY: readonly GlossaryTerm[] = [
   t('Reseller', 'reseller', 'revendeur', 'rivenditore', 'reseller'),
   t('Abrechnung', 'billing', 'facturation', 'fatturazione', 'facturering'),
   t('Rechnung', 'invoice', 'facture', 'fattura', 'factuur'),
-  t('Rechnungsentwurf', 'draft invoice', 'projet de facture', 'bozza di fattura', 'conceptfactuur'),
+  t('Rechnungsentwurf', 'draft invoice', 'brouillon de facture', 'bozza di fattura', 'conceptfactuur'),
   t('Gutschrift', 'credit note', 'note de crédit', 'nota di credito', 'creditnota'),
   t('Guthaben', 'credit', 'crédit', 'credito', 'tegoed'),
   t('Zahlung', 'payment', 'paiement', 'pagamento', 'betaling'),
