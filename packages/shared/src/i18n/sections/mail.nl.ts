@@ -422,7 +422,7 @@ export const mailNl: Partial<Record<keyof typeof mailDe, string>> = {
     'Zodat webmail het nieuwe domein kent. Onderbreekt webmail, agenda en contacten kort voor alle gebruikers van deze instantie.',
   'mail.admin.noCustomer': 'Nog niet aan een klant toewijzen',
   'mail.admin.created': 'Maildomein {name} aangemaakt',
-  'mail.admin.warnings': 'Mailcow meldt opmerkingen',
+  'mail.admin.warnings': 'Meldingen van Mailcow',
   'mail.admin.limitsTitle': 'Limieten van {name}',
   'mail.admin.limitsText': 'Mailcow controleert de limieten tegen het verbruik en weigert te kleine waarden.',
   'mail.admin.limitsCustomer': 'De wijziging geldt direct voor {org}.',

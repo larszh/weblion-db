@@ -13,8 +13,8 @@ export const cloudNl: Partial<Record<keyof typeof cloudDe, string>> = {
   'plans.dedicated': 'Dedicated',
   'plans.diskTooSmall': 'Schijf te klein',
   'plans.diskTooSmallHint':
-    'De schijf van de server is {disk} GB. Types met een kleinere schijf zijn niet mogelijk, omdat een schijf niet kan worden verkleind.',
-  'plans.empty': 'Geen passende servertypes gevonden',
+    'De schijf van de server is {disk} GB. Typen met een kleinere schijf zijn niet mogelijk, omdat een schijf niet kan worden verkleind.',
+  'plans.empty': 'Geen passende servertypen gevonden',
   'plans.select': 'Kies een servertype.',
   'plans.upgradeDisk': 'Schijf vergroten tot {disk} GB',
   'plans.upgradeDiskHint':

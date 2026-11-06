@@ -131,7 +131,7 @@ export const adminNl: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.orgs.moveBlocker.payments': 'Lopende betalingen: {n}',
   'admin.orgs.moveBlocker.services': 'Actieve of gepauzeerde diensten: {n}',
   'admin.orgs.moveBlockedHint':
-    'Sluit of annuleer de facturen, betaal het tegoed terug of verbruik het en zeg de diensten op. Daarna kan de nieuwe factuurafzender nieuwe diensten aanmaken.',
+    'Rond de facturen af of annuleer ze, betaal het tegoed terug of verbruik het, en zeg de diensten op. Daarna kan de nieuwe factuurafzender nieuwe diensten aanmaken.',
   'admin.orgs.suspendedByPlatform':
     'Opgeschort door weblion.one. De reseller kan deze opschorting niet opheffen.',
   'admin.orgs.suspendedByReseller':
@@ -215,7 +215,7 @@ export const adminNl: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.mail.template.credit_booked': 'Tegoedboeking',
   'admin.mail.template.test': 'Test',
   'admin.int.intro':
-    'Toegangsgegevens voor Stripe en Zoho Books worden alleen via omgevingsvariabelen ingesteld, niet hier. Start de API opnieuw na een wijziging in het .env-bestand.',
+    'Inloggegevens voor Stripe en Zoho Books worden alleen via omgevingsvariabelen ingesteld, niet hier. Start de API opnieuw na een wijziging in het .env-bestand.',
   'admin.int.configured': 'Ingesteld',
   'admin.int.notConfigured': 'Niet ingesteld',
   'admin.int.env': 'Omgevingsvariabelen',

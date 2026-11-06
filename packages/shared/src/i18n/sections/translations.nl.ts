@@ -83,7 +83,7 @@ export const translationsNl: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.check.formality': 'Klinkt informeel. Gebruik de beleefde aanspreekvorm.',
   'admin.i18n.check.length': 'Duidelijk langer dan de Duitse tekst. Houd knoppen en labels kort.',
   'admin.i18n.check.glossary': 'Er ontbreekt een term uit de woordenlijst.',
-  'admin.i18n.check.sharpS': 'Bevat een Duitse ringel-s (eszett). Gebruik ss.',
+  'admin.i18n.check.sharpS': 'Bevat een ringel-s (eszett). Gebruik ss.',
   'admin.i18n.check.emDash': 'Bevat een lang gedachtestreepje. Gebruik een komma, dubbele punt of haakjes.',
   'admin.i18n.check.typography': 'Franse spaties: vaste spatie vóór : en %, geen spatie vóór ? ! ;',
   'admin.i18n.check.content':

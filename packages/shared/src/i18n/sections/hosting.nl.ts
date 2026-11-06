@@ -211,7 +211,7 @@ export const hostingNl: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.dns.invalid.txtQuotes': 'Voer de tekst in zonder omringende aanhalingstekens.',
   'hosting.dns.invalid.url':
     'Voer een adres in dat begint met http:// of https://, bijv. https://www.example.ch.',
-  'hosting.dns.invalid.email': 'Voer een e-mailadres in, bijv. receptie@example.ch.',
+  'hosting.dns.invalid.email': 'Voer een e-mailadres in, bijv. reception@example.ch.',
   'hosting.dns.cnameApexNoAlias':
     'Een CNAME is voor het domein zelf niet toegestaan. Gebruik een A- of AAAA-record.',
   'hosting.dns.typeUnsupported': 'Dit type accepteert de provider niet. Kies een ander type.',
@@ -277,7 +277,7 @@ export const hostingNl: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.dns.ph.HTTP_REDIRECT': 'https://www.example.ch',
   'hosting.dns.ph.HTTP_FRAME': 'https://www.example.ch',
   'hosting.dns.ph.NAPTR': '100 10 "u" "E2U+sip" "!^.*$!sip:info@example.ch!" .',
-  'hosting.dns.ph.MAILFW': 'receptie@example.ch',
+  'hosting.dns.ph.MAILFW': 'reception@example.ch',
   'hosting.dns.ph.other': '',
   'hosting.webspaces.subtitle': 'Webruimtes met Plesk, mailboxen en databases.',
   'hosting.webspaces.empty': 'Nog geen webruimtes',
@@ -363,7 +363,7 @@ export const hostingNl: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.admin.groupReseller': 'Klanten van {name}',
   'hosting.admin.kindReseller': 'Reseller',
   'hosting.admin.kindInternal': 'intern',
-  'hosting.admin.suspended': 'geblokkeerd',
+  'hosting.admin.suspended': 'opgeschort',
   'hosting.admin.moduleActive': 'De module "{module}" is voor deze klant al geactiveerd.',
   'hosting.admin.enableModule': 'Module "{module}" activeren',
   'hosting.admin.enableModuleHint':

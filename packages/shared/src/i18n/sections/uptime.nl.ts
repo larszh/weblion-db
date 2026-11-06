@@ -26,7 +26,7 @@ export const uptimeNl: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.allowance.toCustomers': 'waarvan {n} toegekend aan {customers} klanten',
   'uptime.allowance.minInterval': 'Kortste controle-interval',
   'uptime.allowance.full':
-    'Uw quotum is opgebruikt. Verwijder een monitor of neem contact op met uw aanbieder.',
+    'Uw quotum is opgebruikt. U kunt een monitor verwijderen of contact opnemen met uw aanbieder.',
   'uptime.managementOff':
     'Eigen monitors kunnen momenteel niet worden aangemaakt of gewijzigd, omdat de Uptime Kuma-instantie niet voor beheer is ingelogd. Status en uptime blijven zichtbaar.',
   'uptime.monitors': 'Monitors',
@@ -163,7 +163,7 @@ export const uptimeNl: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.form.ignoreTls': 'TLS-fouten negeren',
   'uptime.form.ignoreTlsHint': 'Ongeldige of verlopen certificaten gelden dan niet als storing.',
   'uptime.form.urlHint':
-    'Alleen openbaar bereikbare adressen. Doorverwijzingen worden niet gevolgd: voer het uiteindelijke adres in (bijv. https://www.example.ch in plaats van http://example.ch).',
+    'Alleen openbaar bereikbare adressen. Doorsturingen worden niet gevolgd: voer het uiteindelijke adres in (bijv. https://www.example.ch in plaats van http://example.ch).',
   'uptime.form.publicOnly':
     'Alleen openbaar bereikbare adressen. Interne netwerken en privé-IP-adressen worden geweigerd.',
   'uptime.form.configUnavailable':
@@ -289,7 +289,7 @@ export const uptimeNl: Partial<Record<keyof typeof uptimeDe, string>> = {
   'uptime.allowance.removeText':
     'De organisatie kan daarna geen eigen monitors meer aanmaken. Toegewezen monitors blijven bestaan.',
   'uptime.allowance.removeBlocked':
-    'De organisatie heeft {n} in de console aangemaakte monitors. Verwijder deze of wijs ze eerst toe aan een andere organisatie.',
+    'De organisatie heeft {n} in de console aangemaakte monitors. U moet deze eerst verwijderen of aan een andere organisatie toewijzen.',
   'uptime.allowance.removeBlockedCustomers':
     'De reseller heeft {n} klanten een monitoringquotum gegeven. Verwijder die eerst.',
   'uptime.allowance.removed': 'Monitoringquotum verwijderd',

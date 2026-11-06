@@ -15,7 +15,7 @@ export const storageNl: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.noAllowanceAccounts':
     'Voor deze organisatie is geen opslagquotum meer ingericht. Bestaande accounts blijven werken, nieuwe kunnen niet worden aangemaakt.',
   'storage.limit.accounts':
-    'Alle accounts van uw quotum zijn in gebruik. Verwijder een account of breid uw quotum uit om er meer aan te maken.',
+    'Alle accounts van uw quotum zijn in gebruik. U kunt een account verwijderen of uw quotum uitbreiden om er meer aan te maken.',
   'storage.limit.storage':
     'Uw opslagquotum is volledig aan accounts toegewezen. Verklein een account of breid uw quotum uit om er meer aan te maken.',
   'storage.allowance': 'Opslagquotum',
@@ -149,7 +149,7 @@ export const storageNl: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.allowance.removeText':
     'De organisatie kan daarna geen Nextcloud-accounts meer aanmaken. De module blijft actief tot u deze uitschakelt.',
   'storage.allowance.removeBlocked':
-    'Alleen mogelijk zonder accounts. Verwijder de accounts of wijs ze toe aan een andere organisatie.',
+    'Alleen mogelijk zonder accounts. U kunt de accounts verwijderen of aan een andere organisatie toewijzen.',
   'storage.allowance.removeBlockedCustomers':
     'Alleen mogelijk zonder klantquota. Verwijder eerst de quota van de {n} klanten.',
   'storage.allowance.removed': 'Opslagquotum verwijderd',

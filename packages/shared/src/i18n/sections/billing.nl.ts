@@ -119,7 +119,7 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.billedOnce': 'Gefactureerd',
   'billing.invoice.title': 'Factuur {number}',
   'billing.invoice.draftTitle': 'Conceptfactuur',
-  'billing.invoice.meta': 'Uitgegeven op {date} · {total}',
+  'billing.invoice.meta': 'Opgemaakt op {date} · {total}',
   'billing.invoice.draftMeta': 'Nog niet definitief · {total}',
   'billing.invoice.pdf': 'PDF downloaden',
   'billing.invoice.pdfPreview': 'PDF-voorbeeld',
@@ -360,7 +360,7 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.cancel': 'Opzeggen',
   'billing.service.cancelTitle': '"{name}" opzeggen',
   'billing.service.cancelText':
-    'De dienst wordt daarna niet meer gefactureerd. Reeds uitgegeven facturen blijven bestaan.',
+    'De dienst wordt daarna niet meer gefactureerd. Reeds opgemaakte facturen blijven bestaan.',
   'billing.service.endsAt.label': 'Eindigt op',
   'billing.service.endsAtHint': 'Standaard is vandaag.',
   'billing.service.deactivateModule': 'Module "{module}" deactiveren',
@@ -428,7 +428,7 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.issuer.currency': 'Standaardvaluta',
   'billing.issuer.currencyHint':
     'Voor nieuwe klanten en producten. Klanten met facturen, diensten of tegoed behouden hun valuta.',
-  'billing.issuer.taxRate': 'Standaard btw-tarief (%)',
+  'billing.issuer.taxRate': 'Standaard-btw-tarief (%)',
   'billing.issuer.taxRateHint': 'Geldt als het product of de klant geen eigen tarief heeft ({rate}).',
   'billing.issuer.terms': 'Betalingstermijn (dagen)',
   'billing.issuer.termsHint': 'Voor nieuwe klanten.',
@@ -475,10 +475,10 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.profile.locale': 'Taal voor facturen',
   'billing.profile.localeOwner': 'Taal van de eigenaar ({language})',
   'billing.profile.localeHint':
-    'Facturen, betalingsherinneringen en betalingsbevestigingen worden in deze taal verstuurd. Reeds uitgegeven facturen behouden hun taal.',
+    'Facturen, betalingsherinneringen en betalingsbevestigingen worden in deze taal verstuurd. Reeds opgemaakte facturen behouden hun taal.',
   'billing.invoice.locale': 'Taal',
   'billing.invoice.localeHint':
-    'De factuur wordt in deze taal uitgegeven. Nieuwe regels uit producten krijgen de producttekst in deze taal.',
+    'De factuur wordt in deze taal opgemaakt. Nieuwe regels uit producten krijgen de producttekst in deze taal.',
   'billing.product.translations.title': 'Vertalingen',
   'billing.product.translations.hint':
     'Naam en omschrijving in andere talen. Als u ze leeg laat, geldt de Duitse tekst.',

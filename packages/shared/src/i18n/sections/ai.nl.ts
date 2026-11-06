@@ -4,7 +4,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.assistant.title': 'AI-assistent',
   'ai.assistant.open': 'AI-assistent openen',
   'ai.assistant.close': 'AI-assistent sluiten',
-  'ai.assistant.ask': 'Vraag stellen aan AI-assistent',
+  'ai.assistant.ask': 'Vraag stellen aan de AI-assistent',
   'ai.assistant.newChat': 'Nieuw gesprek',
   'ai.assistant.placeholder': 'Uw vraag over deze organisatie',
   'ai.assistant.send': 'Verzenden',
@@ -202,7 +202,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.error.limit.budget':
     'Het AI-budget van deze maand is verbruikt. De AI-functies zijn vanaf volgende maand weer beschikbaar.',
   'ai.error.limit.org_daily': 'Uw organisatie heeft de daglimiet voor AI-verzoeken bereikt.',
-  'ai.error.limit.user_daily': 'U hebt uw daglimiet voor AI-verzoeken bereikt.',
+  'ai.error.limit.user_daily': 'U heeft uw daglimiet voor AI-verzoeken bereikt.',
   'ai.error.limit.user_rate': 'Te veel AI-verzoeken in korte tijd. Wacht een minuut.',
   'ai.error.limit.user_concurrent': 'Er lopen al twee AI-verzoeken van u. Wacht tot er een klaar is.',
   'ai.error.limit.org_concurrent':
@@ -228,7 +228,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.notice.open': 'Privacyverklaring',
   'ai.notice.title': 'Privacyverklaring over de AI-functies',
   'ai.notice.text':
-    'Voor de AI-functies gebruikt weblion.one het taalmodel Claude van Anthropic PBC, gevestigd in de VS. Anthropic is daarbij subverwerker van weblion.\n\nWanneer u, uw team of medewerkers van weblion (bijvoorbeeld bij de support) een AI-functie gebruiken, verstrekt weblion.one de daarvoor benodigde gegevens van uw organisatie aan Anthropic, bijvoorbeeld namen en meetwaarden van servers, DNS-records, foutmeldingen, vermeldingen uit het auditlog en uw vragen. De gegevens kunnen in de VS worden verwerkt.\n\nVóór het verzenden verwijdert weblion.one automatisch herkenbare geheimen zoals wachtwoorden, API-sleutels en tokens, evenals IP- en e-mailadressen uit logvermeldingen. Deze herkenning is automatisch en kan niet elk geval detecteren. Namen van personen in logvermeldingen kunnen worden verstrekt; uw eigen naam ontvangt de AI niet, alleen uw rol.\n\nVolgens de commerciële voorwaarden van Anthropic worden de gegevens niet gebruikt om modellen te trainen en alleen zo lang bewaard als deze voorwaarden bepalen. weblion.one zelf slaat noch vragen noch antwoorden op, alleen gegevens over het gebruik, zoals functie, tijdstip en aantal tokens. Het gesprek met de AI-assistent blijft alleen in uw browsertabblad.\n\nDe AI leest alleen en wijzigt niets. Voorstellen, bijvoorbeeld voor DNS-records, neemt u zelf over in het betreffende formulier.\n\nU kunt de AI-functies voor uw organisatie op elk moment weigeren onder Instellingen > AI-functies. Dan stuurt weblion.one geen gegevens van uw organisatie meer naar Anthropic, ook niet voor functies van de weblion-medewerkers.',
+    'Voor de AI-functies gebruikt weblion.one het taalmodel Claude van Anthropic PBC, gevestigd in de VS. Anthropic is daarvoor subverwerker van weblion.\n\nWanneer u, uw team of medewerkers van weblion (bijvoorbeeld bij de support) een AI-functie gebruiken, verstrekt weblion.one de daarvoor benodigde gegevens van uw organisatie aan Anthropic, bijvoorbeeld namen en meetwaarden van servers, DNS-records, foutmeldingen, vermeldingen uit het auditlog en uw vragen. De gegevens kunnen in de VS worden verwerkt.\n\nVóór het verzenden verwijdert weblion.one automatisch herkenbare geheimen zoals wachtwoorden, API-sleutels en tokens, evenals IP- en e-mailadressen uit logvermeldingen. Deze herkenning is automatisch en kan niet elk geval detecteren. Namen van personen in logvermeldingen kunnen worden verstrekt; uw eigen naam ontvangt de AI niet, alleen uw rol.\n\nVolgens de commerciële voorwaarden van Anthropic worden de gegevens niet gebruikt om modellen te trainen en alleen zo lang bewaard als deze voorwaarden bepalen. weblion.one zelf slaat noch vragen noch antwoorden op, alleen gegevens over het gebruik, zoals functie, tijdstip en aantal tokens. Het gesprek met de AI-assistent blijft alleen in uw browsertabblad.\n\nDe AI leest alleen en wijzigt niets. Voorstellen, bijvoorbeeld voor DNS-records, neemt u zelf over in het betreffende formulier.\n\nU kunt de AI-functies voor uw organisatie op elk moment weigeren onder Instellingen > AI-functies. Dan stuurt weblion.one geen gegevens van uw organisatie meer naar Anthropic, ook niet voor functies van de weblion-medewerkers.',
   'admin.ai.subtitle':
     'Claude van Anthropic voor de AI-functies van de console: sleutel, model, functies, budget en gebruik.',
   'admin.ai.tab.settings': 'Instellingen',

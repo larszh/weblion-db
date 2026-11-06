@@ -16,7 +16,7 @@ export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.noAllowanceAccounts':
     'Voor deze organisatie is geen streamingquotum meer ingericht. Bestaande accounts blijven werken, nieuwe kunnen niet worden aangemaakt.',
   'media.limit.accounts':
-    'Alle accounts van uw quotum zijn in gebruik. Verwijder een account of breid uw quotum uit om er meer aan te maken.',
+    'Alle accounts van uw quotum zijn in gebruik. U kunt een account verwijderen of uw quotum uitbreiden om er meer aan te maken.',
   'media.allowance': 'Streamingquotum',
   'media.allowanceText': 'Wat elk account van uw organisatie mag. De console past dit toe op alle accounts.',
   'media.figure.accounts': 'Accounts',
@@ -222,7 +222,7 @@ export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.allowance.outsideParent': 'Niet bij de reseller',
   'media.allowance.downloads': 'Downloads toestaan',
   'media.allowance.downloadsHint':
-    'Offline kopieën in de apps. Dit is geen kopieerbeveiliging: gestreamde inhoud kan toch worden opgeslagen.',
+    'Offlinekopieën in de apps. Dit is geen kopieerbeveiliging: gestreamde inhoud kan toch worden opgeslagen.',
   'media.allowance.bitrate': 'Kwaliteit onderweg',
   'media.allowance.bitrateHint':
     'Hoogste bitrate voor apparaten buiten het netwerk van de server. Zonder eigen waarde geldt de instelling van de server.',
@@ -247,7 +247,7 @@ export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.allowance.removeText':
     'De organisatie kan daarna geen streamingaccounts meer aanmaken. De module blijft actief tot u deze uitschakelt.',
   'media.allowance.removeBlocked':
-    'Alleen mogelijk zonder accounts. Verwijder de accounts of wijs ze toe aan een andere organisatie.',
+    'Alleen mogelijk zonder accounts. U kunt de accounts verwijderen of aan een andere organisatie toewijzen.',
   'media.allowance.removeBlockedCustomers':
     'Alleen mogelijk zonder klantquota. Verwijder eerst de quota van de {n} klanten.',
   'media.allowance.removed': 'Streamingquotum verwijderd',
@@ -455,13 +455,13 @@ export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.seerr.check.newSignIns': 'Nieuwe aanmeldingen via Jellyfin uit',
   'media.seerr.check.defaultPermissions': 'Nieuwe gebruikers zonder rechten',
   'media.seerr.check.mediaServerLogin': 'Inloggen met Jellyfin aan',
-  'media.seerr.check.csrf': 'CSRF-beveiliging uit',
+  'media.seerr.check.csrf': 'CSRF-bescherming uit',
   'media.seerr.problem.unreachable': 'Seerr is niet bereikbaar.',
   'media.seerr.problem.key': 'Seerr heeft de API-sleutel geweigerd.',
   'media.seerr.problem.not_jellyfin': 'Seerr is niet voor Jellyfin ingericht.',
   'media.seerr.problem.other_server': 'Seerr is gekoppeld aan een andere Jellyfin-server.',
   'media.seerr.problem.csrf':
-    'De CSRF-beveiliging van Seerr staat aan, zo kan de console niets wijzigen. Schakel deze in Seerr uit onder Instellingen > Netwerk.',
+    'De CSRF-bescherming van Seerr staat aan, zo kan de console niets wijzigen. Schakel deze in Seerr uit onder Instellingen > Netwerk.',
   'media.seerr.problem.new_signins':
     'Nieuwe aanmeldingen via Jellyfin staan aan: elke gebruiker van de server zou kunnen aanvragen.',
   'media.seerr.problem.default_permissions': 'Nieuwe gebruikers krijgen rechten. Aanbevolen: geen.',
@@ -469,7 +469,8 @@ export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {
     'Inloggen met Jellyfin staat uit: klanten zouden niet kunnen inloggen.',
   'media.seerr.unmanaged':
     'Gebruikers in Seerr die de console niet beheert en die mogen aanvragen: {n}. De synchronisatie ontneemt hun dit recht.',
-  'media.seerr.orphans': 'Gebruikers in Seerr zonder Jellyfin-gebruiker: {n}. Verwijder ze in Seerr.',
+  'media.seerr.orphans':
+    'Gebruikers in Seerr zonder Jellyfin-gebruiker: {n}. U moet ze in Seerr verwijderen.',
   'media.seerr.localLogin':
     'Lokaal inloggen staat in Seerr aan. Gebruikers die Seerr bij een Jellyfin-aanmelding heeft aangemaakt voordat de aanbevolen instellingen golden, loggen daarmee nog steeds in met hun toenmalige wachtwoord, ook na een nieuw wachtwoord. Schakel dit in Seerr uit onder Instellingen > Gebruikers als niemand het nodig heeft.',
   'media.seerr.apply': 'Aanbevolen instellingen toepassen',
