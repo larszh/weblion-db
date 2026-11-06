@@ -9,6 +9,11 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "API-Tokens" here are Cloudflare API tokens ("jetons API"), not the AI usage tokens of the glossary entry.
+    'providers.cloudflare.help',
+    'providers.cloudflare.tokenHint',
+    'explorer.cloudflarePath',
+  ],
   typographyOk: [],
 };
