@@ -15,6 +15,9 @@ export const allowlist: Allowlist = {
     'billing.summary.openCount',
     'billing.admin.count',
     'billing.admin.zohoErrors',
+    // The value quotes the menu path of the Hetzner Console, which has no Dutch interface, so it keeps the
+    // English labels "API tokens > Generate API token" instead of the glossary spelling "API-token".
+    'providers.hetzner.tokenHint',
   ],
   typographyOk: [],
 };
