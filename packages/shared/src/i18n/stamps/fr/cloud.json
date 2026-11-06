@@ -27,7 +27,7 @@
   "inventory.archImage": ["ae099ff852719958", "4ecf8b3953e27a4c"],
   "inventory.importHint.hetzner": ["674873353cd2fa50", "6cb37ac9cb1f3745"],
   "providers.hetzner.token": ["5efaaeeee66eff5f", "2e0dae1beba78ff6"],
-  "providers.hetzner.tokenHint": ["a8b0a36c385c249e", "1d51b98bfe6a8f1c"],
+  "providers.hetzner.tokenHint": ["a8b0a36c385c249e", "a68b4a8bc2db83e4"],
   "providers.hetzner.help": ["f5078fbc6d8582c3", "0ca5bbfd37867a50"],
   "providers.baseUrlDefault": ["36d89b6254b0c152", "56942a53ccd18085"],
   "explorer.hetznerPath": ["3f00d87b5b6cdc44", "13d0c1b36f239777"],
