@@ -33,7 +33,7 @@ export const emailNl: Partial<Record<keyof typeof emailDe, string>> = {
   'email.reminder.dueSince': 'Vervallen sinds',
   'email.reminder.button': 'Factuur bekijken',
   'email.reminder.note':
-    'Als u de betaling al hebt uitgevoerd, kunt u deze e-mail als afgehandeld beschouwen.',
+    'Als u de betaling al heeft uitgevoerd, kunt u deze e-mail als afgehandeld beschouwen.',
   'email.payment.subject': 'Betaling ontvangen: {amount}',
   'email.payment.heading': 'Hartelijk dank voor uw betaling',
   'email.payment.text': 'Wij hebben uw betaling voor {org} ontvangen.',

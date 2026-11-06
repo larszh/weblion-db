@@ -46,7 +46,7 @@ export const websitesNl: Partial<Record<keyof typeof websitesDe, string>> = {
   'providers.cloudpanel.consoleKey': 'SSH-sleutel van de console',
   'providers.cloudpanel.installCommand': 'Installatie op de server (als root)',
   'providers.cloudpanel.installCommandHint':
-    'Vervang de placeholders: --from door de uitgaande IP-adressen van de console, --protect-domain en --protect-user door elke site van de exploitant op deze server.',
+    'Vervang de plaatshouders: --from door de uitgaande IP-adressen van de console, --protect-domain en --protect-user door elke site van de exploitant op deze server.',
   'websites.admin.synced': '{seen} websites gesynchroniseerd, {missing} ontbreken op de server',
   'hosting.kind.website': 'Website',
   'hosting.kind.webspace': 'Webruimte',
@@ -440,7 +440,7 @@ export const websitesNl: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.reseller.removeText':
     'De klant kan daarna geen websites meer aanmaken; het quotum gaat terug naar u.',
   'websites.reseller.removeBlocked':
-    'Alleen mogelijk zonder websites. De klant heeft er nog {n}; verwijder ze of haal ze terug naar uw eigen inventaris.',
+    'Alleen mogelijk zonder websites. De klant heeft er nog {n}; verwijder ze of haal ze terug naar uw voorraad.',
   'websites.reseller.releaseText':
     'Is het een website en heeft uw websitequotum er geen ruimte meer voor, dan neemt de website haar plaats in het quotum van de klant mee: dat quotum wordt verlaagd met de website en de bijbehorende databases.',
   'websites.errors.no_allowance': 'Voor deze organisatie is geen websitequotum ingericht.',
