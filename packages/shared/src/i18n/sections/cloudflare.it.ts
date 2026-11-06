@@ -73,7 +73,7 @@ export const cloudflareIt: Partial<Record<keyof typeof cloudflareDe, string>> = 
     'Per {name} esiste una zona presso {provider} ({status}). Il dominio però non punta ancora ai relativi nameserver.',
   'hosting.dnsZone.open': 'Vai alla zona DNS',
   'hosting.dnsZone.otherOrg':
-    "La zona appartiene a un'altra organizzazione. Si rivolga all'Owner di quell'organizzazione o al supporto.",
+    "La zona appartiene a un'altra organizzazione. Si rivolga al proprietario di quell'organizzazione o al supporto.",
   'hosting.dnsZone.prepared':
     'Una zona presso {provider} è stata preparata ({status}). Finché il dominio non punterà ai nameserver di {provider}, valgono i record riportati qui.',
   'hosting.dnsZone.nsLine': 'Zona DNS presso {provider}: {status}',

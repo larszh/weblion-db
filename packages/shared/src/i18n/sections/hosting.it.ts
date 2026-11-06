@@ -25,12 +25,12 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.notFound.domain': 'Dominio non trovato',
   'hosting.notFound.webspace': 'Spazio web non trovato',
   'hosting.notFound.text':
-    "Non esiste più oppure non ha accesso. Per domande si rivolga all'Owner della sua organizzazione.",
+    'Non esiste più oppure non ha accesso. Per domande si rivolga al proprietario della sua organizzazione.',
   'hosting.moduleOff.title': '{module} non è attivato',
   'hosting.moduleOff.text':
     "Quest'area non è attiva per la sua organizzazione. Se desidera utilizzarla, si rivolga al suo fornitore.",
   'hosting.moduleOff.staff':
-    'Il modulo non è attivato per questa organizzazione. Vede i dati solo perché fa parte del personale di weblion.',
+    'Il modulo non è attivato per questa organizzazione. Vede i dati solo perché fa parte dei collaboratori di weblion.',
   'hosting.liveError.title': 'Dati live non disponibili',
   'hosting.liveError.text':
     "{provider} non è raggiungibile al momento. Vengono mostrati i dati dell'ultima sincronizzazione.",
@@ -129,7 +129,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.registrant.none': 'Il registrar non ha comunicato i dati del titolare.',
   'hosting.renewal.title': 'Rinnovo',
   'hosting.renewal.text':
-    'I rinnovi hanno un costo presso il registrar e sono quindi riservati al personale di weblion.',
+    'I rinnovi hanno un costo presso il registrar e sono quindi riservati ai collaboratori di weblion.',
   'hosting.renewal.staffOnly': 'Interno',
   'hosting.renewal.autoOnText':
     "Il registrar rinnova il dominio prima della scadenza e addebita l'importo sul conto weblion.",
@@ -185,7 +185,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.dns.emptyText': 'Aggiunga il primo record, ad es. un record A per il suo sito web.',
   'hosting.dns.unavailable': 'Questo provider non mette a disposizione record DNS.',
   'hosting.dns.noPermission':
-    'Può visualizzare i record DNS. Per modificarli le manca l\'autorizzazione "Modificare i record DNS".',
+    'Può visualizzare i record DNS. Per modificarli le manca l\'autorizzazione "Modificare record DNS".',
   'hosting.dns.needsPlus':
     'Al momento non è possibile modificare i DNS di questo dominio. Se desidera modificare un record, si rivolga al supporto.',
   'hosting.dns.notSupported':
@@ -281,7 +281,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.res.subdomains': 'Sottodomini',
   'hosting.res.emails': 'Caselle e-mail',
   'hosting.res.databases': 'Database',
-  'hosting.res.storage': 'Spazio disco',
+  'hosting.res.storage': 'Spazio su disco',
   'hosting.res.traffic': 'Traffico',
   'hosting.res.included': 'Incluso nel pacchetto',
   'hosting.res.unlimited': 'Illimitato',
@@ -293,16 +293,16 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.webspace.ip': 'Indirizzo IP',
   'hosting.webspace.memoryLimit': 'Limite di memoria PHP',
   'hosting.webspace.panel': 'Pannello di controllo',
-  'hosting.creds.title': 'Dati di accesso',
+  'hosting.creds.title': 'Credenziali di accesso',
   'hosting.creds.text': 'Accesso al pannello di controllo (Plesk).',
-  'hosting.creds.show': 'Mostra dati di accesso',
+  'hosting.creds.show': 'Mostra credenziali di accesso',
   'hosting.creds.password': 'Password',
   'hosting.creds.noPassword':
     'Il provider non rilascia la password. Se necessario, la faccia reimpostare dal supporto.',
   'hosting.creds.auditHint': 'Ogni consultazione viene annotata nel registro di audit.',
-  'hosting.creds.noPermission': "Non ha l'autorizzazione per visualizzare i dati di accesso.",
+  'hosting.creds.noPermission': "Non ha l'autorizzazione per visualizzare le credenziali di accesso.",
   'hosting.creds.shownHint': 'I dati vengono nascosti automaticamente dopo tre minuti.',
-  'hosting.creds.confirmTitle': 'Mostrare i dati di accesso?',
+  'hosting.creds.confirmTitle': 'Mostrare le credenziali di accesso?',
   'hosting.creds.confirmText':
     'Con questi dati si ha pieno accesso allo spazio web. La consultazione viene annotata nel registro di audit.',
   'hosting.creds.openPlesk': 'Apri Plesk',
@@ -351,7 +351,7 @@ export const hostingIt: Partial<Record<keyof typeof hostingDe, string>> = {
   'hosting.admin.reassign': 'Cambia',
   'hosting.admin.assignTitle': 'Assegna {name}',
   'hosting.admin.assignTextDomain': 'In seguito il cliente vede il dominio alla voce "Domini e DNS".',
-  'hosting.admin.assignTextWebspace': 'In seguito il cliente vede lo spazio web alla voce "Web hosting".',
+  'hosting.admin.assignTextWebspace': 'In seguito il cliente vede lo spazio web alla voce "Hosting web".',
   'hosting.admin.currentlyAt': 'Attualmente assegnato a',
   'hosting.admin.findCustomer': 'Cerca cliente',
   'hosting.admin.groupDirect': 'Clienti diretti e rivenditori',

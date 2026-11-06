@@ -38,7 +38,7 @@ export const storageIt: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.accounts': 'Account',
   'storage.accountsText':
     'Ogni account ha il proprio contingente di spazio e accede con il proprio nome di login.',
-  'storage.lastSync': "Utilizzo aggiornato l'ultima volta {when}",
+  'storage.lastSync': "Ultimo aggiornamento dell'utilizzo {when}",
   'storage.search': 'Cerca account, nome o e-mail…',
   'storage.empty': 'Ancora nessun account',
   'storage.emptyText': 'Crei un account per ogni persona che deve utilizzare Nextcloud.',
@@ -122,7 +122,7 @@ export const storageIt: Partial<Record<keyof typeof storageDe, string>> = {
   'storage.deleteConfirm': 'Elimina definitivamente',
   'storage.deleteWarningTitle': 'Tutti i file vengono eliminati',
   'storage.deleteWarning':
-    "L'account viene eliminato in Nextcloud con tutti i file ({used}), i calendari, i contatti e le condivisioni. L'operazione è irreversibile.",
+    "L'account viene eliminato in Nextcloud con tutti i file ({used}), i calendari, i contatti e le condivisioni. L'operazione non può essere annullata.",
   'storage.deletedToast': '{username} eliminato',
   'storage.allowance.setUp': 'Configura',
   'storage.allowance.setUpTitle': "Configura l'archiviazione cloud per {name}",

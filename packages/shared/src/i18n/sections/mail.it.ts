@@ -258,7 +258,7 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.alias.targetsSelf': 'Un inoltro non può inoltrare a sé stesso.',
   'mail.alias.pick': 'Aggiungi casella e-mail come destinazione',
   'mail.alias.pickPlaceholder': 'Aggiungi casella e-mail o indirizzo',
-  'mail.alias.external': '{n} destinazione/i al di fuori di questo dominio: le e-mail vengono inoltrate lì.',
+  'mail.alias.external': 'Destinazioni al di fuori di questo dominio: {n}. Le e-mail vengono inoltrate lì.',
   'mail.alias.activeLabel': 'Attivo',
   'mail.alias.activeHint': 'Gli inoltri inattivi non accettano e-mail.',
   'mail.alias.created': 'Inoltro {address} creato',
@@ -285,7 +285,7 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.dns.notWritable':
     'Al momento non è possibile modificare i record DNS di questo dominio presso {provider}. Inserisca manualmente i record mancanti.',
   'mail.dns.noPermission':
-    "Non può modificare i record DNS di questo dominio. Si rivolga all'Owner della sua organizzazione.",
+    'Non può modificare i record DNS di questo dominio. Si rivolga al proprietario della sua organizzazione.',
   'mail.dns.dkimTitle': 'Chiave DKIM',
   'mail.dns.dkimText':
     'Mailcow firma le e-mail in uscita con questa chiave. Il record DNS rende verificabile la firma.',
@@ -402,7 +402,7 @@ export const mailIt: Partial<Record<keyof typeof mailDe, string>> = {
   'mail.admin.creating':
     'Mailcow sta creando il dominio. Con il riavvio della webmail possono essere necessari fino a due minuti. Non chiuda la finestra.',
   'mail.admin.instanceHint': 'In seguito i record MX del dominio punteranno a questa istanza.',
-  'mail.admin.chooseInstance': "Selezionare un'istanza…",
+  'mail.admin.chooseInstance': "Seleziona un'istanza…",
   'mail.admin.domainHint': 'Senza www, ad es. cliente.ch. Sono possibili anche domini con lettere accentate.',
   'mail.admin.domainInvalid': 'Inserisca un nome di dominio come cliente.ch.',
   'mail.admin.asciiPreview': 'Su Mailcow:',

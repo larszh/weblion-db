@@ -112,7 +112,7 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.services.none': 'Nessun servizio',
   'billing.services.noneText': 'Qui compaiono i servizi acquistati, come server, domini o hosting web.',
   'billing.services.noneSeller': 'Aggiunga un servizio per fatturarlo regolarmente.',
-  'billing.services.customerText': 'Ciò che Le viene fatturato regolarmente o una tantum.',
+  'billing.services.customerText': 'Ciò che le viene fatturato regolarmente o una tantum.',
   'billing.services.sellerText': 'I servizi vengono fatturati alla data della prossima fattura.',
   'billing.payments.none': 'Ancora nessun pagamento',
   'billing.payments.topup': 'Credito',
@@ -186,7 +186,7 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
     'Attendiamo la conferma del fornitore del servizio di pagamento. Di solito bastano pochi secondi.',
   'billing.return.slow': 'Conferma ancora in sospeso',
   'billing.return.slowText':
-    "Il pagamento non è ancora confermato. Ricarichi la pagina tra qualche minuto. L'importo non Le verrà addebitato due volte.",
+    "Il pagamento non è ancora confermato. Ricarichi la pagina tra qualche minuto. L'importo non le verrà addebitato due volte.",
   'billing.return.paid': 'Pagamento di {amount} ricevuto',
   'billing.return.toppedUp': 'Credito ricaricato di {amount}',
   'billing.return.thanks': 'Grazie mille. Riceverà una conferma via e-mail.',
@@ -261,7 +261,7 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.void.action': 'Storna',
   'billing.void.title': 'Storno della fattura {number}',
   'billing.void.text':
-    "La fattura resta registrata con il suo numero, ma non deve più essere pagata. L'operazione è irreversibile.",
+    "La fattura resta registrata con il suo numero, ma non deve più essere pagata. L'operazione non può essere annullata.",
   'billing.void.reason': 'Motivo',
   'billing.void.reasonPlaceholder': 'ad es. Fatturato due volte',
   'billing.void.reasonHint': 'Il cliente vede il motivo sulla fattura.',

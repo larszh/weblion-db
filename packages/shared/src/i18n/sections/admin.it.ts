@@ -67,7 +67,7 @@ export const adminIt: Partial<Record<keyof typeof adminDe, string>> = {
     "Senza l'e-mail del proprietario nessuno ha ancora accesso. Può invitare membri in seguito.",
   'admin.reseller.empty': 'Ancora nessun cliente',
   'admin.reseller.emptyText': 'Crei il suo primo cliente e gli assegni server, domini o spazi web.',
-  'admin.reseller.notReseller': 'Solo per account rivenditore',
+  'admin.reseller.notReseller': 'Solo per i rivenditori',
   'admin.reseller.notResellerText':
     'Questa organizzazione non è un rivenditore e quindi non ha clienti propri.',
   'admin.reseller.noAccess': 'Nessuna autorizzazione per la gestione dei clienti.',
@@ -268,7 +268,7 @@ export const adminIt: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.dash.recurring': 'Servizi attivi: {n}, in totale {amount} al mese',
   'admin.dash.seller': 'Fatture di {name}',
   'admin.dash.viaReseller': 'Gestisce questa organizzazione come rivenditore tramite {name}.',
-  'admin.dash.backToReseller': 'Alla gestione clienti',
+  'admin.dash.backToReseller': 'Vai alla gestione clienti',
   'admin.dash.noModules': 'Ancora nessun servizio attivato',
   'admin.dash.noModulesText': 'Non appena un modulo viene attivato, appare qui e nella navigazione.',
 };

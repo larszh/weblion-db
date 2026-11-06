@@ -23,7 +23,7 @@ export const cloudIt: Partial<Record<keyof typeof cloudDe, string>> = {
     'Hetzner cambia il tipo di server solo a server spento. Lo arresti prima in Alimentazione e in seguito lo avvii di nuovo.',
   'plans.hint': 'Un altro tipo di server modifica i costi e può richiedere un riavvio.',
   'plans.confirmText': 'Il server passa a {plan} ({cores} vCPU, {memory} di RAM).',
-  'plans.confirmDisk': "Il disco viene ingrandito a {disk} GB. L'operazione è irreversibile.",
+  'plans.confirmDisk': "Il disco viene ingrandito a {disk} GB. L'operazione non può essere annullata.",
   'inventory.plan': 'Tipo di server',
   'inventory.location': 'Ubicazione',
   'inventory.image': 'Immagine',

@@ -169,7 +169,7 @@ export const mediaIt: Partial<Record<keyof typeof mediaDe, string>> = {
   'media.deleteConfirm': 'Elimina definitivamente',
   'media.deleteWarningTitle': 'Cronologia e preferiti vengono eliminati',
   'media.deleteWarning':
-    "L'accesso viene eliminato in Jellyfin, con la cronologia di riproduzione, i preferiti e le playlist. Le riproduzioni in corso vengono interrotte e tutti i dispositivi vengono disconnessi. L'operazione è irreversibile.",
+    "L'accesso viene eliminato in Jellyfin, con la cronologia di riproduzione, i preferiti e le playlist. Le riproduzioni in corso vengono interrotte e tutti i dispositivi vengono disconnessi. L'operazione non può essere annullata.",
   'media.deleteMissing': "L'accesso non esiste più in Jellyfin. Viene solo rimosso dalla console.",
   'media.deletedToast': '{username} eliminato',
   'media.issue.policy': 'Criteri divergenti',

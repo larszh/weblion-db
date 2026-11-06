@@ -11,7 +11,7 @@ export const phoneIt: Partial<Record<keyof typeof phoneDe, string>> = {
   'phone.backToList': 'Torna ai centralini',
   'phone.none.title': 'Ancora nessun centralino',
   'phone.none.text': 'Non appena weblion.one configurerà per Lei un centralino 3CX, questo comparirà qui.',
-  'phone.none.textReseller': 'Non appena {reseller} Le assegnerà un centralino, questo comparirà qui.',
+  'phone.none.textReseller': 'Non appena {reseller} le assegnerà un centralino, questo comparirà qui.',
   'phone.open': 'Apri 3CX',
   'phone.openWebClient': 'Apri il web client 3CX',
   'phone.liveError': 'Dati attuali del centralino non disponibili',

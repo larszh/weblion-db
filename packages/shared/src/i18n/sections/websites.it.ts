@@ -76,7 +76,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
     'Per la sua organizzazione non è configurato alcun contingente di siti web. Si rivolga a weblion.',
   'websites.list.noAllowanceReseller':
     'Per la sua organizzazione non è configurato alcun contingente di siti web. Si rivolga al suo fornitore {reseller}.',
-  'websites.list.credentialsPending': 'Dati di accesso mancanti: imposti una nuova password.',
+  'websites.list.credentialsPending': 'Credenziali di accesso mancanti: imposti una nuova password.',
   'websites.allowance.title': 'Contingente di siti web',
   'websites.allowance.sites': 'Siti web',
   'websites.allowance.databases': 'Database',
@@ -118,7 +118,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.allowance.nodejsOffShort': 'Node.js non abilitato',
   'websites.allowance.typesRequired': 'Scelga almeno un tipo.',
   'websites.allowance.enableModuleHint':
-    'In seguito {org} vedrà la pagina Web hosting e potrà creare siti web.',
+    'In seguito {org} vedrà la pagina Hosting web e potrà creare siti web.',
   'websites.allowance.moduleOff': 'Senza il modulo "{module}" l\'organizzazione non vede i propri siti web.',
   'websites.allowance.resellerHint':
     'Il contingente di un rivenditore copre i siti web del rivenditore stesso e i contingenti che assegna ai propri clienti.',
@@ -193,9 +193,9 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.password.rule.characters':
     'Lettere, cifre e !#%*+,-./;<=>?@^_{|}~ (niente spazi, virgolette, $ : ( ) & \\ `)',
   'websites.password.submit': 'Imposta nuova password',
-  'websites.creds.title': 'Dati di accesso (visibili solo ora)',
+  'websites.creds.title': 'Credenziali di accesso (visibili solo ora)',
   'websites.creds.text':
-    'Salvi ora i dati di accesso, ad es. in un gestore di password. weblion non salva password e non può mostrarle di nuovo.',
+    'Salvi ora le credenziali di accesso, ad es. in un gestore di password. weblion non salva password e non può mostrarle di nuovo.',
   'websites.creds.newPassword': 'Nuova password (visibile solo ora)',
   'websites.creds.sftp': 'SFTP e SSH',
   'websites.creds.database': 'Database',
@@ -205,7 +205,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.creds.sshLine': 'Nel terminale:',
   'websites.creds.onceText':
     'Dopo la chiusura la password non è più visibile. Le password dimenticate si reimpostano.',
-  'websites.creds.saved': 'Ho salvato i dati di accesso',
+  'websites.creds.saved': 'Ho salvato le credenziali di accesso',
   'websites.detail.open': 'Apri sito web',
   'websites.detail.refreshError': 'Aggiornamento non riuscito',
   'websites.detail.missingTitle': 'Non più trovato sul server',
@@ -217,9 +217,9 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.detail.errorTitle': 'Ultima modifica non completata',
   'websites.detail.errorText':
     'Il server non ha risposto. La prossima sincronizzazione chiarirà lo stato; in seguito il sito web sarà di nuovo utilizzabile.',
-  'websites.detail.credentialsPendingTitle': 'Dati di accesso non mostrati',
+  'websites.detail.credentialsPendingTitle': 'Credenziali di accesso non mostrate',
   'websites.detail.credentialsPending':
-    'I dati di accesso non sono stati mostrati. Imposti una nuova password.',
+    'Le credenziali di accesso non sono state mostrate. Imposti una nuova password.',
   'websites.detail.offBusy': 'Possibile solo al termine della modifica in corso.',
   'websites.detail.offError': 'Possibile solo dopo che la sincronizzazione avrà chiarito lo stato.',
   'websites.detail.offMissing': 'Non è possibile: il server non segnala più questo sito web.',
@@ -350,7 +350,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.db.connect': "Le applicazioni sul server si connettono all'host 127.0.0.1, porta 3306.",
   'websites.db.noPhpMyAdmin':
     'Non offriamo phpMyAdmin. Con un tunnel SSH raggiunge il database dal suo computer (in seguito 127.0.0.1:3306 nel suo programma di database):',
-  'websites.usage.title': 'Spazio disco',
+  'websites.usage.title': 'Spazio su disco',
   'websites.usage.files': 'File',
   'websites.usage.databases': 'Database',
   'websites.usage.measured': '{size} · misurato {when}',
@@ -401,7 +401,7 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.admin.optionsError':
     'Server non raggiungibile. La selezione segue le impostazioni del provider; il server verifica ogni dato.',
   'websites.admin.noAllowanceCheck':
-    'Per il personale della piattaforma non vale alcun contingente. Il sito web viene comunque conteggiato nel contingente del cliente.',
+    'Per i collaboratori della piattaforma non vale alcun contingente. Il sito web viene comunque conteggiato nel contingente del cliente.',
   'websites.admin.forget': 'Rimuovi dalla console',
   'websites.admin.forgetTitle': 'Rimuovere {domain} dalla console?',
   'websites.admin.forgetText':
@@ -441,11 +441,11 @@ export const websitesIt: Partial<Record<keyof typeof websitesDe, string>> = {
   'websites.reseller.sitesTooHigh': 'Nel suo contingente restano liberi solo {n} siti web.',
   'websites.reseller.databasesTooHigh': 'Nel suo contingente restano liberi solo {n} database.',
   'websites.reseller.inUse': 'Il cliente ha già {sites} siti web e {databases} database.',
-  'websites.reseller.enablesModule': 'Ciò attiva anche il modulo Web hosting per il cliente.',
+  'websites.reseller.enablesModule': 'In questo modo si attiva anche il modulo Hosting web per il cliente.',
   'websites.reseller.removeText':
     'In seguito il cliente non potrà più creare siti web; il contingente torna a Lei.',
   'websites.reseller.removeBlocked':
-    'Possibile solo senza siti web. Il cliente ne ha ancora {n}; li elimini o li riprenda nel proprio inventario.',
+    'Possibile solo senza siti web. Il cliente ne ha ancora {n}; li elimini o li riporti nella sua dotazione.',
   'websites.reseller.releaseText':
     'Se si tratta di un sito web e il suo contingente di siti web non ha più spazio per esso, il sito porta con sé il proprio posto nel contingente del cliente: questo si riduce del sito web e dei relativi database.',
   'websites.errors.no_allowance':
