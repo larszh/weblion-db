@@ -22,6 +22,9 @@ export const allowlist: Allowlist = {
     // imperative of "verwijderen" is "Verwijder", so the value cannot contain the infinitive.
     'storage.limit.accounts',
     'storage.allowance.removeBlocked',
+    'media.limit.accounts',
+    'media.allowance.removeBlocked',
+    'media.seerr.orphans',
   ],
   typographyOk: [],
 };
