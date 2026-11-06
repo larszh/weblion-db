@@ -514,6 +514,7 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.unit.yearly': 'year',
   'billing.profile.locale': 'Invoice language',
   'billing.profile.localeOwner': "Owner's language ({language})",
+  'billing.profile.localeOwnerPlain': "Owner's language",
   'billing.profile.localeHint':
     'Invoices, payment reminders and payment confirmations are sent in this language. Invoices already issued keep their language.',
   'billing.invoice.locale': 'Language',
@@ -523,5 +524,6 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.product.translations.hint':
     'Name and description in other languages. If left empty, the German text is used.',
   'billing.product.translations.name': 'Name ({language})',
+  'billing.product.translations.nameRequired': 'Enter a name or clear the description.',
   'billing.product.translations.description': 'Description ({language})',
 };

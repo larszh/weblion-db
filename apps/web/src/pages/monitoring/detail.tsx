@@ -46,6 +46,7 @@ import {
   targetHref,
 } from './bits';
 import { MonitorActionButtons } from './dialogs';
+import { ExplainButton } from '@/components/ai/explain-dialog';
 
 /** One monitor (/o/:slug/monitoring/:monitorId): live facts, response time chart, status changes, configuration. */
 export function MonitorDetailPage() {
@@ -133,11 +134,20 @@ function MonitorView({ monitor }: { monitor: MonitorDetailDto }) {
           ) : undefined
         }
         actions={
-          <MonitorActionButtons
-            monitor={monitor}
-            minIntervalSeconds={minIntervalSeconds}
-            onDeleted={() => navigate(`${base}/monitoring`, { replace: true })}
-          />
+          <>
+            {/* "Mit KI erklären" while down or after a failed check (ai 10.1, 12.5). */}
+            {(monitor.status === 'down' || newest?.status === 'down') && (
+              <ExplainButton
+                scope={{ orgId: org.id }}
+                source={() => ({ kind: 'monitor', monitorId: monitor.id })}
+              />
+            )}
+            <MonitorActionButtons
+              monitor={monitor}
+              minIntervalSeconds={minIntervalSeconds}
+              onDeleted={() => navigate(`${base}/monitoring`, { replace: true })}
+            />
+          </>
         }
       />
 

@@ -48,6 +48,7 @@ import { MailCard } from '@/pages/mail/dashboard-card';
 import { PhoneCard } from '@/pages/phone/dashboard-card';
 import { ProjectDialog } from './projects';
 import { ActivityList } from './audit';
+import { AskAssistantMenu } from '@/components/ai/ask-assistant';
 
 function StatTile({
   icon,
@@ -519,12 +520,14 @@ export function OrgDashboard() {
         title={org.name}
         description={hasServers ? t('dashboard.subtitle') : t('admin.dash.subtitle')}
         actions={
-          hasServers &&
-          can('project:create') && (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-              {t('projects.new')}
-            </Button>
-          )
+          <>
+            <AskAssistantMenu />
+            {hasServers && can('project:create') && (
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                {t('projects.new')}
+              </Button>
+            )}
+          </>
         }
       />
 

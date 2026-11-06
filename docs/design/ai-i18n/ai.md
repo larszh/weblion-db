@@ -1879,7 +1879,8 @@ export class SseWriter {
 - Frames: `event: <name>\ndata: <JSON on one line>\n\n`. Event names and payloads: `AiSseEvent` (3.1): `meta`,
   `text`, `tool`, `source`, `proposal`, `notice`, `error`, `done`. A turn is `meta`, then any number of `text`,
   `tool`, `source`, `proposal`, `notice`, then exactly one `done` or one `error`.
-- `send()` returns `false` and writes nothing once closed. `req.raw` `close` aborts `signal` and stops the ping.
+- `send()` returns `false` and writes nothing once closed. `reply.raw` `close` aborts `signal` and stops the ping
+  (the request emits `close` once its body is read, the response only when the connection ends).
 - `error(err)`: one `error` event `{ status, code, message, details }` built from the `AppError` (so the web turns
   it into an `ApiError` and `localizeError` handles it, plan U4), then `close()`.
 - `close()`: stops the timer, `reply.raw.end()`. The route logs one line at the end (`{ usageId, status,

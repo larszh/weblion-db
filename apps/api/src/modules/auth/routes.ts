@@ -124,6 +124,16 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       req.body,
     );
     const [user] = await db.update(users).set(body).where(eq(users.id, auth.user.id)).returning();
+    // The language decides the mails to this person too (i18n 11.2); only the field names are recorded.
+    const changed = (['name', 'locale'] as const).filter(
+      (field) => body[field] !== undefined && body[field] !== auth.user[field],
+    );
+    await audit.record(req, {
+      action: 'auth.profile_update',
+      resourceType: 'user',
+      resourceId: auth.user.id,
+      details: { changed, locale: user!.locale },
+    });
     return buildMe(db, { ...auth, user: user! });
   });
 
@@ -266,7 +276,12 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post('/auth/invitations/:token/accept', loginRateLimit, async (req, reply) => {
     const { token } = parse(z.object({ token: z.string().min(20).max(100) }), req.params);
     const body = parse(
-      z.object({ name: z.string().trim().min(1).max(100).optional(), password: passwordSchema.optional() }),
+      z.object({
+        name: z.string().trim().min(1).max(100).optional(),
+        password: passwordSchema.optional(),
+        /** The language chosen on the invite page; it becomes the new account's (i18n 6.2). */
+        locale: z.enum(LOCALES).optional(),
+      }),
       req.body ?? {},
     );
     const { invitation, org } = await loadInvitation(token);
@@ -274,8 +289,10 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       where: sql`lower(${users.email}) = lower(${invitation.email})`,
     });
 
+    let created = false;
     if (user) {
-      // Existing accounts accept while logged in, so nobody can attach an account they do not own.
+      // Existing accounts accept while logged in, so nobody can attach an account they do not own. Their
+      // language stays: it is a setting of the profile, not of this page.
       if (!req.auth || req.auth.mfaPending || req.auth.user.id !== user.id) {
         throw unauthorized('Please sign in as the invited user first');
       }
@@ -283,8 +300,14 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!body.name || !body.password) throw badRequest('Name and password are required');
       [user] = await db
         .insert(users)
-        .values({ email: invitation.email, name: body.name, passwordHash: await hashPassword(body.password) })
+        .values({
+          email: invitation.email,
+          name: body.name,
+          passwordHash: await hashPassword(body.password),
+          locale: body.locale ?? 'de',
+        })
         .returning();
+      created = true;
     }
 
     await db.transaction(async (tx) => {
@@ -302,7 +325,11 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
       orgId: org.id,
       resourceType: 'user',
       resourceId: user!.id,
-      details: { role: invitation.role, via: 'invitation' },
+      details: {
+        role: invitation.role,
+        via: 'invitation',
+        ...(created ? { accountCreated: true, locale: user!.locale } : {}),
+      },
     });
     return { ok: true, orgSlug: org.slug };
   });

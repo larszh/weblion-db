@@ -3,8 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { formatMoney, type ServiceDto } from '@weblion/shared';
 import { en } from '@weblion/shared/i18n/en';
-import { I18nProvider } from '@/lib/i18n';
 import { TooltipProvider } from '@/components/ui/menu';
+import { withI18n } from '@/test/i18n';
 import { formatDay } from './money';
 import { FullPeriodNotice } from './seller-dialogs';
 import { ServiceTable } from './tables';
@@ -15,12 +15,9 @@ import { ServiceTable } from './tables';
  * whole period. Rendered on the server like the media tests; English is the test's locale.
  */
 
+// withI18n boots the provider with the English dictionary (the runtime loads dictionaries lazily).
 const html = (node: ReactNode) =>
-  renderToStaticMarkup(
-    <I18nProvider>
-      <TooltipProvider>{node}</TooltipProvider>
-    </I18nProvider>,
-  );
+  renderToStaticMarkup(withI18n(<TooltipProvider>{node}</TooltipProvider>, 'en'));
 
 const service = (patch: Partial<ServiceDto> = {}): ServiceDto => ({
   id: 'a6d4b1a0-0000-4000-8000-000000000001',

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { CURRENCIES, type BillingProfileDto, type Currency } from '@weblion/shared';
+import { CURRENCIES, LOCALE_META, type BillingProfileDto, type Currency, type Locale } from '@weblion/shared';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useApiMutation } from '@/lib/queries';
 import { billingKeys } from '@/lib/api/billing';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader, Field, Input, KeyValue, Select } from '@/components/ui/primitives';
+import { LanguageFlag, LanguageSelect } from '@/components/language-picker';
 import { formatRate, parsePercent, percentInput } from './money';
 
 /**
@@ -24,6 +25,8 @@ interface ProfileDraft {
   country: string;
   email: string;
   vatId: string;
+  /** "Sprache für Rechnungen"; null = the owner's language (i18n 9). */
+  locale: Locale | null;
   currency: Currency;
   paymentTermsDays: string;
   taxRate: string;
@@ -39,6 +42,7 @@ const toDraft = (p: BillingProfileDto): ProfileDraft => ({
   country: p.country,
   email: p.email ?? '',
   vatId: p.vatId ?? '',
+  locale: p.locale,
   currency: p.currency,
   paymentTermsDays: String(p.paymentTermsDays),
   taxRate: percentInput(p.taxRateBp),
@@ -84,6 +88,7 @@ export function BillingProfileForm({
         country: draft.country.trim().toUpperCase(),
         email: draft.email.trim(),
         vatId: draft.vatId,
+        locale: draft.locale,
       };
       return seller
         ? api.put<BillingProfileDto>(`/billing/customers/${profile.orgId}/profile`, {
@@ -96,6 +101,9 @@ export function BillingProfileForm({
     },
     { success: t('billing.profile.saved'), invalidate: [billingKeys.all] },
   );
+
+  // The option names the owner's language even while the profile has one of its own (ownerLocale).
+  const ownerLabel = t('billing.profile.localeOwner', { language: LOCALE_META[profile.ownerLocale].native });
 
   if (readOnly) {
     const v = (value: string | null) => value || <span className="text-subtle">–</span>;
@@ -122,6 +130,15 @@ export function BillingProfileForm({
               },
               { label: t('billing.profile.email'), value: v(profile.email) },
               { label: t('billing.profile.vatId'), value: v(profile.vatId) },
+              {
+                label: t('billing.profile.locale'),
+                value: (
+                  <span className="inline-flex items-center gap-1.5">
+                    <LanguageFlag locale={profile.effectiveLocale} />
+                    {profile.locale ? LOCALE_META[profile.locale].native : ownerLabel}
+                  </span>
+                ),
+              },
               { label: t('billing.profile.currency'), value: profile.currency },
               {
                 label: t('billing.profile.terms'),
@@ -231,6 +248,19 @@ export function BillingProfileForm({
               value={draft.vatId}
               maxLength={40}
               onChange={(e) => set({ vatId: e.target.value })}
+            />
+          </Field>
+          <Field
+            label={t('billing.profile.locale')}
+            htmlFor="bp-locale"
+            hint={t('billing.profile.localeHint')}
+            className="sm:col-span-2"
+          >
+            <LanguageSelect
+              id="bp-locale"
+              value={draft.locale}
+              onChange={(next) => set({ locale: next })}
+              nullOption={{ label: ownerLabel, locale: profile.ownerLocale }}
             />
           </Field>
         </CardBody>

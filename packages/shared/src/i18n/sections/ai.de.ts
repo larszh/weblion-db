@@ -334,7 +334,11 @@ export const aiDe = {
   'admin.ai.usage.platform': 'Plattform (ohne Kundendaten)',
   'admin.ai.usage.staff': 'Durch Mitarbeitende',
   'admin.ai.usage.empty': 'In diesem Monat gab es noch keine KI-Anfragen.',
+  'admin.ai.usage.date': 'Datum',
   'admin.ai.errors.empty': 'Keine Fehler gefunden.',
+  'admin.ai.errors.allFeatures': 'Alle Funktionen',
+  'admin.ai.errors.allStatuses': 'Alle Status',
+  'admin.ai.errors.allSources': 'Alle Quellen',
   'admin.ai.errors.retention':
     'Fehlertexte werden nach 30 Tagen gelöscht, die übrigen Angaben nach 400 Tagen.',
   'admin.ai.errors.col.time': 'Zeit',

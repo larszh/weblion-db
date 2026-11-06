@@ -1,4 +1,4 @@
-import { MAIL_MIB } from '@weblion/shared';
+import { intlLocale, MAIL_MIB } from '@weblion/shared';
 import type { Locale } from '@/lib/format';
 
 /**
@@ -48,27 +48,23 @@ export function fromBytes(bytes: number): SizeValue {
   return { value: Number.isInteger(mb) ? String(mb) : String(Math.round(mb * 100) / 100), unit: 'MB' };
 }
 
-// i18n: U2 replaces this (formatMailSize with t and intlLocale, i18n 2.3). Until then the texts of the key
-// mail.units.unlimited, English for fr, it and nl; dictionaries are imported only by lib/i18n.tsx.
-const UNLIMITED = (locale: Locale) => (locale === 'de' ? 'unbegrenzt' : 'unlimited');
-
 const number = (value: number, locale: Locale, digits: number) =>
-  new Intl.NumberFormat(locale === 'de' ? 'de-CH' : 'en-GB', { maximumFractionDigits: digits }).format(value);
+  new Intl.NumberFormat(intlLocale(locale), { maximumFractionDigits: digits }).format(value);
 
 /**
- * A size for display: "2 GB", "512 MB", "1.5 GB", "1’280 MB" (de-CH like every number of the
- * console; en-GB groups with a comma). Sizes Mailcow keeps
- * (whole MiB) read exactly: a GB value with more than one decimal is shown in MB instead.
- * Usage (any number of bytes) is rounded to one decimal. With `zeroUnlimited`, 0 reads as
- * "unbegrenzt" (a mailbox quota of 0 has no limit).
+ * A size for display in the formats of the locale (i18n 2.3): "2 GB", "512 MB", "1.5 GB", "1’280 MB" in
+ * de-CH, "1,280 MB" in en-GB, "1 280 MB" in fr-CH, "1.280 MB" in nl-NL. Sizes Mailcow keeps (whole MiB)
+ * read exactly: a GB value with more than one decimal is shown in MB instead. Usage (any number of bytes) is
+ * rounded to one decimal. With `unlimited` (the text of mail.units.unlimited), 0 reads as that text (a
+ * mailbox quota of 0 has no limit).
  */
 export function formatMailSize(
   bytes: number | null | undefined,
   locale: Locale,
-  options: { zeroUnlimited?: boolean } = {},
+  options: { unlimited?: string } = {},
 ): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return '–';
-  if (bytes === 0 && options.zeroUnlimited) return UNLIMITED(locale);
+  if (bytes === 0 && options.unlimited) return options.unlimited;
   const wholeMib = bytes % MIB === 0;
   const gb = bytes / GIB;
   if (Math.abs(gb) >= 1 && (!wholeMib || Number.isInteger(gb * 10))) return `${number(gb, locale, 1)} GB`;

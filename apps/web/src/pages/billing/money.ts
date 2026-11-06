@@ -1,5 +1,6 @@
-import type { BillingInterval } from '@weblion/shared';
+import { intlLocale, type BillingInterval } from '@weblion/shared';
 import type { Locale } from '@/lib/format';
+import type { TFunction } from '@/lib/i18n';
 
 /**
  * Input helpers for the billing forms. Money is entered as a decimal string ("19.90") and
@@ -7,9 +8,13 @@ import type { Locale } from '@/lib/format';
  * Nothing here goes through floating point arithmetic on the amount itself.
  */
 
-const intl = (locale: Locale) => (locale === 'de' ? 'de-CH' : 'en-GB');
+const intl = (locale: Locale) => intlLocale(locale);
 
-/** Swiss users type 1'250.50 or 19,90; both are accepted. */
+/**
+ * Swiss users type 1'250.50 or 19,90; both are accepted, and so is the Dutch and French 19,90. Thousands
+ * separators of nl and fr ("1.250", "12.500") have three decimals, which parseMoney refuses, so they are
+ * never misread as 1.25 or 12.5 (i18n 2.3).
+ */
 function normalizeDecimal(input: string): string {
   return input
     .trim()
@@ -104,15 +109,10 @@ export function showPeriod(line: {
   return !line.description.includes(`${d}.${m}.${y}`);
 }
 
-/** Default unit for an invoice line taken from a product with this interval. */
-export function unitForInterval(interval: BillingInterval, locale: Locale): string {
-  const units: Record<BillingInterval, { de: string; en: string }> = {
-    once: { de: 'Stk.', en: 'pcs' },
-    monthly: { de: 'Monat', en: 'month' },
-    quarterly: { de: 'Quartal', en: 'quarter' },
-    yearly: { de: 'Jahr', en: 'year' },
-  };
-  // i18n: U2 replaces this with unitForInterval(interval, t) and the keys billing.unit.* (i18n 2.3); English
-  // for fr, it and nl until then.
-  return units[interval][locale === 'de' ? 'de' : 'en'];
+/**
+ * Default unit for an invoice line taken from a product with this interval, in the language of the `t` given
+ * (the invoice editor passes the UI's). The line keeps the text once added.
+ */
+export function unitForInterval(interval: BillingInterval, t: TFunction): string {
+  return t(`billing.unit.${interval}`);
 }

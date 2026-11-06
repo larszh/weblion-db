@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -44,12 +44,13 @@ import {
 import type { MeDto } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
-import { useI18n } from '@/lib/i18n';
+import { profileLocaleDecision, storedLocale, storedLocaleIsCurrent, storeLocale, useI18n } from '@/lib/i18n';
 import { useOptionalOrg } from '@/lib/org-context';
 import { useTheme } from '@/lib/theme';
-import { useMe } from '@/lib/queries';
+import { qk, useMe } from '@/lib/queries';
 import type { TranslationKey } from '@weblion/shared';
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/menu';
+import { LanguageMenuItems, useSaveProfileLocale } from '@/components/language-picker';
 import { AiAssistant, useAiLauncherVisible } from '@/components/ai/assistant';
 import { clearAiChats } from '@/components/ai/storage';
 
@@ -186,11 +187,51 @@ function OrgSwitcher({ me }: { me: MeDto }) {
   );
 }
 
+/**
+ * After sign-in the profile language wins on every device (plan decision 4, i18n 6.3): once per person and
+ * profile language in this tab, so a person who just picked another language is not switched back while the
+ * save is on its way. A choice of the old de/en toggle (no wl-locale-v) is saved to the profile instead.
+ */
+function ProfileLocaleSync({ me }: { me: MeDto }) {
+  const { locale, setLocale } = useI18n();
+  const qc = useQueryClient();
+  const handled = useRef<string | null>(null);
+  const profile = me.user.locale;
+  const userId = me.user.id;
+  useEffect(() => {
+    const key = `${userId}:${profile}`;
+    if (handled.current === key) return;
+    handled.current = key;
+    const decision = profileLocaleDecision({
+      profile,
+      ui: locale,
+      stored: storedLocale(),
+      storedIsCurrent: storedLocaleIsCurrent(),
+    });
+    if (decision.action === 'adopt') {
+      storeLocale(decision.locale);
+      handled.current = `${userId}:${decision.locale}`;
+      void api
+        .patch<MeDto>('/auth/me', { locale: decision.locale })
+        .then((data) => qc.setQueryData(qk.me, data))
+        .catch(() => undefined);
+      if (decision.locale !== locale) void setLocale(decision.locale).catch(() => undefined);
+    } else if (decision.action === 'switch') {
+      void setLocale(decision.locale).catch(() => undefined);
+    } else {
+      // Same language: write the marker, so the stored choice counts as one of this release.
+      storeLocale(profile);
+    }
+  }, [userId, profile, locale, setLocale, qc]);
+  return null;
+}
+
 function UserMenu({ me }: { me: MeDto }) {
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const { preference, setTheme } = useTheme();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const saveLocale = useSaveProfileLocale();
   const logout = async () => {
     await api.post('/auth/logout').catch(() => null);
     // The next person in this tab must not see the chats (ai 12.3).
@@ -236,9 +277,7 @@ function UserMenu({ me }: { me: MeDto }) {
         </MenuItem>
       ))}
       <MenuSeparator />
-      <MenuItem icon={<Languages />} onSelect={() => setLocale(locale === 'de' ? 'en' : 'de')}>
-        {locale === 'de' ? 'English' : 'Deutsch'}
-      </MenuItem>
+      <LanguageMenuItems onChange={(next) => void saveLocale(next)} />
       <MenuSeparator />
       <MenuItem icon={<LogOut />} onSelect={() => void logout()}>
         {t('nav.logout')}
@@ -506,6 +545,7 @@ function Sidebar({ me, onNavigate }: { me: MeDto; onNavigate?: () => void }) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const me = useMe();
   const [open, setOpen] = useState(false);
   const location = useLocation();
@@ -526,7 +566,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <button
               className="absolute top-4 right-3 rounded-md p-1.5 text-muted hover:bg-surface-3"
               onClick={() => setOpen(false)}
-              aria-label="Close menu"
+              aria-label={t('aria.closeMenu')}
             >
               <X className="size-5" />
             </button>
@@ -539,7 +579,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button
             className="rounded-md p-1.5 text-muted hover:bg-surface-3"
             onClick={() => setOpen(true)}
-            aria-label="Open menu"
+            aria-label={t('aria.openMenu')}
           >
             <MenuIcon className="size-5" />
           </button>
@@ -560,6 +600,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </main>
       </div>
+      <ProfileLocaleSync me={me.data} />
       <AiAssistant />
     </div>
   );

@@ -52,6 +52,7 @@ import {
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { ServerTable } from '@/components/server-table';
 import { SellerBillingPanel } from '@/pages/billing/seller-panel';
+import { AdminAiCard } from '@/components/ai/cards';
 import { CloudAllowanceAdminCard } from './cloud';
 import { MediaAllowanceAdminCard } from './media';
 import { MonitorAllowanceAdminCard } from './monitoring';
@@ -928,6 +929,8 @@ function OverviewTab({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
       </div>
       <div className="space-y-6">
         <InfoCard org={org} canWrite={canWrite} />
+        {/* Shown whatever the platform state (plan O27); switching on asks for the consent (plan O34). */}
+        <AdminAiCard orgId={org.id} orgName={org.name} canWrite={canWrite} />
         {org.kind === 'customer' && <ResellerCard org={org} resellers={resellers.data} canWrite={canWrite} />}
         <NotesCard org={org} canWrite={canWrite} />
         {canWrite && <DeleteOrgCard org={org} />}

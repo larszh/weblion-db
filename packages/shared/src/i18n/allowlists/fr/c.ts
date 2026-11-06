@@ -9,6 +9,19 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "in Rechnung stellen" is the German idiom for "to bill"; French says "facturer", not "mettre en facture".
+    'billing.services.customerText',
+    // Same idiom "in Rechnung gestellt": "est facturé" is the natural French.
+    'billing.service.addText',
+    // The menu path names labels of the Hetzner Console, which has no French interface; they stay in English
+    // ("Project", "Generate API token") so the reader finds them, so "projet" and "jeton API" cannot appear.
+    'providers.hetzner.tokenHint',
+    // "das Abmelden" (of devices) is a noun here, and the console signs devices out: French uses the noun
+    // "déconnexion", not the reflexive verb "se déconnecter" (signing yourself out).
+    'media.devices.failed',
+    // Same noun "dem Abmelden aller Geräte": "la déconnexion de tous les appareils".
+    'media.requests.sessionHint',
+  ],
   typographyOk: [],
 };

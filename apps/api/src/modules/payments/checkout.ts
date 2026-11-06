@@ -1,6 +1,6 @@
 import { and, eq, isNull, or } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
-import type { Currency } from '@weblion/shared';
+import { normalizeLocale, type Currency, type Locale } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { payments, type Invoice, type Organization, type Payment, type User } from '../../db/schema';
 import {
@@ -24,6 +24,14 @@ import type { OnlineMethod } from './methods';
 const SESSION_TTL_SECONDS = 60 * 60;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The Stripe Checkout locale of a console language: Stripe supports all five under the same code. The page is
+ * in the language of the person paying, who sees it, not in the billing language (i18n 8.4).
+ */
+export function checkoutLocale(locale: Locale): 'de' | 'en' | 'fr' | 'it' | 'nl' {
+  return locale;
+}
 
 export interface CheckoutInput {
   org: Organization;
@@ -62,6 +70,8 @@ export async function startCheckout(
     `${invoice ? invoiceLink(ctx.env, org.slug, invoice.id) : billingLink(ctx.env, org.slug)}?payment=${result}&pid=${paymentId}`;
   const metadata = { paymentId, orgId: org.id, ...(invoice ? { invoiceId: invoice.id } : {}) };
   const profile = await loadProfile(ctx.db, org.id);
+  const locale = normalizeLocale(user.locale) ?? 'de';
+  const tr = ctx.i18n.translator(locale);
   const params: StripeParams = {
     mode: 'payment',
     payment_method_types: [method],
@@ -71,7 +81,12 @@ export async function startCheckout(
         price_data: {
           currency: currency.toLowerCase(),
           unit_amount: amount,
-          product_data: { name: invoice ? `Rechnung ${invoice.number}` : 'Guthaben weblion.one' },
+          // Shown on the Stripe page and the receipt, so in the payer's language as well.
+          product_data: {
+            name: invoice
+              ? tr('pdf.stripe.invoiceItem', { number: invoice.number ?? '' })
+              : tr('pdf.stripe.creditItem'),
+          },
         },
       },
     ],
@@ -81,7 +96,7 @@ export async function startCheckout(
     success_url: back('success'),
     cancel_url: back('cancel'),
     customer_email: profile?.email ?? user.email,
-    locale: user.locale === 'en' ? 'en' : 'de',
+    locale: checkoutLocale(locale),
     expires_at: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   };
 

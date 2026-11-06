@@ -4,11 +4,12 @@ import { AI_MODELS, isAiFeature, type AiFeature } from '@weblion/shared';
 /**
  * Demo mode (ai 14): with ENABLE_DEMO_PROVIDER=true and no key, the normal SDK client runs against this
  * in-process emulator (createAnthropic passes demoFetch). Every code path of the module runs unchanged: params,
- * streaming, finalMessage(), stop_reason handling, validation, accounting. Only the HTTP exchange is local.
+ * streaming, finalMessage(), stop_reason handling, the tool loop, validation, accounting. Only the HTTP exchange
+ * is local.
  *
- * Routing is by the first line of the system prompt, "# Feature: <feature>" (ai 10.8, plan O4). The foundation
- * answers the models route, `translations` (plan O11) and a valid minimal object per JSON feature; `assistant`
- * answers a marker text without tool use. U3 completes the behaviour of ai 14 per feature.
+ * Routing is by the first line of the system prompt, "# Feature: <feature>" (ai 10.8, plan O4). The answers are
+ * built from the data in the request (the <third_party> block, the tool results), German for language de, else
+ * English, and start with "[Demo]".
  */
 
 export interface EmulatedTurn {
@@ -22,36 +23,211 @@ export interface EmulatedTurn {
 type DemoLanguage = 'de' | 'en';
 type JsonFeature = Exclude<AiFeature, 'assistant' | 'translations'>;
 
-/** A valid minimal answer per JSON feature, German for language de, else English (U3 completes these). */
-export const DEMO_JSON: Record<JsonFeature, (language: DemoLanguage) => unknown> = {
-  explain: (l) => ({
-    summary: l === 'de' ? '[Demo] Eine Aktion ist fehlgeschlagen.' : '[Demo] An action failed.',
+type Json = Record<string, unknown>;
+const isObject = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
+const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+
+/** The JSON of the first <third_party> block of the user turn (escaped with toolJson, still valid JSON). */
+export function thirdPartyOf(userText: string): { kind: string; value: unknown } | null {
+  const match = /<third_party kind="([a-z_]+)">\n([\s\S]*?)\n<\/third_party>/.exec(userText);
+  if (!match) return null;
+  try {
+    return { kind: match[1]!, value: JSON.parse(match[2]!) };
+  } catch {
+    return null;
+  }
+}
+
+function demoExplain(l: DemoLanguage, data: unknown): unknown {
+  const item = isObject(data) ? data : {};
+  // The browser's error, an audit entry, a server action, a monitor, a website, a provider or a mail log row.
+  const code =
+    str(item.code) ??
+    str(item.action) ??
+    str(isObject(item.action) ? item.action.type : null) ??
+    str(item.type) ??
+    str(item.template) ??
+    'unknown';
+  const status = String(item.status ?? (isObject(item.action) ? item.action.status : '') ?? '');
+  const failed =
+    ['failure', 'failed', 'error', 'down', 'denied'].includes(status) || Number(item.status) >= 400;
+  return {
+    summary:
+      l === 'de'
+        ? `[Demo] Der Vorgang «${code}» ist mit dem Status «${status || 'unbekannt'}» geendet.`
+        : `[Demo] The step "${code}" ended with the status "${status || 'unknown'}".`,
     cause:
       l === 'de'
-        ? '[Demo] Die Ursache ist im Demo-Modus nicht bekannt.'
-        : '[Demo] The cause is not known in demo mode.',
-    steps: [],
+        ? '[Demo] Im Demo-Modus wird die Ursache nicht untersucht. Die Angaben stammen aus den Daten der Konsole.'
+        : '[Demo] Demo mode does not look into the cause. The details come from the data of the console.',
+    steps:
+      l === 'de'
+        ? ['[Demo] Prüfen Sie die Angaben auf der Seite.', '[Demo] Versuchen Sie es später nochmals.']
+        : ['[Demo] Check the details on the page.', '[Demo] Try again later.'],
     links: [],
-    severity: 'info',
-  }),
-  dns_check: (l) => ({
-    overall: 'ok',
-    topics: [],
-    proposals: [],
-    summary: l === 'de' ? '[Demo] Keine Auffälligkeiten.' : '[Demo] Nothing unusual.',
-  }),
-  audit_summary: (l) => ({
-    summary: l === 'de' ? '[Demo] Zusammenfassung des Audit-Logs.' : '[Demo] Summary of the audit log.',
-    highlights: [],
-    unusual: [],
-  }),
-  server_health: (l) => ({
-    overall: 'ok',
-    summary: l === 'de' ? '[Demo] Der Server sieht gesund aus.' : '[Demo] The server looks healthy.',
-    metrics: [],
-    recommendations: [],
-  }),
-  product_texts: () => ({ texts: { de: null, en: null, fr: null, it: null, nl: null } }),
+    severity: failed ? 'error' : 'info',
+  };
+}
+
+const TOPIC_OF: Record<string, string> = {
+  mx: 'mx',
+  spf: 'spf',
+  dkim: 'dkim',
+  dmarc: 'dmarc',
+  autodiscover: 'autoconfig',
+  autoconfig: 'autoconfig',
+  autodiscover_srv: 'autoconfig',
+  a: 'website',
+  aaaa: 'website',
+  www_a: 'website',
+  www_aaaa: 'website',
+};
+
+function demoDnsCheck(l: DemoLanguage, data: unknown): unknown {
+  const expected = asArray(isObject(data) ? data.expected : null).filter(isObject);
+  const proposals: unknown[] = [];
+  const topics = new Map<string, { status: string; findings: string[]; proposal_indexes: number[] }>();
+  const rank: Record<string, number> = { ok: 0, warning: 1, problem: 2 };
+  for (const e of expected) {
+    const topic = TOPIC_OF[String(e.key)] ?? 'other';
+    const status = e.status === 'ok' ? 'ok' : e.status === 'missing' && e.required ? 'problem' : 'warning';
+    const entry = topics.get(topic) ?? { status: 'ok', findings: [], proposal_indexes: [] };
+    if (rank[status]! > rank[entry.status]!) entry.status = status;
+    if (e.status === 'missing') {
+      // Copied exactly from the console's own record, so the proposal is verified.
+      entry.proposal_indexes.push(proposals.length);
+      proposals.push({
+        action: 'add',
+        record_id: null,
+        type: e.type,
+        name: e.name,
+        data: e.data,
+        ttl: null,
+        reason:
+          l === 'de'
+            ? `[Demo] Der Eintrag ${String(e.key)} fehlt.`
+            : `[Demo] The ${String(e.key)} record is missing.`,
+      });
+    }
+    entry.findings.push(String(e.key));
+    topics.set(topic, entry);
+  }
+  const list = [...topics.entries()].map(([topic, t]) => ({
+    topic,
+    status: t.status,
+    finding:
+      l === 'de'
+        ? `[Demo] ${t.status === 'ok' ? 'In Ordnung' : 'Zu prüfen'}: ${t.findings.join(', ')}.`
+        : `[Demo] ${t.status === 'ok' ? 'Fine' : 'To check'}: ${t.findings.join(', ')}.`,
+    proposal_indexes: t.proposal_indexes,
+  }));
+  const worst = list.reduce((w, t) => (rank[t.status]! > rank[w]! ? t.status : w), 'ok');
+  return { overall: worst, topics: list, proposals };
+}
+
+function demoAuditSummary(l: DemoLanguage, data: unknown): unknown {
+  const entries = asArray(isObject(data) ? data.entries : null).filter(isObject);
+  const byPrefix = new Map<string, string[]>();
+  for (const e of entries) {
+    const prefix = String(e.action ?? 'other').split('.')[0]!;
+    byPrefix.set(prefix, [...(byPrefix.get(prefix) ?? []), String(e.id)]);
+  }
+  const failed = entries
+    .filter((e) => e.status === 'failure' || e.status === 'denied')
+    .map((e) => String(e.id));
+  return {
+    summary:
+      l === 'de'
+        ? `[Demo] ${entries.length} Einträge, davon ${failed.length} fehlgeschlagen oder abgelehnt.`
+        : `[Demo] ${entries.length} entries, ${failed.length} of them failed or denied.`,
+    highlights: [...byPrefix.entries()].slice(0, 10).map(([prefix, ids]) => ({
+      text: l === 'de' ? `[Demo] ${ids.length} x ${prefix}` : `[Demo] ${ids.length} x ${prefix}`,
+      audit_ids: ids.slice(0, 20),
+    })),
+    unusual: failed.length
+      ? [
+          {
+            text:
+              l === 'de'
+                ? '[Demo] Fehlgeschlagene oder abgelehnte Aktionen'
+                : '[Demo] Failed or denied actions',
+            audit_ids: failed.slice(0, 20),
+          },
+        ]
+      : [],
+  };
+}
+
+/** Status of a percentage: above 85 problem, above 70 watch (ai 14). */
+const percentStatus = (value: number | null) =>
+  value === null ? null : value > 85 ? 'problem' : value > 70 ? 'watch' : 'ok';
+
+function demoServerHealth(l: DemoLanguage, data: unknown): unknown {
+  const series =
+    isObject(data) && isObject(data.metrics) && isObject(data.metrics.series) ? data.metrics.series : {};
+  const max = (key: string) =>
+    isObject(series[key]) && typeof series[key].max === 'number' ? series[key].max : null;
+  const cpu = percentStatus(max('cpu'));
+  const memUsed = max('memUsed');
+  const memTotal = max('memTotal');
+  const mem = percentStatus(memUsed !== null && memTotal ? (memUsed / memTotal) * 100 : null);
+  const metrics: Array<{ metric: string; status: string; finding: string }> = [];
+  if (cpu) {
+    metrics.push({
+      metric: 'cpu',
+      status: cpu,
+      finding: l === 'de' ? `[Demo] CPU höchstens ${max('cpu')} %.` : `[Demo] CPU at most ${max('cpu')} %.`,
+    });
+  }
+  if (mem) {
+    metrics.push({
+      metric: 'memory',
+      status: mem,
+      finding: l === 'de' ? '[Demo] Arbeitsspeicher nach den Messwerten.' : '[Demo] Memory from the metrics.',
+    });
+  }
+  const rank: Record<string, number> = { ok: 0, watch: 1, problem: 2 };
+  const overall = metrics.reduce((w, m) => (rank[m.status]! > rank[w]! ? m.status : w), 'ok');
+  return {
+    overall,
+    summary:
+      l === 'de'
+        ? '[Demo] Auswertung aus den Messwerten der Konsole.'
+        : '[Demo] Assessment from the console metrics.',
+    metrics,
+    recommendations:
+      overall === 'ok'
+        ? []
+        : [l === 'de' ? '[Demo] Prüfen Sie einen grösseren Plan.' : '[Demo] Consider a larger plan.'],
+  };
+}
+
+function demoProductTexts(data: unknown): unknown {
+  const draft = isObject(data) ? data : {};
+  const name = str(draft.name) ?? 'Produkt';
+  const description = str(draft.description);
+  const languages = asArray(draft.languages).map(String);
+  return {
+    texts: languages.map((locale) =>
+      draft.mode === 'write' && locale === 'de'
+        ? { locale, name, description: '[Demo] Beschreibung des Produkts.' }
+        : {
+            locale,
+            name: `[${locale.toUpperCase()}] ${name}`,
+            description: description ? `[${locale.toUpperCase()}] ${description}` : null,
+          },
+    ),
+  };
+}
+
+/** The answer per JSON feature, built from the <third_party> block of the user turn (ai 14). */
+export const DEMO_JSON: Record<JsonFeature, (language: DemoLanguage, userText: string) => unknown> = {
+  explain: (l, text) => demoExplain(l, thirdPartyOf(text)?.value),
+  dns_check: (l, text) => demoDnsCheck(l, thirdPartyOf(text)?.value),
+  audit_summary: (l, text) => demoAuditSummary(l, thirdPartyOf(text)?.value),
+  server_health: (l, text) => demoServerHealth(l, thirdPartyOf(text)?.value),
+  product_texts: (_l, text) => demoProductTexts(thirdPartyOf(text)?.value),
 };
 
 /** The feature named by the first line of the system prompt, null when there is none. */
@@ -62,15 +238,32 @@ export function featureOf(body: Pick<BetaMessageStreamParams, 'system'>): AiFeat
   return match && isAiFeature(match[1]!) ? match[1] : null;
 }
 
-/** The text of the last user message (string content or its text blocks). */
-function lastUserText(body: Pick<BetaMessageStreamParams, 'messages'>): string {
-  const last = [...(body.messages ?? [])].reverse().find((m) => m.role === 'user');
-  if (!last) return '';
-  if (typeof last.content === 'string') return last.content;
-  return last.content
+type MessageParam = BetaMessageStreamParams['messages'][number];
+
+/** The text of a message (string content or its text blocks). */
+function textOf(message: MessageParam | undefined): string {
+  if (!message) return '';
+  if (typeof message.content === 'string') return message.content;
+  return (message.content ?? [])
     .map((block) => (block.type === 'text' ? block.text : ''))
     .filter(Boolean)
     .join('\n');
+}
+
+/** The text of the newest user message that the person wrote (not a message of tool results). */
+function questionOf(body: Pick<BetaMessageStreamParams, 'messages'>): string {
+  const messages = body.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role !== 'user') continue;
+    if (typeof m.content === 'string' || !m.content.some((b) => b.type === 'tool_result')) return textOf(m);
+  }
+  return '';
+}
+
+/** The text of the last user message. */
+function lastUserText(body: Pick<BetaMessageStreamParams, 'messages'>): string {
+  return textOf([...(body.messages ?? [])].reverse().find((m) => m.role === 'user'));
 }
 
 /** German when the newest context block says language: de, else English (ai 14). */
@@ -102,26 +295,134 @@ function demoTranslations(userText: string): unknown {
   }
 }
 
+/** The tool calls of the last assistant message and their results in the user message after it. */
+function lastToolStep(
+  body: Pick<BetaMessageStreamParams, 'messages'>,
+): Array<{ name: string; result: unknown }> {
+  const messages = body.messages ?? [];
+  const last = messages.at(-1);
+  const assistant = messages.at(-2);
+  if (!last || last.role !== 'user' || typeof last.content === 'string') return [];
+  if (!assistant || assistant.role !== 'assistant' || typeof assistant.content === 'string') return [];
+  const names = new Map<string, string>();
+  for (const block of assistant.content) if (block.type === 'tool_use') names.set(block.id, block.name);
+  const out: Array<{ name: string; result: unknown }> = [];
+  for (const block of last.content) {
+    if (block.type !== 'tool_result') continue;
+    let result: unknown = null;
+    try {
+      result = typeof block.content === 'string' ? JSON.parse(block.content) : null;
+    } catch {
+      result = null;
+    }
+    out.push({ name: names.get(block.tool_use_id) ?? '', result });
+  }
+  return out;
+}
+
+let toolCounter = 0;
+const toolUse = (name: string, input: unknown) => ({
+  type: 'tool_use' as const,
+  id: `toolu_demo_${++toolCounter}`,
+  name,
+  input,
+});
+
+const MAIL_QUESTION = /\b(dns|e-?mail|mail|spf|dkim|dmarc|mx)\b/i;
+
+/**
+ * The assistant (ai 14): first a short text and get_org_overview, then a text with the counts it returned. When
+ * the newest question is about DNS or e-mail: list_mail_domains, get_mail_dns_setup for the first one, then
+ * propose_dns_record with the first expected record that is missing (copied exactly, so it is verified), then the
+ * text. Tools the person may not read answer with an error, and the emulator then just answers.
+ */
+function demoAssistant(body: BetaMessageStreamParams, language: DemoLanguage): EmulatedTurn['content'] {
+  const de = language === 'de';
+  const step = lastToolStep(body);
+  const final = (text: string) => [{ type: 'text' as const, text }];
+  if (step.length === 0) {
+    const mail = MAIL_QUESTION.test(questionOf(body).replace(/<context>[\s\S]*?<\/context>/g, ''));
+    return [
+      { type: 'text', text: de ? '[Demo] Ich sehe mir das an. ' : '[Demo] Let me look at that. ' },
+      mail ? toolUse('list_mail_domains', {}) : toolUse('get_org_overview', {}),
+    ];
+  }
+  const { name, result } = step[0]!;
+  const data = isObject(result) ? result : {};
+  if (name === 'get_org_overview') {
+    const counts = isObject(data.counts) ? data.counts : {};
+    const n = (k: string) => Number(counts[k] ?? 0);
+    return final(
+      de
+        ? `[Demo] Ihre Organisation hat ${n('servers')} Server, ${n('domains')} Domains, ${n('mailDomains')} E-Mail-Domains und ${n('monitors')} Monitore.`
+        : `[Demo] Your organization has ${n('servers')} servers, ${n('domains')} domains, ${n('mailDomains')} e-mail domains and ${n('monitors')} monitors.`,
+    );
+  }
+  if (name === 'list_mail_domains') {
+    const first = asArray(data.items).filter(isObject)[0];
+    if (!first || typeof first.id !== 'string') {
+      return final(de ? '[Demo] Ich finde keine E-Mail-Domain.' : '[Demo] I find no e-mail domain.');
+    }
+    return [toolUse('get_mail_dns_setup', { mail_domain_id: first.id })];
+  }
+  if (name === 'get_mail_dns_setup') {
+    const zone = isObject(data.zone) ? data.zone : null;
+    const records = asArray(data.records).filter(isObject);
+    const usable = (r: Json) => r.status === 'missing' && typeof r.data === 'string' && !!r.data;
+    // DMARC first: the short record the demo shows best (plan 8.4 scenario 1), else the first missing one.
+    const missing = records.find((r) => r.key === 'dmarc' && usable(r)) ?? records.find(usable);
+    if (zone && typeof zone.domainId === 'string' && missing) {
+      return [
+        toolUse('propose_dns_record', {
+          domain_id: zone.domainId,
+          action: 'add',
+          record_id: null,
+          type: missing.type,
+          name: missing.name,
+          data: missing.data,
+          ttl: null,
+          reason: de
+            ? `[Demo] Der Eintrag ${String(missing.key)} fehlt.`
+            : `[Demo] The ${String(missing.key)} record is missing.`,
+        }),
+      ];
+    }
+    return final(
+      de
+        ? '[Demo] Die DNS-Einträge für E-Mail sind vollständig.'
+        : '[Demo] The e-mail DNS records are complete.',
+    );
+  }
+  if (name === 'propose_dns_record' && !data.error) {
+    return final(
+      de
+        ? '[Demo] Ein Eintrag fehlt. Ich habe ihn als Vorschlag vorbereitet; Sie können ihn im DNS-Formular übernehmen.'
+        : '[Demo] One record is missing. I prepared it as a proposal; you can apply it in the DNS form.',
+    );
+  }
+  return final(
+    de ? '[Demo] Das konnte ich im Demo-Modus nicht lesen.' : '[Demo] I could not read that in demo mode.',
+  );
+}
+
 const approx = (length: number) => Math.max(1, Math.ceil(length / 4));
 
 /** The emulator behind demoFetch; also the fallback of the test mock (ai 15.1). */
 export function emulateMessages(body: BetaMessageStreamParams): EmulatedTurn {
   const feature = featureOf(body);
   const userText = lastUserText(body);
-  const language = languageOf(userText);
-  let text: string;
-  if (feature === 'translations') text = JSON.stringify(demoTranslations(userText));
-  else if (feature && feature !== 'assistant') text = JSON.stringify(DEMO_JSON[feature](language));
-  else {
-    text =
-      language === 'de'
-        ? '[Demo] Das ist eine Demo-Antwort. Im Demo-Modus liest der Assistent keine Daten.'
-        : '[Demo] This is a demo answer. In demo mode the assistant reads no data.';
-  }
+  const language = languageOf(feature === 'assistant' ? questionOf(body) : userText);
+  let content: EmulatedTurn['content'];
+  if (feature === 'translations')
+    content = [{ type: 'text', text: JSON.stringify(demoTranslations(userText)) }];
+  else if (feature && feature !== 'assistant') {
+    content = [{ type: 'text', text: JSON.stringify(DEMO_JSON[feature](language, userText)) }];
+  } else content = demoAssistant(body, language);
+  const output = content.map((b) => (b.type === 'text' ? b.text : JSON.stringify(b.input))).join('');
   return {
-    content: [{ type: 'text', text }],
-    stop_reason: 'end_turn',
-    usage: { input_tokens: approx(JSON.stringify(body).length), output_tokens: approx(text.length) },
+    content,
+    stop_reason: content.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn',
+    usage: { input_tokens: approx(JSON.stringify(body).length), output_tokens: approx(output.length) },
   };
 }
 

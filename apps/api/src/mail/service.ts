@@ -4,10 +4,10 @@ import type { Env } from '../config/env';
 import type { Database } from '../db/client';
 import { mailLog } from '../db/schema';
 import type { SecretBox } from '../lib/crypto';
-import type { I18nService } from '../i18n/service';
+import type { I18nService, Tr } from '../i18n/service';
 import { renderMail, type RenderedMail } from './templates';
 import { configFingerprint, resolveSmtp, senderAddress, type SmtpConfig } from './settings';
-import type { Mailer, MailOptions, MailResult, MailTemplateName, MailTemplates } from './types';
+import type { Mailer, MailLocale, MailOptions, MailResult, MailTemplateName, MailTemplates } from './types';
 
 /** Builds a nodemailer transport for one SMTP configuration. Replaceable in tests. */
 export type TransportFactory = (config: SmtpConfig) => Transporter;
@@ -41,9 +41,13 @@ export class MailService implements Mailer {
     private readonly box: SecretBox,
     private readonly env: Env,
     private readonly log: FastifyBaseLogger,
-    /** The server texts with their overrides; the templates render from the email.* keys after U2. */
+    /** The server texts with their overrides; every template renders from the email.* keys. */
     private readonly i18n: I18nService,
   ) {}
+
+  translator(locale: MailLocale): Tr {
+    return this.i18n.translator(locale);
+  }
 
   /** For tests: deliver through e.g. a nodemailer jsonTransport or a custom transport. */
   useTransportFactory(factory: TransportFactory): void {
@@ -69,7 +73,8 @@ export class MailService implements Mailer {
     let rendered: RenderedMail | null = null;
     let result: MailResult;
     try {
-      rendered = renderMail(template, data, options.locale ?? 'de');
+      const locale = options.locale ?? 'de';
+      rendered = renderMail(template, data, locale, this.i18n.translator(locale));
       result = await this.deliver(rendered, to, options);
     } catch (err) {
       result = { status: 'failed', error: errorMessage(err) };

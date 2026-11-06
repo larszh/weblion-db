@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   BookOpen,
   CreditCard,
@@ -8,6 +9,7 @@ import {
   Receipt,
   RefreshCw,
   Send,
+  Sparkles,
   Trash2,
   Unplug,
 } from 'lucide-react';
@@ -51,6 +53,8 @@ import {
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { BillingSettingsForm } from '@/pages/billing/settings-form';
 import { TabBar, useTabParam } from '@/pages/reseller/bits';
+import { ExplainButton } from '@/components/ai/explain-dialog';
+import { modelLabel } from '@/components/ai/bits';
 
 /** Environment variables per integration, shown so admins know what to put into .env. */
 const SMTP_ENV = [
@@ -86,6 +90,7 @@ const MAIL_TEMPLATES = [
   'payment_received',
   'credit_booked',
   'test',
+  'ai_budget',
 ] as const;
 const MAIL_STATUSES: MailLogDto['status'][] = ['sent', 'failed', 'skipped'];
 
@@ -474,6 +479,14 @@ function MailLogCard() {
                         {m.error}
                       </span>
                     )}
+                    {m.status === 'failed' && (
+                      <ExplainButton
+                        scope="admin"
+                        short
+                        className="mt-1 -ml-2"
+                        source={() => ({ kind: 'mail_log', mailLogId: m.id })}
+                      />
+                    )}
                   </TD>
                 </TR>
               ))}
@@ -751,8 +764,52 @@ function ZohoIntegration({ zoho }: { zoho: IntegrationsDto['zoho'] }) {
   );
 }
 
+/** Claude (ai 5.3): where the key comes from, the master switch and the model; the settings are on the KI page. */
+function AiIntegration({ ai, canOpen }: { ai: IntegrationsDto['ai']; canOpen: boolean }) {
+  const { t } = useI18n();
+  const source = ai.source === 'demo' ? t('admin.ai.status.demo') : t(`admin.ai.key.source.${ai.source}`);
+  return (
+    <IntegrationCard
+      icon={<Sparkles />}
+      title={t('admin.ai.integration.title')}
+      description={t('admin.ai.integration.description')}
+      configured={ai.configured}
+      footer={
+        canOpen && (
+          <Link
+            to="/admin/ai"
+            className="inline-flex h-8 items-center rounded-lg border border-border bg-surface px-3 text-[13px] font-medium text-text shadow-card hover:bg-surface-3"
+          >
+            {t('admin.ai.integration.open')}
+          </Link>
+        )
+      }
+    >
+      <KeyValue
+        items={[
+          {
+            label: t('admin.int.source'),
+            value: <Badge tone={ai.source === 'none' ? 'warning' : 'success'}>{source}</Badge>,
+          },
+          {
+            label: t('admin.ai.status.title'),
+            value: (
+              <Badge tone={ai.enabled ? 'success' : 'neutral'}>
+                {ai.enabled ? t('admin.ai.status.on') : t('admin.ai.status.off')}
+              </Badge>
+            ),
+          },
+          { label: t('admin.ai.model.title'), value: modelLabel(ai.model) },
+        ]}
+      />
+      <EnvSection names={['ANTHROPIC_API_KEY']} />
+    </IntegrationCard>
+  );
+}
+
 function IntegrationsTab({ onOpenMail }: { onOpenMail?: () => void }) {
   const { t } = useI18n();
+  const can = usePlatformCan();
   const integrations = useIntegrations();
   if (integrations.isPending) return <LoadingBlock rows={6} />;
   if (integrations.isError) {
@@ -766,6 +823,7 @@ function IntegrationsTab({ onOpenMail }: { onOpenMail?: () => void }) {
         <SmtpIntegration mail={data.mail} onOpen={onOpenMail} />
         <StripeIntegration stripe={data.stripe} />
         <ZohoIntegration zoho={data.zoho} />
+        <AiIntegration ai={data.ai} canOpen={can('platform:settings')} />
       </div>
     </div>
   );

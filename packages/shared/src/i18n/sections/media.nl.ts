@@ -1,3 +1,536 @@
 import type { mediaDe } from './media.de';
 
-export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {};
+export const mediaNl: Partial<Record<keyof typeof mediaDe, string>> = {
+  'nav.media': 'Streaming',
+  'nav.admin.media': 'Streaming',
+  'perm.group.media': 'Streaming',
+  'media.subtitle': 'Accounts op de Jellyfin-mediaserver voor films, series en muziek, binnen uw quotum.',
+  'media.open': 'Jellyfin openen',
+  'media.create': 'Account aanmaken',
+  'media.noAccess': 'U heeft geen toegang tot de streamingaccounts van deze organisatie.',
+  'media.none.title': 'Nog geen streaming afgenomen',
+  'media.none.text':
+    'Streaming (Jellyfin) neemt u af via weblion.one. Zodra er een quotum voor uw organisatie is ingericht, maakt u hier accounts aan.',
+  'media.none.textReseller':
+    'Streaming (Jellyfin) neemt u af via {reseller}. Zodra er een quotum voor uw organisatie is ingericht, maakt u hier accounts aan.',
+  'media.noAllowanceAccounts':
+    'Voor deze organisatie is geen streamingquotum meer ingericht. Bestaande accounts blijven werken, nieuwe kunnen niet worden aangemaakt.',
+  'media.limit.accounts':
+    'Alle accounts van uw quotum zijn in gebruik. U kunt een account verwijderen of uw quotum uitbreiden om er meer aan te maken.',
+  'media.allowance': 'Streamingquotum',
+  'media.allowanceText': 'Wat elk account van uw organisatie mag. De console past dit toe op alle accounts.',
+  'media.figure.accounts': 'Accounts',
+  'media.figure.accountsOf': '{n} van {max}',
+  'media.figure.streams': 'Streams (apparaten)',
+  'media.figure.streamsValue': '{n} per account',
+  'media.figure.downloads': 'Downloads',
+  'media.figure.downloadsOn': 'Toegestaan',
+  'media.figure.downloadsOff': 'Niet toegestaan',
+  'media.figure.bitrate': 'Kwaliteit onderweg',
+  'media.figure.bitrateUpTo': 'tot {rate}',
+  'media.figure.libraries': 'Bibliotheken',
+  'media.instance': 'Instantie',
+  'media.library.missing': 'Deze bibliotheek bestaat niet meer op de instantie.',
+  'media.library.missingShort': 'Verwijderd',
+  'media.login.title': 'Zo logt u in',
+  'media.login.text': 'Met deze gegevens loggen alle accounts in de Jellyfin-apps in.',
+  'media.login.address': 'Serveradres',
+  'media.login.copyAddress': 'Serveradres kopiëren',
+  'media.login.serverName': 'De apps tonen de server als "{name}".',
+  'media.login.step1': 'Installeer de Jellyfin-app op uw apparaat of open het serveradres in de browser.',
+  'media.login.step2': 'Voer in de app het serveradres in.',
+  'media.login.step3': 'Log in met inlognaam en wachtwoord.',
+  'media.login.codeHint': 'De inlognamen van uw organisatie eindigen op',
+  'media.login.tv': 'Op de tv',
+  'media.login.quickConnect':
+    'Kies in de app Quick Connect. Voer de code van de tv hier in de console bij het account in onder "Tv koppelen". Of in Jellyfin onder Instellingen > Quick Connect op een apparaat dat al is ingelogd.',
+  'media.login.apps':
+    'Er zijn apps voor browsers, Windows, macOS, Linux (Jellyfin Media Player), Android, Android TV, Fire TV, iPhone en iPad, Apple TV (Swiftfin), LG webOS, Roku en Kodi.',
+  'media.login.allApps': 'Alle apps',
+  'media.login.privacy':
+    'Andere accounts op dezelfde server kunnen inlognamen zien. Gebruik voornamen of ruimtes, geen volledige namen.',
+  'media.accounts': 'Accounts',
+  'media.accountsText': 'Elk account logt in met zijn inlognaam en krijgt de toegang van uw quotum.',
+  'media.lastSync': 'Laatst gesynchroniseerd {when}',
+  'media.search': 'Inlognaam zoeken…',
+  'media.empty': 'Nog geen accounts',
+  'media.emptyText': 'Maak een account aan voor elke persoon of elk apparaat dat Jellyfin moet gebruiken.',
+  'media.col.login': 'Inlognaam',
+  'media.col.status': 'Status',
+  'media.col.lastActive': 'Laatst actief',
+  'media.col.created': 'Aangemaakt',
+  'media.col.issues': 'Aandachtspunten',
+  'media.copyLogin': 'Inlognaam kopiëren',
+  'media.activity.never': 'Nog nooit',
+  'media.activity.today': 'Vandaag',
+  'media.activity.yesterday': 'Gisteren',
+  'media.status.active': 'Actief',
+  'media.status.disabled': 'Gedeactiveerd',
+  'media.status.locked': 'Geblokkeerd',
+  'media.status.lockedHint':
+    'Jellyfin heeft het account na te veel mislukte inlogpogingen geblokkeerd. Activeren heft de blokkering op.',
+  'media.status.noPassword': 'Zonder wachtwoord',
+  'media.status.noPasswordHint':
+    'Wie de inlognaam kent, kan zonder wachtwoord inloggen. Stel een wachtwoord in.',
+  'media.status.missing': 'Niet gevonden in Jellyfin',
+  'media.status.missingHint': 'Het account is in Jellyfin verwijderd. Verwijder het ook hier.',
+  'media.privacyNote':
+    'Wat er wordt bekeken, ziet de console niet. De console toont alleen op welke dag een account voor het laatst actief was.',
+  'media.createTitle': 'Streamingaccount aanmaken',
+  'media.createText': 'Een account voor een persoon of een apparaat, met de toegang van uw quotum.',
+  'media.name': 'Naam',
+  'media.name.placeholder': 'anna',
+  'media.name.preview': 'Inlognaam:',
+  'media.name.hint':
+    'Gebruik voornamen of ruimtes zoals anna of woonkamer. Andere accounts op dezelfde server kunnen inlognamen zien.',
+  'media.name.invalid':
+    'Alleen kleine letters, cijfers en losse koppeltekens, aan het begin en eind een letter of een cijfer (maximaal 20 tekens).',
+  'media.name.taken': 'Dit account bestaat al.',
+  'media.created': 'Account {username} aangemaakt',
+  'media.createdTitle': 'Account aangemaakt',
+  'media.password.label': 'Wachtwoord',
+  'media.password.generate': 'Wachtwoord genereren (aanbevolen)',
+  'media.password.generateText':
+    '{n} kleine letters en cijfers, makkelijk in te voeren met een afstandsbediening. Wordt één keer getoond.',
+  'media.password.choose': 'Eigen wachtwoord',
+  'media.password.chooseText': 'Minimaal {min} tekens. De console slaat het niet op en toont het niet.',
+  'media.password.input': 'Nieuw wachtwoord',
+  'media.password.show': 'Wachtwoord tonen',
+  'media.password.hide': 'Wachtwoord verbergen',
+  'media.password.issue.length': 'Minimaal {min} tekens.',
+  'media.password.issue.tooLong': 'Maximaal {max} tekens.',
+  'media.password.issue.characters': 'Geen stuurtekens en geen spaties aan het begin of eind.',
+  'media.password.copy': 'Wachtwoord kopiëren (zonder spaties)',
+  'media.password.groups': 'In groepjes van vier om voor te lezen. De spaties horen niet bij het wachtwoord.',
+  'media.password.once':
+    'Het wachtwoord wordt alleen nu getoond. De console slaat het niet op. Geef het door aan de persoon die het account gebruikt.',
+  'media.password.newTitle': 'Nieuw wachtwoord',
+  'media.password.action': 'Nieuw wachtwoord instellen',
+  'media.password.title': 'Nieuw wachtwoord voor {username}',
+  'media.password.text':
+    'Alle apparaten die met dit account zijn ingelogd, worden direct uitgelogd. Het huidige wachtwoord werkt daarna niet meer. Tv\'s koppelt u daarna het eenvoudigst met "Tv koppelen".',
+  'media.password.set': 'Wachtwoord instellen',
+  'media.password.setToast': 'Nieuw wachtwoord voor {username} ingesteld',
+  'media.password.setToastSignedOut': 'Nieuw wachtwoord voor {username} ingesteld, alle apparaten uitgelogd',
+  'media.password.devicesDone': 'Alle apparaten zijn uitgelogd.',
+  'media.password.devicesLeft': 'Nog ingelogde apparaten: {n}',
+  'media.connect.action': 'Tv koppelen',
+  'media.connect.title': 'Tv aan {username} koppelen',
+  'media.connect.text':
+    'Een tv of een ander apparaat logt met dit account in, zonder dat iemand het wachtwoord intypt.',
+  'media.connect.step1': 'Open de Jellyfin-app op de tv, voer het serveradres in en kies Quick Connect.',
+  'media.connect.step2': 'De app toont een code van 6 cijfers. Voer die hier in.',
+  'media.connect.code': 'Code van de tv',
+  'media.connect.codeHint': 'De code is 10 minuten geldig. De console slaat hem niet op.',
+  'media.connect.codeInvalid': 'De code heeft 6 cijfers.',
+  'media.connect.submit': 'Koppelen',
+  'media.connect.done': 'Tv aan {username} gekoppeld',
+  'media.connect.error.code':
+    'Deze code kent de server niet, of hij is verlopen. Start Quick Connect op de tv opnieuw en voer de nieuwe code in.',
+  'media.connect.error.off':
+    'Quick Connect is op deze server uitgeschakeld. Log op de tv in met inlognaam en wachtwoord.',
+  'media.connect.error.limit':
+    'Met dit account zijn al zoveel apparaten ingelogd als het quotum toestaat ({n}). Log eerst apparaten uit.',
+  'media.connect.error.disabled': 'Het account is gedeactiveerd. Activeer het voordat u een tv koppelt.',
+  'media.connect.error.failed':
+    'De server heeft de code niet geaccepteerd. Toont de tv dat hij is ingelogd, dan is hij gekoppeld. Start anders Quick Connect opnieuw.',
+  'media.connect.error.tooMany': 'Te veel pogingen. Wacht een minuut.',
+  'media.devices.action': 'Alle apparaten uitloggen',
+  'media.devices.title': 'Alle apparaten van {username} uitloggen?',
+  'media.devices.count': 'Ingelogde apparaten: {n}',
+  'media.devices.none': 'Met dit account is geen apparaat ingelogd.',
+  'media.devices.text':
+    'Lopende weergaven worden gestopt en alle apparaten direct uitgelogd. Wachtwoord, geschiedenis en favorieten blijven bewaard. De apparaten loggen opnieuw in met het wachtwoord of met Quick Connect.',
+  'media.devices.privacy': 'De console toont alleen het aantal, geen apparaatnamen.',
+  'media.devices.confirm': 'Alle uitloggen',
+  'media.devices.done': 'Uitgelogde apparaten: {n}',
+  'media.devices.skipped':
+    'Niet uitgelogd: {n}. Op deze apparaten is ook een ander account ingelogd. Een nieuw wachtwoord logt ook die uit.',
+  'media.devices.failed': 'Bij {n} apparaten is het uitloggen mislukt. Probeer het opnieuw.',
+  'media.disable': 'Deactiveren',
+  'media.enable': 'Activeren',
+  'media.disableTitle': '{username} deactiveren?',
+  'media.disableText':
+    'Lopende weergaven worden gestopt, alle apparaten direct uitgelogd en het account kan niet meer inloggen. Geschiedenis en favorieten blijven bewaard.',
+  'media.enableTitle': '{username} activeren?',
+  'media.enableText':
+    'Het account kan weer inloggen. Een blokkering na mislukte inlogpogingen wordt daarbij opgeheven.',
+  'media.enableLockedHint': 'Heft de blokkering op',
+  'media.enabledToast': '{username} geactiveerd',
+  'media.disabledToast': '{username} gedeactiveerd',
+  'media.deleteTitle': '{username} verwijderen?',
+  'media.deleteConfirm': 'Definitief verwijderen',
+  'media.deleteWarningTitle': 'Geschiedenis en favorieten worden verwijderd',
+  'media.deleteWarning':
+    'Het account wordt in Jellyfin verwijderd, met kijkgeschiedenis, favorieten en playlists. Lopende weergaven worden gestopt en alle apparaten uitgelogd. Dit kan niet ongedaan worden gemaakt.',
+  'media.deleteMissing':
+    'Het account bestaat niet meer in Jellyfin. Het wordt alleen uit de console verwijderd.',
+  'media.deletedToast': '{username} verwijderd',
+  'media.issue.policy': 'Beleid wijkt af',
+  'media.issue.policy.text':
+    'De rechten in Jellyfin wijken af van het quotum. De synchronisatie past ze aan, of u past het beleid nu toe.',
+  'media.issue.administrator': 'Beheerder',
+  'media.issue.administrator.text':
+    'Het account is in Jellyfin beheerder. De synchronisatie trekt dat recht in, tenzij het de laatste beheerder is.',
+  'media.issue.blocked_folders': 'Geblokkeerde bibliotheken',
+  'media.issue.blocked_folders.text':
+    'De gebruiker heeft oude geblokkeerde bibliotheken. Jellyfin negeert dan de bibliotheken van het quotum, en de console kan dat niet wijzigen.',
+  'media.issue.no_password': 'Zonder wachtwoord',
+  'media.issue.no_password.text': 'Wie de inlognaam kent, logt zonder wachtwoord in.',
+  'media.issue.locked_out': 'Geblokkeerd',
+  'media.issue.locked_out.text':
+    'Na mislukte inlogpogingen door Jellyfin geblokkeerd. Activeren heft de blokkering op.',
+  'media.issue.no_allowance': 'Geen quotum',
+  'media.issue.no_allowance.text':
+    'De organisatie heeft geen quotum op deze instantie. De rechten van het account worden niet beheerd.',
+  'media.issue.seerr_missing': 'Niet in aanvragen',
+  'media.issue.seerr_missing.text':
+    'Het account is in Seerr nog niet aangemaakt. De synchronisatie probeert het opnieuw.',
+  'media.issue.seerr_drift': 'Aanvragen wijken af',
+  'media.issue.seerr_drift.text':
+    'Rechten of grenzen in Seerr wijken af van het quotum. De synchronisatie past ze aan.',
+  'media.allowance.setUp': 'Inrichten',
+  'media.allowance.setUpTitle': 'Streaming voor {name} inrichten',
+  'media.allowance.editTitle': 'Streaming van {name}',
+  'media.allowance.dialogText':
+    'Aantal accounts en wat elk account mag. De console past de toegang toe op alle accounts van de organisatie.',
+  'media.allowance.instanceHint': 'Alle accounts van de organisatie staan op deze Jellyfin-instantie.',
+  'media.allowance.instanceLocked':
+    'De instantie kan alleen worden gewijzigd zolang de organisatie er geen accounts en geen klantquota op heeft.',
+  'media.allowance.code': 'Quotumcode',
+  'media.allowance.codeGenerated': 'wordt gegenereerd',
+  'media.allowance.codeHint':
+    '3 tot 12 kleine letters, inlognamen eindigen dan op -code. Op een gedeelde server zien andere accounts de inlognamen: gebruik daar geen klantnaam.',
+  'media.allowance.codeLocked':
+    'De code kan alleen worden gewijzigd zolang de organisatie geen accounts heeft.',
+  'media.allowance.codeInvalid': '3 tot 12 kleine letters van a tot z.',
+  'media.allowance.maxAccounts': 'Maximaal aantal accounts',
+  'media.allowance.maxAccountsHint': 'Hoeveel accounts de organisatie kan aanmaken.',
+  'media.allowance.accountsUsed': 'Al in gebruik: {n}',
+  'media.allowance.maxInvalid': 'Voer een geheel getal vanaf 1 in.',
+  'media.allowance.maxBelowAccounts': 'Minimaal {n}, zoveel accounts zijn al in gebruik.',
+  'media.allowance.maxTooHigh': 'Maximaal {n}.',
+  'media.allowance.streams': 'Gelijktijdige streams (apparaten)',
+  'media.allowance.streamsHint':
+    'Ingelogde, actieve apparaten tellen mee. Jellyfin controleert het aantal wanneer een apparaat inlogt.',
+  'media.allowance.streamsInvalid': 'Een geheel getal van 1 tot {max}.',
+  'media.allowance.libraries': 'Bibliotheken',
+  'media.allowance.librariesEmpty':
+    'De instantie heeft geen bibliotheken die kunnen worden vrijgegeven. Nieuwe bibliotheken verschijnen na hun eerste scan.',
+  'media.allowance.librariesNone': 'Kies minstens één bibliotheek.',
+  'media.allowance.librariesGone': 'Niet meer op de instantie, worden bij het opslaan verwijderd: {names}',
+  'media.allowance.outsideParent': 'Niet bij de reseller',
+  'media.allowance.downloads': 'Downloads toestaan',
+  'media.allowance.downloadsHint':
+    'Offlinekopieën in de apps. Dit is geen kopieerbeveiliging: gestreamde inhoud kan toch worden opgeslagen.',
+  'media.allowance.bitrate': 'Kwaliteit onderweg',
+  'media.allowance.bitrateHint':
+    'Hoogste bitrate voor apparaten buiten het netwerk van de server. Zonder eigen waarde geldt de instelling van de server.',
+  'media.allowance.bitrateCustom': 'Eigen waarde',
+  'media.allowance.bitrateInvalid': 'Een geheel getal van 1 tot {max} Mbit/s.',
+  'media.allowance.serverBitrate': 'Instelling van de server',
+  'media.allowance.toCustomers': 'Daarvan aan klanten toegekend: {n}',
+  'media.allowance.enableModuleHint': '{org} ziet streaming alleen in de console als de module actief is.',
+  'media.allowance.moduleOff': 'Zonder de module "{module}" ziet de organisatie het quotum niet.',
+  'media.allowance.resellerHint':
+    'Een reseller verdeelt dit quotum over eigen accounts en over zijn klanten. Zijn klanten krijgen hoogstens deze toegang.',
+  'media.allowance.parentNone': '{reseller} heeft zelf geen streamingquotum. U kunt er toch een inrichten.',
+  'media.allowance.beyondParent': 'Gaat verder dan het quotum van {reseller} ({list}). U kunt toch opslaan.',
+  'media.allowance.policyHint':
+    'Na het opslaan past de console de toegang toe op alle accounts van de organisatie.',
+  'media.allowance.saved': 'Streamingquotum opgeslagen',
+  'media.allowance.applied': 'Toegang op alle accounts toegepast ({n})',
+  'media.allowance.policyFailed':
+    'Bij deze accounts kon het beleid niet worden toegepast. De synchronisatie probeert het opnieuw.',
+  'media.allowance.remove': 'Quotum verwijderen',
+  'media.allowance.removeTitle': 'Streaming van {name} verwijderen?',
+  'media.allowance.removeText':
+    'De organisatie kan daarna geen streamingaccounts meer aanmaken. De module blijft actief tot u deze uitschakelt.',
+  'media.allowance.removeBlocked':
+    'Alleen mogelijk zonder accounts. U kunt de accounts verwijderen of aan een andere organisatie toewijzen.',
+  'media.allowance.removeBlockedCustomers':
+    'Alleen mogelijk zonder klantquota. Verwijder eerst de quota van de {n} klanten.',
+  'media.allowance.removed': 'Streamingquotum verwijderd',
+  'media.conflict.libraries': 'Bibliotheken',
+  'media.conflict.streams': 'Streams',
+  'media.conflict.downloads': 'Downloads',
+  'media.conflict.bitrate': 'Kwaliteit onderweg',
+  'media.conflict.accounts': 'Accounts',
+  'media.admin.subtitle':
+    'Jellyfin-instanties, alle streamingaccounts en de overname van gebruikers die rechtstreeks in Jellyfin zijn aangemaakt.',
+  'media.admin.addProvider': 'Instantie koppelen',
+  'media.admin.hint': 'Streamingquota richt u bij de klant in, de accounts maken de klanten zelf aan.',
+  'media.admin.instances': 'Instanties',
+  'media.admin.instancesText':
+    'Gedeeld: meerdere organisaties hebben er een quotum op, dedicated: precies één. Activiteit alleen als aantal.',
+  'media.admin.noInstances': 'Geen Jellyfin-instantie gekoppeld',
+  'media.admin.noInstancesText': 'Koppel een instantie onder Providers om streamingaccounts aan te bieden.',
+  'media.admin.col.usage': 'Gebruik',
+  'media.admin.col.accounts': 'Accounts',
+  'media.admin.col.active': 'Nu actief',
+  'media.admin.col.quickConnect': 'Quick Connect',
+  'media.admin.usage.dedicated': 'Dedicated',
+  'media.admin.usage.shared': 'Gedeeld',
+  'media.admin.usage.unused': 'Ongebruikt',
+  'media.admin.orgCount': 'Organisaties met quotum: {n}',
+  'media.admin.withIssues': '{n} met aandachtspunten',
+  'media.admin.users': 'Gebruikers: {n}, bibliotheken: {libraries}',
+  'media.admin.activeNow': '{sessions} actief, {playing} spelen af',
+  'media.admin.quickConnect.on': 'Aan',
+  'media.admin.quickConnect.off': 'Uit',
+  'media.admin.quickConnect.unknown': 'Onbekend',
+  'media.admin.sync': 'Synchroniseren',
+  'media.admin.syncRepairFailed': 'Beleid niet toegepast: {n}',
+  'media.admin.toProvider': 'Naar de providerverbinding',
+  'media.admin.accounts': 'Accounts',
+  'media.admin.accountsText':
+    'Alle streamingaccounts die de console beheert, met de aandachtspunten van de laatste synchronisatie.',
+  'media.admin.search': 'Inlognaam zoeken…',
+  'media.admin.filterCustomer': 'Filteren op klant',
+  'media.admin.allCustomers': 'Alle klanten',
+  'media.admin.filterInstance': 'Filteren op instantie',
+  'media.admin.allInstances': 'Alle instanties',
+  'media.admin.onlyIssues': 'Alleen met aandachtspunten',
+  'media.admin.empty': 'Geen streamingaccounts',
+  'media.admin.emptyText':
+    'Accounts verschijnen hier zodra klanten ze aanmaken of u gebruikers van een instantie overneemt.',
+  'media.admin.limited':
+    'Er worden maximaal 1000 accounts getoond. Beperk de lijst met de zoekfunctie of de filters.',
+  'media.admin.assign': 'Toewijzen…',
+  'media.admin.reassign': 'Anders toewijzen…',
+  'media.admin.repair': 'Beleid toepassen',
+  'media.admin.repairHint': 'Schrijft de toegang van het quotum nu naar Jellyfin',
+  'media.admin.repairHintSeerr':
+    'Schrijft de toegang van het quotum nu naar Jellyfin en de rechten voor aanvragen naar Seerr',
+  'media.admin.repaired': 'Beleid van {username} toegepast',
+  'media.admin.assignText': 'Het account staat op {instance}. De klant beheert het daarna in zijn console.',
+  'media.admin.assignHint':
+    'De klant heeft een streamingquotum op deze instantie nodig. De toegang daarvan wordt op het account toegepast. Meer accounts dan in het quotum zijn voor u toegestaan.',
+  'media.admin.unassignText':
+    '{org} ziet het account daarna niet meer. Het account blijft in Jellyfin werken, tot u het deactiveert of verwijdert.',
+  'media.admin.targetNone':
+    'Deze organisatie heeft geen streamingquotum. Richt er eerst een in op deze instantie.',
+  'media.admin.targetOtherInstance':
+    'Het streamingquotum van deze organisatie staat op {instance}, niet op deze instantie.',
+  'media.admin.targetAllowance': 'Quotum: {n} van {max} accounts in gebruik, code {code}.',
+  'media.admin.targetFull':
+    'Het quotum is opgebruikt. U kunt het account toch toewijzen, het telt dan boven het maximum.',
+  'media.admin.noModule': 'zonder streaming',
+  'media.admin.cardText': 'Jellyfin-accounts van de organisatie en wat elk account mag.',
+  'media.admin.none': 'Geen streaming',
+  'media.admin.noneText': 'Richt een quotum in, zodat de organisatie streamingaccounts kan aanmaken.',
+  'media.admin.showAccounts': 'Accounts tonen',
+  'media.admin.noInstance': 'Er is nog geen Jellyfin-instantie als provider gekoppeld.',
+  'media.unmanaged.title': 'Niet-beheerde gebruikers',
+  'media.unmanaged.text':
+    'Gebruikers die rechtstreeks in Jellyfin zijn aangemaakt. Overgenomen gebruikers behouden hun naam en geschiedenis.',
+  'media.unmanaged.load': 'Gebruikers ophalen',
+  'media.unmanaged.reload': 'Opnieuw laden',
+  'media.unmanaged.hint':
+    'Haalt de gebruikers van {instance} op en toont de gebruikers die de console nog niet beheert. Beheerders en gebruikers met oude geblokkeerde bibliotheken kunnen niet worden overgenomen.',
+  'media.unmanaged.empty': 'Alle gebruikers van {instance} worden beheerd',
+  'media.unmanaged.col.password': 'Wachtwoord',
+  'media.unmanaged.yes': 'Ja',
+  'media.unmanaged.no': 'Nee',
+  'media.unmanaged.administrator': 'Beheerder',
+  'media.unmanaged.blocked.administrator': 'Beheerder, niet over te nemen',
+  'media.unmanaged.blocked.blocked_folders': 'Oude geblokkeerde bibliotheken, niet over te nemen',
+  'media.unmanaged.import': 'Overnemen',
+  'media.unmanaged.importTitle': '{username} overnemen',
+  'media.unmanaged.importText':
+    'De console beheert de gebruiker daarna. Naam en geschiedenis blijven bewaard.',
+  'media.unmanaged.noCustomer': '– aan geen klant toewijzen –',
+  'media.unmanaged.noCustomerHint':
+    'Zonder klant blijven de rechten van de gebruiker zoals ze in Jellyfin zijn. U kunt hem later toewijzen.',
+  'media.unmanaged.policyHint':
+    'De toegang van het quotum wordt op de gebruiker toegepast. Meer accounts dan in het quotum zijn voor u toegestaan.',
+  'media.unmanaged.setPassword': 'Nieuw wachtwoord instellen',
+  'media.unmanaged.setPasswordHint':
+    'Genereert een nieuw wachtwoord dat één keer wordt getoond. Alle apparaten van de gebruiker worden uitgelogd.',
+  'media.unmanaged.setPasswordForced':
+    'De gebruiker heeft geen wachtwoord: wie de naam kent, kan inloggen. Hij wordt alleen met een nieuw wachtwoord overgenomen.',
+  'media.unmanaged.imported': '{username} overgenomen',
+  'media.unmanaged.passwordTitle': 'Gebruiker overgenomen',
+  'media.reseller.cardText': 'Accounts uit uw quotum en wat elk account van de klant mag.',
+  'media.reseller.none': 'Geen streaming toegekend',
+  'media.reseller.noneText':
+    'Ken de klant een deel van uw quotum toe, zodat hij streamingaccounts kan aanmaken.',
+  'media.reseller.pool': 'Uw quotum: {free} van {max} accounts vrij',
+  'media.reseller.noPool':
+    'Uw organisatie heeft nog geen streamingquotum. Neem contact op met weblion.one om streaming af te nemen.',
+  'media.reseller.dialogText': 'Uit uw quotum op {instance}, hoogstens met uw eigen toegang.',
+  'media.reseller.accountsLeft': 'Maximaal {n} uit uw quotum',
+  'media.reseller.maxTooHigh': 'Vrije accounts in uw quotum: {n}.',
+  'media.reseller.noDownloads': 'Uw quotum staat geen downloads toe.',
+  'media.reseller.downloadsOff': 'Uw quotum staat geen downloads toe, dus ook niet voor klanten.',
+  'media.reseller.bitrateHint': 'Maximaal {max}, de grens van uw quotum.',
+  'media.reseller.bitrateTooHigh': 'Maximaal {max} Mbit/s, de grens van uw quotum.',
+  'media.reseller.bitrateRequired':
+    'Uw quotum heeft een grens van {max} Mbit/s. Kies een waarde tot die grens.',
+  'media.reseller.enablesModule': 'Dit activeert ook de module Streaming voor de klant.',
+  'media.reseller.removeText':
+    'De klant kan daarna geen streamingaccounts meer aanmaken. De accounts gaan terug naar uw quotum.',
+  'media.reseller.removeBlocked':
+    'Alleen mogelijk zonder accounts. De klant moet eerst zijn accounts verwijderen.',
+  'media.requests.title': 'Aanvragen',
+  'media.requests.text':
+    'Met aanvragen vragen uw accounts films en series aan die nog niet op de server staan. weblion.one beoordeelt elke aanvraag en stelt goedgekeurde titels beschikbaar.',
+  'media.requests.open': 'Aanvragen openen',
+  'media.requests.address': 'Adres voor aanvragen',
+  'media.requests.copyAddress': 'Adres kopiëren',
+  'media.requests.signIn': 'Log daar in met de inlognaam en het wachtwoord van het account.',
+  'media.requests.included': 'Inbegrepen',
+  'media.requests.movies': 'Films',
+  'media.requests.tv': 'Series',
+  'media.requests.movieQuota': 'tot {limit} films in {days} dagen per account',
+  'media.requests.tvQuota': 'tot {limit} seizoenen in {days} dagen per account',
+  'media.requests.unlimited': 'zonder grens',
+  'media.requests.notIncluded': 'niet inbegrepen',
+  'media.requests.devicesHint': 'Inloggen bij aanvragen telt in Jellyfin als één ingelogd apparaat.',
+  'media.requests.sessionHint':
+    'Een inlogsessie bij aanvragen blijft tot 30 dagen geldig, ook na een nieuw wachtwoord of het uitloggen van alle apparaten: tot dan kan daar verder worden aangevraagd. Deactiveren ontneemt het recht om aan te vragen, pas verwijderen beëindigt de inlogsessie.',
+  'media.requests.col.pending': 'Openstaand',
+  'media.requests.col.approved': 'Goedgekeurd',
+  'media.requests.col.available': 'Beschikbaar',
+  'media.requests.col.quota': 'Quotum gebruikt',
+  'media.requests.quotaMovies': 'Films: {used} van {limit}',
+  'media.requests.quotaSeasons': 'Seizoenen: {used} van {limit}',
+  'media.requests.notReady': 'Wordt ingericht',
+  'media.requests.notReadyHint':
+    'Het account wordt in aanvragen ingericht. Dat duurt hoogstens een paar minuten.',
+  'media.requests.disabled': 'Gedeactiveerde accounts kunnen niets aanvragen.',
+  'media.requests.syncedAt': 'Stand van {when}',
+  'media.requests.privacy':
+    'De console toont alleen aantallen, nooit de aangevraagde titels. In aanvragen zelf zien alle accounts op deze server de inlognamen van de anderen en wie een titel heeft aangevraagd.',
+  'media.requests.figure': 'Aanvragen',
+  'media.requests.figureBoth': 'Films en series',
+  'media.requests.totals': 'Openstaand {pending}, goedgekeurd {approved}, beschikbaar {available}',
+  'media.requests.field': 'Aanvragen (Seerr)',
+  'media.requests.fieldHint':
+    'De accounts mogen films of series aanvragen. Goedkeuren doet weblion.one in Seerr.',
+  'media.requests.fieldMovies': 'Films aanvragen',
+  'media.requests.fieldTv': 'Series aanvragen',
+  'media.requests.limitNone': 'Zonder grens',
+  'media.requests.quotaLimit': 'Aantal',
+  'media.requests.quotaDays': 'in dagen',
+  'media.requests.seasonsHint':
+    'Bij series telt Seerr seizoenen, geen series. "Geen aanvragen" betekent: aanvragen uitschakelen.',
+  'media.requests.typeRequired': 'Kies films, series of allebei.',
+  'media.requests.quotaInvalid': 'Een geheel getal van 1 tot {max}.',
+  'media.requests.daysInvalid': 'Een geheel getal van 1 tot {max} dagen.',
+  'media.requests.sharedWarning':
+    'Op deze instantie hebben meerdere organisaties een quotum. In aanvragen zien alle accounts de inlognamen van de anderen en wie een titel heeft aangevraagd.',
+  'media.requests.inactive':
+    'Seerr is op deze instantie uitgeschakeld. Klanten zien aanvragen pas als u het inschakelt.',
+  'media.requests.streamsWarning':
+    'Met 1 stream kan een account niet bij aanvragen inloggen, zolang een ander apparaat is ingelogd.',
+  'media.requests.unavailable': 'Voor deze instantie is geen Seerr ingesteld.',
+  'media.requests.offOnSave': 'Aanvragen worden bij het opslaan uitgeschakeld.',
+  'media.requests.applyFailed':
+    'Bij deze accounts konden de rechten in aanvragen niet worden ingesteld. De synchronisatie probeert het opnieuw.',
+  'media.reseller.requestsCap': 'Hoogstens wat uw quotum toestaat.',
+  'media.reseller.requestsYours': 'Uw quotum: {value}',
+  'media.conflict.requestsMovies': 'Films aanvragen',
+  'media.conflict.requestsTv': 'Series aanvragen',
+  'media.conflict.movieQuota': 'Grens films',
+  'media.conflict.tvQuota': 'Grens seizoenen',
+  'media.seerr.column': 'Aanvragen',
+  'media.seerr.none': 'Geen Seerr',
+  'media.seerr.status.off': 'Uit',
+  'media.seerr.status.ok': 'Aan',
+  'media.seerr.status.unsafe': 'Onveilig',
+  'media.seerr.status.error': 'Fout',
+  'media.seerr.status.unknown': 'Niet gecontroleerd',
+  'media.seerr.shared': 'Gedeeld: {n} organisaties met aanvragen zien in Seerr elkaars inlognamen en wensen.',
+  'media.seerr.manage': 'Aanvragen…',
+  'media.seerr.title': 'Aanvragen op {instance}',
+  'media.seerr.text':
+    'Seerr is de aanvraagsite van deze Jellyfin-instantie. De console maakt daar de accounts van klanten met aanvragen aan en stelt hun rechten en grenzen in. Aanvragen keurt u in Seerr goed.',
+  'media.seerr.version': 'Versie {version}',
+  'media.seerr.checkedAt': 'Gecontroleerd {when}',
+  'media.seerr.recheck': 'Opnieuw controleren',
+  'media.seerr.check.reachable': 'Bereikbaar',
+  'media.seerr.check.key': 'API-sleutel geaccepteerd',
+  'media.seerr.check.sameServer': 'Gekoppeld aan deze Jellyfin-instantie',
+  'media.seerr.check.newSignIns': 'Nieuwe aanmeldingen via Jellyfin uit',
+  'media.seerr.check.defaultPermissions': 'Nieuwe gebruikers zonder rechten',
+  'media.seerr.check.mediaServerLogin': 'Inloggen met Jellyfin aan',
+  'media.seerr.check.csrf': 'CSRF-bescherming uit',
+  'media.seerr.problem.unreachable': 'Seerr is niet bereikbaar.',
+  'media.seerr.problem.key': 'Seerr heeft de API-sleutel geweigerd.',
+  'media.seerr.problem.not_jellyfin': 'Seerr is niet voor Jellyfin ingericht.',
+  'media.seerr.problem.other_server': 'Seerr is gekoppeld aan een andere Jellyfin-server.',
+  'media.seerr.problem.csrf':
+    'De CSRF-bescherming van Seerr staat aan, zo kan de console niets wijzigen. Schakel deze in Seerr uit onder Instellingen > Netwerk.',
+  'media.seerr.problem.new_signins':
+    'Nieuwe aanmeldingen via Jellyfin staan aan: elke gebruiker van de server zou kunnen aanvragen.',
+  'media.seerr.problem.default_permissions': 'Nieuwe gebruikers krijgen rechten. Aanbevolen: geen.',
+  'media.seerr.problem.media_server_login':
+    'Inloggen met Jellyfin staat uit: klanten zouden niet kunnen inloggen.',
+  'media.seerr.unmanaged':
+    'Gebruikers in Seerr die de console niet beheert en die mogen aanvragen: {n}. De synchronisatie ontneemt hun dit recht.',
+  'media.seerr.orphans':
+    'Gebruikers in Seerr zonder Jellyfin-gebruiker: {n}. U moet ze in Seerr verwijderen.',
+  'media.seerr.localLogin':
+    'Lokaal inloggen staat in Seerr aan. Gebruikers die Seerr bij een Jellyfin-aanmelding heeft aangemaakt voordat de aanbevolen instellingen golden, loggen daarmee nog steeds in met hun toenmalige wachtwoord, ook na een nieuw wachtwoord. Schakel dit in Seerr uit onder Instellingen > Gebruikers als niemand het nodig heeft.',
+  'media.seerr.apply': 'Aanbevolen instellingen toepassen',
+  'media.seerr.applyText':
+    'Stelt in Seerr in: nieuwe aanmeldingen via Jellyfin uit, nieuwe gebruikers zonder rechten, inloggen met Jellyfin aan. Andere instellingen blijven ongewijzigd.',
+  'media.seerr.applied': 'Aanbevolen instellingen in Seerr ingesteld',
+  'media.seerr.enable': 'Aanvragen voor klanten aanbieden',
+  'media.seerr.enableHint': 'Pas mogelijk als alle controles zijn geslaagd.',
+  'media.seerr.enabled': 'Aanvragen op {instance} ingeschakeld',
+  'media.seerr.disabled': 'Aanvragen op {instance} uitgeschakeld',
+  'media.seerr.disableTitle': 'Aanvragen op {instance} uitschakelen?',
+  'media.seerr.disableText':
+    'Klanten zien aanvragen niet meer. De console ontneemt alle accounts in Seerr het recht om aan te vragen. Gebruikers en aanvragen blijven in Seerr bewaard.',
+  'media.seerr.disableConfirm': 'Uitschakelen',
+  'media.seerr.sharedTitle': 'Meerdere organisaties op deze instantie',
+  'media.seerr.sharedText':
+    '{n} organisaties hebben een quotum op {instance}. In Seerr ziet elk ingelogd account de gebruikerslijst en bij elke titel wie die heeft aangevraagd. Klanten met aanvragen zien zo inlognamen en wensen van andere klanten.',
+  'media.seerr.sharedConfirm': 'Ik heb dit gecontroleerd en schakel aanvragen toch in.',
+  'media.seerr.enableConfirm': 'Inschakelen',
+  'media.seerr.notConfigured':
+    'Voor deze instantie is geen Seerr ingesteld. Vul het adres en de API-sleutel bij de provider in.',
+  'media.seerr.toProvider': 'Naar de provider',
+  'media.seerr.applyResult': 'Rechten in aanvragen ingesteld: {n}',
+  'media.admin.synced':
+    '{seen} streamingaccounts gesynchroniseerd, {missing} niet meer gevonden, beleid van {repaired} accounts aangepast',
+  'media.dashboardSub': '{n} van {max} accounts',
+  'providers.jellyfin.help':
+    'Jellyfin 10.10 of nieuwer (10.11 aanbevolen) met afgeronde eerste configuratie. Maak in het Jellyfin-dashboard onder API-sleutels een eigen sleutel alleen voor weblion.one aan. De sleutel heeft volledige beheerdersrechten.',
+  'providers.jellyfin.url': 'Adres van de instantie',
+  'providers.jellyfin.urlHint':
+    'Het adres dat uw klanten in de Jellyfin-apps invoeren, met pad als Jellyfin onder een basispad draait, bijv. https://media.weblion.one.',
+  'providers.jellyfin.urlInvalid':
+    'Een http- of https-adres zonder query en zonder inloggegevens, een pad alleen voor het basispad van Jellyfin, bijv. https://media.weblion.one.',
+  'providers.jellyfin.httpWarning':
+    'Zonder https gaan API-sleutel en wachtwoorden onversleuteld over het netwerk. Alleen in een privénetwerk gebruiken.',
+  'providers.jellyfin.apiKey': 'API-sleutel',
+  'providers.jellyfin.apiKeyHint':
+    'Dashboard > API-sleutels > Toevoegen, app-naam bijv. weblion.one. 32 tekens uit 0-9 en a-f. Wordt versleuteld opgeslagen en nooit meer getoond.',
+  'providers.jellyfin.apiKeyInvalid': 'Een Jellyfin-API-sleutel heeft precies 32 tekens uit 0-9 en a-f.',
+  'providers.jellyfin.accountsText':
+    'Streamingaccounts van deze instantie, quota van de klanten en overname van gebruikers die rechtstreeks in Jellyfin zijn aangemaakt.',
+  'providers.jellyfin.toAccounts': 'Naar de streamingaccounts',
+  'providers.jellyfin.seerr': 'Aanvragen (Seerr, optioneel)',
+  'providers.jellyfin.seerrHelp':
+    'Een Seerr-instantie die met precies deze Jellyfin-instantie is gekoppeld. Voor klanten inschakelen onder Beheer > Streaming.',
+  'providers.jellyfin.seerrUrl': 'Seerr-adres',
+  'providers.jellyfin.seerrUrlHint':
+    'Het adres waarop uw klanten Seerr openen, bijv. https://anfragen.weblion.one.',
+  'providers.jellyfin.seerrUrlInvalid': 'Een http- of https-adres zonder query en zonder inloggegevens.',
+  'providers.jellyfin.seerrApiKey': 'Seerr-API-sleutel',
+  'providers.jellyfin.seerrApiKeyHint':
+    'Seerr > Instellingen > Algemeen > API-sleutel. De sleutel heeft volledige rechten in Seerr. Wordt versleuteld opgeslagen en nooit meer getoond.',
+  'providers.jellyfin.seerrApiKeyInvalid': 'Plak de sleutel zoals Seerr hem toont.',
+  'providers.jellyfin.seerrBoth': 'Adres en sleutel horen bij elkaar.',
+  'providers.jellyfin.seerrRemove': 'Seerr verwijderen',
+  'admin.resources.mediaAccounts': 'Streamingaccounts',
+  'admin.blocker.mediaAccounts': 'Streamingaccounts: {n}',
+  'admin.blocker.mediaAllowances': 'Streamingquotum',
+  'explorer.jellyfinPath':
+    'Paden relatief ten opzichte van het adres van de instantie, bijv. /Users of /Library/VirtualFolders. Sleutels, toegangstokens en wachtwoorden in antwoorden worden verborgen. /Auth/Keys en de inlogendpoints zijn geblokkeerd.',
+  'explorer.jellyfinBodyHint':
+    'GET en DELETE sturen de parameters als query, POST als JSON. Een beleid (POST /Users/<id>/Policy) altijd volledig versturen: Jellyfin zet ontbrekende velden terug.',
+};

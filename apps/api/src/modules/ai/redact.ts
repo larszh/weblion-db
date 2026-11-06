@@ -87,13 +87,22 @@ const PATTERNS: Array<[RegExp, string]> = [
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
-/** Exact secrets, then the patterns, then the 4,000 character cap (ai 11.2). */
-export function redactText(s: string): string {
+/**
+ * Exact secrets, then the patterns, without the length cap: for the person's own chat messages, which have their
+ * own limits (ai 9.2), so a key pasted into the chat never leaves the console (ai 5.2).
+ */
+export function redactSecrets(s: string): string {
   let out = s;
   for (const secret of exactSecrets) {
     if (out.includes(secret)) out = out.split(secret).join(HIDDEN);
   }
   for (const [pattern, replacement] of PATTERNS) out = out.replace(pattern, replacement);
+  return out;
+}
+
+/** Exact secrets, then the patterns, then the 4,000 character cap (ai 11.2). */
+export function redactText(s: string): string {
+  const out = redactSecrets(s);
   return out.length > MAX_TEXT ? `${out.slice(0, MAX_TEXT)} [cut]` : out;
 }
 

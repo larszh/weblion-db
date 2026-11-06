@@ -1,18 +1,21 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { BetaMessage, BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   aiCostMicros,
+  intlLocale,
+  normalizeLocale,
   type AiBudgetDto,
   type AiFeature,
   type AiModel,
   type AiUsageScope,
   type AiUsageTokens,
+  type Locale,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import type { Env } from '../../config/env';
 import type { Database, DbOrTx } from '../../db/client';
-import { aiUsage, type AiUsageRow } from '../../db/schema';
+import { aiUsage, settings as settingsTable, users, type AiUsageRow } from '../../db/schema';
 import type { AppError } from '../../lib/errors';
 import { AI_FEATURE_EXPECTED_OUTPUT } from './client';
 import { aiLimit } from './errors';
@@ -79,8 +82,123 @@ export function staleAfterSeconds(env: Env): number {
   return env.AI_TURN_TIMEOUT_SECONDS + 60;
 }
 
-/** Monthly budget warning and exhaustion mails (ai 7.2). U3 implements it; logs, never throws. */
-export async function checkBudgetWarning(_ctx: AppContext): Promise<void> {}
+/** Settings row of the monthly budget mails (plan 3.2) and the transaction lock around it (plan 3.3). */
+export const AI_BUDGET_NOTICE_KEY = 'ai_budget_notice';
+export const AI_BUDGET_NOTICE_LOCK = 'ai:budget-notice';
+
+interface BudgetNotice {
+  month: string;
+  warnedAt: string | null;
+  exhaustedAt: string | null;
+}
+
+/** USD with the code, in the mail language ("USD 81.20", "81,20 USD"). */
+function usd(micros: number, locale: Locale): string {
+  return new Intl.NumberFormat(intlLocale(locale), {
+    style: 'currency',
+    currency: 'USD',
+    currencyDisplay: 'code',
+    minimumFractionDigits: 2,
+  }).format(micros / 1_000_000);
+}
+
+/** "November 2026" for 2026-11, in the mail language. */
+function monthName(month: string, locale: Locale): string {
+  const [year, m] = month.split('-').map(Number);
+  return new Intl.DateTimeFormat(intlLocale(locale), {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year!, (m ?? 1) - 1, 15)));
+}
+
+/**
+ * Monthly budget warning and exhaustion (ai 7.2), after every finish() that added cost. Under a transaction lock
+ * the marks of this month in the settings row ai_budget_notice are set at most once each (a row of an earlier
+ * month counts as empty); for each newly set mark one mail per language goes to the active superadmins and one
+ * audit entry is written. A jump from below the warning straight to 100 percent sets both. Logs, never throws.
+ */
+export async function checkBudgetWarning(ctx: AppContext): Promise<void> {
+  try {
+    const settings = await ctx.ai.settings();
+    const state = await budgetState(ctx.db, ctx.env, settings);
+    // A budget of 0 refuses every request on purpose; it is no reason to mail.
+    if (state.budgetMicros <= 0 || state.percent < settings.warnPercent) return;
+    const marks = await ctx.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${AI_BUDGET_NOTICE_LOCK}, 0))`);
+      const [row] = await tx.select().from(settingsTable).where(eq(settingsTable.key, AI_BUDGET_NOTICE_KEY));
+      const stored = row?.value as Partial<BudgetNotice> | undefined;
+      const current: BudgetNotice =
+        stored && stored.month === state.month
+          ? { month: state.month, warnedAt: stored.warnedAt ?? null, exhaustedAt: stored.exhaustedAt ?? null }
+          : { month: state.month, warnedAt: null, exhaustedAt: null };
+      const now = new Date().toISOString();
+      const warning = state.percent >= settings.warnPercent && !current.warnedAt;
+      const exhausted = state.exhausted && !current.exhaustedAt;
+      if (!warning && !exhausted) return { warning, exhausted };
+      const value: BudgetNotice = {
+        month: state.month,
+        warnedAt: warning ? now : current.warnedAt,
+        exhaustedAt: exhausted ? now : current.exhaustedAt,
+      };
+      await tx
+        .insert(settingsTable)
+        .values({ key: AI_BUDGET_NOTICE_KEY, value })
+        .onConflictDoUpdate({ target: settingsTable.key, set: { value, updatedAt: new Date() } });
+      return { warning, exhausted };
+    });
+    if (!marks.warning && !marks.exhausted) return;
+    const recipients = await ctx.db
+      .select({ email: users.email, locale: users.locale })
+      .from(users)
+      .where(and(eq(users.platformRole, 'superadmin'), eq(users.status, 'active')));
+    const byLocale = new Map<Locale, string[]>();
+    for (const r of recipients) {
+      const locale = normalizeLocale(r.locale) ?? 'de';
+      byLocale.set(locale, [...(byLocale.get(locale) ?? []), r.email]);
+    }
+    const link = `${ctx.env.APP_URL.replace(/\/$/, '')}/admin/ai`;
+    const kinds = [
+      ...(marks.warning ? (['warning'] as const) : []),
+      ...(marks.exhausted ? (['exhausted'] as const) : []),
+    ];
+    for (const kind of kinds) {
+      for (const [locale, to] of byLocale) {
+        await ctx.mail.send(
+          'ai_budget',
+          {
+            kind,
+            month: monthName(state.month, locale),
+            spent: usd(state.spentMicros, locale),
+            budget: usd(state.budgetMicros, locale),
+            percent: state.percent,
+            link,
+          },
+          { to, locale },
+        );
+      }
+      await ctx.audit.record(null, {
+        action: kind === 'warning' ? 'ai.budget_warning' : 'ai.budget_exhausted',
+        orgId: null,
+        resourceType: 'settings',
+        resourceId: AI_BUDGET_NOTICE_KEY,
+        actorUserId: null,
+        actorName: 'AI budget',
+        details:
+          kind === 'warning'
+            ? {
+                month: state.month,
+                percent: state.percent,
+                spentMicros: state.spentMicros,
+                budgetMicros: state.budgetMicros,
+              }
+            : { month: state.month, spentMicros: state.spentMicros, budgetMicros: state.budgetMicros },
+      });
+    }
+  } catch (err) {
+    ctx.log.error({ err }, 'AI budget warning failed');
+  }
+}
 
 interface Counters {
   month: string;
@@ -209,7 +327,8 @@ export async function reserve(
       staleAfterSeconds(env),
     );
     const budget = budgetMicros(settings);
-    if (budget <= 0 || c.spent + c.reserved + input.estimateMicros > budget) {
+    // Used up (spent >= budget) refuses every request, demo ones with an estimate of 0 too.
+    if (budget <= 0 || c.spent >= budget || c.spent + c.reserved + input.estimateMicros > budget) {
       throw aiLimit('budget', { resetsAt: c.nextMonth.toISOString() });
     }
     if (c.platformLive >= AI_LIMITS.platformConcurrent) {
@@ -427,4 +546,31 @@ export async function budgetState(db: DbOrTx, env: Env, settings: AiSettings): P
 /** spent >= budget this month; the chat checks it after every API call (plan O29). */
 export async function budgetExceeded(db: DbOrTx, env: Env, settings: AiSettings): Promise<boolean> {
   return (await budgetState(db, env, settings)).exhausted;
+}
+
+/**
+ * A chat call whose answer could not be read (an unparseable tool input, ai 6.4 step 4): its real usage is
+ * unknown, so it is charged as its estimate, and it counts as an API call.
+ */
+export async function chargeEstimate(db: DbOrTx, row: AiUsageRow, micros: number): Promise<void> {
+  const cost = row.demo ? 0 : Math.max(0, Math.round(micros));
+  const [updated] = await db
+    .update(aiUsage)
+    .set({ apiCalls: sql`${aiUsage.apiCalls} + 1`, costMicros: sql`${aiUsage.costMicros} + ${cost}` })
+    .where(eq(aiUsage.id, row.id))
+    .returning();
+  if (updated) Object.assign(row, updated);
+}
+
+/** The tool calls of a chat turn, live ones separately (ai_usage.tool_calls, live_calls). */
+export async function setToolCounts(
+  db: DbOrTx,
+  row: AiUsageRow,
+  toolCalls: number,
+  liveCalls: number,
+): Promise<void> {
+  if (toolCalls === 0 && liveCalls === 0) return;
+  await db.update(aiUsage).set({ toolCalls, liveCalls }).where(eq(aiUsage.id, row.id));
+  row.toolCalls = toolCalls;
+  row.liveCalls = liveCalls;
 }

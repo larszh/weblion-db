@@ -1,16 +1,17 @@
 import type { Locale } from '@weblion/shared';
+import type { Tr } from '../i18n/service';
 
 /**
  * Mail contract used by every module that sends email. The implementation lives in
  * mail/service.ts (SMTP via nodemailer, settings from env or the admin area).
  *
- * Modules never build raw emails: they pick a template and pass its data. Templates
- * render German or English (mail/templates.ts) and share one HTML layout.
+ * Modules never build raw emails: they pick a template and pass its data. Templates render from the
+ * email.* keys in the language of the mail (mail/templates.ts, i18n 8.2) and share one HTML layout.
  */
 
 /**
- * Any of the five console languages, so senders pass the recipient's users.locale as it is. Until the
- * templates render from the email.* keys, fr, it and nl get the English texts (plan 2.8).
+ * Any of the five console languages, so senders pass the recipient's users.locale as it is. A text missing
+ * in fr, it or nl falls back to English, then German (fallbackChain).
  */
 export type MailLocale = Locale;
 
@@ -103,6 +104,8 @@ export interface MailResult {
 export interface Mailer {
   /** True when SMTP is configured (env or admin area). */
   isConfigured(): Promise<boolean>;
+  /** The server texts of a mail language with their overrides, for values formatted before send(). */
+  translator(locale: MailLocale): Tr;
   /**
    * Renders and sends a template. Never throws: failures are logged to mail_log and
    * returned, so a broken SMTP server can't fail the request that triggered the mail.

@@ -6,7 +6,9 @@ import {
   formatMoney,
   invoiceTotals,
   lineTotal,
+  normalizeLocale,
   type InvoiceIssuerSettings,
+  type Locale,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import type { DbOrTx, Tx } from '../../db/client';
@@ -25,11 +27,13 @@ import {
   type Payment,
 } from '../../db/schema';
 import { badRequest, conflict, forbidden, notFound } from '../../lib/errors';
+import type { Tr } from '../../i18n/service';
 import type { MailResult } from '../../mail/types';
 import { billingCurrency, creditBalance, lockOrgBilling, payFromCredit, settlePayment } from './ledger';
 import {
   billingAddressOf,
   billingLink,
+  billingLocale,
   canActAsIssuer,
   invoiceLink,
   invoiceLinesOf,
@@ -337,6 +341,8 @@ export async function finalizeInTx(
   const profile = await loadProfile(tx, current.orgId);
   const issuer = await issuerSettings(tx, current.issuerOrgId);
   const settings = await getBillingSettings(tx);
+  // The language is fixed now, like the address and the issuer: an issued invoice keeps it (i18n 9).
+  const locale = await billingLocale(tx, current.orgId, profile ?? null);
   const issueDate = current.issueDate ?? todayZurich();
   const dueDate =
     current.dueDate ?? addDays(issueDate, profile?.paymentTermsDays ?? issuer.defaultPaymentTermsDays);
@@ -361,6 +367,7 @@ export async function finalizeInTx(
       total: totals.total,
       billingAddress: billingAddressOf(org!, profile),
       issuerSnapshot: issuer,
+      locale,
       paidAt: paid ? new Date() : null,
     })
     .where(eq(invoices.id, invoiceId))
@@ -459,13 +466,20 @@ export async function markPaidInTx(
 
 // --- PDF and email --------------------------------------------------------------------
 
+/** The language of an invoice: fixed at finalize, else (drafts, invoices from before) the billing language. */
+export async function invoiceLocale(db: DbOrTx, invoice: Pick<Invoice, 'locale' | 'orgId'>): Promise<Locale> {
+  return normalizeLocale(invoice.locale) ?? (await billingLocale(db, invoice.orgId));
+}
+
+/** The PDF in the invoice's language (i18n 8.3); numbers and dates stay Swiss in every language. */
 export async function invoicePdf(ctx: AppContext, invoice: Invoice, org?: Organization): Promise<Buffer> {
   const owner =
     org ?? (await ctx.db.query.organizations.findFirst({ where: eq(organizations.id, invoice.orgId) }))!;
-  const [lines, issuer, profile] = await Promise.all([
+  const [lines, issuer, profile, locale] = await Promise.all([
     invoiceLinesOf(ctx.db, invoice.id),
     invoice.issuerSnapshot ?? issuerSettings(ctx.db, invoice.issuerOrgId),
     invoice.billingAddress ? null : loadProfile(ctx.db, invoice.orgId),
+    invoiceLocale(ctx.db, invoice),
   ]);
   return renderInvoicePdf({
     invoice,
@@ -473,11 +487,31 @@ export async function invoicePdf(ctx: AppContext, invoice: Invoice, org?: Organi
     org: owner,
     issuer,
     address: invoice.billingAddress ?? billingAddressOf(owner, profile),
+    locale,
+    tr: ctx.i18n.translator(locale),
   });
 }
 
-export function invoiceFilename(invoice: Pick<Invoice, 'number' | 'id'>): string {
-  return invoice.number ? `Rechnung-${invoice.number}.pdf` : `Rechnungsentwurf-${invoice.id.slice(0, 8)}.pdf`;
+/** "Rechnung-WL-2026-00001.pdf" in the invoice's language. */
+export function invoiceFilename(invoice: Pick<Invoice, 'number' | 'id'>, tr: Tr): string {
+  return invoice.number
+    ? tr('pdf.invoice.filename', { number: invoice.number })
+    : tr('pdf.invoice.draftFilename', { id: invoice.id.slice(0, 8) });
+}
+
+/**
+ * Content-Disposition for a file name that may contain any character of a translation: an ASCII fallback
+ * plus the RFC 6266 UTF-8 form, so an override with an umlaut never breaks the header.
+ */
+export function contentDisposition(kind: 'inline' | 'attachment', filename: string): string {
+  const ascii =
+    filename
+      .normalize('NFKD')
+      .replace(/[^\x20-\x7e]/g, '')
+      .replace(/["\\]/g, '') || 'invoice.pdf';
+  return ascii === filename
+    ? `${kind}; filename="${ascii}"`
+    : `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 /** Billing emails go to the profile address, else to every owner of the organization. */
@@ -502,6 +536,8 @@ export async function sendInvoiceMail(ctx: AppContext, invoiceId: string): Promi
   const to = await billingRecipients(ctx.db, org.id);
   if (to.length === 0) return { status: 'skipped', error: 'No recipient (billing email or owner)' };
   const issuer = invoice.issuerSnapshot ?? (await issuerSettings(ctx.db, invoice.issuerOrgId));
+  // The invoice's language for texts; amount and date in Swiss format, exactly as on the PDF (i18n 2.3).
+  const locale = await invoiceLocale(ctx.db, invoice);
   let pdf: Buffer;
   try {
     pdf = await invoicePdf(ctx, invoice, org);
@@ -509,6 +545,7 @@ export async function sendInvoiceMail(ctx: AppContext, invoiceId: string): Promi
     ctx.log.error({ err, invoiceId }, 'invoice pdf failed');
     return { status: 'failed', error: 'The PDF could not be created' };
   }
+  const filename = invoiceFilename(invoice, ctx.mail.translator(locale));
   const result = await ctx.mail.send(
     'invoice',
     {
@@ -522,9 +559,9 @@ export async function sendInvoiceMail(ctx: AppContext, invoiceId: string): Promi
     },
     {
       to,
-      locale: 'de',
+      locale,
       replyTo: issuer.email,
-      attachments: [{ filename: invoiceFilename(invoice), content: pdf, contentType: 'application/pdf' }],
+      attachments: [{ filename, content: pdf, contentType: 'application/pdf' }],
       orgId: org.id,
     },
   );
@@ -537,7 +574,12 @@ export async function sendInvoiceMail(ctx: AppContext, invoiceId: string): Promi
 /** Confirmation to the customer that a payment was booked. Never throws. */
 export async function sendPaymentReceivedMail(ctx: AppContext, paymentId: string): Promise<MailResult> {
   const [row] = await ctx.db
-    .select({ payment: payments, org: organizations, number: invoices.number })
+    .select({
+      payment: payments,
+      org: organizations,
+      number: invoices.number,
+      invoiceLocale: invoices.locale,
+    })
     .from(payments)
     .innerJoin(organizations, eq(organizations.id, payments.orgId))
     .leftJoin(invoices, eq(invoices.id, payments.invoiceId))
@@ -545,6 +587,8 @@ export async function sendPaymentReceivedMail(ctx: AppContext, paymentId: string
   if (!row) return { status: 'skipped', error: 'Payment not found' };
   const to = await billingRecipients(ctx.db, row.org.id);
   if (to.length === 0) return { status: 'skipped', error: 'No recipient (billing email or owner)' };
+  // The invoice's language when the payment belongs to one, else (a credit top-up) the billing language.
+  const locale = normalizeLocale(row.invoiceLocale) ?? (await billingLocale(ctx.db, row.org.id));
   return ctx.mail.send(
     'payment_received',
     {
@@ -555,6 +599,6 @@ export async function sendPaymentReceivedMail(ctx: AppContext, paymentId: string
         ? invoiceLink(ctx.env, row.org.slug, row.payment.invoiceId)
         : billingLink(ctx.env, row.org.slug),
     },
-    { to, locale: 'de', orgId: row.org.id },
+    { to, locale, orgId: row.org.id },
   );
 }

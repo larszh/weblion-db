@@ -1,7 +1,17 @@
-import { and, eq } from 'drizzle-orm';
-import type { Locale, TranslationCleanupInput, TranslationCleanupResultDto } from '@weblion/shared';
+import { and, eq, inArray } from 'drizzle-orm';
+import {
+  lineBreakCount,
+  LOCALES,
+  type Locale,
+  type ServerTranslationKey,
+  type TranslationCleanupInput,
+  type TranslationCleanupResultDto,
+} from '@weblion/shared';
+import { fixFrenchTypography, hasEmDash, hasSharpS, placeholdersMatch } from '@weblion/shared/i18n/checks';
 import type { DbOrTx } from '../db/client';
 import { translationOverrides } from '../db/schema';
+import { forbiddenCharacter, notStale, placeholderMismatch } from '../modules/i18n/errors';
+import { sourceHash } from './hash';
 import type { I18nService } from './service';
 
 /**
@@ -64,24 +74,157 @@ export async function setReviewed(
   return rows.length > 0;
 }
 
-/** A7 (i18n 14.2): 409 not_stale when the cell is current. U1 implements it. */
-export async function confirmCurrent(
-  _tx: DbOrTx,
-  _i18n: I18nService,
-  _key: string,
-  _locale: Locale,
-  _userId: string,
-): Promise<void> {
-  throw new Error('not implemented');
+/**
+ * The hash a saved value of the cell is written against: the effective German text for a translation, the
+ * compiled German for a German edit (so a later deploy that changes the German marks the edit stale, i18n 8.1).
+ */
+export function currentHash(i18n: I18nService, key: ServerTranslationKey, locale: Locale): string {
+  if (locale === 'de') return sourceHash(i18n.catalog.bundles.de[key] ?? key);
+  return i18n.source(key).hash;
 }
 
-/** A8 (i18n 14.2). U1 implements it. */
+/** The German text a value of the cell is checked against (placeholders, line breaks, length). */
+export function checkSource(i18n: I18nService, key: ServerTranslationKey, locale: Locale): string {
+  // A German edit keeps the placeholders of the code, which passes exactly those parameters.
+  if (locale === 'de') return i18n.catalog.bundles.de[key] ?? key;
+  return i18n.source(key).text;
+}
+
+/**
+ * Steps 2 and 3 of i18n 12.5 for every value that is saved (A4, import, Mass Translate): line breaks as \n,
+ * NFC, outer whitespace trimmed unless the German text has it, and the Swiss French spacing for fr.
+ */
+export function prepareValue(
+  locale: Locale,
+  source: string,
+  value: string,
+): { value: string; typographyFixed: boolean } {
+  let text = value.replace(/\r\n?/g, '\n').normalize('NFC');
+  const lead = /^\s/.test(source);
+  const trail = /\s$/.test(source);
+  if (!lead) text = text.replace(/^\s+/, '');
+  if (!trail) text = text.replace(/\s+$/, '');
+  if (locale !== 'fr') return { value: text, typographyFixed: false };
+  const fixed = fixFrenchTypography(text);
+  return { value: fixed, typographyFixed: fixed !== text };
+}
+
+/** Code points of the forbidden characters in a value (checks 7 and 8), as U+XXXX. */
+export function forbiddenCharacters(value: string): string[] {
+  const found: string[] = [];
+  // The capital sharp s counts as a sharp s (checks.ts); the message names U+00DF either way.
+  if (hasSharpS(value)) found.push('U+00DF');
+  if (hasEmDash(value)) found.push('U+2014');
+  return found;
+}
+
+/**
+ * The hard checks of a save (i18n 19.4: 2, 7, 8): throws 400 placeholder_mismatch with the lists (and the line
+ * breaks when only they differ) or 400 forbidden_character with the code points.
+ */
+export function assertHardChecks(source: string, value: string): void {
+  const placeholders = placeholdersMatch(source, value);
+  if (!placeholders.ok) {
+    throw placeholderMismatch({
+      missing: placeholders.missing,
+      extra: placeholders.extra,
+      ...(placeholders.lineBreaks
+        ? {}
+        : { lineBreaks: { expected: lineBreakCount(source), actual: lineBreakCount(value) } }),
+    });
+  }
+  const characters = forbiddenCharacters(value);
+  if (characters.length > 0) throw forbiddenCharacter(characters);
+}
+
+/**
+ * A7 (i18n 14.2), "Als aktuell bestätigen": an override gets the current hash and reviewed = true; a stale
+ * compiled value gets an override with the same text (origin manual, reviewed, current hash), which export and
+ * i18n:apply turn into a current stamp. 409 not_stale when the cell is not stale.
+ */
+export async function confirmCurrent(
+  tx: DbOrTx,
+  i18n: I18nService,
+  key: string,
+  locale: Locale,
+  userId: string,
+): Promise<void> {
+  if (!i18n.catalog.has(key)) throw notStale();
+  const hash = currentHash(i18n, key, locale);
+  const row = i18n.override(locale, key);
+  // A demo row that is not served is a leftover; the cell is the compiled text then.
+  if (row && (!row.demo || i18n.isServable(row))) {
+    if (row.sourceHash === hash) throw notStale();
+    await tx
+      .update(translationOverrides)
+      .set({ sourceHash: hash, reviewed: true, updatedBy: userId, updatedAt: new Date() })
+      .where(and(eq(translationOverrides.key, key), eq(translationOverrides.locale, locale)));
+    return;
+  }
+  const cell = i18n.cell(locale, key);
+  if (cell.state !== 'stale' || cell.origin !== 'repo' || cell.compiled === null) throw notStale();
+  await saveOverride(tx, {
+    key,
+    locale,
+    value: cell.compiled,
+    origin: 'manual',
+    reviewed: true,
+    sourceHash: hash,
+    userId,
+  });
+}
+
+/**
+ * A8 (i18n 14.2): deletes orphan overrides (the key is gone), overrides equal to the compiled value (the export
+ * reached the repository) and, with `demo`, every demo row (plan O11). A row is counted once, in this order:
+ * orphan, demo, same as compiled. `dryRun` only counts.
+ */
 export async function cleanup(
-  _tx: DbOrTx,
-  _i18n: I18nService,
-  _input: TranslationCleanupInput,
+  tx: DbOrTx,
+  i18n: I18nService,
+  input: TranslationCleanupInput,
 ): Promise<TranslationCleanupResultDto> {
-  throw new Error('not implemented');
+  const { catalog } = i18n;
+  const rows = await tx
+    .select({
+      key: translationOverrides.key,
+      locale: translationOverrides.locale,
+      value: translationOverrides.value,
+      demo: translationOverrides.demo,
+    })
+    .from(translationOverrides)
+    .for('update');
+  const result: TranslationCleanupResultDto = {
+    orphans: 0,
+    sameAsCompiled: 0,
+    demo: 0,
+    dryRun: !!input.dryRun,
+  };
+  const doomed = new Map<Locale, string[]>(LOCALES.map((l) => [l, []]));
+  for (const row of rows) {
+    let kind: 'orphans' | 'demo' | 'sameAsCompiled' | null = null;
+    if (!catalog.has(row.key)) kind = input.orphans ? 'orphans' : null;
+    else if (row.demo) kind = input.demo ? 'demo' : null;
+    else if (catalog.bundles[row.locale][row.key] === row.value)
+      kind = input.sameAsCompiled ? 'sameAsCompiled' : null;
+    if (!kind) continue;
+    result[kind]++;
+    doomed.get(row.locale)?.push(row.key);
+  }
+  if (input.dryRun) return result;
+  for (const [locale, keys] of doomed) {
+    for (let i = 0; i < keys.length; i += 1000) {
+      await tx
+        .delete(translationOverrides)
+        .where(
+          and(
+            eq(translationOverrides.locale, locale),
+            inArray(translationOverrides.key, keys.slice(i, i + 1000)),
+          ),
+        );
+    }
+  }
+  return result;
 }
 
 /**
