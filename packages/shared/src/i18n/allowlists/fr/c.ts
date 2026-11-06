@@ -9,6 +9,11 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "in Rechnung stellen" is the German idiom for "to bill"; French says "facturer", not "mettre en facture".
+    'billing.services.customerText',
+    // Same idiom "in Rechnung gestellt": "est facturé" is the natural French.
+    'billing.service.addText',
+  ],
   typographyOk: [],
 };
