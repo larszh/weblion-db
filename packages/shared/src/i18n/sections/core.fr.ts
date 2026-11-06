@@ -87,7 +87,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'login.mfa.code': 'Code',
   'login.mfa.submit': 'Confirmer',
   'login.mfa.back': 'Utiliser un autre compte',
-  'invite.title': 'Invitation à {org}',
+  'invite.title': 'Invitation à rejoindre {org}',
   'invite.subtitle': '{email} a été invité en tant que {role}.',
   'invite.accept': "Accepter l'invitation",
   'invite.create': 'Créer un compte et rejoindre',
@@ -214,7 +214,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'power.stop.hint': "Coupe immédiatement l'alimentation. Les données non enregistrées peuvent être perdues.",
   'power.reboot': 'Redémarrer',
   'power.reboot.hint': "Redémarre le système d'exploitation de manière contrôlée.",
-  'power.reset': 'Réinitialiser (forcé)',
+  'power.reset': 'Reset (forcé)',
   'power.reset.hint': 'Comme le bouton Reset : redémarrage immédiat sans arrêt.',
   'power.suspend': 'Mettre en pause',
   'power.suspend.hint': 'Gèle le serveur en mémoire vive.',
@@ -366,7 +366,7 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'firewall.source': 'Source',
   'firewall.sourceHint': "IP ou CIDR. Vide signifie n'importe laquelle.",
   'firewall.comment': 'Commentaire',
-  'firewall.any': 'toutes',
+  'firewall.any': 'indifférent',
   'iso.hint':
     'Vous démarrez les images ISO via la console, p. ex. pour une réinstallation ou un système de secours.',
   'iso.current': 'Insérée',
@@ -911,10 +911,10 @@ export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {
   'explorer.response': 'Réponse',
   'explorer.presets': 'Accès rapide',
   'explorer.jokerHint':
-    "Chez Joker.com, le chemin est le nom de la requête DMAPI avec une query string facultative, p. ex. /query-whois?domain=example.com. Joker reçoit toujours POST; les requêtes qui modifient des données sont consignées dans le journal d'audit.",
+    "Chez Joker.com, le chemin est le nom de la requête DMAPI avec une chaîne de requête facultative, p. ex. /query-whois?domain=example.com. Joker reçoit toujours POST; les requêtes qui modifient des données sont consignées dans le journal d'audit.",
   'explorer.jokerBodyHint': 'Autres paramètres de requête, p. ex. { "domain": "example.com" }.',
   'explorer.fire24Hint':
-    'Chemins sous https://api.24fire.de/v1, le /v1 initial est facultatif. Les listes comptent 25 entrées par page (?page=2). Les paramètres sont envoyés sous forme de formulaire, pour DELETE sous forme de query string. La réinitialisation du mot de passe, la génération de clés SSH et la connexion Plesk sont bloquées ici.',
+    'Chemins sous https://api.24fire.de/v1, le /v1 initial est facultatif. Les listes comptent 25 entrées par page (?page=2). Les paramètres sont envoyés sous forme de formulaire, pour DELETE sous forme de chaîne de requête. La réinitialisation du mot de passe, la génération de clés SSH et la connexion Plesk sont bloquées ici.',
   'language.choose': 'Choisir la langue',
   'language.current': 'Langue : {language}',
   'language.profileHint':
