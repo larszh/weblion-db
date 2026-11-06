@@ -686,15 +686,13 @@ describe('audit summary (ai 10.3)', () => {
   });
 
   it('more entries than 500 in the period: cut, the newest are sent', async () => {
-    await t.db
-      .insert(auditLogs)
-      .values(
-        Array.from({ length: 620 }, (_, i) => ({
-          action: `x.${i}`,
-          orgId: ids['muster-ag'],
-          status: 'success' as const,
-        })),
-      );
+    await t.db.insert(auditLogs).values(
+      Array.from({ length: 620 }, (_, i) => ({
+        action: `x.${i}`,
+        orgId: ids['muster-ag'],
+        status: 'success' as const,
+      })),
+    );
     script({ json: SUMMARY([]) });
     const res = await anna.post(`/orgs/${ids['muster-ag']}/ai/audit-summary`, {
       period: 'day',

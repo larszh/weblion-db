@@ -52,7 +52,8 @@ const explainBody = {
 };
 const explain = (client: Client = anna) => client.post(`/orgs/${musterId}/ai/explain`, explainBody);
 
-function insert(n: number, values: Partial<typeof aiUsage.$inferInsert>) {
+/** Usage rows; createdAt may be a SQL expression (now() - interval ...). */
+function insert(n: number, values: Record<string, unknown>) {
   return t.db.insert(aiUsage).values(
     Array.from({ length: n }, () => ({
       feature: 'explain' as const,
