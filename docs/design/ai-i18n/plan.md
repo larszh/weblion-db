@@ -109,9 +109,938 @@ D (docs)
 ---
 
 
-## 2. Shared contracts / 3. Data model, settings keys, locks / 4. Permissions, roles, audit actions, rate limits
+## 2. Shared contracts
 
-> LOST in the container restart of 06.11.2026 (plan lines 111 to 485). Regenerated in `contracts.md` of this folder.
+Exact signatures every unit builds against. F creates every file named here with these exports (bodies of later
+units' parts as stubs, named per item). No unit changes a signature of this section; where section 11 allows a
+unit additive changes (`ai.ts` U3, `translations.ts` U1), it only adds exports and lists them in its report. The
+designs repeat parts of this section for convenience (ai 3.1, 4.2, 6.6, 6.9; i18n 2, 3.1, 8.1, 12.8, 14); on a
+difference this section wins. Paths are relative to the repository root, checked against `c6c51ad`.
+
+### 2.1 Locales (`packages/shared/src/i18n/locales.ts`)
+
+Re-exported from `packages/shared/src/index.ts` (F4). `ai.ts` and `translations.ts` import it as `./i18n/locales`
+(O1). Details and the formatting rules per locale: i18n 2.
+
+```ts
+export const LOCALES = ['de', 'en', 'fr', 'it', 'nl'] as const;
+export type Locale = (typeof LOCALES)[number];
+
+/** Every locale except the source: translations, stamps, product translations, Mass Translate. */
+export const TARGET_LOCALES = ['en', 'fr', 'it', 'nl'] as const;
+export type TargetLocale = (typeof TARGET_LOCALES)[number];
+
+export const SOURCE_LOCALE = 'de' satisfies Locale;
+
+export interface LocaleMeta {
+  /** Name of the language in itself, shown next to the flag in every UI language. */
+  native: string;
+  /** English name, for logs, scripts and prompts. */
+  english: string;
+  /** ISO 3166-1 alpha-2 code of the flag (i18n 6.4). */
+  flag: 'DE' | 'GB' | 'FR' | 'IT' | 'NL';
+  /** BCP 47 tag for every Intl call (i18n 2.3). */
+  intl: 'de-CH' | 'en-GB' | 'fr-CH' | 'it-CH' | 'nl-NL';
+}
+
+export const LOCALE_META: Record<Locale, LocaleMeta> = {
+  de: { native: 'Deutsch', english: 'German', flag: 'DE', intl: 'de-CH' },
+  en: { native: 'English', english: 'English', flag: 'GB', intl: 'en-GB' },
+  fr: { native: 'Français', english: 'French', flag: 'FR', intl: 'fr-CH' },
+  it: { native: 'Italiano', english: 'Italian', flag: 'IT', intl: 'it-CH' },
+  nl: { native: 'Nederlands', english: 'Dutch', flag: 'NL', intl: 'nl-NL' },
+};
+
+export function isLocale(value: unknown): value is Locale;
+export function isTargetLocale(value: unknown): value is TargetLocale;
+/** 'fr', 'FR', 'fr-CH', 'fr_CH' -> 'fr'; 'gsw' -> 'de'; anything else -> null. */
+export function normalizeLocale(value: unknown): Locale | null;
+/** First supported entry of a list such as navigator.languages; no match -> fallback (default 'en'). */
+export function matchLocale(candidates: readonly string[], fallback?: Locale): Locale;
+/** fr, it, nl -> [l, 'en', 'de']; en -> ['en', 'de']; de -> ['de'] (plan decision 1). */
+export function fallbackChain(locale: Locale): readonly Locale[];
+/** LOCALE_META[locale].intl */
+export function intlLocale(locale: Locale): LocaleMeta['intl'];
+```
+
+Users of the type today that F widens (F18, F21): `apps/web/src/lib/format.ts` (`export type { Locale } from
+'@weblion/shared'`), `MailLocale` in `apps/api/src/mail/types.ts:9` (becomes `Locale`, U2), `formatMoney` in
+`packages/shared/src/billing.ts:298` (2.7), the `PATCH /auth/me` body (`z.enum(LOCALES)`), `UserDto.locale` (2.7).
+
+### 2.2 Dictionaries (`packages/shared/src/i18n/`)
+
+**File layout** (i18n 3.1, O13):
+
+```
+packages/shared/src/i18n/
+  locales.ts        2.1
+  interpolate.ts    interpolate(), I18nParams
+  placeholders.ts   PLACEHOLDER_RE, placeholdersOf(), comparePlaceholders(), lineBreakCount()
+  types.ts          TranslationKey, ServerTranslationKey, Dictionary types, SectionName
+  sections/index.ts SECTIONS, WEB_SECTIONS, SERVER_ONLY_SECTIONS, SECTION_GROUPS
+  sections/<s>.<l>.ts            16 sections x 5 locales = 80 files
+  de.ts en.ts fr.ts it.ts nl.ts   web aggregators (14 sections, no email, no pdf)
+  server.ts         server aggregators (all 16 sections), SECTION_SOURCES
+  catalog.ts        I18nCatalog, buildCatalog(), loadCatalog(), Stamp, StampFiles
+  glossary.ts       GlossaryTerm, DEFAULT_GLOSSARY (i18n 19.3 plus plan 7.3)
+  checks.ts         Allowlist, allowlistFor(), the predicates of checks 1 to 11, checkValue()
+  stamps/<l>/<s>.json            l = en, fr, it, nl: 64 files, fr/it/nl start as {}
+  allowlists/<l>/<g>.ts          l = fr, it, nl; g = a, b, c: 9 files
+  i18n.test.ts      checks 1 to 11 against the repository bundles (i18n 19.4)
+```
+
+`packages/shared/package.json` (F4): `"exports": { ".": "./src/index.ts", "./i18n/*": "./src/i18n/*.ts" }`. The
+package index re-exports `locales`, `interpolate`, `placeholders`, the types of `types.ts` (`export type *`),
+`translations` and `ai`, and never a dictionary, the catalog, the glossary or the checks. Who imports what:
+
+| Subpath | Imported by |
+|---|---|
+| `@weblion/shared/i18n/{de,en,fr,it,nl}` | web: only `apps/web/src/lib/i18n-loader.ts` (U2; until then F22's `lib/i18n.tsx`) and tests |
+| `@weblion/shared/i18n/server`, `/catalog`, `/glossary`, `/checks` | API (`apps/api/src/i18n/*`, `mail/*`, `modules/billing/pdf.ts`, `scripts/i18n-*.ts`) and the shared test; `server` and `catalog` never in the web (`lib/i18n-imports.test.ts`, review grep 8.3) |
+
+**Sections** (`sections/index.ts`, i18n 3.2):
+
+```ts
+export const SECTIONS = ['core', 'admin', 'ai', 'translations', 'email', 'pdf', 'hosting', 'cloudflare',
+  'websites', 'mail', 'billing', 'cloud', 'storage', 'phone', 'media', 'uptime'] as const;
+export const SERVER_ONLY_SECTIONS = ['email', 'pdf'] as const;
+export const WEB_SECTIONS: readonly Exclude<(typeof SECTIONS)[number], 'email' | 'pdf'>[]; // the other 14, in SECTIONS order
+/** Translation groups of plan 7.1 (units T-<locale>-<group>, allowlist files). */
+export const SECTION_GROUPS: Record<'a' | 'b' | 'c', readonly (typeof SECTIONS)[number][]> = {
+  a: ['core', 'admin', 'ai', 'translations', 'email', 'pdf'],
+  b: ['hosting', 'cloudflare', 'websites', 'mail'],
+  c: ['billing', 'cloud', 'storage', 'phone', 'media', 'uptime'],
+};
+```
+
+**Section files** (one export each, name `<section><Locale>` in camel case: `coreDe`, `translationsFr`,
+`uptimeNl`):
+
+```ts
+// sections/core.de.ts: the source, comments kept
+export const coreDe = { 'common.actions': 'Aktionen' /* ... */ } as const;
+// sections/core.en.ts: complete, a missing key fails the typecheck
+import type { coreDe } from './core.de';
+export const coreEn: Record<keyof typeof coreDe, string> = { /* ... */ };
+// sections/core.fr.ts (it, nl alike): partial, a new German key never breaks the build
+export const coreFr: Partial<Record<keyof typeof coreDe, string>> = {};
+```
+
+**Aggregators** (i18n 3.1, O33). Web, spreading `WEB_SECTIONS` in order, each with a chunk marker for the build
+check of i18n 5.4:
+
+```ts
+// de.ts
+export const I18N_CHUNK = 'wl-i18n-chunk:de';
+export const de = { ...coreDe, ...adminDe, ...aiDe, ...translationsDe, ...hostingDe, /* 14 sections */ } as const;
+// en.ts
+export const I18N_CHUNK = 'wl-i18n-chunk:en';
+export const en: Record<TranslationKey, string> = { ...coreEn /* ... */ };
+// fr.ts, it.ts, nl.ts
+export const I18N_CHUNK = 'wl-i18n-chunk:fr';
+export const fr: Partial<Record<TranslationKey, string>> = { ...coreFr /* ... */ };
+```
+
+Server (`server.ts`):
+
+```ts
+export const serverDe = { ...de, ...emailDe, ...pdfDe } as const;
+export const serverEn: Record<ServerTranslationKey, string> = { ...en, ...emailEn, ...pdfEn };
+export const serverFr: Partial<Record<ServerTranslationKey, string>>; // serverIt, serverNl alike
+/** Every section in every locale, for the catalog, the stamp script and the report. */
+export const SECTION_SOURCES: Record<SectionName, Record<Locale, Readonly<Record<string, string>>>>;
+```
+
+**Types** (`types.ts`, type-only imports, so no dictionary reaches a bundle through them):
+
+```ts
+import type { de } from './de';
+import type { serverDe } from './server';
+import type { SECTIONS } from './sections';
+export type TranslationKey = keyof typeof de;             // web keys (14 sections)
+export type ServerTranslationKey = keyof typeof serverDe; // all 16 sections, for the API
+export type Dictionary = Record<TranslationKey, string>;
+export type PartialDictionary = Partial<Dictionary>;
+export type ServerDictionary = Record<ServerTranslationKey, string>;
+export type SectionName = (typeof SECTIONS)[number];
+```
+
+The web uses `TranslationKey` (`t()`), the API `ServerTranslationKey` (`ctx.i18n.t`, the mail translator `Tr`, the
+PDF). An `email.*` key in the web is a type error.
+
+**Catalog** (`catalog.ts`, F2; used by `I18nService`, the filters, the stamp script, the report and `i18n:apply`):
+
+```ts
+/** [hash of the German text the translation was written against, hash of the translation when stamped] (i18n 4.2). */
+export type Stamp = readonly [sourceHash: string, valueHash: string];
+export type StampFiles = Record<TargetLocale, Partial<Record<SectionName, Readonly<Record<string, Stamp>>>>>;
+
+export interface I18nCatalog {
+  /** Every key in German order: section by section in SECTIONS order, inside a section in file order. */
+  keys: readonly ServerTranslationKey[];
+  sections: readonly SectionName[];
+  sectionOf(key: string): SectionName | undefined;
+  has(key: string): key is ServerTranslationKey;
+  /** Compiled values per locale (de and en complete, the others partial). */
+  bundles: Record<Locale, Readonly<Partial<Record<ServerTranslationKey, string>>>>;
+  stamps: Record<TargetLocale, Readonly<Partial<Record<ServerTranslationKey, Stamp>>>>;
+  /** Keys of the sections email and pdf; never sent to the web (i18n 13). */
+  serverOnly: ReadonlySet<string>;
+}
+/** Defaults: SECTION_SOURCES and the 64 stamp files, imported statically as JSON. */
+export function buildCatalog(sources?: typeof SECTION_SOURCES, stamps?: StampFiles): I18nCatalog;
+/** buildCatalog() once, memoized. */
+export function loadCatalog(): I18nCatalog;
+```
+
+Tests build small catalogs with `buildCatalog()` (`apps/api/test/i18n-fixtures.ts`, `testCatalog()`, U1) and pass
+them as `BuildOptions.i18nCatalog` (F17, F19).
+
+**`interpolate.ts`, `placeholders.ts`** (i18n 2.2):
+
+```ts
+export type I18nParams = Record<string, string | number | null | undefined>;
+/** Replaces {name} with String(params.name ?? ''). Unknown placeholders stay as they are. */
+export function interpolate(text: string, params?: I18nParams): string;
+
+/** {name}: a letter, then letters, digits or underscores; JSON such as { "a": 1 } is no placeholder. */
+export const PLACEHOLDER_RE: RegExp; // /\{([A-Za-z][A-Za-z0-9_]*)\}/g
+/** Names in order of appearance, duplicates kept. */
+export function placeholdersOf(text: string): string[];
+/** Multiset difference against the German text. */
+export function comparePlaceholders(source: string, value: string): { missing: string[]; extra: string[] };
+export function lineBreakCount(text: string): number;
+```
+
+**`glossary.ts`** (i18n 19.3; the API seeds `translation_glossary` from it, 2.5):
+
+```ts
+export interface GlossaryTerm {
+  term: string; // German term, or the name kept in every language
+  keep: boolean;
+  translations: Partial<Record<TargetLocale, string>>;
+  note?: string | null;
+}
+export const DEFAULT_GLOSSARY: readonly GlossaryTerm[]; // i18n 19.3 table, the keep names of rule 10, plan 7.3
+```
+
+**`checks.ts`** (i18n 19.4, D18). The same exported predicates run in the shared test, the admin save (A4), the
+import (A15), `i18n:apply` and the Mass Translate validator (i18n 12.5):
+
+```ts
+import type { TranslationCheckName } from '../translations';
+
+export interface Allowlist {
+  germanOk?: readonly string[];     // check 3
+  informalOk?: readonly string[];   // check 4
+  lengthOk?: readonly string[];     // check 5
+  glossaryOk?: readonly string[];   // check 6
+  typographyOk?: readonly string[]; // check 11
+}
+/** The three group files of a locale merged; en: all empty. */
+export function allowlistFor(locale: TargetLocale): Required<Allowlist>;
+
+export function missingKeys(source: Readonly<Record<string, string>>, bundle: Readonly<Record<string, string | undefined>>): string[]; // 1
+export function unknownKeys(source: Readonly<Record<string, string>>, bundle: Readonly<Record<string, string | undefined>>): string[]; // 1
+export function placeholdersMatch(source: string, value: string): { ok: boolean; missing: string[]; extra: string[]; lineBreaks: boolean }; // 2
+export function looksGerman(value: string, source: string, locale: TargetLocale): boolean; // 3
+export function informalWord(value: string, locale: TargetLocale): string | null; // 4
+export function lengthLimit(source: string): number; // 5
+export function lengthOk(source: string, value: string): boolean; // 5
+export function glossaryProblems(source: string, value: string, locale: TargetLocale, glossary: readonly GlossaryTerm[]): string[]; // 6
+export function hasSharpS(value: string): boolean; // 7
+export function hasEmDash(value: string): boolean; // 8
+export function incompleteLocales(bundles: Partial<Record<TargetLocale, Readonly<Record<string, string | undefined>>>>, source: Readonly<Record<string, string>>, locales: readonly TargetLocale[]): Partial<Record<TargetLocale, string[]>>; // 9
+export function legalProblems(bundles: Partial<Record<Locale, Readonly<Record<string, string | undefined>>>>, locales: readonly Locale[]): string[]; // 10
+export function typographyProblems(value: string): string[]; // 11
+export function fixFrenchTypography(value: string): string; // 11, applied before saving fr values
+/** Checks 2 to 8 and 11 for one value. hard: placeholders, sharpS, emDash; soft: the rest. */
+export function checkValue(input: {
+  key: string; source: string; value: string; locale: Locale;
+  glossary: readonly GlossaryTerm[]; skipLanguage?: boolean;
+}): { hard: TranslationCheckName[]; soft: TranslationCheckName[] };
+```
+
+**Allowlist files** (`allowlists/<l>/<g>.ts`, one owner each, plan 7.1 and 11):
+
+```ts
+import type { Allowlist } from '../../checks';
+export const allowlist: Allowlist = { germanOk: [], informalOk: [], lengthOk: [], glossaryOk: [], typographyOk: [] };
+// every entry: the key, with a comment in English that says why the check is a false positive
+```
+
+An entry naming a key that no longer exists fails `i18n.test.ts` (check 1). English has no allowlist files.
+
+### 2.3 AI vocabulary (`packages/shared/src/ai.ts`)
+
+F writes the file exactly as ai 3.1 shows it, plus the error vocabulary of ai 4.2 and the additions marked "new"
+below; U3 may only add to it. Imports: `import type { PolicyStatement } from './policy'` and `import type {
+Locale } from './i18n/locales'`. The parts other units depend on:
+
+```ts
+// Models and features
+export const AI_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] as const;
+export type AiModel = (typeof AI_MODELS)[number];
+export const AI_DEFAULT_MODEL: AiModel = 'claude-opus-5-5';
+export function isAiModel(value: string): value is AiModel;
+export function hasRefusalFallback(model: AiModel): boolean; // Opus, Sonnet: true; Haiku: false
+export const AI_FEATURES = ['assistant', 'explain', 'dns_check', 'audit_summary', 'server_health',
+  'product_texts', 'translations'] as const;
+export type AiFeature = (typeof AI_FEATURES)[number];
+export function isAiFeature(value: string): value is AiFeature;
+export type AiEffort = 'low' | 'medium';
+/** medium: assistant, dns_check, server_health, translations; low: the other three (plan decision 30). */
+export const AI_FEATURE_EFFORT: Record<AiFeature, AiEffort>;
+
+// Prices and cost (ai 2.2, 6.7; O7)
+export interface AiPrice { input: number; output: number; cacheWrite: number; cacheRead: number } // USD per million tokens
+export const AI_PRICES: Record<AiModel, AiPrice & { longContext?: AiPrice & { above: number } }>;
+export const AI_UNLISTED_PRICE_FACTOR = 1.25;
+export interface AiUsageTokens {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  iterations?: Array<{ type: string; model?: string | null; input_tokens: number; output_tokens: number;
+    cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null }> | null;
+}
+/** Micro-USD, rounded up once per call. Ids outside AI_MODELS: fallbackModel x AI_UNLISTED_PRICE_FACTOR. */
+export function aiCostMicros(model: string, usage: AiUsageTokens, fallbackModel: AiModel): number;
+
+// Availability (O5)
+export type AiUnavailableReason = 'disabled' | 'not_configured' | 'feature_off';
+export interface AiAvailabilityDto {
+  available: boolean;
+  /** null when available; order disabled > not_configured > feature_off. */
+  reason: AiUnavailableReason | null;
+  /** No key and ENABLE_DEMO_PROVIDER=true: the emulator answers (ai 14). */
+  demo: boolean;
+  model: AiModel;
+}
+export interface AiStatusDto extends AiAvailabilityDto {
+  features: AiFeature[]; // switched on; empty while the master switch is off
+}
+/** new: IntegrationsDto.ai (2.7, ai 5.3). configured is true for ui, env and demo. */
+export interface AiIntegrationDto {
+  configured: boolean;
+  source: 'ui' | 'env' | 'demo' | 'none';
+  enabled: boolean;
+  model: AiModel;
+}
+
+// Access (ai 3.4, 5.5)
+export function aiDenyStatements(org: { aiEnabled: boolean; aiOptOutAt: Date | string | null }): PolicyStatement[];
+export type AiSwitchedOffBy = 'platform' | 'reseller';
+export type AiOrgOffReason = 'declined' | 'platform' | 'reseller' | 'parent';
+
+// Usage (ai 7.1)
+export const AI_USAGE_STATUSES = ['running', 'ok', 'refusal', 'incomplete', 'error', 'cancelled', 'stale'] as const;
+export type AiUsageStatus = (typeof AI_USAGE_STATUSES)[number];
+export type AiUsageScope = 'org' | 'staff' | 'platform';
+
+// Errors (ai 4.2; new as arrays so the web test can iterate them, 2.10)
+export const AI_ERROR_CODES = ['ai_limit', 'ai_refusal', 'ai_upstream', 'ai_incomplete', 'ai_busy', 'ai_timeout',
+  'ai_org_disabled', 'ai_platform_locked', 'ai_reseller_blocked', 'ai_admin_key', 'ai_not_configured'] as const;
+export type AiErrorCode = (typeof AI_ERROR_CODES)[number];
+export const AI_LIMIT_KINDS = ['budget', 'org_daily', 'user_daily', 'user_rate', 'user_concurrent',
+  'org_concurrent', 'concurrent'] as const;
+export type AiLimitKind = (typeof AI_LIMIT_KINDS)[number];
+export const AI_UPSTREAM_REASONS = ['auth', 'permission', 'billing', 'not_found', 'request', 'server', 'network',
+  'output'] as const;
+export type AiUpstreamReason = (typeof AI_UPSTREAM_REASONS)[number];
+export type AiBusyReason = 'overloaded' | 'rate_limit';
+
+// Results (every feature result carries it)
+export interface AiResultMeta { model: AiModel; servedModel: string; demo: boolean }
+```
+
+Exactly as ai 3.1 and used only by U3 and U4: `AiGoLiveDto`, `AiSettingsDto`, `AiSettingsInput`, `AiKeyStatusDto`,
+`AiTestResultDto`, `AiBudgetDto` (also read by U1 through `ctx.ai.budgetState()`: `remainingMicros`),
+`AiUsageReportDto`, `AiUsageTotalsDto`, `AiErrorDto`, `AiOrgStateDto`, `OrgAiDto`, `AdminOrgAiDto`,
+`ResellerCustomerAiDto`, `AiPageRef`, `AiChatMessageInput`, `AiChatRequest`, `AI_TOOL_NAMES` (22) and
+`AiToolName`, `AiNoticeKind`, `AiSseEvent`, `AiExplainSource`, `AiExplainRequest`, `AiSeverity`,
+`AiExplainResult`, `AI_DNS_TOPICS`, `AiDnsTopic`, `AiCheckStatus`, `AiDnsCheckRequest`, `AiDnsProposalDto`,
+`AiDnsCheckResult`, `AiAuditPeriod`, `AiAuditSummaryRequest`, `AiAuditSummaryResult`, `AiHealthStatus`,
+`AI_HEALTH_METRICS`, `AiHealthMetric`, `AiServerHealthRequest`, `AiServerHealthResult`, `AiProductTextsRequest`,
+`AiProductTextsResult`. Not in `ai.ts` (O14, O31): `ProductTranslations` (in `billing.ts`, 2.7), anything of
+`translate()`, `customer_summary` or `propose_monitor`. Tests: `ai.test.ts` cases 1 to 10 of ai 3.1 (F6).
+
+### 2.4 Claude call path (`apps/api/src/modules/ai/service.ts`, `ctx.ai: AiService`)
+
+Every Claude call of the console goes through `AiService` (O4): JSON features and translations through
+`structured()`, the chat through U3's loop on the same reservation and accounting methods. The request shape, the
+streaming and the error classification are ai 6.1 to 6.8.
+
+```ts
+import type Anthropic from '@anthropic-ai/sdk';
+import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages';
+import type { FastifyInstance } from 'fastify';
+import type { z } from 'zod';
+import type { AiAvailabilityDto, AiBudgetDto, AiFeature, AiIntegrationDto, AiModel, AiResultMeta, AiStatusDto,
+  AiUsageScope, AiUsageStatus } from '@weblion/shared';
+import type { AppContext } from '../../context';
+import type { AiUsageRow } from '../../db/schema';
+import type { AppError } from '../../lib/errors';
+import type { AiSettings } from './settings';
+import type { ReserveInput, UsageTotals } from './usage';
+
+export interface StructuredInput<T> {
+  feature: AiFeature;
+  /** 'org': a member or reseller staff on an organization's data; 'staff': weblion staff on a customer's
+   *  data; 'platform': no customer data (KI page, product texts of the platform, translations). */
+  scope: AiUsageScope;
+  /** The organization the data belongs to (staff requests: the customer); null for 'platform'. */
+  orgId: string | null;
+  /** false only for Mass Translate batches (O9): no person or organization limit, the budget applies. */
+  countsForUser: boolean;
+  /** Default true: one more call with max_tokens doubled (at most 64,000). Translation batches pass false (O4). */
+  retryOnMaxTokens?: boolean;
+  /** userId is required when countsForUser is true; null only for system work. */
+  actor: { userId: string | null };
+  /** SYSTEM_TEXT[feature], or the translator's prompt whose first line is "# Feature: translations". Sent as
+   *  one system block with cache_control (ai 6.2); never contains a date, a name or another per-request value. */
+  system: string;
+  /** The one user turn; third-party data inside escaped blocks (ai 11.1). */
+  user: string;
+  /** Validates the answer; also sent as output_config.format through toStrictJsonSchema (ai 6.5). */
+  schema: z.ZodType<T>;
+  /** Combined with the turn timeout (AI_TURN_TIMEOUT_SECONDS). */
+  signal?: AbortSignal;
+}
+
+export interface StructuredResult<T> {
+  data: T;
+  meta: AiResultMeta;
+  /** The ai_usage row of this request. */
+  usageId: string;
+  /** Summed over the calls of this request (the max_tokens retry included). */
+  tokens: UsageTotals;
+  costMicros: number;
+}
+
+/** Usage of a request that failed after its reservation; attached to every error structured() throws then. */
+export interface StructuredUsage { usageId: string; tokens: UsageTotals; costMicros: number }
+
+export interface AiClient { client: Anthropic; demo: boolean; model: AiModel }
+export type AiFinishStatus = Exclude<AiUsageStatus, 'running' | 'stale'>;
+
+export class AiService {
+  /** Stores ctx and reads nothing from it before the first call, so app.ts creates it after the context object. */
+  constructor(ctx: AppContext);
+  /** buildApp after the plugins (F17): keeps the app for ConsoleReader (app.inject, ai 8.1). */
+  attach(app: FastifyInstance): void;
+
+  // Settings and availability (F)
+  /** The `ai` settings row with the defaults of 3.2; cached 10 s per process. */
+  settings(): Promise<AiSettings>;
+  /** ai 5.3. Without feature: master switch and key only. */
+  availability(feature?: AiFeature): Promise<AiAvailabilityDto>;
+  /** 404 not_found ("AI feature not found") unless availability(feature).available; returns the settings. */
+  assertFeature(feature: AiFeature): Promise<AiSettings>;
+  /** GET /ai/status. */
+  status(): Promise<AiStatusDto>;
+  /** IntegrationsDto.ai for modules/settings/routes.ts (F18). */
+  integrationStatus(): Promise<AiIntegrationDto>;
+  /** null when not configured; one cached SDK client per key source and fingerprint (ai 5.2, 6.1). */
+  client(): Promise<AiClient | null>;
+  /** Drops the cached client and the settings and availability cache; after every settings or key write. */
+  resetClient(): void;
+
+  // Calls (F)
+  /** ai 6.6. Throws the AppErrors of 2.10 (not_found, ai_limit, ai_refusal, ai_incomplete, ai_upstream,
+   *  ai_busy, ai_timeout) or AiCancelled when input.signal aborted; errors after the reservation carry
+   *  StructuredUsage (usageOfError). */
+  structured<T>(input: StructuredInput<T>): Promise<StructuredResult<T>>;
+
+  // Limits and usage (F; thin wrappers over modules/ai/usage.ts)
+  /** Up-front check for a request that makes several structured() calls (i18n B1): the person's rate,
+   *  concurrency and daily limit (ai 7.1 checks 5 to 7), no row written. 429 ai_limit. */
+  countRate(actor: { userId: string }): Promise<void>;
+  /** Writes the running ai_usage row after checks 1 to 7 of ai 7.1 under the transaction lock of 3.3. 429 ai_limit. */
+  reserve(input: ReserveInput): Promise<AiUsageRow>;
+  /** Before every further call of the same request: reserved_micros = the next call's estimate. */
+  refreshReservation(row: AiUsageRow, estimateMicros: number): Promise<void>;
+  /** After every call: tokens, cost (aiCostMicros per iteration), api_calls + 1, served model, request id;
+   *  updates the row in the database and the passed object. */
+  addCall(row: AiUsageRow, message: BetaMessage, call: { requestId: string | null }): Promise<void>;
+  /** status, finished_at, duration_ms, reserved_micros = 0; on failure error_code, error_reason and the
+   *  redacted original message (redactText, at most 1,000 characters). Never throws. */
+  finish(row: AiUsageRow, status: AiFinishStatus, failure?: { error: AppError; original?: unknown }): Promise<void>;
+  /** The current month (Europe/Zurich): budget, spent, reserved by live rows, remaining (ai 7.1). */
+  budgetState(): Promise<AiBudgetDto>;
+  /** spent >= budget this month; checked after every chat API call (O29). */
+  budgetExceeded(): Promise<boolean>;
+
+  // U3 (F declares them with these signatures; the bodies throw new Error('not implemented'))
+  /** 403 ai_org_disabled with details.reasons unless aiOrgState(org, parent).enabled (ai 5.5). */
+  assertOrgData(orgId: string): Promise<void>;
+  /** Sliding one-minute window per organization in this process, 30 live reads (O29). */
+  liveReadAllowed(orgId: string): boolean;
+}
+```
+
+U3 adds the chat entry point (`chat(...)`, ai 6.4 and 9) and its helpers to the class; nothing outside
+`modules/ai` calls them, so their signatures are U3's.
+
+Wiring (F17): `apps/api/src/context.ts` gains `ai: AiService; i18n: I18nService; i18nJobs: TranslationJobRunner`.
+`buildApp` builds the context object first (`i18n` created and loaded before `MailService`, which receives it), then
+assigns `ctx.ai = new AiService(ctx)` and `ctx.i18nJobs = new TranslationJobRunner(ctx, pool)`, and calls
+`ctx.ai.attach(app)` after the plugins. `index.ts` starts `ctx.i18n`, `ctx.i18nJobs` (when `I18N_JOB_ENABLED`) and
+`new AiMaintenance(ctx, pool)` and stops them in `shutdown` before `app.close()`.
+
+Neighbouring modules of `apps/api/src/modules/ai/` with exports other units use:
+
+```ts
+// usage.ts (F; checkBudgetWarning: empty in F, U3 implements ai 7.2)
+export interface UsageTotals { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }
+export interface ReserveInput {
+  feature: AiFeature; scope: AiUsageScope; orgId: string | null; userId: string | null;
+  countsForUser: boolean; model: AiModel; demo: boolean; estimateMicros: number;
+}
+export const AI_LIMITS = { userPerMinute: 12, userConcurrent: 2, orgConcurrent: 3, platformConcurrent: 6,
+  orgLiveReadsPerMinute: 30 } as const;
+export function approxTokens(text: string): number; // Math.ceil(text.length / 3)
+export function estimateCallMicros(model: AiModel, feature: AiFeature, inputTokens: number): number;
+export function checkBudgetWarning(ctx: AppContext): Promise<void>; // logs, never throws
+
+// errors.ts (F; ai 4.2, 6.8). Every helper returns an AppError with the code, status, details and fixed
+// English message of 2.10.
+export function aiLimit(limit: AiLimitKind, extra?: { retryAfterSeconds?: number | null; resetsAt?: string | null }): AppError;
+export function aiRefusal(category: string | null): AppError;
+export function aiUpstream(reason: AiUpstreamReason): AppError;
+export function aiIncomplete(): AppError;
+export function aiBusy(reason: AiBusyReason, retryAfterSeconds?: number | null): AppError;
+export function aiTimeout(): AppError;
+export function aiOrgDisabled(reasons: AiOrgOffReason[]): AppError;
+export function aiPlatformLocked(): AppError;
+export function aiResellerBlocked(): AppError;
+export function aiAdminKey(): AppError;
+/** Used by the i18n AI routes (O5, O10): 409 with details.reason. */
+export function aiNotConfigured(reason: AiUnavailableReason): AppError;
+export const AI_ERROR_MESSAGES: Record<Exclude<AiErrorCode, 'ai_limit'>, string>;
+export const AI_LIMIT_MESSAGES: Record<AiLimitKind, string>;
+/** The caller's signal aborted (client gone, job cancelled or stopped); never sent to a client. */
+export class AiCancelled extends Error {}
+export function classifyAiError(err: unknown, run: { timedOut: boolean }): AppError | AiCancelled;
+/** The StructuredUsage attached to an error thrown by structured(), else null. */
+export function usageOfError(err: unknown): StructuredUsage | null;
+
+// settings.ts (F): 3.2. demo.ts (F, U3): demoFetch, emulateMessages (ai 14; translations: i18n 12.4, 12.10).
+// prompts.ts (F): BASE_RULES, SYSTEM_TEXT: Record<Exclude<AiFeature, 'translations'>, string> (ai 10.8).
+// redact.ts (F13): redactForAi(value, { personal }), redactText(s), toolJson(value) (ai 11.2, 8.1).
+```
+
+### 2.5 i18n runtime on the API (`apps/api/src/i18n/`)
+
+F creates the five files with these exports. `hash.ts` and `glossary.ts` stay F only; `service.ts`, `entries.ts`
+and `jobs.ts` belong to U1 afterwards, which keeps these signatures (section 11).
+
+```ts
+// hash.ts (F)
+/** First 16 hex characters of SHA-256 over text.normalize('NFC'). Hashes German sources and values (i18n 4.1). */
+export function sourceHash(text: string): string;
+
+// service.ts (F; behaviour i18n 8.1 and 13)
+export type Tr = (key: ServerTranslationKey, params?: I18nParams) => string;
+export class I18nService {
+  constructor(db: Database, env: Env, log: FastifyBaseLogger, catalog?: I18nCatalog /* default loadCatalog() */);
+  readonly catalog: I18nCatalog;
+  /** Reads every override into memory; buildApp awaits it before the routes (F17). */
+  load(): Promise<void>;
+  /** Every 15 s: select count(*), max(updated_at) from translation_overrides; full reload when it changed. */
+  start(): void;
+  stop(): void;
+  /** After a local write (admin save, import, job batch, cleanup, key save): reload now. */
+  reload(): Promise<void>;
+  /** Overrides (servable rows only), fallbackChain, the legal rule; then interpolate(). Never throws. */
+  t(locale: Locale, key: ServerTranslationKey, params?: I18nParams): string;
+  translator(locale: Locale): Tr;
+  /** Effective German text (German override, else compiled) and its sourceHash. */
+  source(key: ServerTranslationKey): { text: string; hash: string };
+  /** Body and ETag of A1, cached until the next reload. */
+  payload(locale: Locale): { etag: string; body: I18nOverridesDto };
+  /** One admin cell (TranslationCellDto of i18n 14.1). */
+  cell(locale: Locale, key: ServerTranslationKey): TranslationCellDto;
+}
+```
+
+A row is servable when its key exists in the catalog, it is not `demo` or `ENABLE_DEMO_PROVIDER` is true (O11), and,
+for a key of `LEGAL_KEYS`, its `source_hash` equals `source(key).hash` (O28). A legal key takes only current values
+along its chain (override or a compiled value whose stamp is current), else the next locale: fr -> en -> de.
+
+```ts
+// entries.ts (F implements deleteDemoOverrides, saveOverride, revertOverride, setReviewed; U1 confirmCurrent, cleanup)
+export async function saveOverride(tx: DbOrTx, input: { key: string; locale: Locale; value: string;
+  origin: 'manual' | 'ai'; reviewed: boolean; sourceHash: string; demo?: boolean; userId: string | null }): Promise<void>;
+/** Deletes the override; false when there was none. */
+export async function revertOverride(tx: DbOrTx, key: string, locale: Locale): Promise<boolean>;
+/** false when there is no override. */
+export async function setReviewed(tx: DbOrTx, key: string, locale: Locale, reviewed: boolean, userId: string): Promise<boolean>;
+/** A7 (i18n 14.2): 409 not_stale when the cell is current. */
+export async function confirmCurrent(tx: DbOrTx, i18n: I18nService, key: string, locale: Locale, userId: string): Promise<void>;
+export async function cleanup(tx: DbOrTx, i18n: I18nService, input: TranslationCleanupInput): Promise<TranslationCleanupResultDto>;
+/** In the transaction of PUT /admin/ai/key (ai 5.4, O11). Returns the number of rows deleted. */
+export async function deleteDemoOverrides(tx: DbOrTx): Promise<number>;
+
+// glossary.ts (F)
+/** Inserts the DEFAULT_GLOSSARY terms that are missing (by lower(term)) with built_in = true; never updates rows. */
+export async function seedGlossary(db: DbOrTx): Promise<void>;
+/** The table as GlossaryTerm[] for the translator and the checks: built-in first, then by term. */
+export async function loadGlossary(db: DbOrTx): Promise<GlossaryTerm[]>;
+
+// jobs.ts (F: the class with no-op start, stop and tick and requestCancel throwing; U1 implements i18n 12.8)
+export interface JobRunnerOptions {
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>; // default: setTimeout honouring the signal
+  now?: () => Date;
+  tickMs?: number;       // 5,000
+  heartbeatMs?: number;  // 30,000
+  staleAfterMs?: number; // 120,000: a running job without heartbeat for this long is taken over
+  concurrency?: number;  // env I18N_AI_CONCURRENCY (1 to 4, default 2)
+}
+export class TranslationJobRunner {
+  constructor(ctx: AppContext, pool: pg.Pool, options?: JobRunnerOptions);
+  /** Tick every tickMs, timers unref()ed, like BillingJob.start (modules/billing/recurring.ts:226-233). */
+  start(): void;
+  /** Aborts in-flight calls, re-queues the job this runner owns (runner = null), clears the timers. */
+  stop(): Promise<void>;
+  /** One tick: claim under the advisory lock of 3.3 and run or resume a job. Exported for tests. */
+  tick(): Promise<void>;
+  /** B6: queued -> 'cancelled' at once; running -> cancel_requested, 'requested'; finished -> 'finished' (409 job_finished). */
+  requestCancel(jobId: string): Promise<'cancelled' | 'requested' | 'finished'>;
+}
+```
+
+Imports: `Database`, `DbOrTx` from `apps/api/src/db/client.ts`; `Env` from `config/env.ts`; `I18nCatalog`,
+`ServerTranslationKey`, `I18nParams`, `GlossaryTerm` from `@weblion/shared` and its i18n subpaths (2.2);
+`I18nOverridesDto`, `TranslationCellDto`, `TranslationCleanupInput`, `TranslationCleanupResultDto` from
+`packages/shared/src/translations.ts` (i18n 14.1, with the F7 additions). The translator
+(`apps/api/src/i18n/translator.ts`: `systemPrompt`, `userMessage`, `batches`, `estimate`, `validateItem`,
+`translateBatch`, i18n 12.2 to 12.7) is U1's alone; its user message fields `locale`, `items[].id`, `items[].de` and
+its output `{ items: [{ id, text }] }` are the contract with the demo emulator (i18n 12.4, ai 14).
+
+### 2.6 Mapping of AI errors in the Mass Translate job (U1)
+
+`translateBatch` (i18n 12.4) calls `ctx.ai.structured({ feature: 'translations', scope: 'platform', orgId: null,
+countsForUser: false, retryOnMaxTokens: false, actor: { userId: <starter> }, system, user, schema, signal })` and
+handles what it throws by this table (O6: only the codes of 2.10). A job-ending case throws `JobStop`; the runner
+ends the job `failed` with `translation_jobs.error = { code, message }`, keeps every committed batch and audits
+`i18n.job_finish`.
+
+```ts
+// apps/api/src/i18n/translator.ts (U1)
+export class JobStop extends Error {
+  constructor(readonly code: TranslationJobErrorCode, message: string);
+}
+// packages/shared/src/translations.ts (F7)
+export const TRANSLATION_JOB_ERROR_CODES = ['ai_budget_job', 'cost_cap', 'ai_not_configured', 'ai_upstream', 'ai_failed'] as const;
+export type TranslationJobErrorCode = (typeof TRANSLATION_JOB_ERROR_CODES)[number];
+```
+
+| Thrown by `structured()` | Job does | Job error code | Web text |
+|---|---|---|---|
+| `ai_limit` `{ limit: 'budget' }` | stop at once; the batch in flight is not saved | `ai_budget_job` | `admin.i18n.job.budgetJob` |
+| `ai_limit` `{ limit: 'concurrent' }` (6 on the platform) | wait 5 s and retry; not counted as an attempt | | |
+| `ai_limit` any other kind | cannot occur (`countsForUser: false` skips checks 3 to 7, ai 7.1); treated like `ai_upstream` `server` | | |
+| `ai_busy` (`overloaded`, `rate_limit`) | wait 5 s, 15 s, 45 s, 2 min, 5 min (injected `sleep`), then the batch's items fail with reason `error`; the job goes on | | |
+| `ai_timeout`; `ai_upstream` `server` or `network` | retry twice after 5 s and 30 s, then split the batch in two halves once; still failing: items fail with `error` | | |
+| `ai_upstream` `output` | split once, then items fail with `error` | | |
+| `ai_incomplete` (`max_tokens`, no retry inside `structured()`) | split in halves recursively down to one item; a single item fails with `error` | | |
+| `ai_refusal` | split in halves to isolate; a single refused item fails with `refusal`, the others are saved | | |
+| `ai_upstream` `auth`, `permission`, `billing`, `not_found` | stop | `ai_upstream` | `admin.i18n.job.error.ai_upstream` |
+| `ai_upstream` `request` | the batch's items fail with `error`; logged with the request id (a bug) | | |
+| `not_found` (from `assertFeature`: master switch, feature or key gone during the job) | `ctx.ai.availability('translations')`; not available: stop | `ai_not_configured` | `admin.i18n.job.error.ai_not_configured` |
+| `AiCancelled` (job cancelled or runner stopping) | discard the batch in flight, no failure entries | | |
+| three batches in a row failing completely | stop | `ai_failed` | `admin.i18n.job.error.ai_failed` |
+| runner: `cost_micros > 1.5 x estimate_micros` before a batch or after a commit (i18n 12.6) | stop | `cost_cap` | `admin.i18n.job.error.cost_cap` |
+
+Fixed English `message` per code: `ai_budget_job` "The monthly AI budget was used up during the job. Finished
+batches stay saved."; `cost_cap` "Stopped: the job would have cost more than 1.5 times its estimate.";
+`ai_not_configured` "Stopped: AI was switched off during the job."; `ai_upstream` "Stopped: the AI service rejected
+the key or the account (<reason>)."; `ai_failed` "Stopped: three batches in a row failed.".
+
+Tokens and cost: the job adds `StructuredResult.tokens` and `costMicros` of every successful call and
+`usageOfError(err)` of every failed one to `translation_jobs` (O22), so the cost cap sees refused and cut-off
+calls too. Outside the job the i18n AI routes keep the codes: B1 answers the AppError of the call as it is, B2
+calls no model, B3 and B7 answer 429 `ai_limit` `{ limit: 'budget' }` when `budgetState().exhausted` (O22) and 409
+`ai_not_configured` when not available (O10).
+
+### 2.7 Billing and products (`packages/shared/src/billing.ts`, `dto.ts`)
+
+```ts
+// billing.ts
+import type { Locale, TargetLocale } from './i18n/locales';
+
+/** Name and description per target language; German stays in ProductDto.name and description (O14). */
+export type ProductTranslations = Partial<Record<TargetLocale, { name: string; description: string | null }>>;
+
+export interface ProductDto { /* today's fields */ translations: ProductTranslations }
+export interface BillingProfileDto { /* today's fields */
+  /** "Sprache für Rechnungen"; null = the owner's language (i18n 9). */
+  locale: Locale | null;
+  /** locale ?? users.locale of the oldest active owner ?? 'de'. */
+  effectiveLocale: Locale;
+}
+export interface InvoiceDetailDto { /* today's fields */
+  /** invoices.locale (fixed at finalize) ?? the current billing language for drafts and old invoices. */
+  locale: Locale;
+}
+
+/** The product text in a language: per field the translation when set, else the German text. de: name, description. */
+export function productText(
+  product: Pick<ProductDto, 'name' | 'description' | 'translations'>,
+  locale: Locale,
+): { name: string; description: string | null };
+
+/** today's signature widened; Intl tag intlLocale(locale) (en becomes en-GB). Billing mails and the PDF pass 'de'. */
+export function formatMoney(amount: number, currency: Currency | string, locale?: Locale /* default 'de' */): string;
+```
+
+```ts
+// dto.ts
+export interface UserDto { /* today's fields */ locale: Locale } // was string; toUserDto: normalizeLocale(row.locale) ?? 'de'
+export interface IntegrationsDto { /* mail, stripe, zoho as today */ ai: AiIntegrationDto } // 2.3
+```
+
+API fields (F18): `POST` and `PATCH /billing/products` accept
+`translations: z.partialRecord(z.enum(TARGET_LOCALES), z.object({ name: z.string().trim().min(1).max(200),
+description: z.string().max(1000).nullable() })).optional()` (`z.partialRecord`, because `z.record` with an enum key
+is exhaustive in zod 4); `toProductDto` returns `translations`. `PUT /orgs/:orgId/billing/profile` and
+`PUT /billing/customers/:orgId/profile` accept `locale: z.enum(LOCALES).nullable().optional()` (U2). The web reads
+product texts only through `productText` (U4: products list and the product picker; U2: the invoice editor with
+`InvoiceDetailDto.locale`). Stored invoice lines stay text.
+
+### 2.8 Mail template `ai_budget` (`apps/api/src/mail/types.ts`)
+
+F adds the template to `MailTemplates` and a builder in today's de/en style with the texts of 5.3 (F18); U2 moves
+every template to the `email.*` keys (O15, i18n 8.2) without changing the data shape:
+
+```ts
+export interface MailTemplates {
+  /* invitation, invoice, invoice_reminder, payment_received, credit_booked, test as today */
+  /** The monthly AI budget passed the warning mark or is used up (ai 7.2). */
+  ai_budget: {
+    kind: 'warning' | 'exhausted';
+    /** Formatted in the mail language, e.g. "November 2026". */
+    month: string;
+    spent: string; // "USD 81.20"
+    budget: string; // "USD 100.00"
+    percent: number; // rounded down; shown only for 'warning'
+    link: string; // `${APP_URL}/admin/ai`
+  };
+}
+```
+
+Keys (`email` section, 5.3): `email.aiBudget.warning.subject|heading|text`, `email.aiBudget.exhausted.subject|
+heading|text`, `email.aiBudget.button`. Sent by `checkBudgetWarning` (U3) to every active user with
+`platform_role = 'superadmin'`, one `ctx.mail.send` per locale with the recipients of that locale. After U2:
+`MailLocale` is `Locale`, `MailOptions.locale?: Locale` (default `'de'`), `MailService` takes the `I18nService` as
+its fifth constructor argument (`new MailService(db, box, env, log, i18n)`), and the builders take `(data, tr: Tr)`.
+
+### 2.9 Web contracts
+
+**`apps/web/src/lib/i18n.tsx`** (F with static dictionaries, F22; U2 makes it lazy, i18n 5). Exported names and
+types are fixed; only `main.tsx` and `src/test/i18n.tsx` render the provider:
+
+```ts
+export type TFunction = (key: TranslationKey, params?: I18nParams) => string;
+
+export interface I18nContextValue {
+  locale: Locale;
+  /** Loads the chunk and overrides of `next`, then switches and stores it in localStorage['wl-locale']. */
+  setLocale(next: Locale): Promise<void>;
+  t: TFunction;
+  /** After a save in the translation admin: one override changed (value) or was reverted (null). F: no-op. */
+  applyOverride(locale: Locale, key: string, value: string | null): void;
+  /** Replaces all overrides of a locale (background revalidation). F: no-op. */
+  applyOverrides(locale: Locale, values: Record<string, string>): void;
+}
+export interface I18nBoot {
+  locale: Locale;
+  dictionary: Dictionary;
+  overrides: Partial<Record<Locale, Record<string, string>>>;
+}
+export function bootI18n(): Promise<I18nBoot>; // U2 (F: resolves with the static dictionary)
+export function I18nProvider(props: { boot?: I18nBoot; children: ReactNode }): JSX.Element;
+export function useI18n(): I18nContextValue;
+export function useT(): TFunction;
+/** Switches the UI language with a toast (language.loadFailed) on failure; resolves false then. Saves nothing. */
+export function useChangeLocale(): (next: Locale) => Promise<boolean>;
+/** The key exists in the dictionary on screen (localizeError builds keys at runtime, i18n 7). */
+export function hasKey(key: string): boolean;
+```
+
+`apps/web/src/test/i18n.tsx` (F, U2 keeps the signature): `export function withI18n(node: ReactNode, locale?: Locale
+/* 'en' */, overrides?: Record<string, string>): ReactElement`.
+
+**`apps/web/src/lib/api-errors.ts`** (F: stub returning `errorMessage(err)`; U2 implements i18n 7 with every code of
+2.10): `export function localizeError(err: unknown, t: TFunction): string`.
+
+**`apps/web/src/lib/api.ts`** (F only). Additions, nothing else changes:
+
+```ts
+export type ApiQuery = Record<string, string | number | boolean | undefined | null>; // today's Query, exported
+/** today's buildUrl, exported: links to GET routes (A16 export) and streamAiChat. */
+export function apiUrl(path: string, query?: ApiQuery): string;
+/** The CSRF header of every cookie-authenticated write: { 'X-Requested-With': 'weblion-console' }. */
+export const WRITE_HEADERS: Readonly<Record<string, string>>;
+/** A non-2xx Response as ApiError, exactly like request() (proxy pages included); a 401 outside /auth/ calls
+ *  the unauthorized handler. request() uses it too. */
+export function apiErrorFromResponse(res: Response, path: string): Promise<ApiError>;
+```
+
+**`apps/web/src/lib/queries.ts`** (F only): `useApiMutation` shows `localizeError(err, t)` instead of
+`errorMessage(err)` and, when `explainAvailable(err)`, the sonner action `{ label: t('ai.explain.button'), onClick:
+() => explainError(err) }`; its options gain `errorToast?: boolean` (default true; the AI feature hooks pass false
+and show `aiErrorText(t, err)` in their dialog).
+
+**`apps/web/src/components/ui/primitives.tsx`** (F only): `Spinner` gets `aria-label={t('aria.loading')}`;
+`ErrorState` shows `localizeError(error, t)` and, while `useExplainAvailable(error)`, a small button
+`ai.explain.short` that calls `explainError(error)`.
+
+**`apps/web/src/components/ai/*`** (F stubs with these exports, U4 implements, ai 12):
+
+```ts
+// ai-provider.tsx: rendered by App.tsx around <Routes> (F24)
+export function AiProvider(props: { children: ReactNode }): JSX.Element; // F: renders children
+// U4-internal: useAiProposal(domainId), the DNS proposal hand-over to DomainDns (ai 12.3)
+
+// assistant.tsx: rendered once by AppShell (U2, F25)
+export function AiAssistant(): JSX.Element | null; // F: null
+/** Route inside /o/:slug/*, status available with 'assistant', ai:use (staff: also platform:ai:use). F: false.
+ *  While true AppShell adds pb-20 sm:pb-0 to the main area. */
+export function useAiLauncherVisible(): boolean;
+
+// explain-action.ts: used by lib/queries.ts and primitives.tsx (F only files)
+export type ExplainHandler = (err: unknown) => void;
+/** AiProvider registers its handler while the explain feature is available, null otherwise. */
+export function registerExplainHandler(handler: ExplainHandler | null): void;
+/** A handler is registered and err is an ApiError whose code does not start with "ai_". */
+export function explainAvailable(err: unknown): boolean;
+/** The same, re-rendering when a handler is registered or removed (useSyncExternalStore). */
+export function useExplainAvailable(err: unknown): boolean;
+export function explainError(err: unknown): void; // F: no-op
+
+// storage.ts
+export const AI_CHAT_STORAGE_PREFIX = 'wl-ai-chat:';
+/** Removes every sessionStorage key with the prefix; AppShell's logout calls it (F25). F implements it. */
+export function clearAiChats(): void;
+// U4-internal: loadAiChat(orgId), saveAiChat(orgId, messages) (ai 12.3)
+```
+
+**`apps/web/src/components/server-bits.tsx`** (F adds, U2 owns afterwards, i18n 6.4):
+
+```tsx
+/** country: ISO 3166-1 alpha-2; new: FR, IT, GB. decorative: aria-hidden, no role, no label (the name is next to it). */
+export function Flag(props: { country: string; className?: string; decorative?: boolean }): JSX.Element;
+```
+
+**Pages** (lazy routes of F24): `export function AdminAiPage()` in `apps/web/src/pages/admin/ai.tsx` (U4) and
+`export function TranslationsPage()` in `apps/web/src/pages/admin/translations.tsx` (U1). Nav items (F25, O16): KI
+`/admin/ai` (`Sparkles`, `platform:settings`), Übersetzungen `/admin/translations` (`Languages`,
+`platform:i18n:read`).
+
+**Query contract of `/admin/translations`** (O18, i18n 17.1). Every parameter is optional; unknown values fall back
+to the default; U1 parses it in `translations-query.ts` (`parseTranslationsQuery`, `translationsQueryString`).
+Other units link with plain URLs and import nothing of U1:
+
+| Parameter | Values | Default |
+|---|---|---|
+| `tab` | `overview`, `entries`, `glossary`, `jobs`, `transfer` | `overview` |
+| `q` | search in keys and texts | empty |
+| `locale` | `de`, `en`, `fr`, `it`, `nl`, `any` | `any` |
+| `filter` | `all`, `untranslated`, `stale`, `changed`, `ai`, `unreviewed`, `attention` | `all` |
+| `area` | first key segment (O24), e.g. `admin`, `ai` | all |
+| `section` | a `SectionName` | all |
+| `keys` | comma list of exact keys (at most 500) | none |
+| `job` | job id (jobs tab detail) | none |
+| `page` | 1, 2, ... | 1 |
+
+Fixed links: the KI page notice card `/admin/translations?tab=entries&q=ai.notice.text`; job failures
+`/admin/translations?tab=entries&keys=<k1>,<k2>&locale=<l>`.
+
+### 2.10 Error codes and their texts (frozen by F)
+
+Every new error has its own code, a fixed English message (API errors stay English, plan decision 7; never
+Anthropic's text, O32) and a web text that `localizeError` shows (i18n 7, O25). F creates the codes as the arrays
+`AI_ERROR_CODES` (`ai.ts`), `I18N_ERROR_CODES` and `TRANSLATION_JOB_ERROR_CODES` (`translations.ts`) and adds every
+key below (O21); `lib/api-errors.test.ts` (U2) iterates the arrays and fails on a code without a de and en key. No
+unit adds a code: one that seems necessary is reported (0).
+
+```ts
+// packages/shared/src/translations.ts (F7)
+export const I18N_ERROR_CODES = ['placeholder_mismatch', 'forbidden_character', 'unknown_key', 'legal_key',
+  'nothing_to_translate', 'estimate_changed', 'job_running', 'job_finished', 'not_stale', 'glossary_duplicate',
+  'glossary_builtin', 'import_invalid'] as const;
+export type I18nErrorCode = (typeof I18N_ERROR_CODES)[number];
+```
+
+**AI codes** (ai 4.2; helpers in `modules/ai/errors.ts`, 2.4; keys in section `ai`, ai 13.8). Key rule of
+`localizeError`: `ai.error.<camelCode>` with the code without `ai_` in camel case; `ai_limit` uses
+`ai.error.limit.<details.limit>`.
+
+| Code | Status | `details` | Message (fixed English) | Web key | de | en |
+|---|---|---|---|---|---|---|
+| `ai_limit` | 429 | `{ limit: AiLimitKind, retryAfterSeconds: number \| null, resetsAt: string \| null }` | per kind, `AI_LIMIT_MESSAGES` (ai 4.2) | `ai.error.limit.budget` | Das KI-Budget dieses Monats ist aufgebraucht. Die KI-Funktionen stehen ab dem nächsten Monat wieder zur Verfügung. | This month's AI budget is used up. The AI features are available again next month. |
+| | | | | `ai.error.limit.org_daily` | Ihre Organisation hat das Tageslimit für KI-Anfragen erreicht. | Your organization reached its daily limit of AI requests. |
+| | | | | `ai.error.limit.user_daily` | Sie haben Ihr Tageslimit für KI-Anfragen erreicht. | You reached your daily limit of AI requests. |
+| | | | | `ai.error.limit.user_rate` | Zu viele KI-Anfragen in kurzer Zeit. Bitte warten Sie eine Minute. | Too many AI requests in a short time. Please wait a minute. |
+| | | | | `ai.error.limit.user_concurrent` | Es laufen bereits zwei KI-Anfragen von Ihnen. Bitte warten Sie, bis eine fertig ist. | Two of your AI requests are already running. Please wait until one is finished. |
+| | | | | `ai.error.limit.org_concurrent` | In Ihrer Organisation laufen bereits drei KI-Anfragen. Bitte versuchen Sie es gleich nochmals. | Three AI requests are already running in your organization. Please try again shortly. |
+| | | | | `ai.error.limit.concurrent` | Gerade laufen zu viele KI-Anfragen. Bitte versuchen Sie es gleich nochmals. | Too many AI requests are running right now. Please try again shortly. |
+| `ai_refusal` | 422 | `{ category: string \| null }` | Claude declined to answer this request. | `ai.error.refusal` | Claude hat diese Anfrage abgelehnt. Formulieren Sie sie bei Bedarf anders. | Claude declined this request. Rephrase it if needed. |
+| `ai_upstream` | 502 | `{ reason: AiUpstreamReason }` | The AI service could not process the request. | `ai.error.upstream` | Der KI-Dienst konnte die Anfrage nicht bearbeiten. Bitte versuchen Sie es später nochmals. | The AI service could not process the request. Please try again later. |
+| `ai_incomplete` | 502 | none | The AI answer was cut off. Please try again with a shorter request. | `ai.error.incomplete` | Die Antwort der KI wurde abgeschnitten. Versuchen Sie es mit einer kürzeren Anfrage. | The AI answer was cut off. Try a shorter request. |
+| `ai_busy` | 503 | `{ reason: AiBusyReason, retryAfterSeconds: number \| null }` | The AI service is busy. Please try again in a moment. | `ai.error.busy` | Der KI-Dienst ist gerade ausgelastet. Bitte versuchen Sie es in einem Moment nochmals. | The AI service is busy right now. Please try again in a moment. |
+| `ai_timeout` | 504 | none | The AI answer took too long. | `ai.error.timeout` | Die KI hat zu lange gebraucht. Bitte versuchen Sie es nochmals. | The AI took too long. Please try again. |
+| `ai_org_disabled` | 403 | `{ reasons: AiOrgOffReason[] }` | AI features are switched off for this organization. | `ai.error.orgDisabled` | Die KI-Funktionen sind für diese Organisation ausgeschaltet. | The AI features are switched off for this organization. |
+| `ai_platform_locked` | 409 | none | weblion switched AI off for this customer. Only weblion staff can switch it on again. | `ai.error.platformLocked` | weblion hat die KI für diesen Kunden ausgeschaltet. Nur weblion kann sie wieder einschalten. | weblion switched AI off for this customer. Only weblion can switch it on again. |
+| `ai_reseller_blocked` | 409 | none | AI is switched off for your own organization, so it cannot be switched on for a customer. | `ai.error.resellerBlocked` | Die KI ist für Ihre eigene Organisation ausgeschaltet. Deshalb können Sie sie für Kunden nicht einschalten. | AI is switched off for your own organization, so you cannot switch it on for customers. |
+| `ai_admin_key` | 400 | none | This is an Admin API key. Save a normal API key from the Claude Console. | `ai.error.adminKey` | Das ist ein Admin-API-Schlüssel. Speichern Sie einen normalen API-Schlüssel aus der Claude Console. | This is an Admin API key. Save a normal API key from the Claude Console. |
+| `ai_not_configured` | 409 | `{ reason: AiUnavailableReason }` | AI is not available. Set it up under Administration > AI. | `ai.error.notConfigured` | Die KI ist nicht verfügbar. Richten Sie sie unter Verwaltung > KI ein. | AI is not available. Set it up under Administration > AI. |
+
+AI routes answer "not available" with the existing 404 `not_found` (ai 4.1); only the i18n AI routes use
+`ai_not_configured` (O5).
+
+**i18n codes** (i18n 11.4; keys in section `translations`, i18n 18.2; key rule `admin.i18n.error.<code>` with
+parameters from `details`):
+
+| Code | Status | Routes | `details` | Message (fixed English) | de | en |
+|---|---|---|---|---|---|---|
+| `placeholder_mismatch` | 400 | A4; A15 per row | `{ missing: string[], extra: string[] }` | The placeholders must be exactly those of the German text. | Die Platzhalter müssen genau die des deutschen Textes sein. Fehlt: {missing}. Zu viel: {extra}. | The placeholders must be exactly those of the German text. Missing: {missing}. Extra: {extra}. |
+| `forbidden_character` | 400 | A4 | `{ characters: string[] }` (`U+00DF`, `U+2014`) | The text contains a character that is not allowed (sharp s or em dash). | Der Text enthält ein nicht erlaubtes Zeichen (scharfes S oder langer Gedankenstrich). | The text contains a character that is not allowed (sharp s or em dash). |
+| `unknown_key` | 404 | A4 to A7, B1 | `{ key }` | This text key does not exist. | Diesen Text gibt es nicht mehr. Laden Sie die Seite neu. | This text no longer exists. Please reload the page. |
+| `legal_key` | 409 | B1; B2, B3 with only legal keys | `{ keys: string[] }` | Legal texts are never machine translated. | Rechtstexte werden nie maschinell übersetzt. | Legal texts are never machine translated. |
+| `nothing_to_translate` | 409 | B3, B7 | none | There is nothing to translate for this selection. | Für diese Auswahl gibt es nichts zu übersetzen. | There is nothing to translate for this selection. |
+| `estimate_changed` | 409 | B3, B7 | `{ costMicros, confirmedMicros }` | The estimated cost rose by more than 25 percent. Please check the new estimate. | Die geschätzten Kosten sind um mehr als 25 % gestiegen. Bitte prüfen Sie die neue Schätzung. | The estimated cost rose by more than 25 %. Please check the new estimate. |
+| `job_running` | 409 | B3, B7 | `{ jobId }` | A translation job is already queued or running. | Es läuft bereits eine Übersetzung. Warten Sie, bis sie fertig ist, oder brechen Sie sie ab. | A translation is already running. Wait until it has finished or cancel it. |
+| `job_finished` | 409 | B6 | `{ status }` | This job has already finished. | Dieser Auftrag ist bereits abgeschlossen. | This job has already finished. |
+| `not_stale` | 409 | A7 | none | This translation is not outdated. | Diese Übersetzung ist bereits aktuell. | This translation is already up to date. |
+| `glossary_duplicate` | 409 | A10, A11 | `{ term }` | This term is already in the glossary. | Diesen Begriff gibt es im Glossar schon. | This term is already in the glossary. |
+| `glossary_builtin` | 409 | A12 | `{ term }` | Default terms can be changed but not deleted. | Standardbegriffe können geändert, aber nicht gelöscht werden. | Default terms can be changed but not deleted. |
+| `import_invalid` | 400 | A15 | `{ problems: string[] }` (at most 20) | The file is not a translation export of weblion.one. | Die Datei ist kein Übersetzungs-Export von weblion.one. | The file is not a translation export of weblion.one. |
+
+**Job error codes** (stored in `translation_jobs.error.code`, no HTTP status; messages in 2.6; keys in section
+`translations`):
+
+| Code | Web key | de | en |
+|---|---|---|---|
+| `ai_budget_job` | `admin.i18n.job.budgetJob` | Das KI-Budget dieses Monats ist aufgebraucht. Fertige Pakete bleiben gespeichert. | The AI budget of this month is used up. Finished batches stay saved. |
+| `cost_cap` | `admin.i18n.job.error.cost_cap` | Gestoppt: Der Auftrag hätte mehr als das Anderthalbfache der Schätzung gekostet. | Stopped: the job would have cost more than one and a half times the estimate. |
+| `ai_not_configured` | `admin.i18n.job.error.ai_not_configured` | Gestoppt: Die KI wurde während des Auftrags ausgeschaltet. | Stopped: AI was switched off during the job. |
+| `ai_upstream` | `admin.i18n.job.error.ai_upstream` | Gestoppt: Der KI-Dienst hat den Schlüssel oder das Konto abgelehnt. Prüfen Sie Verwaltung > KI. | Stopped: the AI service rejected the key or the account. Check Administration > AI. |
+| `ai_failed` | `admin.i18n.job.error.ai_failed` | Gestoppt: Mehrere Pakete hintereinander sind fehlgeschlagen. | Stopped: several batches in a row failed. |
+
+**Generic codes** (unchanged API, now translated by `localizeError` rule 4 with the `core` keys of i18n 18.1):
+`unauthorized` -> `error.unauthorized`, `forbidden` -> `error.forbidden`, `not_found` -> `error.not_found`,
+`rate_limited` -> `error.rate_limited`, `internal_error` -> `error.internal_error`; no response -> `error.network`;
+502, 503 or 504 without a JSON body -> `error.unavailable`. Every other code (`bad_request`, `conflict`,
+`provider_error`, module codes) keeps its English message (plan decision 7).
+
+---
+
+## 3. Data model, settings keys, locks / 4. Permissions, roles, audit actions, rate limits
+
+> Being restored (sections 3 and 4 follow).
 
 ## 5. Foundation (F)
 
