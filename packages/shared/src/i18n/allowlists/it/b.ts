@@ -9,6 +9,13 @@ export const allowlist: Allowlist = {
   germanOk: [],
   informalOk: [],
   lengthOk: [],
-  glossaryOk: [],
+  glossaryOk: [
+    // "Weiterleitung" of a web address (HTTP redirect) is "reindirizzamento"; the glossary's "inoltro" is the
+    // e-mail forwarding term and would be wrong for a URL redirect.
+    'hosting.dns.typeLabel.HTTP_REDIRECT',
+    'hosting.dns.typeLabel.HTTP_FRAME',
+    // German "Reseller" is plural here; the Italian plural "rivenditori" does not contain the singular form.
+    'hosting.admin.groupDirect',
+  ],
   typographyOk: [],
 };
