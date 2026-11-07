@@ -396,6 +396,62 @@ describe('store: merge order, overrides, switching', () => {
   });
 });
 
+describe('legal texts need the overrides of this session (i18n 8.1)', () => {
+  it('the loader tells whether the server answered in this session: 200 or 304, not the cache alone', async () => {
+    storage.setItem(
+      `${OVERRIDES_STORAGE_PREFIX}fr`,
+      JSON.stringify({ etag: '"fr-1"', values: { 'ai.notice.text': 'Ancien' } }),
+    );
+    const server: FakeServer = { values: {}, etag: {}, requests: [], fail: true };
+    const loader = createI18nLoader({ chunks: chunks(), storage: () => storage, fetch: fakeFetch(server) });
+    await loader.loadOverrides('fr');
+    await flush();
+    // The cached copy renders, but it is not current.
+    expect(loader.hasFreshOverrides('fr')).toBe(false);
+    server.fail = false;
+    server.values.fr = { 'ai.notice.text': 'Ancien' };
+    expect(await loader.refreshOverrides('fr')).toEqual({ 'ai.notice.text': 'Ancien' });
+    expect(server.requests.at(-1)).toEqual({ url: '/api/v1/i18n/overrides/fr', ifNoneMatch: '"fr-1"' });
+    expect(loader.hasFreshOverrides('fr')).toBe(true);
+    expect(loader.hasFreshOverrides('en')).toBe(false);
+    await loader.loadOverrides('en');
+    expect(loader.hasFreshOverrides('en')).toBe(true);
+  });
+
+  it('ensureFreshOverrides asks once more after a failure, applies the answer, or reports the failure', async () => {
+    const server: FakeServer = { values: { de: { 'common.save': 'Sichern' } }, etag: {}, requests: [] };
+    let failures = 2;
+    const loader = createI18nLoader({
+      chunks: chunks(),
+      storage: () => storage,
+      fetch: async (url, init) => {
+        if (failures-- > 0) {
+          server.requests.push({ url, ifNoneMatch: null });
+          throw new TypeError('Failed to fetch');
+        }
+        return fakeFetch(server)(url, init);
+      },
+    });
+    const store = createI18nStore(
+      { locale: 'de', dictionary: BUNDLES.de as Dictionary, overrides: {} },
+      loader,
+    );
+    expect(store.hasFreshOverrides()).toBe(false);
+    // Two failed requests: the boot's missing payload is retried once, then the caller shows the error.
+    expect(await store.ensureFreshOverrides()).toBe(false);
+    expect(server.requests).toHaveLength(2);
+    expect(store.getSnapshot().t('common.save')).toBe('Speichern');
+    // The retry button asks again; the answer is applied.
+    expect(await store.ensureFreshOverrides()).toBe(true);
+    expect(store.hasFreshOverrides()).toBe(true);
+    expect(store.getSnapshot().t('common.save')).toBe('Sichern');
+    // Once there, no further request.
+    const before = server.requests.length;
+    expect(await store.ensureFreshOverrides()).toBe(true);
+    expect(server.requests).toHaveLength(before);
+  });
+});
+
 describe('ProfileLocaleSync rule (i18n 6.3)', () => {
   it('adopts a legacy choice once, otherwise the profile wins', () => {
     // The old toggle stored "en" without the marker; the profile still says de: save en to the profile.

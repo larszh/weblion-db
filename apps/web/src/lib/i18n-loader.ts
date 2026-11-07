@@ -71,6 +71,13 @@ export interface I18nLoader {
   updateCachedOverride(locale: Locale, key: string, value: string | null): void;
   /** Replaces the cached values of a locale and drops its ETag. */
   replaceCachedOverrides(locale: Locale, values: Record<string, string>): void;
+  /**
+   * Whether this session received the locale's overrides from the server (a 200, or a 304 for the cached copy).
+   * Only that payload carries the current legal texts (i18n 8.1): the chunk or a cached copy can be outdated.
+   */
+  hasFreshOverrides(locale: Locale): boolean;
+  /** Asks the server again for one locale (with the cached ETag): its values, or null when the request failed. */
+  refreshOverrides(locale: Locale): Promise<Record<string, string> | null>;
 }
 
 /** The locales whose overrides apply to a UI language: German alone, else the chain without German. */
@@ -95,6 +102,8 @@ export function createI18nLoader(deps: Partial<LoaderDeps> = {}): I18nLoader {
   const bundles = new Map<Locale, Promise<PartialDictionary>>();
   const loaded = new Map<Locale, PartialDictionary>();
   const dictionaries = new Map<Locale, Promise<Dictionary>>();
+  /** Locales whose overrides arrived from the server in this session. */
+  const fresh = new Set<Locale>();
 
   async function importChunk(locale: Locale): Promise<PartialDictionary> {
     const once = async () => {
@@ -192,12 +201,16 @@ export function createI18nLoader(deps: Partial<LoaderDeps> = {}): I18nLoader {
         headers: { Accept: 'application/json', ...(cached?.etag ? { 'If-None-Match': cached.etag } : {}) },
         signal: AbortSignal.timeout(OVERRIDES_FETCH_TIMEOUT_MS),
       });
-      if (res.status === 304 && cached) return cached.values;
+      if (res.status === 304 && cached) {
+        fresh.add(locale);
+        return cached.values;
+      }
       if (!res.ok) return null;
       const body = (await res.json()) as { values?: Record<string, unknown> };
       const values: Record<string, string> = {};
       for (const [k, v] of Object.entries(body?.values ?? {})) if (typeof v === 'string') values[k] = v;
       writeCache(locale, { etag: res.headers.get('etag'), values });
+      fresh.add(locale);
       return values;
     } catch {
       return null;
@@ -255,6 +268,8 @@ export function createI18nLoader(deps: Partial<LoaderDeps> = {}): I18nLoader {
     loadOverrides,
     updateCachedOverride,
     replaceCachedOverrides,
+    hasFreshOverrides: (locale) => fresh.has(locale),
+    refreshOverrides: (locale) => revalidate(locale, readCache(locale)),
   };
 }
 

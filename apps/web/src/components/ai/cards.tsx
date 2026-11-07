@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import type { AdminOrgAiDto, Locale, OrgAiDto, OrgDto, ResellerCustomerAiDto } from '@weblion/shared';
-import { useI18n, type TFunction } from '@/lib/i18n';
+import { useFreshOverrides, useI18n, type TFunction } from '@/lib/i18n';
 import { formatDate } from '@/lib/format';
 import {
   useAdminOrgAi,
@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
 import { Badge, Card, CardBody, CardHeader, ErrorState, LoadingBlock } from '@/components/ui/primitives';
-import { AiErrorBox, NoticeDialog, usdFromMicros } from './bits';
+import { AiErrorBox, NoticeDialog, NoticeGate, usdFromMicros } from './bits';
 
 /**
  * The three switch cards (ai 12.4, 5.5): the organization's own card (decline or allow), the staff card on
@@ -208,6 +208,8 @@ export function OrgAiCard({ org }: { org: Pick<OrgDto, 'id' | 'access'> }) {
   const [confirm, setConfirm] = useState<'decline' | 'allow' | null>(null);
   const [notice, setNotice] = useState(false);
   const declined = !!ai.data?.declined;
+  // Allowing AI again is consent on the data notice: only once its current text is loaded (i18n 8.1).
+  const fresh = useFreshOverrides(confirm === 'allow');
 
   return (
     <Card>
@@ -257,8 +259,13 @@ export function OrgAiCard({ org }: { org: Pick<OrgDto, 'id' | 'access'> }) {
         }
         danger={confirm === 'decline'}
         loading={decline.isPending}
+        disabled={confirm === 'allow' && fresh.state !== 'ready'}
         onConfirm={() => decline.mutate(confirm === 'decline', { onSuccess: () => setConfirm(null) })}
-      />
+      >
+        {confirm === 'allow' && fresh.state === 'error' && (
+          <NoticeGate state={fresh.state} onRetry={fresh.retry} />
+        )}
+      </ConfirmDialog>
       <NoticeDialog open={notice} onOpenChange={setNotice} />
     </Card>
   );

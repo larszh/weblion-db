@@ -199,6 +199,7 @@
   "ai.demoBadge": ["8a2cc0673b1c4283", "8a2cc0673b1c4283"],
   "ai.demoHint": ["07420df97a7c741d", "aa2d0558e97c140a"],
   "ai.notice.open": ["f9d49ce8555bdca8", "c385c34408069984"],
+  "ai.noticeUnavailable": ["6e1a85751092054f", "facf9ec0562ceca7"],
   "ai.notice.title": ["501c198ba1800209", "d233a73db08290fc"],
   "ai.notice.text": ["b547d13f08e1bd9f", "cba713ee4c97cda3"],
   "admin.ai.subtitle": ["a12c5d5fcbe83865", "d5a16695404acfcf"],

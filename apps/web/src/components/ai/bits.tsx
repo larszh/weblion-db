@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ExternalLink, ShieldCheck } from 'lucide-react';
 import type {
@@ -12,13 +12,13 @@ import type {
 } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
-import { useT } from '@/lib/i18n';
+import { useFreshOverrides, useT, type FreshOverridesState } from '@/lib/i18n';
 import { qk } from '@/lib/queries';
 import { useOptionalOrg } from '@/lib/org-context';
 import { aiErrorText, aiFeatureOn, useAiStatus } from '@/lib/api/ai';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { Badge, CopyButton, KeyValue, Mono, Notice } from '@/components/ui/primitives';
+import { Badge, CopyButton, KeyValue, Mono, Notice, Skeleton } from '@/components/ui/primitives';
 import { AiText } from './ai-text';
 
 /** Small shared pieces of the AI module in the web: badges, the footnote, proposals, the access check. */
@@ -98,6 +98,37 @@ export function DemoBadge({ className }: { className?: string }) {
   );
 }
 
+/**
+ * The data notice is a legal text: never shown outdated (i18n 8.1). Only the current locale's overrides from the
+ * server carry its current wording, so it waits for them in this session; when they cannot be loaded, a short
+ * error with a retry. NoticeGate renders the state, `ready` tells a consent action whether it may run.
+ */
+export function NoticeGate({
+  state,
+  onRetry,
+  children,
+}: {
+  state: FreshOverridesState;
+  onRetry: () => void;
+  children?: ReactNode;
+}) {
+  const t = useT();
+  if (state === 'ready') return <>{children}</>;
+  if (state === 'loading') return <Skeleton className="h-24 w-full" />;
+  return (
+    <div
+      className="flex items-start gap-3 rounded-lg border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger"
+      role="alert"
+    >
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <div className="min-w-0 flex-1 break-words">{t('ai.noticeUnavailable')}</div>
+      <button type="button" className="shrink-0 font-medium underline underline-offset-2" onClick={onRetry}>
+        {t('common.retry')}
+      </button>
+    </div>
+  );
+}
+
 /** The data notice (ai 13.10) in a dialog; its text is the translation key ai.notice.text. */
 export function NoticeDialog({
   open,
@@ -107,9 +138,12 @@ export function NoticeDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const fresh = useFreshOverrides(open);
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={t('ai.notice.title')} size="lg">
-      <AiText text={t('ai.notice.text')} />
+      <NoticeGate state={fresh.state} onRetry={fresh.retry}>
+        <AiText text={t('ai.notice.text')} />
+      </NoticeGate>
     </Dialog>
   );
 }

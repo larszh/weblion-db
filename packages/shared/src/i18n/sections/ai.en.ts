@@ -241,6 +241,7 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
   'ai.demoBadge': 'Demo',
   'ai.demoHint': 'Demo mode: the answers are examples and do not come from Claude.',
   'ai.notice.open': 'Privacy notice',
+  'ai.noticeUnavailable': 'The current privacy notice could not be loaded.',
 
   // Data notice (LEGAL_KEYS: never machine-translated, never served outdated)
   'ai.notice.title': 'Privacy notice for the AI features',

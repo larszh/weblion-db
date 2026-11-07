@@ -247,6 +247,7 @@ export const aiDe = {
   'ai.demoBadge': 'Demo',
   'ai.demoHint': 'Demo-Modus: Die Antworten sind Beispiele und stammen nicht von Claude.',
   'ai.notice.open': 'Datenschutzhinweis',
+  'ai.noticeUnavailable': 'Der aktuelle Datenschutzhinweis konnte nicht geladen werden.',
 
   // Data notice (LEGAL_KEYS: never machine-translated, never served outdated)
   'ai.notice.title': 'Datenschutzhinweis zu den KI-Funktionen',
