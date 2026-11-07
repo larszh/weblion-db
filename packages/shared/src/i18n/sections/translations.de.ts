@@ -36,6 +36,7 @@ export const translationsDe = {
   'admin.i18n.filter.area': 'Bereich',
   'admin.i18n.filter.anyArea': 'Alle Bereiche',
   'admin.i18n.filter.keys': '{count} ausgewählte Texte',
+  'admin.i18n.filter.keysCapped': 'Nur die ersten {count} von {total} Texten sind gefiltert.',
   'admin.i18n.filter.reset': 'Filter zurücksetzen',
   'admin.i18n.entries.count': 'Texte: {count}',
   'admin.i18n.entries.empty': 'Keine Texte für diese Filter.',

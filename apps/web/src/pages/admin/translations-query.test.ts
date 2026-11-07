@@ -101,4 +101,25 @@ describe('translations query', () => {
       ]),
     ).toBe('/admin/translations?tab=entries&keys=common.save');
   });
+
+  it('puts at most 150 failed keys into the link and tells the entries tab how many there were', () => {
+    // 500 keys of billing.* would make a request line of about 13 KB: nginx answers 414 above 8 KB.
+    const failures = Array.from({ length: 320 }, (_, i) => ({
+      key: `billing.service.someLongerKeyName${i}`,
+      locale: 'fr' as const,
+    }));
+    const href = failuresHref(failures);
+    const query = parse(href.split('?')[1]!);
+    expect(parseKeys(query.keys)).toHaveLength(150);
+    expect(query.keysTotal).toBe(320);
+    expect(entriesQueryOf(query).keys).toHaveLength(150);
+    expect(href.length).toBeLessThan(8_000);
+    // A short list has no total, and a total without a longer list is ignored.
+    expect(parse(failuresHref(failures.slice(0, 150)).split('?')[1]!).keysTotal).toBeUndefined();
+    expect(parse('tab=entries&keys=a.b&keysTotal=1').keysTotal).toBeUndefined();
+    // Another key list drops the total; the reset too.
+    expect(nextQuery(query, { keys: 'a.b' }).keysTotal).toBeUndefined();
+    expect(nextQuery(query, { keys: undefined })).toEqual({ tab: 'entries', locale: 'fr' });
+    expect(nextQuery(query, { page: 2 }).keysTotal).toBe(320);
+  });
 });

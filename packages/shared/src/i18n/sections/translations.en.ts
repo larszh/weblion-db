@@ -37,6 +37,7 @@ export const translationsEn: Record<keyof typeof translationsDe, string> = {
   'admin.i18n.filter.area': 'Area',
   'admin.i18n.filter.anyArea': 'All areas',
   'admin.i18n.filter.keys': '{count} selected texts',
+  'admin.i18n.filter.keysCapped': 'Only the first {count} of {total} texts are filtered.',
   'admin.i18n.filter.reset': 'Reset filters',
   'admin.i18n.entries.count': 'Texts: {count}',
   'admin.i18n.entries.empty': 'No texts match these filters.',

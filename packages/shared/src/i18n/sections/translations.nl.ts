@@ -32,6 +32,7 @@ export const translationsNl: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.filter.area': 'Onderdeel',
   'admin.i18n.filter.anyArea': 'Alle onderdelen',
   'admin.i18n.filter.keys': '{count} geselecteerde teksten',
+  'admin.i18n.filter.keysCapped': 'Alleen de eerste {count} van {total} teksten zijn gefilterd.',
   'admin.i18n.filter.reset': 'Filters wissen',
   'admin.i18n.entries.count': 'Teksten: {count}',
   'admin.i18n.entries.empty': 'Geen teksten voor deze filters.',

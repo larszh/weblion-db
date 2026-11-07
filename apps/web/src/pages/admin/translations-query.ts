@@ -26,10 +26,17 @@ export interface TranslationsQuery extends Omit<TranslationEntriesQuery, 'pageSi
   job?: string;
   /** Comma list of keys (from a job's failures). */
   keys?: string;
+  /** How many keys the link had to leave out of `keys` counted in (failuresHref): the distinct total. */
+  keysTotal?: number;
 }
 
 /** At most this many keys in the URL (A3 takes 500). */
 export const MAX_QUERY_KEYS = 500;
+/**
+ * At most this many keys in a link the console builds (failuresHref). 500 keys of admin.* or billing.* make a
+ * request line of about 13 KB, past nginx's default 8 KB buffer (414); 150 stay well below it.
+ */
+export const LINK_MAX_KEYS = 150;
 
 const AREA = /^[a-z][a-z0-9_-]{0,99}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -63,7 +70,11 @@ export function parseTranslationsQuery(params: URLSearchParams): TranslationsQue
   const section = oneOf(params.get('section'), SECTIONS);
   if (section) query.section = section;
   const keys = parseKeys(params.get('keys'));
-  if (keys.length > 0) query.keys = keys.join(',');
+  if (keys.length > 0) {
+    query.keys = keys.join(',');
+    const total = Number(params.get('keysTotal'));
+    if (Number.isInteger(total) && total > keys.length) query.keysTotal = total;
+  }
   const job = params.get('job');
   if (job && UUID.test(job)) query.job = job;
   const page = Number(params.get('page'));
@@ -81,6 +92,7 @@ export function translationsQueryString(query: Partial<TranslationsQuery>): stri
   if (query.area) params.set('area', query.area);
   if (query.section) params.set('section', query.section);
   if (query.keys) params.set('keys', query.keys);
+  if (query.keys && query.keysTotal) params.set('keysTotal', String(query.keysTotal));
   if (query.job) params.set('job', query.job);
   if (query.page && query.page > 1) params.set('page', String(query.page));
   return params.toString();
@@ -100,6 +112,8 @@ export function nextQuery(current: TranslationsQuery, patch: Partial<Translation
   const next = { ...current, ...patch };
   const filterChanged = FILTER_FIELDS.some((f) => f in patch && patch[f] !== current[f]);
   if (filterChanged && !('page' in patch)) delete next.page;
+  // The total belongs to the key list of the link it came with.
+  if ('keys' in patch && patch.keys !== current.keys && !('keysTotal' in patch)) delete next.keysTotal;
   for (const field of Object.keys(next) as (keyof TranslationsQuery)[]) {
     if (next[field] === undefined || next[field] === '') delete next[field];
   }
@@ -123,11 +137,14 @@ export function entriesQueryOf(query: TranslationsQuery, pageSize = 50): Transla
 
 /** The entries tab filtered to the failed pairs of a job (i18n 12.1 step 7). */
 export function failuresHref(failures: readonly { key: string; locale: Locale }[]): string {
-  const keys = [...new Set(failures.map((f) => f.key))].slice(0, MAX_QUERY_KEYS);
+  const distinct = [...new Set(failures.map((f) => f.key))];
+  const keys = distinct.slice(0, LINK_MAX_KEYS);
   const locales = [...new Set(failures.map((f) => f.locale))];
   return translationsHref({
     tab: 'entries',
     keys: keys.join(','),
+    // The entries tab then says that only the first ones are filtered.
+    keysTotal: distinct.length > keys.length ? distinct.length : undefined,
     locale: locales.length === 1 ? locales[0] : undefined,
   });
 }

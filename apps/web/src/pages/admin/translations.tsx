@@ -435,6 +435,11 @@ function EntriesTab({
           {query.section && <Badge tone="primary">{query.section}</Badge>}
         </div>
       )}
+      {keys.length > 0 && !!query.keysTotal && query.keysTotal > keys.length && (
+        <Notice tone="info">
+          {t('admin.i18n.filter.keysCapped', { count: keys.length, total: query.keysTotal })}
+        </Notice>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted">
