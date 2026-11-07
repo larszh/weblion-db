@@ -1,4 +1,4 @@
-import type { AiPageRef, Locale } from '@weblion/shared';
+import { todayZurich, type AiPageRef, type Locale } from '@weblion/shared';
 
 /**
  * The <context> block at the start of every user turn (ai 9.2): who asks (the role only, never the name or the
@@ -24,15 +24,8 @@ export function escapeLine(text: string): string {
     .trim();
 }
 
-/** Today in Europe/Zurich as YYYY-MM-DD. */
-export function todayZurich(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Zurich',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now);
-}
+/** Today in Europe/Zurich as YYYY-MM-DD (the shared helper). */
+export { todayZurich };
 
 export function contextBlock(
   ctx: RequestContext,

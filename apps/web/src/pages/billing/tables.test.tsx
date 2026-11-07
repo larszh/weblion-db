@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { formatMoney, type ServiceDto } from '@weblion/shared';
 import { en } from '@weblion/shared/i18n/en';
 import { TooltipProvider } from '@/components/ui/menu';
@@ -105,6 +105,25 @@ describe('ServiceTable', () => {
     );
     expect(billed).toContain(scheduledLabel('2026-11-26'));
     expect(billed).not.toContain(escaped(en['billing.service.endWaitsForBilling'].split('{date}')[1]!));
+  });
+
+  it("decides with the Zurich date like the API, not the browser's", () => {
+    const tz = process.env.TZ;
+    // 22:00 on 30 November in New York is already 1 December in Zurich: the end date of 30 November passed.
+    process.env.TZ = 'America/New_York';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-12-01T03:00:00Z'));
+    try {
+      expect(new Date().getDate()).toBe(30);
+      const waiting = service({ endsAt: '2026-11-30', nextBillingAt: '2026-11-01' });
+      expect(html(<ServiceTable services={[waiting]} />)).toContain(
+        escaped(en['billing.service.endWaitsForBilling'].replace('{date}', formatDay('2026-11-30', 'en'))),
+      );
+    } finally {
+      vi.useRealTimers();
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
   });
 
   it('shows neither label without a cancellation and only the end date once it ended', () => {

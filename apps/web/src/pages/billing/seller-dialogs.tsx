@@ -6,6 +6,7 @@ import {
   formatMoney,
   lineTotal,
   productText,
+  todayZurich,
   type BillingInterval,
   type CreditTransactionDto,
   type Currency,
@@ -785,14 +786,15 @@ export function CancelServiceDialog({
 }) {
   const { t, locale } = useI18n();
   const labels = useBillingLabels();
-  const [endsAt, setEndsAt] = useState(todayISO());
+  // The Zurich date, like the API: an end date of today ends the service at once, a later one is scheduled.
+  const [endsAt, setEndsAt] = useState(todayZurich());
   const [deactivate, setDeactivate] = useState(false);
   const scheduled = service ? scheduledEndOf(service) : null;
   // The API checks this again when the module would be switched off (at once or at the end date).
-  const keeping = service ? servicesKeepingModule(service, services, todayISO()) : [];
+  const keeping = service ? servicesKeepingModule(service, services, todayZurich()) : [];
   useEffect(() => {
     if (!service) return;
-    setEndsAt(scheduledEndOf(service) ?? todayISO());
+    setEndsAt(scheduledEndOf(service) ?? todayZurich());
     setDeactivate(service.deactivateModuleAtEnd);
   }, [service]);
 
@@ -851,7 +853,7 @@ export function CancelServiceDialog({
           <Input id="cs-ends" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
         </Field>
         {service && (
-          <FullPeriodNotice service={service} endsAt={endsAt} today={todayISO()} onEndBefore={setEndsAt} />
+          <FullPeriodNotice service={service} endsAt={endsAt} today={todayZurich()} onEndBefore={setEndsAt} />
         )}
         {service?.module && (
           <SwitchRow
