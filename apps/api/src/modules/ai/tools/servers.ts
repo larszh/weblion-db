@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import type { MetricsResult } from '@weblion/shared';
+import type { AuditEntryDto, MetricsResult, Paginated } from '@weblion/shared';
+import type { DbOrTx } from '../../../db/client';
+import { auditEntryBlocked, blockedOrgIds } from '../org-state';
 import { compressMetrics, consolePath, listOf, readFailure, slim, titleOf, tool } from './types';
 
 /** Server tools (ai 8.2, 1 to 4). */
@@ -74,6 +76,28 @@ export const getServerMetrics = tool({
   },
 });
 
+/**
+ * A server's log keeps the entries of its earlier owners. As in get_audit_log (ai 8.3), entries of an
+ * organization whose AI is off never reach the model; the chat organization's own entries always stay.
+ */
+async function withoutBlockedOrgs(db: DbOrTx, orgId: string, entries: AuditEntryDto[]) {
+  const blocked = await blockedOrgIds(db);
+  blocked.delete(orgId);
+  const kept = entries.filter(
+    (e) =>
+      !auditEntryBlocked(
+        {
+          orgId: e.org?.id ?? null,
+          resourceType: e.resourceType,
+          resourceId: e.resourceId,
+          details: e.details,
+        },
+        blocked,
+      ),
+  );
+  return { ...listOf(kept), hidden: entries.length - kept.length };
+}
+
 export const getServerActivity = tool({
   name: 'get_server_activity',
   description:
@@ -85,18 +109,24 @@ export const getServerActivity = tool({
   // does not need (the server is named).
   logEntries: true,
   routes: ['/servers/:id', '/servers/:id/tasks', '/servers/:id/activity'],
-  async run(input, { reader, org }) {
+  async run(input, { reader, org, ctx }) {
     const server = await reader.owned('server', input.server_id);
     if (!server.ok) return readFailure(server);
     const [tasks, activity] = await Promise.all([
       reader.sub<{ actions?: unknown[] }>('server', input.server_id, 'tasks'),
-      reader.sub('server', input.server_id, 'activity', { page: '1', perPage: '50' }),
+      reader.sub<Paginated<AuditEntryDto>>('server', input.server_id, 'activity', {
+        page: '1',
+        perPage: '50',
+      }),
     ]);
+    const audit = activity.ok
+      ? await withoutBlockedOrgs(ctx.db, org.id, activity.body.items ?? [])
+      : { error: activity.error };
     return {
       result: {
         server: titleOf(server.body),
         actions: tasks.ok ? listOf(tasks.body.actions ?? []) : { error: tasks.error },
-        audit: activity.ok ? listOf(activity.body) : { error: activity.error },
+        audit,
       },
       sources: [
         { path: consolePath(org, 'servers', input.server_id, 'activity'), title: titleOf(server.body) },
