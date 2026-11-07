@@ -1,4 +1,19 @@
-import { and, count, desc, eq, ilike, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  ilike,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
@@ -11,6 +26,7 @@ import {
   formatMoney,
   normalizeModules,
   type BillingStatsDto,
+  type EndedEarlyServiceDto,
   type InvoiceDetailDto,
   type InvoiceIssuerSettings,
   type ModuleKey,
@@ -18,6 +34,7 @@ import {
   type TargetLocale,
   type InvoiceDto,
   type SellerCustomerBillingDto,
+  type ServiceResumePreviewDto,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import type { Tx } from '../../db/client';
@@ -40,6 +57,7 @@ import { containsPattern } from '../../lib/like';
 import { loadOrg } from '../orgs/routes';
 import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockOrgBilling } from './ledger';
 import { endModule, isScheduledEnd, moduleEndDetails } from './service-end';
+import { endedEarly, moduleDeactivatedByCancel, resumePlan } from './resume';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
@@ -983,6 +1001,124 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     return toServiceDto(db, updated, { seller: true });
   });
 
+  // --- Restoring services ended early ---------------------------------------------
+  // Until the fix of November 2026 a cancellation to a later date ended the service at once (resume.ts).
+
+  const notEndedEarly = () =>
+    conflict('Only a service a cancellation to a later date ended at once can be restored');
+
+  /** What restoring the service as a scheduled cancellation would bill. */
+  app.get('/services/:id/resume', async (req): Promise<ServiceResumePreviewDto> => {
+    const { id } = parse(idParams, req.params);
+    const { service, org } = await loadServiceAsSeller(req, id);
+    const today = todayZurich();
+    if (!endedEarly(service, today)) throw notEndedEarly();
+    const [plan, switchedOff] = await Promise.all([
+      resumePlan(db, service, today),
+      moduleDeactivatedByCancel(db, service),
+    ]);
+    return {
+      serviceId: service.id,
+      name: service.name,
+      endsAt: service.endsAt!,
+      cancelledAt: service.cancelledAt?.toISOString() ?? null,
+      currency: service.currency,
+      interval: service.interval,
+      ...plan,
+      missedTotal: plan.missedPeriods.reduce((sum, p) => sum + p.amount, 0),
+      module: service.module,
+      moduleActive: !!service.module && org.modules.includes(service.module),
+      moduleDeactivatedByCancel: switchedOff,
+    };
+  });
+
+  /**
+   * Restores a service ended early as a scheduled cancellation: active, the end date and cancellation time
+   * kept, billed from the first unbilled period (billFrom missed) or from the next one that begins today or
+   * later (next, the missed periods stay unbilled). The daily job ends it after the end date like any other.
+   */
+  app.post('/services/:id/resume', async (req) => {
+    const { id } = parse(idParams, req.params);
+    const { service } = await loadServiceAsSeller(req, id);
+    const body = parse(
+      z.object({
+        billFrom: z.enum(['missed', 'next']),
+        activateModule: z.boolean(),
+        deactivateModuleAtEnd: z.boolean(),
+      }),
+      req.body,
+    );
+    const { updated, activated } = await db.transaction(async (tx) => {
+      // Under the billing lock, like cancel: a billing run or the end step cannot work on it in between.
+      await lockOrgBilling(tx, service.orgId);
+      const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
+      const today = todayZurich();
+      if (!current || !endedEarly(current, today)) throw notEndedEarly();
+      const plan = await resumePlan(tx, current, today);
+      // The same helper as a new service with a module, with its lock on the organization row and its check
+      // that a reseller only passes on modules it has.
+      const activated =
+        body.activateModule && current.module
+          ? await activateModule(tx, current.orgId, current.module)
+          : false;
+      const [row] = await tx
+        .update(services)
+        .set({
+          status: 'active',
+          nextBillingAt: body.billFrom === 'missed' ? plan.firstUnbilled : plan.nextFromToday,
+          deactivateModuleAtEnd: !!current.module && body.deactivateModuleAtEnd,
+        })
+        .where(eq(services.id, current.id))
+        .returning();
+      return { updated: row!, activated };
+    });
+    await audit.record(req, {
+      action: 'service.resume',
+      orgId: service.orgId,
+      resourceType: 'service',
+      resourceId: service.id,
+      details: {
+        endsAt: updated.endsAt,
+        nextBillingAt: updated.nextBillingAt,
+        billFrom: body.billFrom,
+        moduleActivated: activated ? updated.module : null,
+        deactivateModuleAtEnd: updated.deactivateModuleAtEnd,
+      },
+    });
+    return toServiceDto(db, updated, { seller: true });
+  });
+
+  /** Services ended early of the given customers, the oldest end date first. */
+  async function endedEarlyServices(customers: SQL): Promise<EndedEarlyServiceDto[]> {
+    const rows = await db
+      .select({ service: services, customer: { id: organizations.id, name: organizations.name } })
+      .from(services)
+      .innerJoin(organizations, eq(organizations.id, services.orgId))
+      .where(
+        and(
+          customers,
+          eq(services.status, 'cancelled'),
+          isNotNull(services.endsAt),
+          gt(services.endsAt, todayZurich()),
+        ),
+      )
+      .orderBy(asc(services.endsAt), asc(organizations.name), asc(services.name));
+    return rows.map(({ service, customer }) => ({
+      serviceId: service.id,
+      name: service.name,
+      customer,
+      endsAt: service.endsAt!,
+      cancelledAt: service.cancelledAt?.toISOString() ?? null,
+      module: service.module,
+    }));
+  }
+
+  /** Staff: the customers the platform bills (not those of resellers, who bill them themselves). */
+  app.get('/admin/billing/services/ended-early', async (req) => {
+    await access.assert(req, 'platform:billing:read', platformScope);
+    return endedEarlyServices(isNull(organizations.parentOrgId));
+  });
+
   // --- Products -------------------------------------------------------------------
 
   app.get('/billing/products', async (req) => {
@@ -1237,6 +1373,12 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     });
     return resellerIssuer(db, org.id);
+  });
+
+  /** A reseller: its customers, whom it bills (endedEarlyServices, with the restore routes above). */
+  app.get('/orgs/:orgId/reseller/services/ended-early', async (req): Promise<EndedEarlyServiceDto[]> => {
+    const org = await resellerOrg(req);
+    return endedEarlyServices(eq(organizations.parentOrgId, org.id));
   });
 }
 

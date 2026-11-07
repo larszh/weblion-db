@@ -216,6 +216,77 @@ export interface ServiceDto {
   createdAt: string;
 }
 
+/**
+ * Until the fix of November 2026 a cancellation to a later date ended the service at once: status "cancelled",
+ * no billing date, the end date in the future. Only that old cancellation leaves a cancelled service with an end
+ * date after today (an immediate cancellation ends on today or earlier, the daily job only ends services whose
+ * end date has passed). Such a service can be restored as the scheduled cancellation it was meant to be.
+ */
+export function endedEarly(service: Pick<ServiceDto, 'status' | 'endsAt'>, today: string): boolean {
+  return service.status === 'cancelled' && service.endsAt !== null && service.endsAt > today;
+}
+
+/** One period as the billing run bills it: one invoice line from `start` to `end`. */
+export interface ServicePeriodDto {
+  start: string;
+  /** Last day of the period, at most the end date of the cancellation. */
+  end: string | null;
+  /** Net amount of the line, lineTotal(quantity, unitPrice). */
+  amount: number;
+}
+
+/** GET /services/:id/resume: what restoring a service ended early (endedEarly) as a scheduled cancellation bills. */
+export interface ServiceResumePreviewDto {
+  serviceId: string;
+  name: string;
+  /** The end date of the cancellation, after today. The restored service runs and is billed up to this day. */
+  endsAt: string;
+  cancelledAt: string | null;
+  currency: Currency;
+  interval: BillingInterval;
+  /**
+   * The first period no invoice has a line for (drafts count, void invoices do not): the billing date with
+   * billFrom "missed". For a one-off service its start date while it is not billed, null once it is.
+   */
+  firstUnbilled: string | null;
+  /** Periods from firstUnbilled that began before today (Zurich) and on or before endsAt. None for one-off services. */
+  missedPeriods: ServicePeriodDto[];
+  /** Sum of the missed periods' amounts, net. */
+  missedTotal: number;
+  /** The first period that begins today or later: the billing date with billFrom "next". */
+  nextFromToday: string | null;
+  /** Net amount of one period (of the one-off charge for a one-off service). */
+  periodAmount: number;
+  module: ModuleKey | null;
+  /** Whether the customer has the module now. */
+  moduleActive: boolean;
+  /** Whether the cancellation switched the module off (its audit entry service.cancel says so). */
+  moduleDeactivatedByCancel: boolean;
+}
+
+/** POST /services/:id/resume */
+export interface ServiceResumeInput {
+  /** missed: bill from firstUnbilled, the missed periods too; next: from nextFromToday, the missed ones stay unbilled. */
+  billFrom: 'missed' | 'next';
+  /** Switches the module on again when the customer does not have it. */
+  activateModule: boolean;
+  /** Switches the module off once the service ends, unless another running service has it. */
+  deactivateModuleAtEnd: boolean;
+}
+
+/**
+ * A service ended early (endedEarly) that its seller may restore: GET /admin/billing/services/ended-early (the
+ * customers the platform bills) and GET /orgs/:orgId/reseller/services/ended-early (the reseller's customers).
+ */
+export interface EndedEarlyServiceDto {
+  serviceId: string;
+  name: string;
+  customer: { id: string; name: string };
+  endsAt: string;
+  cancelledAt: string | null;
+  module: ModuleKey | null;
+}
+
 export interface InvoiceLineDto {
   id: string;
   position: number;
