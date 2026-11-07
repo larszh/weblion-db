@@ -29,6 +29,7 @@
   "admin.i18n.filter.area": ["14d5fc54b22cdd69", "024dc204d7ba77a8"],
   "admin.i18n.filter.anyArea": ["bc0b501bb3186b7e", "4c852ffc6db03708"],
   "admin.i18n.filter.keys": ["5ebc498a4efcd3bc", "ac0b8a694d0fe541"],
+  "admin.i18n.filter.keysCapped": ["d65429eb9ffffa9c", "1ae5cfe7936ab972"],
   "admin.i18n.filter.reset": ["5b59510b692f04e6", "3c2e36e0ceffc64e"],
   "admin.i18n.entries.count": ["8513fe1c002f2a89", "864edcccecb748fc"],
   "admin.i18n.entries.empty": ["e012115ee61bece3", "e18f6b743f62bd42"],

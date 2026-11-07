@@ -33,6 +33,7 @@ export const translationsIt: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.filter.area': 'Area',
   'admin.i18n.filter.anyArea': 'Tutte le aree',
   'admin.i18n.filter.keys': '{count} testi selezionati',
+  'admin.i18n.filter.keysCapped': 'Sono filtrati solo i primi {count} testi su {total}.',
   'admin.i18n.filter.reset': 'Reimposta filtri',
   'admin.i18n.entries.count': 'Testi: {count}',
   'admin.i18n.entries.empty': 'Nessun testo per questi filtri.',
