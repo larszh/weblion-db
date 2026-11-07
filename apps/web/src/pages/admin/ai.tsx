@@ -19,7 +19,7 @@ import {
   type TranslationKey,
 } from '@weblion/shared';
 import { cn } from '@/lib/cn';
-import { useI18n, hasKey, type TFunction } from '@/lib/i18n';
+import { useFreshOverrides, useI18n, hasKey, type TFunction } from '@/lib/i18n';
 import { formatDate, formatNumber } from '@/lib/format';
 import {
   aiErrorText,
@@ -54,7 +54,7 @@ import {
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { AiText } from '@/components/ai/ai-text';
-import { modelLabel, usdFromMicros } from '@/components/ai/bits';
+import { modelLabel, NoticeGate, usdFromMicros } from '@/components/ai/bits';
 import { Pager } from '@/pages/billing/bits';
 import { TabBar, useTabParam } from '@/pages/reseller/bits';
 
@@ -645,14 +645,18 @@ function NoticeCard({
 }) {
   const { t, locale } = useI18n();
   const { checkedAt, checkedBy } = settings.notice;
+  // Checked is only what is current: the text waits for the overrides from the server (i18n 8.1).
+  const fresh = useFreshOverrides();
   return (
     <Card className="lg:col-span-2">
       <CardHeader title={t('admin.ai.notice.title')} description={t('admin.ai.notice.hint')} />
       <CardBody className="space-y-4">
-        <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-surface-2 px-4 py-3">
-          <p className="mb-2 text-sm font-semibold text-text">{t('ai.notice.title')}</p>
-          <AiText text={t('ai.notice.text')} />
-        </div>
+        <NoticeGate state={fresh.state} onRetry={fresh.retry}>
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-border bg-surface-2 px-4 py-3">
+            <p className="mb-2 text-sm font-semibold text-text">{t('ai.notice.title')}</p>
+            <AiText text={t('ai.notice.text')} />
+          </div>
+        </NoticeGate>
         <div className="flex flex-wrap items-center gap-3">
           <Link
             to={NOTICE_LINK}
@@ -660,7 +664,7 @@ function NoticeCard({
           >
             {t('admin.ai.notice.edit')}
           </Link>
-          <Button size="sm" loading={pending} onClick={onCheck}>
+          <Button size="sm" loading={pending} disabled={fresh.state !== 'ready'} onClick={onCheck}>
             {t('admin.ai.notice.check')}
           </Button>
           <span className="text-sm text-muted">

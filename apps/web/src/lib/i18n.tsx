@@ -47,6 +47,10 @@ export interface I18nContextValue {
   applyOverride(locale: Locale, key: string, value: string | null): void;
   /** Replaces all overrides of a locale (background revalidation). */
   applyOverrides(locale: Locale, values: Record<string, string>): void;
+  /** Whether the current locale's overrides came from the server in this session (I18nStore). */
+  hasFreshOverrides(): boolean;
+  /** Fetches the current locale's overrides when they have not arrived yet (I18nStore). */
+  ensureFreshOverrides(): Promise<boolean>;
 }
 
 export interface I18nBoot {
@@ -150,6 +154,17 @@ export interface I18nStore {
   applyOverrides(locale: Locale, values: Record<string, string>): void;
   /** From the background revalidation: the loader already cached the answer with its ETag. */
   receiveOverrides(locale: Locale, values: Record<string, string>): void;
+  /**
+   * Whether the current locale's overrides (A1) came from the server in this session. Legal texts such as the AI
+   * data notice are current only then (i18n 8.1): the compiled chunk, a cached copy or no overrides at all can
+   * show an outdated notice.
+   */
+  hasFreshOverrides(): boolean;
+  /**
+   * The current locale's overrides from the server when they have not arrived in this session: one request and,
+   * when it fails, one more. Applies the answer; true once they are there, false when both requests failed.
+   */
+  ensureFreshOverrides(): Promise<boolean>;
 }
 
 /**
@@ -250,6 +265,19 @@ export function createI18nStore(boot: I18nBoot, loader: I18nLoader = i18nLoader)
       receiveOverrides(target, values);
     },
     receiveOverrides,
+    hasFreshOverrides: () => loader.hasFreshOverrides(locale),
+    async ensureFreshOverrides() {
+      const target = locale;
+      if (loader.hasFreshOverrides(target)) return true;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const values = await loader.refreshOverrides(target);
+        if (values) {
+          receiveOverrides(target, values);
+          return true;
+        }
+      }
+      return false;
+    },
   };
 }
 
@@ -314,6 +342,8 @@ export function I18nProvider({ boot, children }: { boot?: I18nBoot; children: Re
       setLocale: store.setLocale,
       applyOverride: store.applyOverride,
       applyOverrides: store.applyOverrides,
+      hasFreshOverrides: store.hasFreshOverrides,
+      ensureFreshOverrides: store.ensureFreshOverrides,
     }),
     [snapshot, store],
   );
@@ -333,6 +363,34 @@ export function useOptionalLocale(): Locale | null {
 
 export function useT(): TFunction {
   return useI18n().t;
+}
+
+export type FreshOverridesState = 'loading' | 'ready' | 'error';
+
+/**
+ * Whether the texts on screen include the current locale's overrides from the server, which a legal text needs
+ * (the AI data notice, i18n 8.1). While `active` and they have not arrived in this session, asks for them
+ * (once more after a failure); 'error' when that failed, and `retry` asks again.
+ */
+export function useFreshOverrides(active = true): { state: FreshOverridesState; retry: () => void } {
+  const { locale, hasFreshOverrides, ensureFreshOverrides } = useI18n();
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<{ locale: Locale; attempt: number; ok: boolean } | null>(null);
+  // Once there, they stay for the session, so reading the loader while rendering is stable.
+  const fresh = hasFreshOverrides();
+  useEffect(() => {
+    if (!active || fresh) return;
+    let live = true;
+    void ensureFreshOverrides().then((ok) => {
+      if (live) setResult({ locale, attempt, ok });
+    });
+    return () => {
+      live = false;
+    };
+  }, [active, fresh, locale, attempt, ensureFreshOverrides]);
+  const current = result && result.locale === locale && result.attempt === attempt ? result : null;
+  const state: FreshOverridesState = fresh || current?.ok ? 'ready' : current ? 'error' : 'loading';
+  return { state, retry: () => setAttempt((n) => n + 1) };
 }
 
 /** Switches the UI language with a toast (language.loadFailed) on failure; resolves false then. Saves nothing. */

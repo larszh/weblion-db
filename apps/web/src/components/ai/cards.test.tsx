@@ -5,6 +5,7 @@ import { en } from '@weblion/shared/i18n/en';
 import type { TFunction } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
 import { withI18n } from '@/test/i18n';
+import { NoticeGate } from './bits';
 import {
   adminAiLines,
   ConsentBody,
@@ -95,6 +96,24 @@ describe('switch cards (ai 12.4, plan O34)', () => {
     // Declining stays open to them.
     expect(actions(false, false)).toContain(esc(en['ai.org.decline']));
     expect(actions(false, false)).not.toContain(esc(en['ai.org.allowOwnOnly']));
+  });
+
+  it('the data notice shows only with the current texts; otherwise a short error with a retry (i18n 8.1)', () => {
+    const gate = (state: 'loading' | 'ready' | 'error') =>
+      renderToStaticMarkup(
+        withI18n(
+          <NoticeGate state={state} onRetry={() => {}}>
+            <p>NOTICE TEXT</p>
+          </NoticeGate>,
+        ),
+      );
+    expect(gate('ready')).toContain('NOTICE TEXT');
+    expect(gate('loading')).not.toContain('NOTICE TEXT');
+    const failed = gate('error');
+    expect(failed).not.toContain('NOTICE TEXT');
+    expect(failed).toContain('role="alert"');
+    expect(failed).toContain(esc(en['ai.noticeUnavailable']));
+    expect(failed).toContain(esc(en['common.retry']));
   });
 
   it('locks the reseller switch when weblion switched the customer off or the reseller is off', () => {
