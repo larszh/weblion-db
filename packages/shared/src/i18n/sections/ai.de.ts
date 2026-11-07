@@ -160,6 +160,8 @@ export const aiDe = {
   'ai.proposal.textOnly':
     'Diesen Eintrag können Sie hier nicht direkt anlegen. Tragen Sie ihn dort ein, wo die DNS-Zone verwaltet wird.',
   'ai.proposal.opened': 'Der Vorschlag ist im Formular eingetragen. Prüfen Sie ihn und speichern Sie.',
+  'ai.proposal.recordMissing':
+    'Der DNS-Eintrag, den dieser Vorschlag ändert, konnte nicht geladen werden oder hat sich inzwischen geändert. Laden Sie die Einträge neu oder führen Sie die Prüfung erneut aus.',
 
   // Organization, reseller and staff cards
   'ai.org.title': 'KI-Funktionen',

@@ -153,6 +153,8 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.proposal.textOnly':
     'Questo record non può essere creato direttamente qui. Lo inserisca dove viene gestita la zona DNS.',
   'ai.proposal.opened': 'La proposta è stata inserita nel modulo. La verifichi e salvi.',
+  'ai.proposal.recordMissing':
+    'Non è stato possibile caricare il record DNS che questa proposta modifica, oppure nel frattempo è stato modificato. Ricarichi i record o esegua di nuovo la verifica.',
   'ai.org.title': 'Funzioni IA',
   'ai.org.description':
     "Con le funzioni IA, Claude di Anthropic risponde a domande sulla sua organizzazione e spiega gli errori. L'IA legge soltanto e non modifica nulla.",

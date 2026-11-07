@@ -138,6 +138,7 @@
   "ai.proposal.unverifiedConfirm.action": ["d11989adb3b92ee0", "7e24d6918d947abe"],
   "ai.proposal.textOnly": ["0b1f376869873b1c", "a92a06bb282debc9"],
   "ai.proposal.opened": ["623ede4a35411398", "e891d2aaf80a3a98"],
+  "ai.proposal.recordMissing": ["e0d0cc9f3dd3d40d", "1e973f786b3b1b60"],
   "ai.org.title": ["c946a7806290fa3c", "fea37e7bca4f4109"],
   "ai.org.description": ["a8573085322399da", "9305031e61388dc9"],
   "ai.org.state.on": ["58279f7276918021", "67f7f9fe7cacdbc5"],

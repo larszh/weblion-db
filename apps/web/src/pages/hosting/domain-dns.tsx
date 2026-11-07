@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Pencil,
   Plus,
+  RotateCw,
   Trash2,
 } from 'lucide-react';
 import {
@@ -53,6 +54,7 @@ import {
   formTtl,
   isProxiable,
   newRecordInput,
+  proposalForm,
   recordPatch,
   relativeName,
   type RecordForm,
@@ -181,6 +183,7 @@ export function DomainDns({ domain }: { domain: DomainDetailDto }) {
     setDraft(waiting);
     takeProposal();
   }, [waiting, takeProposal]);
+  const proposed = draft ? proposalForm(draft, records) : null;
   const mutations = useDnsMutations(domain.id, {
     added: t('hosting.dns.added'),
     updated: t('hosting.dns.updated'),
@@ -439,16 +442,37 @@ export function DomainDns({ domain }: { domain: DomainDetailDto }) {
           </Table>
         )}
         {/* A proposal opens the normal form pre-filled; saving is the normal save (ai 1.2). A change
-            waits for the records, so it edits the record the proposal names. */}
-        {draft && writable && !records.isPending && (
+            waits for the records, so it edits the record the proposal names, and never opens as an addition. */}
+        {draft && writable && proposed?.state === 'missing' && (
+          <Dialog
+            open
+            onOpenChange={(o) => !o && setDraft(null)}
+            title={t('ai.proposal.change')}
+            size="sm"
+            footer={
+              <>
+                <Button variant="ghost" onClick={() => setDraft(null)}>
+                  {t('common.close')}
+                </Button>
+                <Button
+                  variant="primary"
+                  icon={<RotateCw />}
+                  loading={records.isFetching}
+                  onClick={() => void records.refetch()}
+                >
+                  {t('common.retry')}
+                </Button>
+              </>
+            }
+          >
+            <Notice tone="warning">{t('ai.proposal.recordMissing')}</Notice>
+          </Dialog>
+        )}
+        {draft && writable && proposed?.state === 'open' && (
           <DnsRecordDialog
             key={`ai-${draft.id}`}
             zone={domain.name}
-            record={
-              draft.action === 'change'
-                ? ((records.data ?? []).find((r) => r.id === draft.recordId) ?? null)
-                : null
-            }
+            record={proposed.record}
             initial={{ type: draft.type, name: draft.name, data: draft.data, ttl: draft.ttl }}
             proposal={draft}
             types={domain.dnsRecordTypes}

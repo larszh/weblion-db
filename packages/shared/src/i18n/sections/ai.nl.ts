@@ -152,6 +152,8 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.proposal.textOnly':
     'Dit record kunt u hier niet direct aanmaken. Voer het in waar de DNS-zone wordt beheerd.',
   'ai.proposal.opened': 'Het voorstel is in het formulier ingevuld. Controleer het en sla het op.',
+  'ai.proposal.recordMissing':
+    'Het DNS-record dat dit voorstel wijzigt, kon niet worden geladen of is intussen gewijzigd. Laad de records opnieuw of voer de controle opnieuw uit.',
   'ai.org.title': 'AI-functies',
   'ai.org.description':
     'Met de AI-functies beantwoordt Claude van Anthropic vragen over uw organisatie en legt fouten uit. De AI leest alleen en wijzigt niets.',
