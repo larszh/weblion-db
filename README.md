@@ -328,7 +328,8 @@ gespeichert wird dort, mit der normalen Rechteprüfung.
   Übermittlung in die USA, Datenschutzhinweis, Ort des Workspace). Für jeden Kunden bleibt sie
   danach aus, bis weblion.one (Admin > Kunden) oder sein Reseller sie einschaltet, nachdem der Kunde
   zugestimmt hat. Das Audit-Log hält die Bestätigung fest. Der Kunde kann jederzeit ablehnen
-  (Einstellungen > KI-Funktionen), das gilt auch für die Funktionen der Mitarbeitenden.
+  (Einstellungen > KI-Funktionen), das gilt auch für die Funktionen der Mitarbeitenden. Zurücknehmen
+  kann die Ablehnung nur der Kunde selbst, nicht sein Reseller und nicht weblion.one.
 - **Schlüssel** aus der Claude Console unter Admin > KI speichern (verschlüsselt, danach nie mehr
   angezeigt) oder als `ANTHROPIC_API_KEY` setzen. Der gespeicherte hat Vorrang.
 - **Modell und Kosten:** ein Modell für alle Funktionen, Standard Claude Opus 5.5 (USD 4 pro

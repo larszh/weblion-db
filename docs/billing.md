@@ -44,7 +44,9 @@ abrechnen".
 ### Kündigen
 
 Ohne Datum, mit heute oder einem früheren Datum endet ein Dienst sofort: Er wird nicht mehr
-abgerechnet, und "Modul sperren" schaltet das Modul gleich aus. Mit einem späteren Datum ist die
+abgerechnet, und "Modul sperren" schaltet das Modul gleich aus. "Heute" ist dabei das Datum in Zürich
+(Europe/Zurich), in der API wie im Dialog, auch wenn der Browser in einer anderen Zeitzone läuft. Mit
+einem späteren Datum ist die
 Kündigung vorgemerkt ("Gekündigt per ..."): Der Dienst läuft bis zu diesem Tag weiter, behält seinen
 Status (aktiv oder pausiert) und wird für jede Periode abgerechnet, die bis zu diesem Tag beginnt, die
 letzte bis zum Enddatum, aber zum vollen Periodenpreis (nicht anteilig). Bezahlt der Kunde so für Tage,

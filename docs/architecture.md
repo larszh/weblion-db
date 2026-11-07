@@ -168,7 +168,9 @@ Auswertung einer Anfrage:
    verweigert, als zusätzliche Regel in der Grenze. Ebenso `ai:use`, solange die KI für die
    Organisation nicht eingeschaltet ist (Standard) oder der Kunde sie abgelehnt hat
    (`aiDenyStatements()`). `ai:settings` bleibt erlaubt, auch bei gesperrten Kunden: Ein Kunde kann
-   die KI immer ablehnen und eine Ablehnung zurücknehmen. Weil Plattform-Rollen an keiner Grenze
+   die KI immer ablehnen und eine Ablehnung zurücknehmen. Zurücknehmen geht nur über die eigene
+   Mitgliedschaft, nicht als Mitarbeitende des Resellers oder von weblion.one (`ai_decline_org_only`).
+   Weil Plattform-Rollen an keiner Grenze
    hängen, prüfen die Routen der KI den Zustand der Organisation zusätzlich selbst: Ist die KI für
    einen Kunden aus, bekommen auch Mitarbeitende von weblion.one keine KI auf seinen Daten.
 6. **Reseller**: Gehört die Organisation zu einem Reseller, gilt dessen Grenze (inkl. Module,
@@ -664,7 +666,9 @@ Browser ──POST /orgs/:orgId/ai/chat──> aiRequestGate (KI der Organisatio
   pro Organisation und Person, 12 Anfragen pro Person und Minute und die gleichzeitigen Anfragen (2
   pro Person, 3 pro Organisation, 6 auf der Plattform). Gezählt wird in `ai_usage`, die Limits
   gelten also über alle API-Prozesse. Nach jedem Aufruf bucht die Console die Kosten aus den
-  Token-Zahlen. Ist das Budget aufgebraucht, beginnt kein weiterer Aufruf, auch nicht mitten in
+  Token-Zahlen, auch nach einem Aufruf, der nach dem Beginn der Antwort abbricht (`addCutCall()`: die
+  Tokens aus dem Stand des Streams, ohne Angabe die Schätzung). Ist das Budget aufgebraucht, beginnt
+  kein weiterer Aufruf, auch nicht mitten in
   einer Antwort, und eine Antwort darf höchstens das Fünffache ihrer Schätzung kosten. Erreicht der
   Verbrauch nach einer Anfrage die Warnschwelle oder das Budget, geht je einmal im Monat eine E-Mail
   an die Superadmins.
@@ -696,24 +700,31 @@ Bedienung in [i18n.md](i18n.md).
 - **Angepasste Texte ohne Deploy:** Was unter Admin > Übersetzungen geändert wird, steht in
   `translation_overrides` und gilt sofort. `I18nService` (`src/i18n/service.ts`) hält alle Zeilen im
   Speicher: Der Prozess, der schreibt, lädt sofort neu, andere Prozesse schauen alle 15 Sekunden
-  nach. Die Console holt die Anpassungen einer Sprache über die öffentliche Route
+  nach (Anzahl und eine Prüfsumme über alle Zeilen der Änderungen und des Glossars, damit auch eine
+  Änderung bestehender Zeilen mit älterem Zeitstempel ankommt). Die Console holt die Anpassungen einer
+  Sprache über die öffentliche Route
   `GET /i18n/overrides/:locale` (mit ETag, ohne die Texte von E-Mails und PDF) und merkt sie sich im
   Browser. Zurück ins Repository kommen sie mit dem Export der Seite und
   `pnpm --filter @weblion/api i18n:apply <Datei>`.
 - **Prüfungen:** Dieselben Regeln (`packages/shared/src/i18n/checks.ts`) gelten für die Wörterbücher
   in den Tests, für Änderungen auf der Seite Übersetzungen und für Ergebnisse der KI: Platzhalter,
-  Zeilenumbrüche, kein scharfes S, kein langer Gedankenstrich, die Leerzeichen im Französischen, dazu
-  Warnungen wie verbliebenes Deutsch oder Begriffe des Glossars.
+  Zeilenumbrüche, kein scharfes S, kein langer Gedankenstrich, die Leerzeichen im Französischen, in den
+  Texten des Rechnungs-PDF nur Zeichen aus Windows-1252, dazu Warnungen wie verbliebenes Deutsch oder
+  Begriffe des Glossars. Eine Änderung, deren Platzhalter nicht mehr zum deutschen Text im Code passen,
+  liefert `I18nService` nicht aus.
 - **Rechtstexte** (`LEGAL_KEYS`: Titel und Text des Datenschutzhinweises der KI) übersetzt die KI
   nie. Ist eine Übersetzung nach einer Änderung des deutschen Textes veraltet, zeigt die Console
-  den englischen Text, wenn dieser aktuell ist, sonst den deutschen, bis jemand neu übersetzt.
+  den englischen Text, wenn dieser aktuell ist, sonst den deutschen, bis jemand neu übersetzt. Diesen
+  Ersatz kennt nur die Route der Anpassungen, deshalb zeigt das Web den Hinweis erst, wenn sie in der
+  laufenden Sitzung geantwortet hat (`useFreshOverrides()`).
 - **Mass Translate** (`src/i18n/jobs.ts`, `translator.ts`): Höchstens ein Job über alle Prozesse
   (eindeutiger Index in `translation_jobs`, Übernahme unter einem Advisory Lock). Der Job arbeitet
   in Paketen, `I18N_AI_CONCURRENCY` gleichzeitig, jedes Paket wird für sich gespeichert. Der
   Prozess, der ihn ausführt, meldet sich alle 30 Sekunden; bleibt die Meldung 2 Minuten aus,
   übernimmt ein anderer Prozess. Prozesse mit `I18N_JOB_ENABLED=false` übernehmen keine Jobs. Der
   Start wird abgelehnt, wenn die Kosten seit der bestätigten Schätzung um mehr als 25 Prozent
-  gestiegen sind, und der Job stoppt beim 1.5-fachen der Schätzung. Ergebnisse stehen als "KI,
+  gestiegen sind, und ab dem 1.5-fachen der Schätzung beginnt der Job kein neues Paket mehr (laufende
+  Pakete speichern noch). Ergebnisse stehen als "KI,
   ungeprüft" da. Manuell geänderte und geprüfte Texte bleiben, ausser "Auch manuell geänderte und
   geprüfte Übersetzungen ersetzen" ist gewählt.
 - **Was Englisch bleibt:** Meldungen der API (die Console übersetzt nur die allgemeinen Fehlercodes,

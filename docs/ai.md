@@ -151,11 +151,16 @@ eingeschaltet ist. Der Eintrag `ai.org_switch` steht im Audit-Log des Resellers 
 Karte "KI-Funktionen", ab ("KI-Funktionen ablehnen") und nehmen die Ablehnung dort zurück. Das geht
 jederzeit: bevor die KI auf der Plattform eingeschaltet ist, während der Kunde gesperrt ist und danach. Eine
 Ablehnung gewinnt immer, auch gegen die Funktionen der Mitarbeitenden von weblion.one: Dann gehen keine Daten
-dieses Kunden mehr an Anthropic. Im Audit-Log steht `ai.org_decline` oder `ai.org_allow`.
+dieses Kunden mehr an Anthropic. Die Ablehnung gehört dem Kunden: Mitarbeitende seines Resellers und von
+weblion.one, die beim Kunden arbeiten, dürfen für ihn ablehnen, aber nur seine eigenen Mitglieder nehmen sie
+zurück (sonst 403 `ai_decline_org_only`). Die Karte zeigt den anderen statt des Knopfs einen Satz dazu.
+Zurücknehmen geht erst, wenn der aktuelle Datenschutzhinweis geladen ist. Im Audit-Log steht
+`ai.org_decline` oder `ai.org_allow`.
 
 Für Mitarbeitende gilt beim Kunden dasselbe wie für seine Mitglieder: Ist die KI für den Kunden aus, beim
 Reseller aus oder abgelehnt, ist sie es auch für sie. Zusammenfassungen des Audit-Logs lassen Einträge zu
-solchen Kunden aus und sagen, wie viele.
+solchen Kunden aus und sagen, wie viele. Ebenso die Aktivität eines Servers: Hatte er früher einen anderen
+Besitzer, bei dem die KI aus ist, erfährt Claude dessen Einträge nicht.
 
 Die Karten zeigen die Zahl der KI-Anfragen dieses Monats, die Karte des Kunden und die im Admin-Bereich dazu
 die Zahl der Anfragen von Mitarbeitenden. Kunden und Reseller sehen nur Anzahlen, Mitarbeitende im
@@ -181,13 +186,16 @@ Fest im Code:
 - pro Antwort des Assistenten höchstens 8 Aufrufe von Claude und 24 Abfragen, davon 8 bei Providern, und
   Kosten bis zum Fünffachen der Schätzung. Ist eine Grenze erreicht, liest der Assistent nichts mehr und sagt,
   dass die Antwort gekürzt ist
-- ein Auftrag von "Mit KI übersetzen" stoppt beim 1.5-fachen seiner Schätzung
+- ein Auftrag von "Mit KI übersetzen" beginnt ab dem 1.5-fachen seiner Schätzung kein neues Paket mehr
 - eine Anfrage dauert höchstens `AI_TURN_TIMEOUT_SECONDS` (Standard 180 Sekunden)
 
 Das Budget ist eine harte Grenze für die ganze Plattform. Ist es aufgebraucht, startet keine KI-Anfrage mehr,
 auch keine Übersetzung, und eine laufende Antwort des Assistenten hält an. Ein Budget von 0 sperrt alles. Vor
 jeder Anfrage reserviert die Console die geschätzten Kosten, so überziehen auch gleichzeitige Anfragen das
-Budget kaum.
+Budget kaum. Auch ein abgebrochener Aufruf zählt: Endet eine Anfrage, nachdem Claude zu antworten begonnen
+hat (Stopp, `AI_TURN_TIMEOUT_SECONDS`, Fehler mitten in der Antwort), verrechnet Anthropic sie trotzdem, und
+die Console bucht die Tokens, die bis dahin gemeldet sind, ohne Angabe die Schätzung. Die Eingabe zählt dabei
+ganz, von der Ausgabe meist nur ein Teil. Ein Fehler, bevor die Antwort beginnt, kostet nichts.
 
 Monate und Tage zählen nach Schweizer Zeit (Europe/Zurich). Erreicht der Verbrauch die Warnschwelle oder das
 Budget, bekommen alle aktiven Superadmins einmal im Monat eine E-Mail in ihrer Sprache, und das Audit-Log hält
@@ -211,9 +219,12 @@ Der Assistent hat 22 Werkzeuge: 21 lesen, eines macht einen DNS-Vorschlag. Kein 
   die es nicht gibt.
 - **Vorschläge öffnen nur das Formular.** Ein DNS-Vorschlag (A, AAAA, CNAME, MX, TXT, SRV oder CAA, neu oder
   geändert) öffnet mit "Vorschlag übernehmen" das normale DNS-Formular vorausgefüllt. Gespeichert wird erst
-  dort, mit der normalen Prüfung der Rechte und einem Eintrag im Audit-Log. Einen Wert, den die Console nicht
-  selbst berechnet hat, markiert sie mit "Nicht von weblion.one geprüft" und öffnet ihn erst nach einer
-  zweiten Bestätigung ("Trotzdem öffnen"). Einträge löschen und NS-Einträge vorschlagen kann die KI nicht.
+  dort, mit der normalen Prüfung der Rechte und einem Eintrag im Audit-Log. Ein Vorschlag, der einen
+  bestehenden Eintrag ändert, öffnet nur das Formular dieses Eintrags: Konnte die Seite ihn nicht laden oder
+  hat er sich inzwischen geändert, erscheint ein Hinweis mit "Erneut versuchen", nie das Formular für einen
+  neuen Eintrag. Einen Wert, den die Console nicht selbst berechnet hat, markiert sie mit "Nicht von
+  weblion.one geprüft" und öffnet ihn erst nach einer zweiten Bestätigung ("Trotzdem öffnen"). Einträge
+  löschen und NS-Einträge vorschlagen kann die KI nicht.
   MX-Einträge und die A- und AAAA-Einträge der Domain selbst (`@`) ändert sie nur auf einen Wert, den die
   Console berechnet hat. Produkttexte übernimmt "In das Formular übernehmen", gespeichert wird mit "Speichern"
   im Produktformular.
@@ -319,8 +330,11 @@ Einstellungen ("Datenschutzhinweis lesen"). Er ist der Übersetzungsschlüssel `
 Der Text lässt sich pro Sprache unter Admin > Übersetzungen bearbeiten, die Karte "Datenschutzhinweis" auf
 der KI-Seite führt mit "Text bearbeiten" dorthin. Er wird nie maschinell übersetzt. Ist eine Übersetzung nach
 einer Änderung am deutschen Text veraltet, zeigt die Console den englischen Text, wenn dieser aktuell ist,
-sonst den deutschen, bis jemand die Übersetzung nachführt. "Als geprüft markieren" auf der KI-Seite hält fest,
-wer den Text wann geprüft hat. Mehr dazu in [i18n.md](i18n.md#rechtstexte).
+sonst den deutschen, bis jemand die Übersetzung nachführt. Im Browser zeigt die Console Titel und Text erst,
+wenn die Änderungen der Sprache in dieser Sitzung vom Server gekommen sind; vorher kann der Text der
+Sprachdatei veraltet sein. Gelingt das auch beim zweiten Versuch nicht, erscheint eine kurze Fehlermeldung mit
+"Erneut versuchen". "Als geprüft markieren" auf der KI-Seite hält fest, wer den Text wann geprüft hat, und
+geht ebenfalls erst mit dem aktuellen Text. Mehr dazu in [i18n.md](i18n.md#rechtstexte).
 
 ## Betrieb
 
