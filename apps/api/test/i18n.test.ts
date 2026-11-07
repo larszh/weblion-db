@@ -472,6 +472,33 @@ describe('A4 save', () => {
     const [row] = await t.db.select().from(translationOverrides);
     expect(row!.sourceHash).toBe(sourceHash('Server'));
   });
+
+  it('hides overrides written before a placeholder rename and checks against the compiled German', async () => {
+    // Written while the code still passed {label}; the code and the compiled German now use {name}.
+    const key = 'servers.rename.title' as ServerTranslationKey;
+    const oldGerman = 'Server {label} umbenennen';
+    await put(key, 'de', oldGerman);
+    await put(key, 'fr', 'Renommer {label}', { hash: sourceHash(oldGerman) });
+    await t.ctx.i18n.reload();
+    expect(t.ctx.i18n.t('de', key, { name: 'web1' })).toBe('Server web1 umbenennen');
+    expect(t.ctx.i18n.t('fr', key, { name: 'web1' })).toBe('Rename server web1');
+    expect(t.ctx.i18n.cell('de', key)).toMatchObject({ hidden: true, value: 'Server {name} umbenennen' });
+    expect(t.ctx.i18n.cell('fr', key)).toMatchObject({ hidden: true });
+    expect(t.ctx.i18n.source(key).text).toBe('Server {name} umbenennen');
+    expect(
+      json(await t.app.inject({ method: 'GET', url: '/api/v1/i18n/overrides/fr' })).values,
+    ).not.toHaveProperty(key);
+
+    // The corrected translation is checked against the placeholders of the code, not the old German row.
+    const res = await admin.request('PUT', cellUrl('fr', key), { value: 'Renommer le serveur {name}' });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(json<TranslationEditResultDto>(res).entry.cells.fr).toMatchObject({
+      value: 'Renommer le serveur {name}',
+      state: 'current',
+      hidden: false,
+    });
+    expect(t.ctx.i18n.t('fr', key, { name: 'web1' })).toBe('Renommer le serveur web1');
+  });
 });
 
 describe('A5 to A8', () => {

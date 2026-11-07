@@ -16,7 +16,7 @@ import {
   type TranslationCheckName,
 } from '@weblion/shared';
 import { loadCatalog, type I18nCatalog } from '@weblion/shared/i18n/catalog';
-import { checkValue } from '@weblion/shared/i18n/checks';
+import { checkValue, placeholdersMatch } from '@weblion/shared/i18n/checks';
 import { DEFAULT_GLOSSARY, type GlossaryTerm } from '@weblion/shared/i18n/glossary';
 import type { Env } from '../config/env';
 import type { Database } from '../db/client';
@@ -66,6 +66,8 @@ export class I18nService {
    */
   private warningsMemo = new Map<string, TranslationCheckName[]>();
   private glossarySignature = '';
+  /** placeholdersCurrent() per row; rows are new objects on every load. */
+  private placeholderMemo = new WeakMap<OverrideRow, boolean>();
 
   constructor(
     private readonly db: Database,
@@ -101,6 +103,24 @@ export class I18nService {
   /** Rules 1 to 3 of i18n 8.1: the row is served to the console, the mails and the PDF. */
   isServable(row: OverrideRow): boolean {
     return this.servable(row);
+  }
+
+  /**
+   * The placeholders of the row are those of the compiled German text, which is what the code passes. A row
+   * written before a deploy renamed a placeholder would show the raw {old} braces, so servable() hides it.
+   * Memoized per row object, so the result lasts until the next load.
+   */
+  placeholdersCurrent(row: OverrideRow): boolean {
+    let ok = this.placeholderMemo.get(row);
+    if (ok === undefined) {
+      const { missing, extra } = placeholdersMatch(
+        this.catalog.bundles.de[row.key as ServerTranslationKey] ?? row.key,
+        row.value,
+      );
+      ok = missing.length === 0 && extra.length === 0;
+      this.placeholderMemo.set(row, ok);
+    }
+    return ok;
   }
 
   /** Reads every override (and the glossary for the cell warnings) into memory. */
@@ -250,10 +270,15 @@ export class I18nService {
     return this.env.ENABLE_DEMO_PROVIDER && !this.env.ANTHROPIC_API_KEY;
   }
 
-  /** Rules 1 to 3 of i18n 8.1: the key exists, demo only in demo mode, legal keys of target locales current. */
+  /**
+   * Rules 1 to 3 of i18n 8.1: the key exists, demo only in demo mode, legal keys of target locales current;
+   * and the placeholders are still those of the code (placeholdersCurrent). A hidden German row also leaves
+   * source(), so translations and their checks go back to the compiled German.
+   */
   private servable(row: OverrideRow): boolean {
     if (!this.catalog.has(row.key)) return false;
     if (row.demo && !this.demoServable()) return false;
+    if (!this.placeholdersCurrent(row)) return false;
     if (isLegalKey(row.key) && isTargetLocale(row.locale)) {
       return row.sourceHash === this.source(row.key).hash;
     }
