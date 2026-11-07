@@ -64,6 +64,15 @@ describe('localizeError (i18n 7)', () => {
     expect(localizeError(new ApiError(409, 'job_running', 'x', { jobId: 'j1' }), tEn)).toBe(
       en['admin.i18n.error.job_running'],
     );
+    // A pdf.* value outside Windows-1252 names the PDF and the characters; a reason without a text does not.
+    const pdf = new ApiError(400, 'forbidden_character', 'x', { characters: ['U+0151'], reason: 'pdf' });
+    expect(localizeError(pdf, tDe)).toBe(
+      interpolate(de['admin.i18n.error.forbidden_character.pdf'], { characters: 'U+0151' }),
+    );
+    expect(localizeError(pdf, tDe)).toContain('U+0151');
+    expect(
+      localizeError(new ApiError(400, 'forbidden_character', 'x', { characters: [], reason: 'later' }), tEn),
+    ).toBe(en['admin.i18n.error.forbidden_character']);
   });
 
   it('rule 4: generic codes, whatever the API message says', () => {

@@ -231,6 +231,8 @@ export const translationsDe = {
     'Die Platzhalter müssen genau die des deutschen Textes sein. Fehlt: {missing}. Zu viel: {extra}.',
   'admin.i18n.error.forbidden_character':
     'Der Text enthält ein nicht erlaubtes Zeichen (scharfes S oder langer Gedankenstrich).',
+  'admin.i18n.error.forbidden_character.pdf':
+    'Texte der PDF-Rechnung dürfen nur Zeichen aus Windows-1252 enthalten (andere kann die Schrift der Rechnung nicht drucken), kein scharfes S und keinen langen Gedankenstrich. Nicht erlaubt: {characters}',
   'admin.i18n.error.unknown_key': 'Diesen Text gibt es nicht mehr. Laden Sie die Seite neu.',
   'admin.i18n.error.legal_key': 'Rechtstexte werden nie maschinell übersetzt.',
   'admin.i18n.error.nothing_to_translate': 'Für diese Auswahl gibt es nichts zu übersetzen.',

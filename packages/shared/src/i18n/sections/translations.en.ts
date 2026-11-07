@@ -225,6 +225,8 @@ export const translationsEn: Record<keyof typeof translationsDe, string> = {
     'The placeholders must be exactly those of the German text. Missing: {missing}. Extra: {extra}.',
   'admin.i18n.error.forbidden_character':
     'The text contains a character that is not allowed (sharp s or em dash).',
+  'admin.i18n.error.forbidden_character.pdf':
+    'Texts of the PDF invoice may only contain characters from Windows-1252 (its font cannot print others), and no sharp s or em dash. Not allowed: {characters}',
   'admin.i18n.error.unknown_key': 'This text no longer exists. Please reload the page.',
   'admin.i18n.error.legal_key': 'Legal texts are never machine translated.',
   'admin.i18n.error.nothing_to_translate': 'There is nothing to translate for this selection.',

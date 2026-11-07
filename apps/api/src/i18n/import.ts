@@ -165,7 +165,7 @@ export function planImport(
       skip(row, 'placeholders', detail);
       continue;
     }
-    const characters = forbiddenCharacters(value);
+    const characters = forbiddenCharacters(value, i18n.catalog.sectionOf(key));
     if (characters.length > 0) {
       skip(row, 'characters', characters.join(', '));
       continue;

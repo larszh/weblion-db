@@ -203,6 +203,8 @@ export const translationsNl: Partial<Record<keyof typeof translationsDe, string>
     'De plaatshouders moeten precies die van de Duitse tekst zijn. Ontbreekt: {missing}. Te veel: {extra}.',
   'admin.i18n.error.forbidden_character':
     'De tekst bevat een niet-toegestaan teken (ringel-s of lang gedachtestreepje).',
+  'admin.i18n.error.forbidden_character.pdf':
+    'Teksten van de PDF-factuur mogen alleen tekens uit Windows-1252 bevatten (het lettertype kan geen andere afdrukken), geen ringel-s en geen lang gedachtestreepje. Niet toegestaan: {characters}',
   'admin.i18n.error.unknown_key': 'Deze tekst bestaat niet meer. Laad de pagina opnieuw.',
   'admin.i18n.error.legal_key': 'Juridische teksten worden nooit machinaal vertaald.',
   'admin.i18n.error.nothing_to_translate': 'Voor deze selectie is er niets te vertalen.',

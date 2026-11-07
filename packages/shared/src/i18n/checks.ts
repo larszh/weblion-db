@@ -259,6 +259,40 @@ export function hasEmDash(value: string): boolean {
   return value.includes('\u2014');
 }
 
+/**
+ * The characters of the bytes 0x80 to 0x9F in Windows-1252, without the five unassigned bytes (the repository
+ * test compares this with TextDecoder).
+ */
+const WINDOWS_1252_HIGH: ReadonlySet<string> = new Set(
+  '\u20AC\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u017D\u2018\u2019\u201C' +
+    '\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u017E\u0178',
+);
+
+/**
+ * A character the standard PDF fonts of the invoice can print (i18n 8.3): Windows-1252 without control
+ * characters except the line break. The narrow no-break space U+202F of fr-CH numbers is not one of them.
+ */
+export function isWindows1252(ch: string): boolean {
+  const code = ch.codePointAt(0)!;
+  return (
+    (code >= 0x20 && code <= 0x7e) ||
+    (code >= 0xa0 && code <= 0xff) ||
+    code === 0x0a ||
+    WINDOWS_1252_HIGH.has(ch)
+  );
+}
+
+/** The characters of a value outside Windows-1252, as U+XXXX, each once in order of appearance. */
+export function nonWindows1252(value: string): string[] {
+  const found = new Set<string>();
+  for (const ch of value) {
+    if (!isWindows1252(ch)) {
+      found.add(`U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}`);
+    }
+  }
+  return [...found];
+}
+
 // --- Checks 9 and 10: completeness, legal keys --------------------------------------------------
 
 /** Per locale the German keys it lacks; locales without a gap are left out. */
@@ -332,7 +366,8 @@ export function fixFrenchTypography(value: string): string {
     const next = mask[end];
     if (next === '?' || next === '!' || next === ';') {
       // no space at all before these marks
-    } else if ((next === ':' || next === '%') && run.includes(' ')) {
+    } else if ((next === ':' || next === '%') && /[ \u202F]/.test(run)) {
+      // The narrow no-break space is not in Windows-1252 either, so the PDF texts could not print it.
       out += NBSP;
     } else {
       out += run;

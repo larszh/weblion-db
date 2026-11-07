@@ -205,6 +205,8 @@ export const translationsIt: Partial<Record<keyof typeof translationsDe, string>
     'I segnaposto devono essere esattamente quelli del testo tedesco. Mancanti: {missing}. In eccesso: {extra}.',
   'admin.i18n.error.forbidden_character':
     'Il testo contiene un carattere non consentito (Eszett o lineetta lunga).',
+  'admin.i18n.error.forbidden_character.pdf':
+    'I testi della fattura PDF possono contenere solo caratteri Windows-1252 (il suo font non può stamparne altri), né Eszett né lineetta lunga. Non consentiti: {characters}',
   'admin.i18n.error.unknown_key': 'Questo testo non esiste più. Ricarichi la pagina.',
   'admin.i18n.error.legal_key': 'I testi legali non vengono mai tradotti automaticamente.',
   'admin.i18n.error.nothing_to_translate': "Per questa selezione non c'è nulla da tradurre.",

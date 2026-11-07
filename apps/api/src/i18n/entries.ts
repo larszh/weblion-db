@@ -4,12 +4,19 @@ import {
   lineBreakCount,
   LOCALES,
   type Locale,
+  type SectionName,
   type ServerTranslationKey,
   type TranslationCleanupInput,
   type TranslationCleanupResultDto,
 } from '@weblion/shared';
 import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
-import { fixFrenchTypography, hasEmDash, hasSharpS, placeholdersMatch } from '@weblion/shared/i18n/checks';
+import {
+  fixFrenchTypography,
+  hasEmDash,
+  hasSharpS,
+  nonWindows1252,
+  placeholdersMatch,
+} from '@weblion/shared/i18n/checks';
 import type { DbOrTx } from '../db/client';
 import { translationOverrides } from '../db/schema';
 import { forbiddenCharacter, notStale, placeholderMismatch } from '../modules/i18n/errors';
@@ -111,20 +118,26 @@ export function prepareValue(
   return { value: fixed, typographyFixed: fixed !== text };
 }
 
-/** Code points of the forbidden characters in a value (checks 7 and 8), as U+XXXX. */
-export function forbiddenCharacters(value: string): string[] {
+/**
+ * Code points of the forbidden characters in a value (checks 7 and 8), as U+XXXX. A value of the pdf section
+ * also may not hold a character outside Windows-1252: the invoice uses the standard PDF fonts, which print
+ * anything else as garbage (i18n 8.3).
+ */
+export function forbiddenCharacters(value: string, section?: SectionName): string[] {
   const found: string[] = [];
   // The capital sharp s counts as a sharp s (checks.ts); the message names U+00DF either way.
   if (hasSharpS(value)) found.push('U+00DF');
   if (hasEmDash(value)) found.push('U+2014');
+  if (section === 'pdf') found.push(...nonWindows1252(value).filter((c) => !found.includes(c)));
   return found;
 }
 
 /**
  * The hard checks of a save (i18n 19.4: 2, 7, 8): throws 400 placeholder_mismatch with the lists (and the line
- * breaks when only they differ) or 400 forbidden_character with the code points.
+ * breaks when only they differ) or 400 forbidden_character with the code points (and reason pdf when the
+ * value of a pdf key leaves Windows-1252).
  */
-export function assertHardChecks(source: string, value: string): void {
+export function assertHardChecks(source: string, value: string, section?: SectionName): void {
   const placeholders = placeholdersMatch(source, value);
   if (!placeholders.ok) {
     throw placeholderMismatch({
@@ -135,8 +148,13 @@ export function assertHardChecks(source: string, value: string): void {
         : { lineBreaks: { expected: lineBreakCount(source), actual: lineBreakCount(value) } }),
     });
   }
-  const characters = forbiddenCharacters(value);
-  if (characters.length > 0) throw forbiddenCharacter(characters);
+  const characters = forbiddenCharacters(value, section);
+  if (characters.length > 0) {
+    throw forbiddenCharacter(
+      characters,
+      section === 'pdf' && nonWindows1252(value).length > 0 ? 'pdf' : null,
+    );
+  }
 }
 
 /**

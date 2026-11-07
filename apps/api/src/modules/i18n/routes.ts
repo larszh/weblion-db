@@ -218,7 +218,7 @@ export async function i18nRoutes(app: FastifyInstance, ctx: AppContext) {
     if (value.trim() === '') {
       throw badRequest('Validation failed', [{ path: 'value', message: 'the text is empty' }]);
     }
-    assertHardChecks(source, value);
+    assertHardChecks(source, value, i18n.catalog.sectionOf(key));
     const before = i18n.cell(locale, key).value;
     const reviewed = body.reviewed ?? true;
     await db.transaction((tx) =>

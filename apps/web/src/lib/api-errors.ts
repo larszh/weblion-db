@@ -97,10 +97,15 @@ export function localizeError(err: unknown, t: TFunction): string {
         if (text) return text;
       }
     }
-    // 3. i18n codes (i18n 11.4).
+    // 3. i18n codes (i18n 11.4), with their reason first when it has a text (forbidden_character.pdf).
     if (I18N_CODES.has(err.code)) {
-      const text = lookup(t, `admin.i18n.error.${err.code}`, params);
-      if (text) return text;
+      const reason = (err.details as { reason?: unknown } | null | undefined)?.reason;
+      const keys = typeof reason === 'string' && reason ? [`admin.i18n.error.${err.code}.${reason}`] : [];
+      keys.push(`admin.i18n.error.${err.code}`);
+      for (const key of keys) {
+        const text = lookup(t, key, params);
+        if (text) return text;
+      }
     }
     // 4. Generic codes, whatever the message says; a proxy page (no JSON body) in front of the API.
     const generic = GENERIC[err.code];

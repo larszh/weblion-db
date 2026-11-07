@@ -9,6 +9,7 @@ import {
   placeholdersOf,
   TARGET_LOCALES,
   type AiModel,
+  type SectionName,
   type ServerTranslationKey,
   type TargetLocale,
   type TranslationBatchPlan,
@@ -487,6 +488,8 @@ export function validateItem(input: {
   text: unknown;
   demo: boolean;
   glossary: readonly GlossaryTerm[];
+  /** The section of the key: pdf values must stay in Windows-1252. */
+  section?: SectionName;
 }): ValidationResult {
   const { key, locale, source, english, glossary } = input;
   if (typeof input.text !== 'string')
@@ -505,7 +508,7 @@ export function validateItem(input: {
     }
     return { ok: false, reason: 'placeholders', detail: parts.join(', ') };
   }
-  const characters = forbiddenCharacters(value);
+  const characters = forbiddenCharacters(value, input.section);
   if (characters.length > 0) {
     return { ok: false, reason: 'characters', detail: `forbidden character ${characters.join(', ')}` };
   }
@@ -787,6 +790,7 @@ export async function translateBatch(
         text,
         demo: input.demo,
         glossary: input.glossary,
+        section: ctx.i18n.catalog.sectionOf(item.key),
       });
       if (check.ok) {
         result.saved.push({
