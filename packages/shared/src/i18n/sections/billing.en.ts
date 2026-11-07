@@ -129,6 +129,7 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.service.endsAt': 'Ends on {date}',
   'billing.service.cancelledPer': 'Cancelled effective {date}',
   'billing.service.endWaitsForBilling': 'Cancelled effective {date}, ends once it is billed up to then',
+  'billing.service.endedEarly': 'Ended at once, cancelled effective {date}',
   'billing.service.moduleOffAtEnd': 'The module "{module}" is deactivated then',
   'billing.service.billedOnce': 'Billed',
 
@@ -404,6 +405,30 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.service.withdrawCancelText':
     'The service then keeps running without an end date and is billed as before.',
   'billing.service.cancelWithdrawn': 'Cancellation of "{name}" withdrawn',
+  'billing.service.restoreCancel': 'Restore the cancellation effective {date}',
+  'billing.service.restoreTitle': 'Restore the cancellation of "{name}"',
+  'billing.service.restoreText':
+    'The service was cancelled effective {date} but ended at once, as a cancellation to a later date did until the fix in November 2026. Restored, it keeps running until {date} and ends then.',
+  'billing.service.restoreMissed': 'Periods not billed',
+  'billing.service.restorePeriod': '{start} to {end}',
+  'billing.service.restoreTotal': 'Total',
+  'billing.service.restoreNet': 'Amounts excluding VAT.',
+  'billing.service.restoreBillMissed': 'Bill them retroactively',
+  'billing.service.restoreBillMissedHint': 'The next billing run invoices these periods.',
+  'billing.service.restoreBillNext': 'Bill only from {date}',
+  'billing.service.restoreBillNextHint': 'These periods stay unbilled.',
+  'billing.service.restoreBillNone': 'Do not bill them',
+  'billing.service.restoreBillNoneHint':
+    'These periods stay unbilled. No further period begins before the end date.',
+  'billing.service.restoreOneOff':
+    'The one-off charge ({price}) is not billed yet. The next billing run invoices it.',
+  'billing.service.restoreActivateModule': 'Activate the module "{module}" again',
+  'billing.service.restoreDeactivateAtEnd': 'Deactivate the module "{module}" on the end date',
+  'billing.service.restoreConfirm': 'Restore',
+  'billing.service.restored': 'Cancellation of "{name}" effective {date} restored',
+  'billing.endedEarly.title': 'Check services cancelled earlier',
+  'billing.endedEarly.text':
+    'These services were cancelled to a later date but, as was the case until November 2026, ended at once and have not been billed since. Restore the cancellation on the service.',
 
   // Products
   'billing.products.title': 'Products',

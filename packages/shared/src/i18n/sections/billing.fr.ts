@@ -123,6 +123,7 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.cancelledPer': 'Résilié pour le {date}',
   'billing.service.endWaitsForBilling':
     "Résilié pour le {date}, se termine dès que tout est facturé jusqu'à cette date",
+  'billing.service.endedEarly': 'Terminé immédiatement, résilié pour le {date}',
   'billing.service.moduleOffAtEnd': 'Le module "{module}" sera alors désactivé',
   'billing.service.billedOnce': 'Facturé',
   'billing.invoice.title': 'Facture {number}',
@@ -390,6 +391,30 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.withdrawCancelText':
     "Le service continue ensuite sans date de fin et est facturé comme jusqu'à présent.",
   'billing.service.cancelWithdrawn': 'Résiliation de "{name}" retirée',
+  'billing.service.restoreCancel': 'Rétablir la résiliation pour le {date}',
+  'billing.service.restoreTitle': 'Rétablir la résiliation de "{name}"',
+  'billing.service.restoreText':
+    "Le service a été résilié pour le {date}, mais il s'est terminé immédiatement, comme une résiliation à une date ultérieure jusqu'à la correction de novembre 2026. Une fois rétabli, il continue jusqu'au {date}, puis se termine.",
+  'billing.service.restoreMissed': 'Périodes non facturées',
+  'billing.service.restorePeriod': 'Du {start} au {end}',
+  'billing.service.restoreTotal': 'Total',
+  'billing.service.restoreNet': 'Montants hors TVA.',
+  'billing.service.restoreBillMissed': 'Facturer après coup',
+  'billing.service.restoreBillMissedHint': 'La prochaine facturation reprend ces périodes sur une facture.',
+  'billing.service.restoreBillNext': 'Facturer seulement à partir du {date}',
+  'billing.service.restoreBillNextHint': 'Ces périodes restent non facturées.',
+  'billing.service.restoreBillNone': 'Ne pas les facturer',
+  'billing.service.restoreBillNoneHint':
+    'Ces périodes restent non facturées. Aucune autre période ne commence avant la date de fin.',
+  'billing.service.restoreOneOff':
+    "Le montant unique ({price}) n'est pas encore facturé. La prochaine facturation le reprend sur une facture.",
+  'billing.service.restoreActivateModule': 'Réactiver le module "{module}"',
+  'billing.service.restoreDeactivateAtEnd': 'Désactiver le module "{module}" à la date de fin',
+  'billing.service.restoreConfirm': 'Rétablir',
+  'billing.service.restored': 'Résiliation de "{name}" pour le {date} rétablie',
+  'billing.endedEarly.title': 'Vérifier les services résiliés auparavant',
+  'billing.endedEarly.text':
+    "Ces services ont été résiliés à une date ultérieure, mais, comme jusqu'en novembre 2026, ils se sont terminés immédiatement et ne sont plus facturés depuis. Rétablissez la résiliation dans le service.",
   'billing.products.title': 'Produits',
   'billing.products.text':
     "Liste de prix pour les nouveaux services. Les modifications de prix ne s'appliquent qu'aux nouveaux services.",

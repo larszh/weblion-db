@@ -121,6 +121,7 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.cancelledPer': 'Disdetto con effetto al {date}',
   'billing.service.endWaitsForBilling':
     'Disdetto con effetto al {date}, termina non appena è fatturato fino a quella data',
+  'billing.service.endedEarly': 'Terminato subito, disdetto con effetto al {date}',
   'billing.service.moduleOffAtEnd': 'Il modulo "{module}" verrà disattivato in quella data',
   'billing.service.billedOnce': 'Fatturato',
   'billing.invoice.title': 'Fattura {number}',
@@ -387,6 +388,30 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.withdrawCancelText':
     'In seguito il servizio continua senza data di fine e viene fatturato come finora.',
   'billing.service.cancelWithdrawn': 'Disdetta di "{name}" revocata',
+  'billing.service.restoreCancel': 'Ripristina la disdetta con effetto al {date}',
+  'billing.service.restoreTitle': 'Ripristino della disdetta di "{name}"',
+  'billing.service.restoreText':
+    'Il servizio è stato disdetto con effetto al {date}, ma è terminato subito, come avveniva per una disdetta a una data successiva fino alla correzione di novembre 2026. Una volta ripristinato, continua fino al {date} e poi termina.',
+  'billing.service.restoreMissed': 'Periodi non fatturati',
+  'billing.service.restorePeriod': 'Dal {start} al {end}',
+  'billing.service.restoreTotal': 'Totale',
+  'billing.service.restoreNet': 'Importi IVA esclusa.',
+  'billing.service.restoreBillMissed': 'Fatturare a posteriori',
+  'billing.service.restoreBillMissedHint': 'La prossima fatturazione include questi periodi.',
+  'billing.service.restoreBillNext': 'Fatturare solo dal {date}',
+  'billing.service.restoreBillNextHint': 'Questi periodi restano non fatturati.',
+  'billing.service.restoreBillNone': 'Non fatturarli',
+  'billing.service.restoreBillNoneHint':
+    'Questi periodi restano non fatturati. Prima della data di fine non inizia nessun altro periodo.',
+  'billing.service.restoreOneOff':
+    "L'importo unico ({price}) non è ancora fatturato. La prossima fatturazione lo include.",
+  'billing.service.restoreActivateModule': 'Riattiva il modulo "{module}"',
+  'billing.service.restoreDeactivateAtEnd': 'Disattiva il modulo "{module}" alla data di fine',
+  'billing.service.restoreConfirm': 'Ripristina',
+  'billing.service.restored': 'Disdetta di "{name}" con effetto al {date} ripristinata',
+  'billing.endedEarly.title': 'Verificare i servizi disdetti in precedenza',
+  'billing.endedEarly.text':
+    'Questi servizi sono stati disdetti a una data successiva, ma come fino a novembre 2026 sono terminati subito e da allora non vengono più fatturati. Ripristini la disdetta nel servizio.',
   'billing.products.title': 'Prodotti',
   'billing.products.text':
     'Listino prezzi per nuovi servizi. Le modifiche di prezzo valgono solo per i nuovi servizi.',

@@ -7,6 +7,7 @@ import type {
   CreditTransactionDto,
   Currency,
   DomainDto,
+  EndedEarlyServiceDto,
   InvoiceDetailDto,
   InvoiceDto,
   IntegrationsDto,
@@ -18,6 +19,7 @@ import type {
   SellerCustomerBillingDto,
   ServerDto,
   ServiceDto,
+  ServiceResumePreviewDto,
   WebspaceDto,
 } from '@weblion/shared';
 import { api } from '@/lib/api';
@@ -43,6 +45,9 @@ export const billingKeys = {
   settings: ['billing', 'settings'] as const,
   issuer: (orgId: string) => ['billing', 'issuer', orgId] as const,
   resources: (orgId: string) => ['billing', 'resources', orgId] as const,
+  /** Services ended early of the platform's customers (null) or of a reseller's. */
+  endedEarly: (resellerOrgId: string | null) =>
+    ['billing', 'endedEarly', resellerOrgId ?? 'platform'] as const,
 };
 
 /**
@@ -196,6 +201,38 @@ export const useSellerPayments = (orgId: string) =>
   useQuery({
     queryKey: billingKeys.seller(orgId, 'payments'),
     queryFn: () => api.get<PaymentDto[]>(`/billing/customers/${orgId}/payments`),
+  });
+
+/**
+ * GET /services/:id/resume: what restoring a service ended early would bill. Read again on every opening. Not
+ * under billingKeys.all on purpose: the restore refreshes billing while the dialog still watches the preview,
+ * which then answers 409 for the restored service.
+ */
+export const useServiceResumePreview = (serviceId: string | undefined) =>
+  useQuery({
+    queryKey: ['serviceResume', serviceId ?? ''],
+    queryFn: () => api.get<ServiceResumePreviewDto>(`/services/${serviceId}/resume`),
+    enabled: !!serviceId,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+/**
+ * Services a cancellation to a later date ended at once (before the fix of November 2026) that the seller can
+ * restore: the platform's customers for staff, a reseller's own customers for the reseller.
+ */
+export const useEndedEarlyServices = (resellerOrgId: string | null, enabled = true) =>
+  useQuery({
+    queryKey: billingKeys.endedEarly(resellerOrgId),
+    queryFn: () =>
+      api.get<EndedEarlyServiceDto[]>(
+        resellerOrgId
+          ? `/orgs/${resellerOrgId}/reseller/services/ended-early`
+          : '/admin/billing/services/ended-early',
+      ),
+    enabled,
+    retry: false,
   });
 
 export interface ResourceOption {

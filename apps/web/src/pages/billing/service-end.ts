@@ -1,4 +1,10 @@
-import { nextBillingDate, type ServiceDto } from '@weblion/shared';
+import {
+  endedEarly,
+  nextBillingDate,
+  type ServiceDto,
+  type ServiceResumeInput,
+  type ServiceResumePreviewDto,
+} from '@weblion/shared';
 import { addDaysISO } from './money';
 
 /**
@@ -82,4 +88,49 @@ export function fullPeriodAhead(
   if (!following || endsAt >= addDaysISO(following, -1)) return null;
   const endBefore = addDaysISO(from, -1);
   return { from, endBefore: endBefore >= today ? endBefore : null };
+}
+
+/**
+ * A service a cancellation to a later date ended at once, the way it worked until the fix of November 2026
+ * (cancelled, end date after today): the seller can restore it as a scheduled cancellation.
+ */
+export { endedEarly };
+
+type ResumeFacts = Pick<
+  ServiceResumePreviewDto,
+  'endsAt' | 'missedPeriods' | 'nextFromToday' | 'module' | 'moduleActive' | 'moduleDeactivatedByCancel'
+>;
+
+/**
+ * Defaults of the restore dialog. A cancellation that switched the module off took the service away from the
+ * customer, so the missed periods are not billed, the module comes back and goes off again at the end date.
+ * Otherwise the customer kept using the service unbilled: bill the missed periods, leave the module alone.
+ */
+export function resumeDefaults(preview: Pick<ResumeFacts, 'moduleDeactivatedByCancel'>): ServiceResumeInput {
+  const off = preview.moduleDeactivatedByCancel;
+  return { billFrom: off ? 'next' : 'missed', activateModule: off, deactivateModuleAtEnd: off };
+}
+
+/** The switches the dialog shows: a module to switch on again only while the customer does not have it. */
+export function resumeSwitches(preview: Pick<ResumeFacts, 'module' | 'moduleActive'>): {
+  activate: boolean;
+  deactivateAtEnd: boolean;
+} {
+  return { activate: !!preview.module && !preview.moduleActive, deactivateAtEnd: !!preview.module };
+}
+
+/** Whether a period begins on or after today and up to the end date, so "bill only from {date}" bills one. */
+export function billsFromNext(preview: Pick<ResumeFacts, 'nextFromToday' | 'endsAt'>): boolean {
+  return !!preview.nextFromToday && preview.nextFromToday <= preview.endsAt;
+}
+
+/** What the dialog sends: a choice the dialog does not show has no effect. */
+export function resumeBody(preview: ResumeFacts, choice: ServiceResumeInput): ServiceResumeInput {
+  const switches = resumeSwitches(preview);
+  return {
+    // Without missed periods both choices give the same billing date.
+    billFrom: preview.missedPeriods.length > 0 ? choice.billFrom : 'missed',
+    activateModule: switches.activate && choice.activateModule,
+    deactivateModuleAtEnd: switches.deactivateAtEnd && choice.deactivateModuleAtEnd,
+  };
 }

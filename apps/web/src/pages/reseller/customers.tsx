@@ -49,6 +49,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
+import { EndedEarlyCard } from '@/pages/billing/ended-early';
 import { SellerBillingPanel } from '@/pages/billing/seller-panel';
 import { ResellerIssuerForm } from '@/pages/billing/settings-form';
 import {
@@ -317,7 +318,7 @@ function CustomerList() {
 
 export function ResellerCustomersPage() {
   const { t } = useI18n();
-  const { org, can } = useOrg();
+  const { org, can, base } = useOrg();
   // The invoice issuer settings (name, address, bank details) belong to whoever bills the customers.
   const tabs = [
     { value: 'customers' as const, label: t('admin.reseller.tab.customers'), icon: <Briefcase /> },
@@ -339,7 +340,21 @@ export function ResellerCustomersPage() {
       {can('reseller:billing') && (
         <TabBar label={t('nav.customers')} current={tab} onChange={setTab} tabs={tabs} />
       )}
-      {tab === 'issuer' ? <ResellerIssuerForm orgId={org.id} /> : <CustomerList />}
+      {tab === 'issuer' ? (
+        <ResellerIssuerForm orgId={org.id} />
+      ) : (
+        <>
+          {/* Its customers' services a cancellation to a later date ended at once, to restore in their billing. */}
+          {can('reseller:billing') && (
+            <EndedEarlyCard
+              resellerOrgId={org.id}
+              customerHref={(id) => `${base}/customers/${id}?tab=billing&billing=services`}
+              className="mb-6"
+            />
+          )}
+          <CustomerList />
+        </>
+      )}
     </>
   );
 }

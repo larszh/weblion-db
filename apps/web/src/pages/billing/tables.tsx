@@ -17,7 +17,7 @@ import {
   useBillingLabels,
 } from './bits';
 import { formatDay, formatQuantity } from './money';
-import { scheduledEndOf, waitsForBilling } from './service-end';
+import { endedEarly, scheduledEndOf, waitsForBilling } from './service-end';
 
 /** Tables shared by the customer view, the seller panel and the admin overview. */
 
@@ -201,6 +201,7 @@ export function ServiceTable({
   base,
   linkable,
   actions,
+  showEndedEarly,
   // The API's day (Europe/Zurich), not the browser's: it decides when an end date has passed.
   today = todayZurich(),
 }: {
@@ -210,6 +211,11 @@ export function ServiceTable({
   /** Whether the resource of a service has a page to link to. Default: yes. */
   linkable?: (service: ServiceDto) => boolean;
   actions?: (service: ServiceDto) => ReactNode;
+  /**
+   * The seller's view: marks a service a cancellation to a later date ended at once (until November 2026), so
+   * it stands out to be restored. The customer keeps seeing it as ended.
+   */
+  showEndedEarly?: boolean;
   /** YYYY-MM-DD, for tests. */
   today?: string;
 }) {
@@ -230,6 +236,7 @@ export function ServiceTable({
       <TBody>
         {services.map((s) => {
           const end = scheduledEndOf(s);
+          const early = !!showEndedEarly && endedEarly(s, today);
           // Past its end date with a period up to it unbilled (e.g. in another currency or with the automatic
           // run off): it only ends once that period is billed, so say so.
           const endText = end
@@ -241,9 +248,11 @@ export function ServiceTable({
                   date: formatDay(end, locale),
                 },
               )
-            : null;
+            : early
+              ? t('billing.service.endedEarly', { date: formatDay(s.endsAt!, locale) })
+              : null;
           return (
-            <tr key={s.id} className={s.status === 'cancelled' ? 'opacity-70' : undefined}>
+            <tr key={s.id} className={s.status === 'cancelled' && !early ? 'opacity-70' : undefined}>
               <TD className="min-w-[180px]">
                 <div className="font-medium text-text">{s.name}</div>
                 <div className="text-xs text-muted">
@@ -272,7 +281,10 @@ export function ServiceTable({
               <TD className="hidden whitespace-nowrap md:table-cell">
                 {s.status === 'cancelled' || billedToEnd(s) ? (
                   <span className="text-muted">
-                    {s.endsAt ? t('billing.service.endsAt', { date: formatDay(s.endsAt, locale) }) : '–'}
+                    {/* Ended already, although the end date lies ahead: "Endet am" would not be true. */}
+                    {s.endsAt && !early
+                      ? t('billing.service.endsAt', { date: formatDay(s.endsAt, locale) })
+                      : '–'}
                   </span>
                 ) : s.nextBillingAt ? (
                   <span className="text-text">{formatDay(s.nextBillingAt, locale)}</span>

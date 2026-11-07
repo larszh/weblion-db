@@ -128,6 +128,7 @@ export const billingDe = {
   'billing.service.endsAt': 'Endet am {date}',
   'billing.service.cancelledPer': 'Gekündigt per {date}',
   'billing.service.endWaitsForBilling': 'Gekündigt per {date}, endet, sobald bis dahin abgerechnet ist',
+  'billing.service.endedEarly': 'Sofort beendet, gekündigt per {date}',
   'billing.service.moduleOffAtEnd': 'Modul «{module}» wird dann gesperrt',
   'billing.service.billedOnce': 'Abgerechnet',
 
@@ -413,6 +414,30 @@ export const billingDe = {
   'billing.service.withdrawCancelText':
     'Der Dienst läuft danach ohne Enddatum weiter und wird wie bisher abgerechnet.',
   'billing.service.cancelWithdrawn': 'Kündigung von «{name}» zurückgenommen',
+  'billing.service.restoreCancel': 'Kündigung per {date} wiederherstellen',
+  'billing.service.restoreTitle': 'Kündigung von «{name}» wiederherstellen',
+  'billing.service.restoreText':
+    'Der Dienst wurde per {date} gekündigt, aber sofort beendet, wie es bei einer Kündigung auf ein späteres Datum bis zur Korrektur im November 2026 geschah. Wiederhergestellt läuft er bis zum {date} weiter und endet dann.',
+  'billing.service.restoreMissed': 'Nicht verrechnete Perioden',
+  'billing.service.restorePeriod': '{start} bis {end}',
+  'billing.service.restoreTotal': 'Total',
+  'billing.service.restoreNet': 'Beträge ohne MWST.',
+  'billing.service.restoreBillMissed': 'Nachverrechnen',
+  'billing.service.restoreBillMissedHint': 'Die nächste Abrechnung stellt diese Perioden in Rechnung.',
+  'billing.service.restoreBillNext': 'Erst ab {date} abrechnen',
+  'billing.service.restoreBillNextHint': 'Diese Perioden bleiben unverrechnet.',
+  'billing.service.restoreBillNone': 'Nicht nachverrechnen',
+  'billing.service.restoreBillNoneHint':
+    'Diese Perioden bleiben unverrechnet. Bis zum Enddatum beginnt keine weitere Periode.',
+  'billing.service.restoreOneOff':
+    'Die einmalige Verrechnung ({price}) ist noch offen. Die nächste Abrechnung stellt sie in Rechnung.',
+  'billing.service.restoreActivateModule': 'Modul «{module}» wieder einschalten',
+  'billing.service.restoreDeactivateAtEnd': 'Modul «{module}» am Enddatum sperren',
+  'billing.service.restoreConfirm': 'Wiederherstellen',
+  'billing.service.restored': 'Kündigung von «{name}» per {date} wiederhergestellt',
+  'billing.endedEarly.title': 'Früher gekündigte Dienste prüfen',
+  'billing.endedEarly.text':
+    'Diese Dienste wurden auf ein späteres Datum gekündigt, aber wie bis November 2026 üblich sofort beendet und seither nicht mehr abgerechnet. Stellen Sie die Kündigung beim Dienst wieder her.',
 
   // Products
   'billing.products.title': 'Produkte',

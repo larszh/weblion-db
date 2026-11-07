@@ -42,6 +42,7 @@ import {
   Select,
 } from '@/components/ui/primitives';
 import { NoBillingAccess, Pager, StatCard } from './bits';
+import { EndedEarlyCard } from './ended-early';
 import { InvoiceView } from './invoice-view';
 import { SummarySkeleton } from './summary';
 import { InvoiceTable } from './tables';
@@ -336,6 +337,11 @@ export function AdminBillingPage() {
       {allowed && (
         <>
           <Stats />
+          <EndedEarlyCard
+            resellerOrgId={null}
+            customerHref={(id) => `/admin/customers/${id}?tab=billing&billing=services`}
+            className="mb-6"
+          />
           <InvoiceList />
         </>
       )}

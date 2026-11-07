@@ -118,6 +118,7 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.endsAt': 'Eindigt op {date}',
   'billing.service.cancelledPer': 'Opgezegd per {date}',
   'billing.service.endWaitsForBilling': 'Opgezegd per {date}, eindigt zodra er tot dan is gefactureerd',
+  'billing.service.endedEarly': 'Direct beëindigd, opgezegd per {date}',
   'billing.service.moduleOffAtEnd': 'Module "{module}" wordt dan gedeactiveerd',
   'billing.service.billedOnce': 'Gefactureerd',
   'billing.invoice.title': 'Factuur {number}',
@@ -383,6 +384,30 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.withdrawCancelText':
     'De dienst loopt daarna zonder einddatum door en wordt zoals voorheen gefactureerd.',
   'billing.service.cancelWithdrawn': 'Opzegging van "{name}" ingetrokken',
+  'billing.service.restoreCancel': 'Opzegging per {date} herstellen',
+  'billing.service.restoreTitle': 'Opzegging van "{name}" herstellen',
+  'billing.service.restoreText':
+    'De dienst is per {date} opgezegd, maar direct beëindigd, zoals een opzegging op een latere datum tot de correctie in november 2026 werkte. Na het herstellen loopt hij door tot {date} en eindigt dan.',
+  'billing.service.restoreMissed': 'Niet gefactureerde perioden',
+  'billing.service.restorePeriod': '{start} tot {end}',
+  'billing.service.restoreTotal': 'Totaal',
+  'billing.service.restoreNet': 'Bedragen exclusief btw.',
+  'billing.service.restoreBillMissed': 'Achteraf factureren',
+  'billing.service.restoreBillMissedHint': 'De volgende facturering zet deze perioden op een factuur.',
+  'billing.service.restoreBillNext': 'Pas vanaf {date} factureren',
+  'billing.service.restoreBillNextHint': 'Deze perioden blijven ongefactureerd.',
+  'billing.service.restoreBillNone': 'Niet factureren',
+  'billing.service.restoreBillNoneHint':
+    'Deze perioden blijven ongefactureerd. Vóór de einddatum begint geen nieuwe periode meer.',
+  'billing.service.restoreOneOff':
+    'Het eenmalige bedrag ({price}) is nog niet gefactureerd. De volgende facturering zet het op een factuur.',
+  'billing.service.restoreActivateModule': 'Module "{module}" weer activeren',
+  'billing.service.restoreDeactivateAtEnd': 'Module "{module}" op de einddatum deactiveren',
+  'billing.service.restoreConfirm': 'Herstellen',
+  'billing.service.restored': 'Opzegging van "{name}" per {date} hersteld',
+  'billing.endedEarly.title': 'Eerder opgezegde diensten controleren',
+  'billing.endedEarly.text':
+    'Deze diensten zijn op een latere datum opgezegd, maar zoals tot november 2026 direct beëindigd en sindsdien niet meer gefactureerd. Herstel de opzegging bij de dienst.',
   'billing.products.title': 'Producten',
   'billing.products.text':
     'Prijslijst voor nieuwe diensten. Prijswijzigingen gelden alleen voor nieuwe diensten.',

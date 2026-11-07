@@ -13,6 +13,7 @@ import {
   PiggyBank,
   Play,
   Plus,
+  RotateCcw,
   Undo2,
   Wallet,
   Zap,
@@ -54,9 +55,10 @@ import {
   CreditBookDialog,
   EditServiceDialog,
   GenerateDialog,
+  ResumeServiceDialog,
 } from './seller-dialogs';
 import { formatDay } from './money';
-import { endPassed, scheduledEndOf } from './service-end';
+import { endPassed, endedEarly, scheduledEndOf } from './service-end';
 import { SummaryCards, SummarySkeleton } from './summary';
 import { CreditTable, InvoiceTable, ServiceTable } from './tables';
 
@@ -208,6 +210,7 @@ function ServicesSection({
   const [editing, setEditing] = useState<ServiceDto | null>(null);
   const [cancelling, setCancelling] = useState<ServiceDto | null>(null);
   const [withdrawing, setWithdrawing] = useState<ServiceDto | null>(null);
+  const [restoring, setRestoring] = useState<ServiceDto | null>(null);
   const withdraw = useApiMutation(
     (service: ServiceDto) => api.post<ServiceDto>(`/services/${service.id}/cancel/withdraw`),
     {
@@ -271,10 +274,26 @@ function ServicesSection({
       ) : (
         <ServiceTable
           services={services.data}
+          showEndedEarly
           actions={
             canWrite
               ? (s) =>
-                  s.status === 'cancelled' ? null : (
+                  s.status === 'cancelled' ? (
+                    // Ended at once by a cancellation to a later date (until November 2026): restorable.
+                    endedEarly(s, todayZurich()) ? (
+                      <Menu
+                        trigger={
+                          <Button size="icon" variant="ghost" aria-label={t('common.actions')}>
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        }
+                      >
+                        <MenuItem icon={<RotateCcw />} onSelect={() => setRestoring(s)}>
+                          {t('billing.service.restoreCancel', { date: formatDay(s.endsAt!, locale) })}
+                        </MenuItem>
+                      </Menu>
+                    ) : null
+                  ) : (
                     <Menu
                       trigger={
                         <Button size="icon" variant="ghost" aria-label={t('common.actions')}>
@@ -342,6 +361,11 @@ function ServicesSection({
             service={cancelling}
             services={services.data ?? []}
             onOpenChange={(o) => !o && setCancelling(null)}
+          />
+          <ResumeServiceDialog
+            service={restoring}
+            services={services.data ?? []}
+            onOpenChange={(o) => !o && setRestoring(null)}
           />
           <ConfirmDialog
             open={!!withdrawing}
