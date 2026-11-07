@@ -37,6 +37,7 @@ export const AI_ERROR_MESSAGES: Record<Exclude<AiErrorCode, 'ai_limit'>, string>
   ai_platform_locked: 'weblion switched AI off for this customer. Only weblion staff can switch it on again.',
   ai_reseller_blocked:
     'AI is switched off for your own organization, so it cannot be switched on for a customer.',
+  ai_decline_org_only: 'Only the organization itself can withdraw its decline of the AI features.',
   ai_admin_key: 'This is an Admin API key. Save a normal API key from the Claude Console.',
   ai_not_configured: 'AI is not available. Set it up under Administration > AI.',
 };
@@ -82,6 +83,11 @@ export function aiPlatformLocked(): AppError {
 
 export function aiResellerBlocked(): AppError {
   return new AppError(409, 'ai_reseller_blocked', AI_ERROR_MESSAGES.ai_reseller_blocked);
+}
+
+/** Withdrawing a decline through reseller or staff access (plan O34): the decline belongs to the customer. */
+export function aiDeclineOrgOnly(): AppError {
+  return new AppError(403, 'ai_decline_org_only', AI_ERROR_MESSAGES.ai_decline_org_only);
 }
 
 export function aiAdminKey(): AppError {

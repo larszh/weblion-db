@@ -166,8 +166,42 @@ export function ConsentBody({
   );
 }
 
+/**
+ * The card's buttons. The decline belongs to the organization (plan O34): reseller and weblion staff working
+ * inside it may decline, but only its own members withdraw a decline, so the others get a sentence instead.
+ */
+export function OrgAiActions({
+  declined,
+  ownOrg,
+  onToggle,
+  onNotice,
+}: {
+  declined: boolean;
+  ownOrg: boolean;
+  onToggle: () => void;
+  onNotice: () => void;
+}) {
+  const { t } = useI18n();
+  const locked = declined && !ownOrg;
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {!locked && (
+          <Button size="sm" variant={declined ? 'secondary' : 'danger-soft'} onClick={onToggle}>
+            {declined ? t('ai.org.allow') : t('ai.org.decline')}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={onNotice}>
+          {t('ai.org.notice')}
+        </Button>
+      </div>
+      {locked && <p className="text-sm text-muted">{t('ai.org.allowOwnOnly')}</p>}
+    </>
+  );
+}
+
 /** The organization's own card (organization settings, whenever ai:settings). Works while suspended. */
-export function OrgAiCard({ org }: { org: Pick<OrgDto, 'id'> }) {
+export function OrgAiCard({ org }: { org: Pick<OrgDto, 'id' | 'access'> }) {
   const { t, locale } = useI18n();
   const ai = useOrgAi(org.id);
   const decline = useOrgAiDecline(org.id);
@@ -205,18 +239,12 @@ export function OrgAiCard({ org }: { org: Pick<OrgDto, 'id'> }) {
               </span>
             )}
           </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant={declined ? 'secondary' : 'danger-soft'}
-              onClick={() => setConfirm(declined ? 'allow' : 'decline')}
-            >
-              {declined ? t('ai.org.allow') : t('ai.org.decline')}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setNotice(true)}>
-              {t('ai.org.notice')}
-            </Button>
-          </div>
+          <OrgAiActions
+            declined={declined}
+            ownOrg={org.access === 'member'}
+            onToggle={() => setConfirm(declined ? 'allow' : 'decline')}
+            onNotice={() => setNotice(true)}
+          />
         </CardBody>
       )}
       <ConfirmDialog

@@ -309,6 +309,7 @@ export const AI_ERROR_CODES = [
   'ai_org_disabled',
   'ai_platform_locked',
   'ai_reseller_blocked',
+  'ai_decline_org_only',
   'ai_admin_key',
   'ai_not_configured',
 ] as const;

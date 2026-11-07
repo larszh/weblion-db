@@ -1,14 +1,14 @@
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { AdminOrgAiDto, OrgAiDto, ResellerCustomerAiDto } from '@weblion/shared';
+import { can, type AdminOrgAiDto, type OrgAiDto, type ResellerCustomerAiDto } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import { orgScope, platformScope, requireSession } from '../../auth/access';
 import { organizations, type Organization } from '../../db/schema';
 import { badRequest, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
 import { loadOrg } from '../orgs/routes';
-import { aiPlatformLocked, aiResellerBlocked } from './errors';
+import { aiDeclineOrgOnly, aiPlatformLocked, aiResellerBlocked } from './errors';
 import { loadOrgWithParent, orgStateDto, ownAiOn } from './org-state';
 import { orgUsage } from './report';
 
@@ -77,7 +77,16 @@ export async function aiOrgRoutes(app: FastifyInstance, ctx: AppContext) {
     const { orgId } = parse(orgParams, req.params);
     const body = parse(declineBody, req.body);
     const org = await loadOrg(ctx, req, orgId);
-    await access.assert(req, 'ai:settings', orgScope(orgId));
+    const scope = orgScope(orgId);
+    await access.assert(req, 'ai:settings', scope);
+    // The decline belongs to the customer (plan O34): anyone with ai:settings may decline, but only the
+    // organization's own membership may withdraw it, not reseller staff or weblion staff acting inside it.
+    if (!body.declined) {
+      const subject = await access.subject(req, orgId);
+      if (!can({ ...subject, platformRole: null, reseller: null }, 'ai:settings', scope.resource)) {
+        throw aiDeclineOrgOnly();
+      }
+    }
     const [updated] = await db
       .update(organizations)
       .set(

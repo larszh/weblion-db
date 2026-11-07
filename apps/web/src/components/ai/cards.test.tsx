@@ -5,7 +5,15 @@ import { en } from '@weblion/shared/i18n/en';
 import type { TFunction } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
 import { withI18n } from '@/test/i18n';
-import { adminAiLines, ConsentBody, neverEnabled, orgAiLines, resellerAiState, StateBadge } from './cards';
+import {
+  adminAiLines,
+  ConsentBody,
+  neverEnabled,
+  orgAiLines,
+  OrgAiActions,
+  resellerAiState,
+  StateBadge,
+} from './cards';
 
 const t: TFunction = (key, params) => interpolate(en[key], params);
 const esc = (s: string) =>
@@ -70,6 +78,23 @@ describe('switch cards (ai 12.4, plan O34)', () => {
     expect(badge(platformOff)).toContain(esc(en['ai.org.state.notActive']));
     expect(badge(platformOff)).not.toContain(esc(en['ai.org.state.on']));
     expect(badge({ ...fresh, platform: platformOff.platform })).toContain(esc(en['ai.org.state.off']));
+  });
+
+  it('only the organization itself is offered to withdraw its decline (plan O34)', () => {
+    const actions = (declined: boolean, ownOrg: boolean) =>
+      renderToStaticMarkup(
+        withI18n(
+          <OrgAiActions declined={declined} ownOrg={ownOrg} onToggle={() => {}} onNotice={() => {}} />,
+        ),
+      );
+    expect(actions(true, true)).toContain(esc(en['ai.org.allow']));
+    expect(actions(true, true)).not.toContain(esc(en['ai.org.allowOwnOnly']));
+    // Reseller or weblion staff inside the customer: no allow button, the sentence instead.
+    expect(actions(true, false)).not.toContain(esc(en['ai.org.allow']));
+    expect(actions(true, false)).toContain(esc(en['ai.org.allowOwnOnly']));
+    // Declining stays open to them.
+    expect(actions(false, false)).toContain(esc(en['ai.org.decline']));
+    expect(actions(false, false)).not.toContain(esc(en['ai.org.allowOwnOnly']));
   });
 
   it('locks the reseller switch when weblion switched the customer off or the reseller is off', () => {

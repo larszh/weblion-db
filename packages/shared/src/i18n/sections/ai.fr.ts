@@ -173,6 +173,7 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
     "weblion.one n'enverra alors plus aucune donnée de votre organisation à Anthropic, pas même pour les fonctions du personnel de weblion. Vous pouvez revenir sur ce refus à tout moment.",
   'ai.org.declineConfirm.action': 'Refuser',
   'ai.org.allow': 'Retirer le refus',
+  'ai.org.allowOwnOnly': "Seule l'organisation elle-même peut retirer son refus.",
   'ai.org.allowConfirm.title': 'Autoriser les fonctions IA?',
   'ai.org.allowConfirm.text':
     'Les fonctions IA sont alors à nouveau à la disposition de votre organisation, pour autant que weblion.one et, le cas échéant, votre prestataire les aient activées.',
@@ -220,6 +221,7 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.error.platformLocked': "weblion a désactivé l'IA pour ce client. Seul weblion peut la réactiver.",
   'ai.error.resellerBlocked':
     "L'IA est désactivée pour votre propre organisation. Vous ne pouvez donc pas l'activer pour vos clients.",
+  'ai.error.declineOrgOnly': "Seule l'organisation elle-même peut retirer son refus des fonctions IA.",
   'ai.error.adminKey':
     "Il s'agit d'une clé API d'administration. Veuillez enregistrer une clé API normale de la Claude Console.",
   'ai.error.notConfigured': "L'IA n'est pas disponible. Configurez-la sous Administration > IA.",
