@@ -789,6 +789,48 @@ describe('k. budget and cost cap', () => {
     expect(row.error?.code).toBe('cost_cap');
     expect(mock.requests).toHaveLength(2);
   });
+
+  it('lets the batch in flight commit after the cap, so the job cost is the sum of its calls', async () => {
+    const fr = gate();
+    const repair = gate();
+    answerWith(
+      (item, locale) => (locale === 'it' && !item.previous ? 'Voce senza nome' : good(item, locale)),
+      (body) => {
+        const batch = batchOf(body);
+        const usage = { input_tokens: 100, output_tokens: 50_000 };
+        if (batch.locale === 'fr') return { gate: fr.promise, usage };
+        if (batch.items.some((i) => i.previous)) return { gate: repair.promise, usage };
+        return { usage };
+      },
+    );
+    const job = await startJob(scopeOf({ locales: ['fr', 'it', 'nl'], keys: ['jobs.rename'] }));
+    const perCall = 100 * 4 + 50_000 * 20;
+    // The first commit crosses 1.5 times the estimate.
+    await t.db
+      .update(translationJobs)
+      .set({ estimateMicros: perCall / 2 })
+      .where(eq(translationJobs.id, job.id));
+    const parallel = newRunner({ concurrency: 2 });
+    t.ctx.i18nJobs = parallel;
+    await parallel.tick();
+    // fr waits for its answer; it got a first answer (paid) and waits in its repair round.
+    await until(() => mock.requests.length === 3, 'the fr call and the it repair round');
+    fr.open();
+    await until(async () => (await jobRow(job.id)).costMicros > 0, 'the fr commit');
+    repair.open();
+    await parallel.whenIdle();
+
+    const row = await jobRow(job.id);
+    expect(row).toMatchObject({ status: 'failed', done: 2, failed: 0 });
+    expect(row.error?.code).toBe('cost_cap');
+    // No batch was claimed after the cap (nl), and nothing that was paid for got lost.
+    expect(mock.requests).toHaveLength(3);
+    const usage = await t.db.select().from(aiUsage);
+    expect(usage).toHaveLength(3);
+    expect(row.costMicros).toBe(usage.reduce((sum, u) => sum + u.costMicros, 0));
+    expect(row.costMicros).toBe(3 * perCall);
+    expect((await overridesOf()).map((o) => o.locale).sort()).toEqual(['fr', 'it']);
+  });
 });
 
 describe('l. cancel', () => {

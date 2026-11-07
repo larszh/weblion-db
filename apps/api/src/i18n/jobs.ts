@@ -253,9 +253,12 @@ export class TranslationJobRunner {
         let failedInARow = 0;
         let next = 0;
         const capReached = () => job.estimateMicros > 0 && cost > COST_CAP_FACTOR * job.estimateMicros;
+        // The cost cap and the failed batches only stop claiming new batches: a batch in flight has paid for
+        // its calls already, so it still commits its texts and its cost (12.6). Every other stop (AI switched
+        // off, the budget used up) aborts at once, like cancel, stop() and a lost job do.
         const halt = (reason: JobStop) => {
           stop ??= reason;
-          active.abort.abort();
+          if (reason.code !== 'cost_cap' && reason.code !== 'ai_failed') active.abort.abort();
         };
 
         const worker = async () => {
