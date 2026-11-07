@@ -94,29 +94,56 @@ Karte "Früher gekündigte Dienste prüfen" listet alle, solange es welche gibt:
 Kunden der Plattform (`GET /admin/billing/services/ended-early`), in der Kundenliste eines Resellers seine
 Kunden (`GET /orgs/:orgId/reseller/services/ended-early`), jeweils mit einem Link zu den Diensten des Kunden.
 Dort stellt "Kündigung per ... wiederherstellen" die Kündigung her, wie sie heute vorgemerkt würde: Der Dienst
-ist wieder aktiv, behält Enddatum und Kündigungszeitpunkt, wird bis zum Enddatum abgerechnet und danach vom
+läuft wieder, behält Enddatum und Kündigungszeitpunkt, wird bis zum Enddatum abgerechnet und danach vom
 täglichen Job beendet (`POST /services/:id/resume`, Audit-Eintrag `service.resume`).
 
-Wo die Abrechnung stand, sagen die Rechnungen: Die Periode nach der letzten, für die eine Rechnung eine Zeile
-des Dienstes hat (Entwürfe zählen, stornierte Rechnungen nicht), ist die erste unverrechnete. Der Dialog
-listet die unverrechneten Perioden, die vor heute begonnen haben, mit den Beträgen des Abrechnungslaufs
-(ohne MWST) und dem Total (`GET /services/:id/resume`). Der Verkäufer wählt:
+Die alte Kündigung hat Status und Abrechnungsdatum überschrieben. Beides kommt aus dem, was vor ihr
+geschrieben wurde:
+
+- **Status:** War der Dienst pausiert (die letzte Änderung `service.update` mit einem Status vor der
+  Kündigung), kommt er pausiert zurück, wie eine vorgemerkte Kündigung die Pause behält. Verrechnet wird erst,
+  wenn der Verkäufer ihn fortsetzt, dann ab der Periode, die an diesem Tag beginnt. Sonst ist er aktiv.
+- **Abrechnungsdatum:** von zwei Daten das, das später geschrieben wurde. Das eine setzte eine Änderung von Hand (ein verschobenes
+  Datum, eine fortgesetzte Pause, `service.update` mit `nextBillingAt`). Das andere ist die Periode nach der
+  letzten, für die eine Rechnung eine Zeile des Dienstes hat. Entwürfe zählen, stornierte Rechnungen auch,
+  ausser sie wurden von Hand angelegt: Der Lauf hat das Datum beim Erstellen weitergeschoben und verrechnet
+  eine stornierte Periode nie noch einmal. Ohne beides beginnt die Abrechnung am Startdatum.
+
+Der Dialog (`GET /services/:id/resume`) listet die unverrechneten Perioden, die vor heute begonnen haben, mit
+den Beträgen des Abrechnungslaufs (ohne MWST) und dem "Total nicht verrechnet". Der Verkäufer wählt:
 
 - **Nachverrechnen:** Die Abrechnung geht mit der ersten unverrechneten Periode weiter, der nächste Lauf
   stellt die verpassten Perioden in Rechnung.
 - **Erst ab der nächsten Periode:** Die Abrechnung geht mit der ersten Periode weiter, die heute oder
   später beginnt. Die verpassten Perioden bleiben unverrechnet.
-- **Modul wieder einschalten**, wenn der Kunde es nicht mehr hat (wie beim Anlegen eines Dienstes, ein
-  Reseller nur mit Modulen, die er selbst hat), und **Modul am Enddatum sperren** (wie bei einer vorgemerkten
-  Kündigung, also nur, wenn bis dahin kein anderer laufender Dienst das Modul hat).
+- **Modul wieder einschalten**, wenn der Kunde es nicht mehr hat (wie beim Anlegen eines Dienstes). Ein
+  Reseller kann das nur mit Modulen, die er selbst hat, sonst ist der Schalter gesperrt. Dazu **Modul am
+  Enddatum sperren** (wie bei einer vorgemerkten Kündigung, also nur, wenn bis dahin kein anderer laufender
+  Dienst das Modul hat).
 
-Hat die alte Kündigung das Modul gesperrt (ihr Audit-Eintrag `service.cancel` nennt es unter
-`moduleDeactivated`), konnte der Kunde den Dienst seither nicht nutzen. Dann sind "erst ab der nächsten
-Periode", "wieder einschalten" und "am Enddatum sperren" vorgewählt, sonst "Nachverrechnen". Ein einmaliger
-Dienst hat keine Perioden: Ist er verrechnet, bleibt es dabei, sonst stellt ihn der nächste Lauf in Rechnung,
-sofern sein Datum nicht nach dem Enddatum liegt. Ist das Enddatum schon vorbei, gilt der Dienst als beendet
-und lässt sich nicht mehr wiederherstellen (409). Fehlende Perioden bis dahin stellt der Verkäufer bei Bedarf
-von Hand in Rechnung.
+Unter der Wahl steht, was der Lauf damit bis zum Enddatum noch in Rechnung stellt, von wann bis wann und für
+wie viel. Kürzt das Enddatum die letzte Periode, sagt der Dialog wie beim Kündigen, dass sie voll verrechnet
+wird. Hat der Verkäufer dem Kunden seit der Kündigung Rechnungen mit Zeilen ohne Dienst gestellt, nennt der
+Dialog sie: Darin können Perioden stehen, die er schon von Hand verrechnet hat.
+
+Vorgewählt ist "Nachverrechnen", ausser die alte Kündigung hat das Modul gesperrt (ihr Audit-Eintrag
+`service.cancel` nennt es unter `moduleDeactivated`) und es ist noch aus: Dann konnte der Kunde den Dienst
+nicht nutzen, und "erst ab der nächsten Periode" und "wieder einschalten" sind vorgewählt. Ist das Modul
+inzwischen wieder an, weist der Dialog darauf hin. "Am Enddatum sperren" ist vorgewählt, wenn die alte
+Kündigung das Modul gesperrt hat. Ein einmaliger Dienst hat keine Perioden: Ist er verrechnet, bleibt es dabei,
+sonst stellt ihn der nächste Lauf in Rechnung, sofern sein Datum nicht nach dem Enddatum liegt.
+
+Die Routen antworten mit 409 und dem Grund in `details.reason`:
+
+- `notEndedEarly`: Der Dienst ist nicht (mehr) gekündigt mit einem Enddatum nach heute. Ist das Enddatum
+  schon vorbei, gilt er als beendet. Fehlende Perioden bis dahin stellt der Verkäufer bei Bedarf von Hand in
+  Rechnung. Solche Dienste findet er im Audit-Log unter der Aktion `service.cancel`: Einträge ohne
+  `scheduled`, deren `endsAt` nach dem Tag des Eintrags liegt.
+- `sellerChanged`: Der Kunde hat seit dem Verkauf des Dienstes den Verkäufer gewechselt (ein Wechsel im
+  Audit-Log nach dem Anlegen des Dienstes, ein Produkt aus einem anderen Katalog oder eine Zeile auf einer
+  Rechnung eines anderen Rechnungsstellers). Der Dienst gehört dem bisherigen Verkäufer, der neue darf ihn nicht
+  abrechnen. Die Listen zeigen solche Dienste nicht. Seit der Korrektur sperrt ein solcher Dienst den Wechsel
+  des Verkäufers, bis sein Enddatum vorbei ist (siehe [Reseller](#reseller)).
 
 ### Domain-Verlängerungen
 
@@ -166,7 +193,9 @@ Resellers erreichen auch seine Kunden, aber nie den Admin-Bereich.
 Plattform-Admins legen Reseller unter Admin > Kunden an (Typ "Reseller") und können bestehende
 Kunden einem Reseller zuordnen. Der Wechsel des Verkäufers ist gesperrt, solange beim Kunden
 noch Guthaben, offene Rechnungen, Entwürfe, ausstehende Zahlungen oder laufende Dienste
-existieren: Das Geld gehört jeweils dem bisherigen Verkäufer.
+existieren: Das Geld gehört jeweils dem bisherigen Verkäufer. Als laufend zählt auch ein Dienst,
+den eine Kündigung auf ein späteres Datum bis November 2026 sofort beendet hat, solange sein
+Enddatum nach heute liegt: Wiederhergestellt würde er sonst über den neuen Verkäufer abgerechnet.
 
 ## Cloud-Speicher (Nextcloud) verkaufen
 
