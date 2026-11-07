@@ -227,8 +227,7 @@ Cloud Console.
   [docs/providers.md](docs/providers.md#uptime-kuma-monitoring).
 - KI: Gegen die echte Claude API ist die Console noch nicht live getestet. Die Tests laufen gegen
   eine nachgebaute API (`apps/api/test/claude-mock.ts`), die Anfragen folgen den Typen des SDK
-  `@anthropic-ai/sdk` 1.3.0. Die KI liest nur, Aktionen wie ein Postfach oder einen Monitor
-  vorausgefüllt anlegen folgen später, siehe die [Roadmap](docs/roadmap.md#ki-claude).
+  `@anthropic-ai/sdk` 1.3.0.
 
 ## Schnellstart (Entwicklung)
 
@@ -335,6 +334,7 @@ gespeichert wird dort, mit der normalen Rechteprüfung.
 - **Modell und Kosten:** ein Modell für alle Funktionen, Standard Claude Opus 5.5 (USD 4 pro
   Million Tokens Eingabe, USD 20 Ausgabe), wählbar sind auch Claude Sonnet 5.5 und Claude Haiku
   5.5. Budget standardmässig USD 100 pro Monat, als harte Grenze, Warnung per E-Mail ab 80 Prozent.
+  Für Kunden sind die KI-Funktionen kostenlos, weblion.one verrechnet die Kosten nicht weiter.
 - **Daten:** Fragen und Antworten speichert die Console nicht, nur Angaben zur Nutzung (400 Tage).
   Der Chat bleibt im Browser-Tab. Geheimnisse, die die Console erkennt, entfernt sie vor dem Senden.
 - **Demo:** Ohne Schlüssel und mit `ENABLE_DEMO_PROVIDER=true` antworten Beispiele statt Claude.

@@ -287,17 +287,9 @@ Datenschutzhinweis), den Schalter pro Kunde (Standard aus, Einschalten nur nach 
 Kunden) und pro Reseller, die Ablehnung durch den Kunden und einen Demo-Modus ohne Schlüssel. Als
 Nächstes:
 
-- **Stufe 2: Aktionen aus dem Assistenten**: Wie heute bei DNS-Einträgen öffnet der Assistent das
-  normale Formular vorausgefüllt, für ein Postfach, einen Alias, eine Weiterleitung, einen Monitor,
-  eine Website, die PHP-Version (sobald sie sich in der Console wechseln lässt) und das Leeren des
-  Caches. Gespeichert wird weiterhin nur im Formular, mit der normalen Rechteprüfung. Heute nicht
-  gebaut. Vorschläge für Monitore waren schon geplant und sind in der Durchsicht vorerst
-  gestrichen worden
 - **Briefing zu einem Kunden für Mitarbeitende**: eine kurze Zusammenfassung (Dienste, Guthaben,
   offene Rechnungen, Module, letzte Aktionen) auf der Kundenseite im Admin-Bereich. In der
   Durchsicht vorerst gestrichen, weil die Kundenseite diese Zahlen schon ohne KI zeigt
-- **KI-Nutzung an Kunden verrechnen**: Anfragen oder Kosten pro Kunde als Rechnungszeile. Heute
-  trägt weblion.one die Kosten, Kunden sehen nur die Zahl ihrer Anfragen
 - **Ein Modell pro Funktion**, etwa ein günstiges für Erklärungen und das beste für den Assistenten.
   Heute gilt ein Modell für alles
 - **Verarbeitung in der EU oder der Schweiz**, sobald Anthropic das für die API anbietet

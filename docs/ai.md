@@ -8,6 +8,10 @@ immer eine Person im normalen Formular.
 Für jeden Kunden ist die KI ausgeschaltet, bis weblion.one oder sein Reseller sie einschaltet. Das geschieht
 erst, wenn der Kunde zugestimmt hat. Ein Kunde kann die KI jederzeit selbst ablehnen.
 
+Für Kunden sind die KI-Funktionen kostenlos. Die Kosten bei Anthropic trägt weblion.one, auch für die Kunden
+der Reseller, und keine Rechnung enthält sie. Begrenzt werden sie über das Budget und die Limits auf der
+KI-Seite.
+
 Eingerichtet wird alles im Admin-Bereich unter KI (`/admin/ai`, im Folgenden "KI-Seite"). Die Meldungen der
 Console nennen diesen Ort "Verwaltung > KI". Die Übersetzungen der Console beschreibt [i18n.md](i18n.md).
 
@@ -390,11 +394,7 @@ der Dialog beim Einschalten ab, jedes Mal, und das Audit-Log hält die Bestätig
 
 Nicht gebaut, vorgemerkt in der [Roadmap](roadmap.md):
 
-- **Aktionen mit vorausgefülltem Formular (Stufe 2):** Der Assistent öffnet das normale Formular für ein
-  Postfach, einen Alias, eine Weiterleitung, einen Monitor, eine Website, die PHP-Version oder das Leeren des
-  Caches. Speichern würde weiterhin nur die Person.
-- **KI-Nutzung weiterverrechnen:** die Kosten der KI an Kunden verrechnen.
 - **Modell pro Funktion:** ein eigenes Modell für jede Funktion statt einem für alle.
 - **Verarbeitung in der EU oder der Schweiz**, falls Anthropic sie anbietet.
 - **Message Batches** von Anthropic für sehr grosse Übersetzungen.
-- **Für Mitarbeitende** eine Zusammenfassung eines Kunden, und Vorschläge für Monitore aus dem Assistenten.
+- **Für Mitarbeitende** eine Zusammenfassung eines Kunden.

@@ -81,6 +81,43 @@ Verkäufer sie von Hand in Rechnung und leert unter "Bearbeiten" die nächste Re
 der Job den Dienst. Ein beendeter Dienst lässt sich nicht mehr ändern. Gutschriften für Perioden, die
 schon über das Enddatum hinaus verrechnet sind (etwa ein Jahresdienst), entstehen nicht von selbst.
 
+### Früher sofort beendete Kündigungen wiederherstellen
+
+Bis zur Korrektur im November 2026 beendete eine Kündigung auf ein späteres Datum den Dienst sofort: Status
+"Gekündigt", kein nächstes Abrechnungsdatum, und "Modul sperren" schaltete das Modul gleich aus. Die Perioden
+bis zum Enddatum wurden nie abgerechnet. Einen gekündigten Dienst mit einem Enddatum nach heute hinterlässt
+nur dieser alte Weg: Eine sofortige Kündigung endet heute oder früher, und der tägliche Job beendet nur
+Dienste, deren Enddatum vorbei ist.
+
+Die Diensttabelle des Verkäufers zeigt einen solchen Dienst als "Sofort beendet, gekündigt per ...". Die
+Karte "Früher gekündigte Dienste prüfen" listet alle, solange es welche gibt: unter Admin > Abrechnung die
+Kunden der Plattform (`GET /admin/billing/services/ended-early`), in der Kundenliste eines Resellers seine
+Kunden (`GET /orgs/:orgId/reseller/services/ended-early`), jeweils mit einem Link zu den Diensten des Kunden.
+Dort stellt "Kündigung per ... wiederherstellen" die Kündigung her, wie sie heute vorgemerkt würde: Der Dienst
+ist wieder aktiv, behält Enddatum und Kündigungszeitpunkt, wird bis zum Enddatum abgerechnet und danach vom
+täglichen Job beendet (`POST /services/:id/resume`, Audit-Eintrag `service.resume`).
+
+Wo die Abrechnung stand, sagen die Rechnungen: Die Periode nach der letzten, für die eine Rechnung eine Zeile
+des Dienstes hat (Entwürfe zählen, stornierte Rechnungen nicht), ist die erste unverrechnete. Der Dialog
+listet die unverrechneten Perioden, die vor heute begonnen haben, mit den Beträgen des Abrechnungslaufs
+(ohne MWST) und dem Total (`GET /services/:id/resume`). Der Verkäufer wählt:
+
+- **Nachverrechnen:** Die Abrechnung geht mit der ersten unverrechneten Periode weiter, der nächste Lauf
+  stellt die verpassten Perioden in Rechnung.
+- **Erst ab der nächsten Periode:** Die Abrechnung geht mit der ersten Periode weiter, die heute oder
+  später beginnt. Die verpassten Perioden bleiben unverrechnet.
+- **Modul wieder einschalten**, wenn der Kunde es nicht mehr hat (wie beim Anlegen eines Dienstes, ein
+  Reseller nur mit Modulen, die er selbst hat), und **Modul am Enddatum sperren** (wie bei einer vorgemerkten
+  Kündigung, also nur, wenn bis dahin kein anderer laufender Dienst das Modul hat).
+
+Hat die alte Kündigung das Modul gesperrt (ihr Audit-Eintrag `service.cancel` nennt es unter
+`moduleDeactivated`), konnte der Kunde den Dienst seither nicht nutzen. Dann sind "erst ab der nächsten
+Periode", "wieder einschalten" und "am Enddatum sperren" vorgewählt, sonst "Nachverrechnen". Ein einmaliger
+Dienst hat keine Perioden: Ist er verrechnet, bleibt es dabei, sonst stellt ihn der nächste Lauf in Rechnung,
+sofern sein Datum nicht nach dem Enddatum liegt. Ist das Enddatum schon vorbei, gilt der Dienst als beendet
+und lässt sich nicht mehr wiederherstellen (409). Fehlende Perioden bis dahin stellt der Verkäufer bei Bedarf
+von Hand in Rechnung.
+
 ### Domain-Verlängerungen
 
 Verlängert Joker.com eine Domain (automatisch oder über "Jetzt verlängern" im Admin-Bereich),
