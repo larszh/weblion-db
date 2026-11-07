@@ -1,15 +1,9 @@
 import type { ReactNode } from 'react';
 import { ExternalLink, Lock, LockOpen, PackageX, SearchX } from 'lucide-react';
-import {
-  MODULE_DEFS,
-  type DomainKind,
-  type LinkedDomain,
-  type ModuleKey,
-  type WebspaceResources,
-} from '@weblion/shared';
+import type { DomainKind, LinkedDomain, ModuleKey, WebspaceResources } from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { formatDate, formatMemoryMb, formatNumber } from '@/lib/format';
+import { formatDate, formatMemoryMb, formatNumber, type Locale } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
 import { Badge, Card, EmptyState, ErrorState } from '@/components/ui/primitives';
 import { Tooltip } from '@/components/ui/menu';
@@ -169,11 +163,11 @@ export function LockBadge({ locked, long }: { locked: boolean | null | undefined
 
 /** Shown when the service module is not activated for the organization. */
 export function ModuleOffState({ module }: { module: ModuleKey }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   return (
     <EmptyState
       icon={<PackageX className="size-6" />}
-      title={t('hosting.moduleOff.title', { module: MODULE_DEFS[module].label[locale] })}
+      title={t('hosting.moduleOff.title', { module: t(`module.${module}.label`) })}
       description={t('hosting.moduleOff.text')}
     />
   );
@@ -213,13 +207,12 @@ export interface ResourceItem {
   value: string;
 }
 
-const count = (value: number | null, locale: 'de' | 'en') =>
-  value === null ? '–' : formatNumber(value, locale);
+const count = (value: number | null, locale: Locale) => (value === null ? '–' : formatNumber(value, locale));
 
 /** Web space limits in display order. Missing values show as "–". */
 export function resourceItems(
   t: TFunction,
-  locale: 'de' | 'en',
+  locale: Locale,
   resources: WebspaceResources | null,
 ): ResourceItem[] {
   const r = resources;

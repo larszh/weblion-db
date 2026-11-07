@@ -26,7 +26,7 @@ import {
 } from '@weblion/shared';
 import { formatBytes, formatDate, formatRelative } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
-import { useOrg } from '@/lib/org-context';
+import { useOptionalOrg, useOrg } from '@/lib/org-context';
 import { useMe } from '@/lib/queries';
 import { hostingKeys } from '@/lib/api/hosting';
 import { useWebsiteDnsCheck, useWebsiteOptions } from '@/lib/api/websites';
@@ -74,6 +74,7 @@ import {
   ForgetWebsiteDialog,
   SitePasswordDialog,
 } from './website-dialogs';
+import { ExplainButton } from '@/components/ai/explain-dialog';
 
 /**
  * One website (/o/:slug/webhosting/:webspaceId, kind "website"): access, runtime, certificate,
@@ -373,12 +374,22 @@ function WebsiteNotices({
   onReset: () => void;
 }) {
   const { t, locale } = useI18n();
+  const orgCtx = useOptionalOrg();
+  // "Mit KI erklären" on the provider's error and on a failed website (ai 10.1, 12.5).
+  const explain = orgCtx && (
+    <ExplainButton
+      scope={{ orgId: orgCtx.org.id }}
+      className="mt-2 -ml-2"
+      source={() => ({ kind: 'website', websiteId: website.id })}
+    />
+  );
   return (
     <>
       {website.liveError && (
         <Notice tone="warning" title={t('hosting.liveError.title')}>
           {t('hosting.liveError.text', { provider: website.provider.name })}
           <span className="mt-1 block font-mono text-xs break-words">{website.liveError}</span>
+          {explain}
         </Notice>
       )}
       {website.missingSince && (
@@ -407,6 +418,7 @@ function WebsiteNotices({
       {website.status === 'error' && (
         <Notice tone="danger" title={t('websites.detail.errorTitle')}>
           {t('websites.detail.errorText')}
+          {!website.liveError && explain}
         </Notice>
       )}
       {website.credentialsPending && website.status !== 'error' && (

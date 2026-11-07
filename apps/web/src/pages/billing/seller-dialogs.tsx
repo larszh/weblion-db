@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   BILLING_INTERVALS,
   MODULES,
   formatMoney,
+  lineTotal,
+  productText,
+  todayZurich,
   type BillingInterval,
   type CreditTransactionDto,
   type Currency,
@@ -12,6 +16,8 @@ import {
   type SellerCustomerBillingDto,
   type ServiceDto,
   type ServiceResourceType,
+  type ServiceResumeInput,
+  type ServiceResumePreviewDto,
 } from '@weblion/shared';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
@@ -22,14 +28,16 @@ import {
   moduleChangeKeys,
   useCustomerResources,
   useProducts,
+  useServiceResumePreview,
   type GenerateResult,
 } from '@/lib/api/billing';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/menu';
-import { Field, Input, Notice, Select, Textarea } from '@/components/ui/primitives';
+import { ErrorState, Field, Input, LoadingBlock, Notice, Select, Textarea } from '@/components/ui/primitives';
 import { useBillingLabels } from './bits';
 import {
+  formatDay,
   formatRate,
   moneyInput,
   parseMoney,
@@ -38,6 +46,17 @@ import {
   percentInput,
   todayISO,
 } from './money';
+import {
+  billsFromNext,
+  fullPeriodAhead,
+  resumeBilling,
+  resumeBody,
+  resumeDefaults,
+  resumeRefusal,
+  resumeSwitches,
+  scheduledEndOf,
+  servicesKeepingModule,
+} from './service-end';
 
 /** Dialogs of the seller panel: credit, services and billing due services. */
 
@@ -324,10 +343,13 @@ export function AddServiceDialog({
       set({ productId: '' });
       return;
     }
+    // The service's text ends up on the customer's invoices, so it is taken in the customer's billing
+    // language (plan O14); the list below shows the products in the viewer's language.
+    const text = productText(product, customer.profile.effectiveLocale);
     set({
       productId: product.id,
-      name: product.name,
-      description: product.description ?? '',
+      name: text.name,
+      description: text.description ?? '',
       module: product.module ?? '',
       unitPrice: moneyInput(product.unitPrice),
       interval: product.interval,
@@ -419,7 +441,8 @@ export function AddServiceDialog({
             <option value="">{t('billing.service.noProduct')}</option>
             {catalog.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} · {formatMoney(p.unitPrice, p.currency, locale)} {labels.interval(p.interval)}
+                {productText(p, locale).name} · {formatMoney(p.unitPrice, p.currency, locale)}{' '}
+                {labels.interval(p.interval)}
               </option>
             ))}
           </Select>
@@ -761,22 +784,32 @@ export function EditServiceDialog({
   );
 }
 
-/** Cancel a service, optionally switching its module off for the customer. */
+/**
+ * Cancel a service, optionally switching its module off for the customer. A later end date schedules
+ * the cancellation (the service runs and is billed until then); opened on a scheduled one it changes it.
+ */
 export function CancelServiceDialog({
   service,
+  services,
   onOpenChange,
 }: {
   service: ServiceDto | null;
+  /** All services of the customer, to tell when another one keeps the module on. */
+  services: ServiceDto[];
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const labels = useBillingLabels();
-  const [endsAt, setEndsAt] = useState(todayISO());
+  // The Zurich date, like the API: an end date of today ends the service at once, a later one is scheduled.
+  const [endsAt, setEndsAt] = useState(todayZurich());
   const [deactivate, setDeactivate] = useState(false);
+  const scheduled = service ? scheduledEndOf(service) : null;
+  // The API checks this again when the module would be switched off (at once or at the end date).
+  const keeping = service ? servicesKeepingModule(service, services, todayZurich()) : [];
   useEffect(() => {
     if (!service) return;
-    setEndsAt(todayISO());
-    setDeactivate(false);
+    setEndsAt(scheduledEndOf(service) ?? todayZurich());
+    setDeactivate(service.deactivateModuleAtEnd);
   }, [service]);
 
   const cancel = useApiMutation(
@@ -786,7 +819,12 @@ export function CancelServiceDialog({
         deactivateModule: deactivate,
       }),
     {
-      success: (s) => t('billing.service.cancelled', { name: s.name }),
+      success: (s) => {
+        const end = scheduledEndOf(s);
+        return end
+          ? t('billing.service.cancelledLater', { name: s.name, date: formatDay(end, locale) })
+          : t('billing.service.cancelled', { name: s.name });
+      },
       invalidate: moduleChangeKeys,
       onSuccess: () => onOpenChange(false),
     },
@@ -810,7 +848,7 @@ export function CancelServiceDialog({
             loading={cancel.isPending}
             onClick={() => cancel.mutate(undefined)}
           >
-            {t('billing.service.cancel')}
+            {scheduled ? t('billing.service.changeCancel') : t('billing.service.cancel')}
           </Button>
         </>
       }
@@ -819,10 +857,18 @@ export function CancelServiceDialog({
         <Field
           label={t('billing.service.endsAt.label')}
           htmlFor="cs-ends"
-          hint={t('billing.service.endsAtHint')}
+          hint={
+            // Prefilled with the scheduled date, "today by default" would not be true.
+            scheduled
+              ? t('billing.service.endsAtLaterHint')
+              : `${t('billing.service.endsAtHint')} ${t('billing.service.endsAtLaterHint')}`
+          }
         >
           <Input id="cs-ends" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
         </Field>
+        {service && (
+          <FullPeriodNotice service={service} endsAt={endsAt} today={todayZurich()} onEndBefore={setEndsAt} />
+        )}
         {service?.module && (
           <SwitchRow
             label={t('billing.service.deactivateModule', { module: labels.module(service.module) })}
@@ -831,8 +877,309 @@ export function CancelServiceDialog({
             onCheckedChange={setDeactivate}
           />
         )}
+        {deactivate && keeping.length > 0 && (
+          <Notice tone="info">
+            {t('billing.service.moduleKept', { names: keeping.map((s) => s.name).join(', ') })}
+          </Notice>
+        )}
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Restores a service that a cancellation to a later date ended at once (until the fix of November 2026) as the
+ * scheduled cancellation it was meant to be. The preview (GET /services/:id/resume) lists the periods missed
+ * since and what is billed up to the end date, so the seller decides whether the missed periods are billed and
+ * what happens to the module.
+ */
+export function ResumeServiceDialog({
+  service,
+  services,
+  onOpenChange,
+}: {
+  service: ServiceDto | null;
+  /** All services of the customer, to tell when another one keeps the module on. */
+  services: ServiceDto[];
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t, locale } = useI18n();
+  const qc = useQueryClient();
+  const preview = useServiceResumePreview(service?.id);
+  const data = preview.data?.serviceId === service?.id ? preview.data : undefined;
+  // The seller's choice for this service; the defaults until they change something. Cleared on every opening,
+  // so a refetch of the preview never overrides it and a new opening starts from the defaults again.
+  const [choice, setChoice] = useState<{ id: string; value: ServiceResumeInput } | null>(null);
+  useEffect(() => setChoice(null), [service]);
+  const value = data ? (choice?.id === data.serviceId ? choice.value : resumeDefaults(data)) : null;
+  const keeping = service ? servicesKeepingModule(service, services, todayZurich()) : [];
+
+  const restore = useApiMutation(
+    () => api.post<ServiceDto>(`/services/${service!.id}/resume`, resumeBody(data!, value!)),
+    {
+      success: (s) => t('billing.service.restored', { name: s.name, date: formatDay(s.endsAt!, locale) }),
+      invalidate: moduleChangeKeys,
+      onSuccess: () => onOpenChange(false),
+      // A refusal is explained in the dialog, any other error as well (the toast would hide behind it).
+      errorToast: false,
+    },
+  );
+  const { reset } = restore;
+  useEffect(() => reset(), [service, reset]);
+  // Refused: the table is out of date (restored or changed elsewhere), so load the services again.
+  const refusal = resumeRefusal(preview.error) ?? resumeRefusal(restore.error);
+  useEffect(() => {
+    if (refusal) void qc.invalidateQueries({ queryKey: billingKeys.all });
+  }, [refusal, qc]);
+
+  return (
+    <Dialog
+      open={!!service}
+      onOpenChange={onOpenChange}
+      title={t('billing.service.restoreTitle', { name: service?.name ?? '' })}
+      footer={
+        <>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            {refusal ? t('common.close') : t('common.cancel')}
+          </Button>
+          {!refusal && (
+            <Button
+              variant="primary"
+              disabled={!data || !value}
+              loading={restore.isPending}
+              onClick={() => restore.mutate(undefined)}
+            >
+              {t('billing.service.restoreConfirm')}
+            </Button>
+          )}
+        </>
+      }
+    >
+      {refusal ? (
+        <Notice tone="warning">
+          {refusal === 'sellerChanged'
+            ? t('billing.service.restoreSellerChanged')
+            : refusal === 'resourceGone'
+              ? t('billing.service.restoreResourceGone')
+              : t('billing.service.restoreGone')}
+        </Notice>
+      ) : preview.isError ? (
+        <ErrorState error={preview.error} onRetry={() => void preview.refetch()} />
+      ) : data && value ? (
+        <div className="space-y-4">
+          <ResumeServiceForm
+            preview={data}
+            value={value}
+            onChange={(v) => setChoice({ id: data.serviceId, value: v })}
+            keeping={keeping}
+          />
+          {restore.isError && <ErrorState error={restore.error} />}
+        </div>
+      ) : (
+        <LoadingBlock />
+      )}
+    </Dialog>
+  );
+}
+
+/** The choices of the restore dialog, apart for tests (the dialog itself renders in a portal). */
+export function ResumeServiceForm({
+  preview,
+  value,
+  onChange,
+  keeping,
+}: {
+  preview: ServiceResumePreviewDto;
+  value: ServiceResumeInput;
+  onChange: (value: ServiceResumeInput) => void;
+  /** Other services of the customer that keep the module on (servicesKeepingModule). */
+  keeping: ServiceDto[];
+}) {
+  const { t, locale } = useI18n();
+  const labels = useBillingLabels();
+  const day = (date: string) => formatDay(date, locale);
+  const money = (amount: number) => formatMoney(amount, preview.currency, locale);
+  const paused = preview.pausedBeforeCancel;
+  const missed = preview.missedPeriods;
+  const switches = resumeSwitches(preview);
+  const billing = resumeBilling(preview, resumeBody(preview, value).billFrom);
+  // A one-off charge not billed yet: the next billing run bills it, whichever choice (it is not a period).
+  const oneOffOpen =
+    preview.interval === 'once' &&
+    !paused &&
+    !!preview.firstUnbilled &&
+    preview.firstUnbilled <= preview.endsAt;
+  const options: { value: ServiceResumeInput['billFrom']; label: string; hint: string }[] = [
+    {
+      value: 'missed',
+      label: t('billing.service.restoreBillMissed'),
+      hint: t('billing.service.restoreBillMissedHint'),
+    },
+    billsFromNext(preview)
+      ? {
+          value: 'next',
+          label: t('billing.service.restoreBillNext', { date: day(preview.nextFromToday!) }),
+          hint: t('billing.service.restoreBillNextHint'),
+        }
+      : {
+          value: 'next',
+          label: t('billing.service.restoreBillNone'),
+          hint: t('billing.service.restoreBillNoneHint'),
+        },
+  ];
+  const moduleName = preview.module ? labels.module(preview.module) : '';
+
+  return (
+    <div className="space-y-4">
+      {/* In the body, not the dialog's fixed header: on a small screen it scrolls away with the rest. */}
+      <p className="text-sm text-muted">{t('billing.service.restoreText', { date: day(preview.endsAt) })}</p>
+      {paused && <Notice tone="info">{t('billing.service.restorePaused')}</Notice>}
+      {missed.length > 0 && (
+        <fieldset className="space-y-2">
+          <legend className="mb-1.5 text-[13px] font-medium text-text">
+            {t('billing.service.restoreMissed')}
+          </legend>
+          <ul className="divide-y divide-border rounded-lg border border-border text-sm">
+            {missed.map((p) => (
+              <li key={p.start} className="flex items-baseline justify-between gap-3 px-3 py-2">
+                <span className="min-w-0 text-text [overflow-wrap:anywhere]">
+                  {p.end
+                    ? t('billing.service.restorePeriod', { start: day(p.start), end: day(p.end) })
+                    : day(p.start)}
+                </span>
+                <span className="whitespace-nowrap tabular text-text">{money(p.amount)}</span>
+              </li>
+            ))}
+            <li className="flex items-baseline justify-between gap-3 bg-surface-2 px-3 py-2 font-medium">
+              <span className="min-w-0 text-text [overflow-wrap:anywhere]">
+                {t('billing.service.restoreTotal')}
+              </span>
+              <span className="whitespace-nowrap tabular text-text">{money(preview.missedTotal)}</span>
+            </li>
+          </ul>
+          <p className="text-xs text-muted">{t('billing.service.restoreNet')}</p>
+          <div className="space-y-2 pt-1">
+            {options.map((o) => (
+              <label
+                key={o.value}
+                className={cn(
+                  'flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors',
+                  value.billFrom === o.value
+                    ? 'border-brand-blue bg-primary-soft'
+                    : 'border-border-strong hover:bg-surface-3',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="resume-bill-from"
+                  value={o.value}
+                  checked={value.billFrom === o.value}
+                  onChange={() => onChange({ ...value, billFrom: o.value })}
+                  className="mt-0.5 size-4 shrink-0 accent-brand-blue"
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium text-text">{o.label}</span>
+                  <span className="block text-xs text-muted">{o.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      {billing && (
+        <div className="space-y-1 text-sm text-text" aria-live="polite">
+          <p>
+            {billing.total > 0 && billing.from && billing.to
+              ? t('billing.service.restoreBilled', {
+                  total: money(billing.total),
+                  start: day(billing.from),
+                  end: day(billing.to),
+                })
+              : t('billing.service.restoreBilledNothing')}
+          </p>
+          {billing.fullPeriod && (
+            <p className="text-xs text-muted">
+              {t('billing.service.fullPeriod', {
+                date: day(billing.fullPeriod.from),
+                price: money(billing.fullPeriod.price),
+              })}
+            </p>
+          )}
+        </div>
+      )}
+      {oneOffOpen && (
+        <Notice tone="info">
+          {t('billing.service.restoreOneOff', { price: money(preview.periodAmount) })}
+        </Notice>
+      )}
+      {preview.manualInvoices.length > 0 && (
+        <Notice tone="warning">
+          {t('billing.service.restoreManualInvoices', {
+            numbers: preview.manualInvoices.map((i) => i.number ?? t('billing.status.draft')).join(', '),
+          })}
+        </Notice>
+      )}
+      {preview.module && preview.moduleDeactivatedByCancel && preview.moduleActive && (
+        <Notice tone="info">{t('billing.service.restoreModuleBackOn', { module: moduleName })}</Notice>
+      )}
+      {switches.activate && (
+        <SwitchRow
+          label={t('billing.service.restoreActivateModule', { module: moduleName })}
+          hint={
+            switches.canActivate
+              ? t('billing.service.activateModuleHint')
+              : t('billing.service.restoreModuleMissing', { module: moduleName })
+          }
+          checked={switches.canActivate && value.activateModule}
+          disabled={!switches.canActivate}
+          onCheckedChange={(v) => onChange({ ...value, activateModule: v })}
+        />
+      )}
+      {switches.deactivateAtEnd && (
+        <SwitchRow
+          label={t('billing.service.restoreDeactivateAtEnd', { module: moduleName })}
+          hint={t('billing.service.deactivateModuleHint')}
+          checked={value.deactivateModuleAtEnd}
+          onCheckedChange={(v) => onChange({ ...value, deactivateModuleAtEnd: v })}
+        />
+      )}
+      {switches.deactivateAtEnd && value.deactivateModuleAtEnd && keeping.length > 0 && (
+        <Notice tone="info">
+          {t('billing.service.moduleKept', { names: keeping.map((s) => s.name).join(', ') })}
+        </Notice>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Says when an end date still bills a whole period, e.g. "per Ende November" on a service whose period
+ * starts on 30 November, and offers the end before that period with one click.
+ */
+export function FullPeriodNotice({
+  service,
+  endsAt,
+  today,
+  onEndBefore,
+}: {
+  service: ServiceDto;
+  endsAt: string;
+  today: string;
+  onEndBefore: (date: string) => void;
+}) {
+  const { t, locale } = useI18n();
+  const ahead = fullPeriodAhead(service, endsAt, today);
+  if (!ahead) return null;
+  const price = formatMoney(lineTotal(service.quantity, service.unitPrice), service.currency, locale);
+  return (
+    <Notice tone="warning">
+      <p>{t('billing.service.fullPeriod', { date: formatDay(ahead.from, locale), price })}</p>
+      {ahead.endBefore && (
+        <Button size="sm" className="mt-2" onClick={() => onEndBefore(ahead.endBefore!)}>
+          {t('billing.service.endBeforePeriod', { date: formatDay(ahead.endBefore, locale) })}
+        </Button>
+      )}
+    </Notice>
   );
 }
 

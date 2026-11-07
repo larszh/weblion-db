@@ -1054,7 +1054,9 @@ describe('DNS move to Cloudflare', () => {
       const result = json<DnsMoveResult>(await move(admin, domainId, { setNameservers: true }));
       expect(result).toMatchObject({
         zoneCreated: false,
-        import: { status: 'done', copied: 9 },
+        // The demo records of muster-ag.ch without the read-only DynDNS record (and without DMARC, which the
+        // demo leaves out for the AI DNS check).
+        import: { status: 'done', copied: 8 },
         nameservers: { status: 'manual', reason: 'unsupported', nameservers: zone.info!.nameservers },
       });
     } finally {

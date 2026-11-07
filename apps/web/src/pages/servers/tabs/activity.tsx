@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, EmptyState, ErrorState, LoadingBlock, Mono } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { ActivityList } from '@/pages/org/audit';
+import { useOptionalOrg } from '@/lib/org-context';
+import { ExplainButton } from '@/components/ai/explain-dialog';
 import { useServerContext } from '../context';
 import { ActionStatus } from './overview';
 
 export function ActivityTab() {
   const { t, locale } = useI18n();
   const { server } = useServerContext();
+  const orgCtx = useOptionalOrg();
   const tasks = useServerTasks(server.id);
   const [page, setPage] = useState(1);
   const activity = useServerActivity(server.id, page);
@@ -45,6 +48,14 @@ export function ActivityTab() {
                   <TD>
                     <Mono className="text-text">{a.type}</Mono>
                     {a.error && <div className="mt-0.5 max-w-md text-xs text-danger">{a.error}</div>}
+                    {a.status === 'error' && orgCtx && (
+                      <ExplainButton
+                        scope={{ orgId: orgCtx.org.id }}
+                        short
+                        className="mt-1 -ml-3"
+                        source={() => ({ kind: 'server_action', serverId: server.id, actionId: a.id })}
+                      />
+                    )}
                   </TD>
                   <TD className="text-muted">{a.user?.name ?? 'System'}</TD>
                   <TD className="tabular" title={formatDate(a.startedAt, locale)}>

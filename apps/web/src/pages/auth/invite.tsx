@@ -4,16 +4,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MailCheck } from 'lucide-react';
 import type { InvitationInfoDto } from '@weblion/shared';
 import { api, errorMessage } from '@/lib/api';
-import { useT } from '@/lib/i18n';
+import { useI18n } from '@/lib/i18n';
 import { qk, useMe } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { ErrorState, Field, Input, Spinner } from '@/components/ui/primitives';
+import { LanguageMenu } from '@/components/language-picker';
 import { AuthLayout } from './login';
 
 export function InvitePage() {
   const { token } = useParams();
-  const t = useT();
+  const { t, locale } = useI18n();
   const me = useMe();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -34,7 +35,8 @@ export function InvitePage() {
     try {
       const res = await api.post<{ orgSlug: string }>(
         `/auth/invitations/${token}/accept`,
-        info.data?.userExists ? {} : { name, password },
+        // The UI language becomes the new account's language (i18n 6.2); an existing account keeps its own.
+        info.data?.userExists ? {} : { name, password, locale },
       );
       await qc.invalidateQueries({ queryKey: qk.me });
       navigate(`/o/${res.orgSlug}`, { replace: true });
@@ -51,8 +53,10 @@ export function InvitePage() {
     info.data &&
     me.data.user.email.toLowerCase() === info.data.email.toLowerCase();
 
+  const newAccount = !!info.data && !info.data.userExists;
+
   return (
-    <AuthLayout>
+    <AuthLayout languageMenu={!newAccount}>
       {info.isPending ? (
         <Spinner />
       ) : info.isError || !info.data ? (
@@ -114,6 +118,14 @@ export function InvitePage() {
                   autoFocus
                 />
               </Field>
+              <div className="space-y-1.5">
+                <span className="block text-[13px] font-medium text-text">{t('account.language')}</span>
+                <LanguageMenu
+                  align="start"
+                  className="w-full justify-start [&>span]:flex-1 [&>span]:text-left"
+                />
+                <p className="text-xs text-muted">{t('language.inviteHint')}</p>
+              </div>
               <Field label={t('invite.password')} hint={t('invite.passwordHint')} htmlFor="password">
                 <Input
                   id="password"

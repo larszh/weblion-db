@@ -360,6 +360,11 @@ export async function orgRoutes(app: FastifyInstance, ctx: AppContext) {
       details: { email: body.email, role: body.role },
     });
     const link = `${ctx.env.APP_URL.replace(/\/$/, '')}/invite/${token}`;
+    // An address with an account gets the mail in its own language (i18n 8.2).
+    const invitee = await db.query.users.findFirst({
+      columns: { locale: true },
+      where: sql`lower(${users.email}) = lower(${invitation!.email})`,
+    });
     // The link is returned either way, so a mail problem never blocks the invitation.
     await sendInvitationMail(ctx.mail, {
       email: invitation!.email,
@@ -369,6 +374,7 @@ export async function orgRoutes(app: FastifyInstance, ctx: AppContext) {
       link,
       expiresAt: invitation!.expiresAt,
       inviter: auth.user,
+      invitee: invitee ?? null,
     });
     return {
       id: invitation!.id,

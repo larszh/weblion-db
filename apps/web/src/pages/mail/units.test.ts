@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { LOCALES } from '@weblion/shared';
+import { de } from '@weblion/shared/i18n/de';
+import { en } from '@weblion/shared/i18n/en';
 import { GIB, MAX_MIB, MIB, formatMailSize, fromBytes, toMib } from './units';
 
 describe('toMib', () => {
@@ -84,10 +87,25 @@ describe('formatMailSize', () => {
     expect(formatMailSize(50 * GIB, 'en')).toBe('50 GB');
   });
 
-  it('reads 0 as unlimited only for quotas', () => {
-    expect(formatMailSize(0, 'de', { zeroUnlimited: true })).toBe('unbegrenzt');
-    expect(formatMailSize(0, 'en', { zeroUnlimited: true })).toBe('unlimited');
+  it('reads 0 as unlimited only for quotas, in the text the caller passes', () => {
+    expect(formatMailSize(0, 'de', { unlimited: de['mail.units.unlimited'] })).toBe('unbegrenzt');
+    expect(formatMailSize(0, 'en', { unlimited: en['mail.units.unlimited'] })).toBe('unlimited');
     expect(formatMailSize(0, 'de')).toBe('0 MB');
     expect(formatMailSize(null, 'de')).toBe('–');
+  });
+
+  it('formats in each of the five languages with its own Intl tag (i18n 2.3)', () => {
+    const fmt = (tag: string, value: number, digits: number) =>
+      new Intl.NumberFormat(tag, { maximumFractionDigits: digits }).format(value);
+    const tags = { de: 'de-CH', en: 'en-GB', fr: 'fr-CH', it: 'it-CH', nl: 'nl-NL' } as const;
+    for (const locale of LOCALES) {
+      expect(formatMailSize(1.5 * GIB, locale)).toBe(`${fmt(tags[locale], 1.5, 1)} GB`);
+      expect(formatMailSize(1280 * MIB, locale)).toBe(`${fmt(tags[locale], 1280, 0)} MB`);
+      expect(formatMailSize(512 * MIB, locale)).toBe('512 MB');
+    }
+    // Dutch and French write a decimal comma.
+    expect(formatMailSize(1.5 * GIB, 'nl')).toBe('1,5 GB');
+    expect(formatMailSize(1.5 * GIB, 'fr')).toBe('1,5 GB');
+    expect(formatMailSize(2048 * GIB, 'nl')).toBe('2.048 GB');
   });
 });

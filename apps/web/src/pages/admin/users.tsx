@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { KeyRound, MoreHorizontal, Search, ShieldOff, UserPlus } from 'lucide-react';
-import type { UserDto } from '@weblion/shared';
+import type { Locale, UserDto } from '@weblion/shared';
 import { api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { formatRelative } from '@/lib/format';
 import { qk, useAdminOrgs, useAdminUsers, useApiMutation, useMe, type AdminUser } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
@@ -24,6 +24,7 @@ import {
   Select,
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
+import { LanguageSelect } from '@/components/language-picker';
 
 function PasswordResult({ value, onClose }: { value: string | null; onClose: () => void }) {
   const { t } = useI18n();
@@ -56,9 +57,11 @@ function CreateUserDialog({
   onOpenChange: (o: boolean) => void;
   onPassword: (p: string) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale: uiLocale } = useI18n();
   const orgs = useAdminOrgs();
   const me = useMe();
+  // The new person's console and e-mail language; the admin's own by default (i18n 6.2).
+  const [locale, setLocale] = useState<Locale>(me.data?.user.locale ?? uiLocale);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [platformRole, setPlatformRole] = useState('');
@@ -72,6 +75,7 @@ function CreateUserDialog({
         platformRole: platformRole || null,
         orgId: orgId || undefined,
         orgRole: orgId ? orgRole : undefined,
+        locale,
       }),
     {
       invalidate: [qk.admin('users')],
@@ -111,6 +115,14 @@ function CreateUserDialog({
         </Field>
         <Field label={t('login.email')} htmlFor="u-email">
           <Input id="u-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <Field
+          label={t('users.locale')}
+          hint={t('users.localeHint')}
+          htmlFor="u-locale"
+          className="sm:col-span-2"
+        >
+          <LanguageSelect id="u-locale" value={locale} onChange={(next) => next && setLocale(next)} />
         </Field>
         <Field label={t('users.organization')} htmlFor="u-org">
           <Select id="u-org" value={orgId} onChange={(e) => setOrgId(e.target.value)}>

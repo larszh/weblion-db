@@ -7,7 +7,7 @@ import {
   type MonitorDto,
   type MonitorStatusPageDto,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { formatNumber, formatRelative } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';

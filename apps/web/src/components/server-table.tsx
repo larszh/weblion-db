@@ -7,7 +7,7 @@ import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { CopyButton, Mono, UsageBar } from '@/components/ui/primitives';
 import { Flag, KindIcon, LabelChips, ProviderBadge, SpecsLine, StatusDot } from './server-bits';
 import { Tooltip } from './ui/menu';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 
 export function primaryIp(server: ServerDto, version: 4 | 6 = 4): string | null {
   return server.ips.find((ip) => ip.version === version)?.address ?? null;

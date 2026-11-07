@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ChevronLeft, Globe, Layers, Loader2, Lock, Server, X, XCircle } from 'lucide-react';
 import {
-  MODULE_DEFS,
   formatMoney,
   type BillingInterval,
   type CreditType,
@@ -88,12 +87,12 @@ export function ZohoBadge({ zoho }: { zoho: InvoiceDto['zoho'] }) {
 }
 
 export function useBillingLabels() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   return {
     interval: (i: BillingInterval) => t(`billing.interval.${i}`),
     method: (m: PaymentMethod) => t(`billing.method.${m}`),
     creditType: (c: CreditType) => t(`billing.creditType.${c}`),
-    module: (m: ModuleKey | null) => (m ? MODULE_DEFS[m].label[locale] : t('billing.module.none')),
+    module: (m: ModuleKey | null) => (m ? t(`module.${m}.label`) : t('billing.module.none')),
   };
 }
 
@@ -260,7 +259,8 @@ export function StatCard({
         {icon}
       </div>
       <div className="min-w-0">
-        <div className="text-sm text-muted sm:truncate">{label}</div>
+        {/* Wrapped, not cut: "Monatlich wiederkehrend" and its translations do not fit a quarter of the row. */}
+        <div className="text-sm break-words hyphens-auto text-muted">{label}</div>
         <div
           className={cn('text-lg font-semibold tabular sm:text-xl', highlight ? 'text-danger' : 'text-text')}
         >

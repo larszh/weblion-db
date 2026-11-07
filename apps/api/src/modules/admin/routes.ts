@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   DEFAULT_MODULES,
+  LOCALES,
   MODULES,
   ORG_KINDS,
   PHP_VERSION_PATTERN,
@@ -45,6 +46,8 @@ import { hashPassword, randomToken } from '../../lib/crypto';
 import { toUserDto } from '../../lib/dto';
 import { AppError, badRequest, conflict, forbidden, notFound, unsupported } from '../../lib/errors';
 import { parse, parseStatements } from '../../lib/validation';
+import { SECRET_KEY_PATTERN } from '../../lib/redact';
+import { containsPattern } from '../../lib/like';
 import { dropMediaRequestsOf, forgetSeerrUsers, pendingSeerrRevocations } from '../media/seerr';
 import { CLOUDFLARE_DEFAULT_BASE_URL } from '../../providers/cloudflare/constants';
 import {
@@ -457,15 +460,6 @@ export function configSummary(type: ProviderType, config: ProviderConfig): Recor
 }
 
 /**
- * Keys whose values never reach the audit log (Mailcow's DKIM import sends private_key_file,
- * its identity provider bindpass). Any "pass", like the Mailcow adapter's own redaction. 3CX
- * bodies: SIP credentials (AuthID, AuthPassword), the voicemail PIN (VMPIN), the license key,
- * one-time tickets and provisioning links. Jellyfin bodies: NewPw, CurrentPw, Pw and Pin.
- */
-const SECRET_KEY =
-  /pass|secret|token|auth_?code|api_?key|priv(ate)?_?key|auth_?id|licen[cs]e_?key|pin$|ticket|prov(isioning)?_?link|pw$/i;
-
-/**
  * An explorer request as it is audited: values of password-like keys blanked, including the
  * "value" of a Nextcloud user edit with key=password (PUT /ocs/v2.php/cloud/users/{id}).
  * Nextcloud reads key and value from the query as well: `secretEdit` when the key is there.
@@ -474,11 +468,11 @@ export function redactExplorerBody(value: unknown, secretEdit = false): unknown 
   if (Array.isArray(value)) return value.map((v) => redactExplorerBody(v));
   if (value === null || typeof value !== 'object') return value;
   const record = value as Record<string, unknown>;
-  const secret = secretEdit || (typeof record.key === 'string' && SECRET_KEY.test(record.key));
+  const secret = secretEdit || (typeof record.key === 'string' && SECRET_KEY_PATTERN.test(record.key));
   return Object.fromEntries(
     Object.entries(record).map(([k, v]) => [
       k,
-      SECRET_KEY.test(k) || (secret && k === 'value') ? '[redacted]' : redactExplorerBody(v),
+      SECRET_KEY_PATTERN.test(k) || (secret && k === 'value') ? '[redacted]' : redactExplorerBody(v),
     ]),
   );
 }
@@ -513,8 +507,8 @@ function explorerParams(path: string): { part: string; name: string; value: stri
 /** Whether an explorer request sets a secret with key=password, in the query or the body. */
 export function explorerEditsSecret(path: string, body: unknown): boolean {
   const key = body !== null && typeof body === 'object' ? (body as Record<string, unknown>).key : null;
-  if (typeof key === 'string' && SECRET_KEY.test(key)) return true;
-  return explorerParams(path).some((p) => p.name === 'key' && SECRET_KEY.test(p.value ?? ''));
+  if (typeof key === 'string' && SECRET_KEY_PATTERN.test(key)) return true;
+  return explorerParams(path).some((p) => p.name === 'key' && SECRET_KEY_PATTERN.test(p.value ?? ''));
 }
 
 /**
@@ -528,7 +522,7 @@ export function redactExplorerPath(path: string, secretEdit = false): string {
   const secret = secretEdit || explorerEditsSecret(path, null);
   const query = explorerParams(path)
     .map(({ part, name, value }) =>
-      value !== null && (SECRET_KEY.test(name) || (secret && name === 'value'))
+      value !== null && (SECRET_KEY_PATTERN.test(name) || (secret && name === 'value'))
         ? `${part.slice(0, part.indexOf('=') + 1)}[redacted]`
         : part,
     )
@@ -992,9 +986,9 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       query.includeMissing ? undefined : sql`${servers.status} <> 'missing'`,
       query.q
         ? or(
-            ilike(servers.name, `%${query.q.replace(/[%_]/g, '')}%`),
-            ilike(servers.externalId, `%${query.q.replace(/[%_]/g, '')}%`),
-            sql`${servers.ips}::text ilike ${`%${query.q.replace(/[%_]/g, '')}%`}`,
+            ilike(servers.name, containsPattern(query.q)),
+            ilike(servers.externalId, containsPattern(query.q)),
+            sql`${servers.ips}::text ilike ${containsPattern(query.q)}`,
           )
         : undefined,
     ];
@@ -1222,10 +1216,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .where(
         and(
           q
-            ? or(
-                ilike(organizations.name, `%${q.replace(/[%_]/g, '')}%`),
-                ilike(organizations.slug, `%${q.replace(/[%_]/g, '')}%`),
-              )
+            ? or(ilike(organizations.name, containsPattern(q)), ilike(organizations.slug, containsPattern(q)))
             : undefined,
           kind ? eq(organizations.kind, kind) : undefined,
           parentOrgId ? eq(organizations.parentOrgId, parentOrgId) : undefined,
@@ -1329,6 +1320,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
           link: result.invitation.link,
           expiresAt: result.invitation.expiresAt,
           inviter: auth.user,
+          // Only new addresses get an invitation here (an existing account becomes owner at once).
+          invitee: null,
         })
       : null;
     return {
@@ -1456,12 +1449,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       .select()
       .from(users)
       .where(
-        q
-          ? or(
-              ilike(users.email, `%${q.replace(/[%_]/g, '')}%`),
-              ilike(users.name, `%${q.replace(/[%_]/g, '')}%`),
-            )
-          : undefined,
+        q ? or(ilike(users.email, containsPattern(q)), ilike(users.name, containsPattern(q))) : undefined,
       )
       .orderBy(users.name)
       .limit(500);
@@ -1493,6 +1481,8 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
         platformRole: z.enum(PLATFORM_ROLES).nullish(),
         orgId: z.uuid().optional(),
         orgRole: z.enum(['owner', 'admin', 'member', 'restricted', 'viewer', 'billing']).optional(),
+        /** Console and mail language of the new person (i18n 6.2); German when left out. */
+        locale: z.enum(LOCALES).optional(),
       }),
       req.body,
     );
@@ -1510,6 +1500,7 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
           name: body.name,
           platformRole: body.platformRole ?? null,
           passwordHash: await hashPassword(password),
+          locale: body.locale ?? 'de',
         })
         .returning();
       if (body.orgId) {
@@ -1524,7 +1515,12 @@ export async function adminRoutes(app: FastifyInstance, ctx: AppContext) {
       orgId: body.orgId ?? null,
       resourceType: 'user',
       resourceId: user.id,
-      details: { email: body.email, platformRole: body.platformRole ?? null, orgRole: body.orgRole },
+      details: {
+        email: body.email,
+        platformRole: body.platformRole ?? null,
+        orgRole: body.orgRole,
+        locale: user.locale,
+      },
     });
     return { user: toUserDto(user), initialPassword: password };
   });

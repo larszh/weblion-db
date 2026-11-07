@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   date,
   index,
   integer,
@@ -17,6 +18,11 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import type {
+  AiFeature,
+  AiModel,
+  AiSwitchedOffBy,
+  AiUsageScope,
+  AiUsageStatus,
   BillingInterval,
   CreatableWebsiteType,
   CreditType,
@@ -24,6 +30,7 @@ import type {
   DomainInfo,
   InvoiceIssuerSettings,
   InvoiceStatus,
+  Locale,
   MailDomainInfo,
   MediaAccountIssue,
   MediaAccountRequestsDto,
@@ -41,8 +48,14 @@ import type {
   PhoneSystemInfo,
   PhoneSystemStatus,
   PostalAddress,
+  ProductTranslations,
   ServiceResourceType,
   ServiceStatus,
+  TargetLocale,
+  TranslationBatchPlan,
+  TranslationFailure,
+  TranslationJobScope,
+  TranslationJobStatus,
   WebspaceInfo,
   WebspaceKind,
   WebspaceStatus,
@@ -81,7 +94,7 @@ export const users = pgTable(
     passwordHash: text('password_hash'),
     platformRole: text('platform_role').$type<PlatformRole>(),
     status: text('status').$type<'active' | 'disabled'>().notNull().default('active'),
-    locale: text('locale').notNull().default('de'),
+    locale: text('locale').$type<Locale>().notNull().default('de'),
     totpSecretEnc: text('totp_secret_enc'),
     totpEnabled: boolean('totp_enabled').notNull().default(false),
     /** Consecutive failed logins, drives the temporary lockout. */
@@ -90,7 +103,10 @@ export const users = pgTable(
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     ...timestamps,
   },
-  (t) => [uniqueIndex('users_email_idx').on(sql`lower(${t.email})`)],
+  (t) => [
+    uniqueIndex('users_email_idx').on(sql`lower(${t.email})`),
+    check('users_locale_check', sql`${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`),
+  ],
 );
 
 export const sessions = pgTable(
@@ -129,6 +145,13 @@ export const organizations = pgTable(
     }),
     /** Activated service modules, see MODULES in @weblion/shared. */
     modules: jsonb('modules').$type<ModuleKey[]>().notNull().default(['servers']),
+    /** AI may be used on this organization's data. Off by default, opt-in per customer (plan O34, decision 16). */
+    aiEnabled: boolean('ai_enabled').notNull().default(false),
+    /** Who switched it off while aiEnabled is false. A reseller cannot switch on what the platform switched off. */
+    aiDisabledBy: text('ai_disabled_by').$type<AiSwitchedOffBy>(),
+    /** The customer declined the AI features (ai:settings). Wins over every switch, staff features included. */
+    aiOptOutAt: timestamp('ai_opt_out_at', { withTimezone: true }),
+    aiOptOutBy: uuid('ai_opt_out_by').references(() => users.id, { onDelete: 'set null' }),
     notes: text('notes'),
     ...timestamps,
   },
@@ -737,28 +760,39 @@ export const monitorStatusPages = pgTable(
 // Money columns are integer minor units (Rappen/cents), tax rates basis points.
 
 /** Billing details of an organization as a customer, plus issuer settings for resellers. */
-export const billingProfiles = pgTable('billing_profiles', {
-  orgId: uuid('org_id')
-    .primaryKey()
-    .references(() => organizations.id, { onDelete: 'cascade' }),
-  companyName: text('company_name'),
-  contactName: text('contact_name'),
-  line1: text('line1'),
-  line2: text('line2'),
-  postalCode: text('postal_code'),
-  city: text('city'),
-  country: text('country').notNull().default('CH'),
-  email: text('email'),
-  vatId: text('vat_id'),
-  currency: text('currency').$type<Currency>().notNull().default('CHF'),
-  paymentTermsDays: integer('payment_terms_days').notNull().default(30),
-  taxRateBp: integer('tax_rate_bp'),
-  /** Only for resellers: how their own invoices to their customers look. */
-  issuer: jsonb('issuer').$type<InvoiceIssuerSettings>(),
-  zohoContactId: text('zoho_contact_id'),
-  stripeCustomerId: text('stripe_customer_id'),
-  ...timestamps,
-});
+export const billingProfiles = pgTable(
+  'billing_profiles',
+  {
+    orgId: uuid('org_id')
+      .primaryKey()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    companyName: text('company_name'),
+    contactName: text('contact_name'),
+    line1: text('line1'),
+    line2: text('line2'),
+    postalCode: text('postal_code'),
+    city: text('city'),
+    country: text('country').notNull().default('CH'),
+    email: text('email'),
+    vatId: text('vat_id'),
+    currency: text('currency').$type<Currency>().notNull().default('CHF'),
+    paymentTermsDays: integer('payment_terms_days').notNull().default(30),
+    /** "Sprache für Rechnungen"; null = the language of the oldest active owner (i18n 9). */
+    locale: text('locale').$type<Locale>(),
+    taxRateBp: integer('tax_rate_bp'),
+    /** Only for resellers: how their own invoices to their customers look. */
+    issuer: jsonb('issuer').$type<InvoiceIssuerSettings>(),
+    zohoContactId: text('zoho_contact_id'),
+    stripeCustomerId: text('stripe_customer_id'),
+    ...timestamps,
+  },
+  (t) => [
+    check(
+      'billing_profiles_locale_check',
+      sql`${t.locale} is null or ${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`,
+    ),
+  ],
+);
 
 /** Price list. ownerOrgId null = platform catalog, otherwise a reseller's own products. */
 export const products = pgTable(
@@ -768,6 +802,8 @@ export const products = pgTable(
     ownerOrgId: uuid('owner_org_id').references(() => organizations.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     description: text('description'),
+    /** Name and description per target language (plan O14); German stays in name and description. */
+    translations: jsonb('translations').$type<ProductTranslations>().notNull().default({}),
     module: text('module').$type<ModuleKey>(),
     unitPrice: integer('unit_price').notNull(),
     currency: text('currency').$type<Currency>().notNull().default('CHF'),
@@ -802,8 +838,14 @@ export const services = pgTable(
     status: text('status').$type<ServiceStatus>().notNull().default('active'),
     startsAt: date('starts_at').notNull(),
     nextBillingAt: date('next_billing_at'),
+    /**
+     * Last day of the service. With a status other than cancelled it is a cancellation on a later date
+     * (scheduled): the service runs and is billed up to this day, the daily billing job ends it afterwards.
+     */
     endsAt: date('ends_at'),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    /** A scheduled cancellation also switches the module off when the service ends (the seller's choice). */
+    deactivateModuleAtEnd: boolean('deactivate_module_at_end').notNull().default(false),
     notes: text('notes'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     ...timestamps,
@@ -824,6 +866,8 @@ export const invoices = pgTable(
       .references(() => organizations.id, { onDelete: 'restrict' }),
     status: text('status').$type<InvoiceStatus>().notNull().default('draft'),
     currency: text('currency').$type<Currency>().notNull().default('CHF'),
+    /** Set at finalize to the billing language and never changed afterwards; null for drafts and old invoices. */
+    locale: text('locale').$type<Locale>(),
     issueDate: date('issue_date'),
     dueDate: date('due_date'),
     subtotal: integer('subtotal').notNull().default(0),
@@ -850,6 +894,7 @@ export const invoices = pgTable(
     uniqueIndex('invoices_number_idx').on(sql`coalesce(${t.issuerOrgId}::text, 'platform')`, t.number),
     index('invoices_org_idx').on(t.orgId, t.createdAt),
     index('invoices_status_idx').on(t.status, t.dueDate),
+    check('invoices_locale_check', sql`${t.locale} is null or ${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`),
   ],
 );
 
@@ -945,6 +990,161 @@ export const mailLog = pgTable(
   (t) => [index('mail_log_created_idx').on(t.createdAt)],
 );
 
+// --- AI ---------------------------------------------------------------------------
+
+/** One row per AI request: a chat turn, a feature call, a translation batch (plan O22). Metadata only, never a
+ *  prompt, an answer, a tool input or a tool result. Kept 400 days, error texts 30 days (plan decision 22). */
+export const aiUsage = pgTable(
+  'ai_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    feature: text('feature').$type<AiFeature>().notNull(),
+    scope: text('scope').$type<AiUsageScope>().notNull(),
+    /** The organization the data belongs to; staff requests carry the customer (plan O28). */
+    orgId: uuid('org_id').references(() => organizations.id, { onDelete: 'set null' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    /** false only for Mass Translate batches (plan O9). */
+    countsForUser: boolean('counts_for_user').notNull().default(true),
+    model: text('model').$type<AiModel>().notNull(),
+    /** Set when another model answered (server-side refusal fallback, ai 2.3). */
+    servedModel: text('served_model'),
+    status: text('status').$type<AiUsageStatus>().notNull().default('running'),
+    demo: boolean('demo').notNull().default(false),
+    apiCalls: integer('api_calls').notNull().default(0),
+    toolCalls: integer('tool_calls').notNull().default(0),
+    liveCalls: integer('live_calls').notNull().default(0),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    /** Estimate of the next call while running; 0 once finished (ai 7.1). */
+    reservedMicros: bigint('reserved_micros', { mode: 'number' }).notNull().default(0),
+    costMicros: bigint('cost_micros', { mode: 'number' }).notNull().default(0),
+    durationMs: integer('duration_ms'),
+    errorCode: text('error_code'),
+    errorReason: text('error_reason'),
+    /** Redacted original message for the staff errors tab; cleared after 30 days (ai 7.3). */
+    errorMessage: text('error_message'),
+    /** request-id of the last Claude API call. */
+    requestId: text('request_id'),
+  },
+  (t) => [
+    index('ai_usage_created_idx').on(t.createdAt),
+    index('ai_usage_org_created_idx').on(t.orgId, t.createdAt),
+    index('ai_usage_user_created_idx').on(t.userId, t.createdAt),
+    index('ai_usage_running_idx')
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'running'`),
+  ],
+);
+
+// --- Translations ---------------------------------------------------------------------
+
+/** Text overrides per key and locale (i18n 8.1). */
+export const translationOverrides = pgTable(
+  'translation_overrides',
+  {
+    key: text('key').notNull(),
+    locale: text('locale').$type<Locale>().notNull(),
+    value: text('value').notNull(),
+    origin: text('origin').$type<'manual' | 'ai'>().notNull(),
+    /** sourceHash() of the effective German text the value was written against (i18n 4.1). */
+    sourceHash: text('source_hash').notNull(),
+    reviewed: boolean('reviewed').notNull().default(false),
+    /** Pseudo translation of a demo job, served only with ENABLE_DEMO_PROVIDER (plan O11). */
+    demo: boolean('demo').notNull().default(false),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.key, t.locale] }),
+    index('translation_overrides_locale_idx').on(t.locale),
+    check('translation_overrides_locale_check', sql`${t.locale} in ('de', 'en', 'fr', 'it', 'nl')`),
+    check('translation_overrides_origin_check', sql`${t.origin} in ('manual', 'ai')`),
+  ],
+);
+
+export const translationGlossary = pgTable(
+  'translation_glossary',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** German term, e.g. "Rechnung", or a name kept in every language, e.g. "Proxmox". */
+    term: text('term').notNull(),
+    /** Never translate (product and protocol names). */
+    keep: boolean('keep').notNull().default(false),
+    /** Fixed translations per target locale; ignored when keep is true. */
+    translations: jsonb('translations').$type<Partial<Record<TargetLocale, string>>>().notNull().default({}),
+    note: text('note'),
+    /** From DEFAULT_GLOSSARY (seedGlossary at startup); editable, not deletable (i18n 14.2 A12). */
+    builtIn: boolean('built_in').notNull().default(false),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('translation_glossary_term_idx').on(sql`lower(${t.term})`)],
+);
+
+export const translationJobs = pgTable(
+  'translation_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    status: text('status').$type<TranslationJobStatus>().notNull().default('queued'),
+    locales: jsonb('locales').$type<TargetLocale[]>().notNull(),
+    /** What was asked for, for the job list. */
+    scope: jsonb('scope').$type<TranslationJobScope>().notNull(),
+    replaceManual: boolean('replace_manual').notNull().default(false),
+    model: text('model').$type<AiModel>().notNull(),
+    demo: boolean('demo').notNull().default(false),
+    /** Fixed at start (i18n 12.2), never changed. */
+    batches: jsonb('batches').$type<TranslationBatchPlan[]>().notNull(),
+    /** Plan indexes already committed; a resumed job skips them (i18n 12.8). */
+    doneBatches: integer('done_batches')
+      .array()
+      .notNull()
+      .default(sql`'{}'::integer[]`),
+    total: integer('total').notNull(),
+    done: integer('done').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    /** Kept at save time because a person edited or reviewed the cell meanwhile (i18n 12.9). */
+    skipped: integer('skipped').notNull().default(0),
+    inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
+    outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
+    cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
+    cacheWriteTokens: bigint('cache_write_tokens', { mode: 'number' }).notNull().default(0),
+    costMicros: bigint('cost_micros', { mode: 'number' }).notNull().default(0),
+    estimateMicros: bigint('estimate_micros', { mode: 'number' }).notNull(),
+    /** At most 1,000 entries; the failed counter keeps counting. */
+    failures: jsonb('failures').$type<TranslationFailure[]>().notNull().default([]),
+    /** { code: TranslationJobErrorCode, message } of plan 2.6. */
+    error: jsonb('error').$type<{ code: string; message: string } | null>(),
+    cancelRequested: boolean('cancel_requested').notNull().default(false),
+    /** Instance id of the runner that owns the job while it runs. */
+    runner: text('runner'),
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+    retryOf: uuid('retry_of').references((): AnyPgColumn => translationJobs.id, { onDelete: 'set null' }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index('translation_jobs_created_idx').on(t.createdAt),
+    /** One job at a time (plan decision 10): a second queued or running row fails, B3 answers 409 job_running. */
+    uniqueIndex('translation_jobs_active_idx')
+      .on(sql`(true)`)
+      .where(sql`${t.status} in ('queued', 'running')`),
+    check(
+      'translation_jobs_status_check',
+      sql`${t.status} in ('queued', 'running', 'completed', 'failed', 'cancelled')`,
+    ),
+  ],
+);
+
 /** Simple key/value store for platform settings and job bookkeeping. */
 export const settings = pgTable('settings', {
   key: text('key').primaryKey(),
@@ -984,3 +1184,7 @@ export type MediaSeerrRow = typeof mediaSeerr.$inferSelect;
 export type Monitor = typeof monitors.$inferSelect;
 export type MonitorAllowance = typeof monitorAllowances.$inferSelect;
 export type MonitorStatusPage = typeof monitorStatusPages.$inferSelect;
+export type AiUsageRow = typeof aiUsage.$inferSelect;
+export type TranslationOverride = typeof translationOverrides.$inferSelect;
+export type TranslationGlossaryRow = typeof translationGlossary.$inferSelect;
+export type TranslationJob = typeof translationJobs.$inferSelect;

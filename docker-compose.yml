@@ -29,12 +29,26 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://weblion:${POSTGRES_PASSWORD}@db:5432/weblion
       WEB_DIST_DIR: /app/web
+      # The reverse proxy on the host reaches the container through the gateway of the network
+      # below, not through loopback, so the API's default would lose the client IP. Only that
+      # network is trusted, not every private range: the proxy appends the address of its client,
+      # and a client with a private address of its own (LAN, VPN) could otherwise choose its IP.
+      # A TRUST_PROXY in .env wins.
+      TRUST_PROXY: '${TRUST_PROXY:-loopback,${CONSOLE_SUBNET:-172.30.0.0/24}}'
     ports:
       # Only reachable locally, the reverse proxy terminates TLS.
       - '127.0.0.1:3000:3000'
     depends_on:
       db:
         condition: service_healthy
+
+networks:
+  default:
+    # A fixed subnet, so TRUST_PROXY above can name it. If the range is taken on the host
+    # ("Pool overlaps with other one"), set another one as CONSOLE_SUBNET in .env.
+    ipam:
+      config:
+        - subnet: '${CONSOLE_SUBNET:-172.30.0.0/24}'
 
 volumes:
   pgdata:

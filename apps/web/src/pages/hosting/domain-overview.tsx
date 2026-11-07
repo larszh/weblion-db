@@ -3,7 +3,7 @@ import { CalendarPlus, EyeOff, KeyRound, Pencil, Plus, RotateCw, X } from 'lucid
 import type { DomainDetailDto, DomainRegistrant, ProviderType } from '@weblion/shared';
 import { formatDate, formatRelative } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import {
   isAuthcodePending,
   useRevealAuthcode,

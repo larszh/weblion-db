@@ -7,7 +7,11 @@ CDN bei Cloudflare, Websites auf eigenen CloudPanel-Servern und Webspaces bei 24
 Cloud-Speicher auf der eigenen Nextcloud, E-Mail auf eigenen Mailcow-Servern, Telefonanlagen mit
 3CX, Streaming auf eigenen Jellyfin-Servern, Monitoring mit Uptime Kuma, Abrechnung mit
 QR-Rechnung, Stripe/TWINT und Zoho Books, ein Reseller-Modell sowie Rollen, Access Policies und
-Audit-Log. Inspiriert von der Hetzner Cloud Console.
+Audit-Log. Dazu KI-Funktionen mit Claude, die weblion.one oder der Reseller für jeden Kunden einzeln
+einschaltet.
+Die Console gibt es auf Deutsch, Englisch, Französisch, Italienisch und Niederländisch; jede Person
+wählt ihre Sprache im Profil, Rechnungen gehen in der Sprache des Kunden. Inspiriert von der Hetzner
+Cloud Console.
 
 ![Server-Übersicht](docs/screenshots/server-overview.png)
 
@@ -60,21 +64,31 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
   Monitore anlegen (HTTP(S), Keyword, Ping, Port, nur öffentliche Ziele), ändern, pausieren,
   löschen. Monitore erscheinen auch auf den Seiten der Server und Domains, die sie prüfen
 - Abrechnung: Rechnungen als PDF mit QR-Rechnung, Guthaben, Dienste, online bezahlen mit
-  Karte oder TWINT, Rechnungsadresse
+  Karte oder TWINT, Rechnungsadresse und Sprache für Rechnungen
+- KI (Claude), wenn weblion.one oder der Reseller sie für den Kunden eingeschaltet hat: ein
+  Assistent, der Fragen zu den eigenen Servern, Domains, Websites, E-Mail, Monitoren und Rechnungen
+  beantwortet (er liest nur, mit den Rechten der Person), Erklärungen zu Fehlern und Einträgen, eine
+  Prüfung der DNS- und E-Mail-Einträge mit Vorschlägen, die das normale Formular vorausgefüllt
+  öffnen, Zusammenfassungen des Audit-Logs und die Analyse eines Servers (Graphen, Monitoring,
+  letzte Aktionen). Die Rollen Eingeschränkt und Buchhaltung bekommen sie nur über eine Policy. Der
+  Kunde kann die KI unter Einstellungen > KI-Funktionen jederzeit ablehnen, dann gehen auch für
+  Mitarbeitende von weblion.one keine Daten mehr an Claude
 - Nur freigeschaltete Module sind sichtbar (z.B. DNS erst, wenn es aktiviert ist)
 - Mitglieder einladen (mit E-Mail), Rollen (Owner, Admin, Member, Eingeschränkt, Nur lesen,
   Buchhaltung)
 - Access Policies im IAM-Stil: Aktionen erlauben/verweigern pro Projekt, Server oder Label
 - API-Tokens (Lesen / Lesen & Schreiben) für Automatisierung
 - Audit-Log, 2FA (TOTP), aktive Sitzungen
-- Deutsch und Englisch, helles und dunkles Theme, mobil nutzbar
+- Deutsch, Englisch, Französisch, Italienisch und Niederländisch (Sprache pro Person im Profil),
+  helles und dunkles Theme, mobil nutzbar
 
 **Für weblion.one (Admin-Bereich)**
 - Plattform-Übersicht mit Provider-Status und fehlgeschlagenen Aktionen
 - Kunden und Reseller anlegen (mit Einladung für den Owner), sperren, Module freischalten,
   Berechtigungsgrenze pro Kunde
 - Abrechnung: Rechnungen erstellen und abschliessen, Guthaben buchen, Dienste freischalten,
-  Produkte und Preise, wiederkehrende Abrechnung, Übersicht über offene und überfällige Beträge
+  Produkte und Preise (Name und Beschreibung in fünf Sprachen, auf Wunsch von der KI geschrieben
+  oder übersetzt), wiederkehrende Abrechnung, Übersicht über offene und überfällige Beträge
 - Domains (24fire, Joker.com), DNS-Zonen (Cloudflare), Webspaces (24fire) und Websites
   (CloudPanel) Kunden zuweisen.
   Eine neue Cloudflare-Zone geht beim ersten Sync an den Kunden der gleichnamigen Registrierung,
@@ -108,6 +122,14 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 - Einstellungen: SMTP, Rechnungssteller (Adresse, IBAN, MWST, Nummernkreis), Status von
   Stripe und Zoho Books, Mail-Log
 - Benutzerverwaltung inkl. Plattform-Rollen (Superadmin, Support)
+- KI (Admin > KI): Schlüssel, Modell, Funktionen, Budget und Limits, Nutzung und Kosten pro
+  Funktion, Modell und Kunde, Fehler, Datenschutzhinweis. Pro Kunde einschalten, nachdem der Kunde
+  zugestimmt hat (im Audit-Log festgehalten). Erklärungen und Zusammenfassungen auch im
+  Admin-Bereich, siehe [docs/ai.md](docs/ai.md)
+- Übersetzungen (Admin > Übersetzungen): alle Texte in fünf Sprachen ansehen und ändern (gilt
+  sofort, ohne Deploy), fehlende und veraltete finden, mit KI übersetzen (Mass Translate mit
+  Schätzung der Kosten), Glossar, Stilhinweise, Import und Export, siehe
+  [docs/i18n.md](docs/i18n.md)
 - Server-Inventar: neue Server werden automatisch synchronisiert und Kunden zugewiesen
 - Provider verwalten, Verbindung testen, Infrastruktur (Nodes, Storages) ansehen
 - Server bei Proxmox aus Templates erstellen, bei Hetzner Cloud mit Server-Typ, Standort und
@@ -125,6 +147,8 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
 - Kunden einen Teil des eigenen Kontingents für Cloud-Speicher, Websites, Streaming und Monitoring
   geben
 - Eigene Produkte und Preise, Rechnungen mit eigenem Briefkopf und Nummernkreis, Guthaben
+- KI für die eigenen Kunden einschalten, nachdem sie zugestimmt haben (nur, solange sie für den
+  Reseller selbst an ist), Produkttexte mit KI schreiben und übersetzen
 
 | Graphen | Access Policies | Kunde im Admin-Bereich |
 |---|---|---|
@@ -201,6 +225,9 @@ Audit-Log. Inspiriert von der Hetzner Cloud Console.
   Lesen nicht). Bei einem Ausfall benachrichtigt die Console keine Kunden, Statusseiten legt
   weblion.one in Uptime Kuma an, siehe
   [docs/providers.md](docs/providers.md#uptime-kuma-monitoring).
+- KI: Gegen die echte Claude API ist die Console noch nicht live getestet. Die Tests laufen gegen
+  eine nachgebaute API (`apps/api/test/claude-mock.ts`), die Anfragen folgen den Typen des SDK
+  `@anthropic-ai/sdk` 1.3.0.
 
 ## Schnellstart (Entwicklung)
 
@@ -282,10 +309,48 @@ CloudPanel-Servern, zum API-Client von 3CX, zum Schlüssel von Jellyfin und zur 
 Kuma für die Verwaltung in [docs/providers.md](docs/providers.md) und
 [deploy/cloudpanel-agent/README.md](deploy/cloudpanel-agent/README.md).
 
-Für E-Mail (SMTP), Stripe/TWINT und Zoho Books kommen weitere Variablen dazu, alle in
-`.env.example` beschrieben. SMTP lässt sich statt in der `.env` auch im Admin-Bereich
-eintragen (verschlüsselt gespeichert). Einrichtung Schritt für Schritt in
-[docs/billing.md](docs/billing.md).
+Für E-Mail (SMTP), Stripe/TWINT, Zoho Books und die KI kommen weitere Variablen dazu, alle in
+`.env.example` beschrieben. Den Schlüssel für Claude (`ANTHROPIC_API_KEY`) nimmt die Console
+direkt aus der Umgebung und legt ihn nicht in der Datenbank ab, siehe [KI (Claude)](#ki-claude).
+SMTP lässt sich statt in der `.env` auch im Admin-Bereich eintragen (verschlüsselt gespeichert).
+Einrichtung Schritt für Schritt in [docs/billing.md](docs/billing.md).
+
+## KI (Claude)
+
+Die Console nutzt Claude von Anthropic für sieben Funktionen: Assistent, Erklärungen, Prüfung von
+DNS und E-Mail, Zusammenfassung des Audit-Logs, Analyse eines Servers, Produkttexte und
+Übersetzungen. Die KI liest nur. Vorschläge (etwa ein DNS-Eintrag) öffnen das normale Formular,
+gespeichert wird dort, mit der normalen Rechteprüfung.
+
+- **Aus, bis jemand einschaltet:** Auf der Plattform schaltet ein Superadmin die KI unter Admin > KI
+  ein und bestätigt dabei eine Checkliste (AGB und Auftragsverarbeitungsvertrag, Grundlage für die
+  Übermittlung in die USA, Datenschutzhinweis, Ort des Workspace). Für jeden Kunden bleibt sie
+  danach aus, bis weblion.one (Admin > Kunden) oder sein Reseller sie einschaltet, nachdem der Kunde
+  zugestimmt hat. Das Audit-Log hält die Bestätigung fest. Der Kunde kann jederzeit ablehnen
+  (Einstellungen > KI-Funktionen), das gilt auch für die Funktionen der Mitarbeitenden. Zurücknehmen
+  kann die Ablehnung nur der Kunde selbst, nicht sein Reseller und nicht weblion.one.
+- **Schlüssel** aus der Claude Console unter Admin > KI speichern (verschlüsselt, danach nie mehr
+  angezeigt) oder als `ANTHROPIC_API_KEY` setzen. Der gespeicherte hat Vorrang.
+- **Modell und Kosten:** ein Modell für alle Funktionen, Standard Claude Opus 5.5 (USD 4 pro
+  Million Tokens Eingabe, USD 20 Ausgabe), wählbar sind auch Claude Sonnet 5.5 und Claude Haiku
+  5.5. Budget standardmässig USD 100 pro Monat, als harte Grenze, Warnung per E-Mail ab 80 Prozent.
+  Für Kunden sind die KI-Funktionen kostenlos, weblion.one verrechnet die Kosten nicht weiter.
+- **Daten:** Fragen und Antworten speichert die Console nicht, nur Angaben zur Nutzung (400 Tage).
+  Der Chat bleibt im Browser-Tab. Geheimnisse, die die Console erkennt, entfernt sie vor dem Senden.
+- **Demo:** Ohne Schlüssel und mit `ENABLE_DEMO_PROVIDER=true` antworten Beispiele statt Claude.
+
+Den Datenschutzhinweis (`ai.notice.text`) muss der Inhaber vor dem Einschalten in allen fünf
+Sprachen prüfen, am besten mit juristischer Beratung. Er wird nie maschinell übersetzt. Alles
+Weitere in [docs/ai.md](docs/ai.md).
+
+| Variable | Bedeutung |
+|---|---|
+| `ANTHROPIC_API_KEY` | optional, API-Schlüssel aus der Claude Console (`sk-ant-…`, kein Admin-API-Schlüssel `sk-ant-admin-…`), in Anführungszeichen. Ein unter Admin > KI gespeicherter Schlüssel hat Vorrang |
+| `ANTHROPIC_BASE_URL` | optional, Standard `https://api.anthropic.com` |
+| `ANTHROPIC_MAX_RETRIES` | optional, Wiederholungen des SDK bei 408, 409, 429, 5xx und Verbindungsfehlern, 0 bis 5, Standard `2` |
+| `AI_TURN_TIMEOUT_SECONDS` | optional, längste Dauer einer KI-Anfrage (eine Antwort im Chat oder ein Aufruf einer Funktion) in Sekunden, 30 bis 600, Standard `180` |
+| `I18N_JOB_ENABLED` | optional, Standard `true`: dieser Prozess führt Mass Translate aus. Auf weiteren API-Prozessen `false` |
+| `I18N_AI_CONCURRENCY` | optional, Pakete einer Übersetzung, die gleichzeitig an Claude gehen, 1 bis 4, Standard `2` |
 
 ## Produktion
 
@@ -306,7 +371,7 @@ apps/api         Fastify API, Postgres (Drizzle), Provider-Adapter, Sync-Job
 apps/web         React Console (Vite, Tailwind, TanStack Query)
 packages/shared  Berechtigungen, Rollen, Policy-Engine und API-Typen (von beiden genutzt)
 deploy/          Agent für CloudPanel-Server (cloudpanel-agent), Deploy auf CloudPanel (cloudpanel)
-docs/            Architektur, Provider, Deployment, Roadmap
+docs/            Architektur, Provider, Deployment, KI, Sprachen, Roadmap
 ```
 
 | Befehl | |
@@ -316,6 +381,7 @@ docs/            Architektur, Provider, Deployment, Roadmap
 | `pnpm typecheck` | TypeScript in allen Paketen |
 | `pnpm build` | Produktions-Build |
 | `pnpm db:generate` | Migration aus Schema-Änderungen erzeugen |
+| `pnpm --filter @weblion/api i18n:report` | fehlende und veraltete Übersetzungen pro Sprache; `i18n:stamp` und `i18n:apply` siehe [docs/i18n.md](docs/i18n.md) |
 | `python3 -I -m unittest discover -s deploy/cloudpanel-agent/tests -v` | Tests des CloudPanel-Agents (Python 3.9+, ohne root und Netz) |
 
 ## REST-API
@@ -345,5 +411,9 @@ curl -X POST -H "Authorization: Bearer wlc_…" -H "Content-Type: application/js
   Nextcloud, Mailcow, CloudPanel, 3CX, Uptime Kuma und Jellyfin einrichten, Kosten, offene Punkte
 - [deploy/cloudpanel-agent/README.md](deploy/cloudpanel-agent/README.md): der Agent auf den
   CloudPanel-Servern (installieren, Schutzliste, übernehmen, testen)
+- [docs/ai.md](docs/ai.md): KI-Funktionen mit Claude, Schlüssel, Kosten, Schalter, vor dem
+  Einschalten
+- [docs/i18n.md](docs/i18n.md): Sprachen, neue Texte, Übersetzungen in der Console und zurück in
+  den Code
 - [docs/deployment.md](docs/deployment.md): Betrieb, Backups, Updates
 - [docs/roadmap.md](docs/roadmap.md): Ideen für die nächsten Ausbaustufen

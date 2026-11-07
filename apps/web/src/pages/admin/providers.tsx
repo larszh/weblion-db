@@ -22,7 +22,7 @@ import {
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { formatBytes, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { qk, useAdminProviders, useApiMutation, useMe, useMeta, useProviderOverview } from '@/lib/queries';
 import { withSkipped, type ProviderSyncResult } from '@/lib/api/hosting';
@@ -50,6 +50,7 @@ import {
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { Flag, ProviderBadge, providerHasServers } from '@/components/server-bits';
+import { ExplainButton } from '@/components/ai/explain-dialog';
 
 interface ProviderForm {
   type: ProviderType;
@@ -1833,6 +1834,13 @@ function ProviderCard({ p }: { p: ProviderConnectionDto }) {
             {p.lastError.length > 220 ? `${p.lastError.slice(0, 220)}…` : p.lastError}
           </p>
         )}
+        {p.lastError && (
+          <ExplainButton
+            scope="admin"
+            className="mt-1 -ml-2"
+            source={() => ({ kind: 'provider', providerId: p.id })}
+          />
+        )}
         {test.data && !test.data.ok && (
           <p className="mt-2 rounded-md bg-danger-soft px-2.5 py-1.5 text-xs break-words text-danger">
             {test.data.error}
@@ -1974,6 +1982,11 @@ export function ProviderDetailPage() {
       {provider.lastError && (
         <Notice tone="danger" className="mb-6" title={t('providers.lastError')}>
           <span className="break-words">{provider.lastError}</span>
+          <ExplainButton
+            scope="admin"
+            className="mt-1 -ml-2"
+            source={() => ({ kind: 'provider', providerId: provider.id })}
+          />
         </Notice>
       )}
       {test.data && (

@@ -1,6 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import {
+  aiDenyStatements,
   allowedActions,
   can,
   moduleDenyStatements,
@@ -31,8 +32,10 @@ const READ_ONLY = ['*:read', 'server:metrics', 'server:task:read'];
  * What stays available while an organization is suspended: reading, and paying its own
  * bills. Staff of a suspended reseller still enter their customers
  * (reseller:customer:access), but only to read there (see AccessService.subject).
+ * ai:settings stays too: a suspended organization must still be able to decline the AI features,
+ * because the staff features ignore a suspension (ai 3.3, plan O27).
  */
-const SUSPENDED_ALLOWED = [...READ_ONLY, 'billing:*', 'reseller:customer:access'];
+const SUSPENDED_ALLOWED = [...READ_ONLY, 'billing:*', 'reseller:customer:access', 'ai:settings'];
 
 export function requireAuth(req: FastifyRequest): AuthState {
   const auth = req.auth;
@@ -158,15 +161,16 @@ export class AccessService {
 }
 
 /**
- * Boundary, suspension and inactive modules of one organization combined into one statement
- * list. `suspendedAllowed` is what a suspension leaves open.
+ * Boundary, suspension, inactive modules and the AI switches of one organization combined into one
+ * statement list. `suspendedAllowed` is what a suspension leaves open. AI that is off or declined
+ * denies ai:use only, never ai:settings, so a customer can always withdraw a decline (ai 3.4).
  */
 export function effectiveBoundary(
-  org: Pick<Organization, 'boundary' | 'status' | 'modules'>,
+  org: Pick<Organization, 'boundary' | 'status' | 'modules' | 'aiEnabled' | 'aiOptOutAt'>,
   suspendedAllowed: string[] = SUSPENDED_ALLOWED,
 ): PolicyStatement[] {
   const base = org.status === 'suspended' ? suspendedBoundary(org.boundary, suspendedAllowed) : org.boundary;
-  return [...base, ...moduleDenyStatements(org.modules)];
+  return [...base, ...moduleDenyStatements(org.modules), ...aiDenyStatements(org)];
 }
 
 /** While suspended, the normal boundary still applies and everything but `allowed` is denied on top. */

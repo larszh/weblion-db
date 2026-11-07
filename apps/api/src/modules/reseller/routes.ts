@@ -25,6 +25,7 @@ import {
   phoneSystems,
   projects,
   servers,
+  users,
   webspaces,
   type Organization,
 } from '../../db/schema';
@@ -244,6 +245,14 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceId: customer.id,
       details: { name: customer.name, slug: customer.slug, modules, ownerEmail: body.ownerEmail ?? null },
     });
+    // An address with an account gets the mail in its own language (i18n 8.2). The reseller sees only the
+    // delivery result, which is the same either way, so it still cannot tell whether the address is registered.
+    const invitee = invitation
+      ? await db.query.users.findFirst({
+          columns: { locale: true },
+          where: sql`lower(${users.email}) = lower(${body.ownerEmail!})`,
+        })
+      : undefined;
     const mail = invitation
       ? await sendInvitationMail(ctx.mail, {
           email: body.ownerEmail!,
@@ -253,6 +262,7 @@ export async function resellerRoutes(app: FastifyInstance, ctx: AppContext) {
           link: invitation.link,
           expiresAt: invitation.expiresAt,
           inviter: auth.user,
+          invitee: invitee ?? null,
         })
       : null;
     return {

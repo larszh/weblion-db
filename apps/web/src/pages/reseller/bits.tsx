@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Clapperboard, Globe, HeartPulse, Layers, Mail, MailWarning, Phone, Server } from 'lucide-react';
 import {
-  MODULE_DEFS,
   MODULES,
   type ModuleKey,
   type OrgCounts,
@@ -14,7 +13,7 @@ import { cn } from '@/lib/cn';
 import { ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import type { MailResult } from '@/lib/api/admin';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Switch } from '@/components/ui/menu';
 import { Badge, CopyButton, ErrorState, Mono, Notice } from '@/components/ui/primitives';
 
@@ -125,7 +124,15 @@ export function StatusBadge({
  * Server, domain, web space, mail domain, phone system, streaming account and monitor counts as small
  * icons. Types whose module is off are left out unless something is still attached.
  */
-export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules: ModuleKey[] }) {
+export function ResourceCounts({
+  counts,
+  modules,
+  className,
+}: {
+  counts: OrgCounts;
+  modules: ModuleKey[];
+  className?: string;
+}) {
   const { t } = useI18n();
   const items = [
     { module: 'servers', icon: <Server />, n: counts.servers, label: t('nav.servers') },
@@ -143,7 +150,7 @@ export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules
   ].filter((i) => modules.includes(i.module as ModuleKey) || i.n > 0);
   if (items.length === 0) return <span className="text-subtle">–</span>;
   return (
-    <div className="flex items-center gap-3 text-sm text-muted">
+    <div className={cn('flex items-center gap-3 text-sm text-muted', className)}>
       {items.map((i) => (
         <span
           key={i.module}
@@ -162,13 +169,13 @@ export function ResourceCounts({ counts, modules }: { counts: OrgCounts; modules
 // --- Modules -----------------------------------------------------------------------
 
 export function ModuleBadges({ modules, empty = '–' }: { modules: ModuleKey[]; empty?: string }) {
-  const { locale } = useI18n();
+  const { t } = useI18n();
   if (modules.length === 0) return <span className="text-subtle">{empty}</span>;
   return (
     <div className="flex flex-wrap gap-1">
       {modules.map((m) => (
         <Badge key={m} tone="primary">
-          {MODULE_DEFS[m].label[locale]}
+          {t(`module.${m}.label`)}
         </Badge>
       ))}
     </div>
@@ -192,7 +199,7 @@ export function ModuleSwitches({
   unavailableHint?: string;
   disabled?: boolean;
 }) {
-  const { locale } = useI18n();
+  const { t } = useI18n();
   return (
     <div className="divide-y divide-border">
       {MODULES.map((m) => {
@@ -207,8 +214,8 @@ export function ModuleSwitches({
             )}
           >
             <span className="min-w-0">
-              <span className="block text-sm font-medium text-text">{MODULE_DEFS[m].label[locale]}</span>
-              <span className="block text-xs text-muted">{MODULE_DEFS[m].description[locale]}</span>
+              <span className="block text-sm font-medium text-text">{t(`module.${m}.label`)}</span>
+              <span className="block text-xs text-muted">{t(`module.${m}.description`)}</span>
               {available && !available.includes(m) && unavailableHint && (
                 <span className="mt-0.5 block text-xs text-warning">{unavailableHint}</span>
               )}
@@ -217,7 +224,7 @@ export function ModuleSwitches({
               checked={on}
               disabled={disabled || locked}
               onCheckedChange={(checked) => onToggle(m, checked)}
-              label={MODULE_DEFS[m].label[locale]}
+              label={t(`module.${m}.label`)}
             />
           </label>
         );
@@ -236,7 +243,7 @@ export function ModuleCheckboxes({
   onChange: (modules: ModuleKey[]) => void;
   available?: readonly ModuleKey[];
 }) {
-  const { locale } = useI18n();
+  const { t } = useI18n();
   return (
     <div className="space-y-2">
       {MODULES.filter((m) => available.includes(m)).map((m) => (
@@ -257,8 +264,8 @@ export function ModuleCheckboxes({
             }
           />
           <span className="min-w-0">
-            <span className="block text-sm font-medium text-text">{MODULE_DEFS[m].label[locale]}</span>
-            <span className="block text-xs text-muted">{MODULE_DEFS[m].description[locale]}</span>
+            <span className="block text-sm font-medium text-text">{t(`module.${m}.label`)}</span>
+            <span className="block text-xs text-muted">{t(`module.${m}.description`)}</span>
           </span>
         </label>
       ))}

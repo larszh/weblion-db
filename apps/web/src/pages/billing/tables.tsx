@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatMoney, type InvoiceDto, type ServiceDto } from '@weblion/shared';
+import { formatMoney, todayZurich, type InvoiceDto, type ServiceDto } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -17,6 +17,7 @@ import {
   useBillingLabels,
 } from './bits';
 import { formatDay, formatQuantity } from './money';
+import { endedEarly, scheduledEndOf, waitsForBilling } from './service-end';
 
 /** Tables shared by the customer view, the seller panel and the admin overview. */
 
@@ -188,12 +189,21 @@ export function CreditTable({
   );
 }
 
+/** A scheduled cancellation with every period up to its end date billed: nothing more is due. */
+function billedToEnd(service: ServiceDto): boolean {
+  const end = scheduledEndOf(service);
+  return !!end && !(service.nextBillingAt && service.nextBillingAt <= end);
+}
+
 /** Services ("Dienste") with price, interval and next billing date. */
 export function ServiceTable({
   services,
   base,
   linkable,
   actions,
+  showEndedEarly,
+  // The API's day (Europe/Zurich), not the browser's: it decides when an end date has passed.
+  today = todayZurich(),
 }: {
   services: ServiceDto[];
   /** /o/<slug> of the customer, to link resources. */
@@ -201,6 +211,13 @@ export function ServiceTable({
   /** Whether the resource of a service has a page to link to. Default: yes. */
   linkable?: (service: ServiceDto) => boolean;
   actions?: (service: ServiceDto) => ReactNode;
+  /**
+   * The seller's view: marks a service a cancellation to a later date ended at once (until November 2026), so
+   * it stands out to be restored. The customer keeps seeing it as ended.
+   */
+  showEndedEarly?: boolean;
+  /** YYYY-MM-DD, for tests. */
+  today?: string;
 }) {
   const { t, locale } = useI18n();
   const labels = useBillingLabels();
@@ -217,50 +234,80 @@ export function ServiceTable({
         </tr>
       </THead>
       <TBody>
-        {services.map((s) => (
-          <tr key={s.id} className={s.status === 'cancelled' ? 'opacity-70' : undefined}>
-            <TD className="min-w-[180px]">
-              <div className="font-medium text-text">{s.name}</div>
-              <div className="text-xs text-muted">
-                {[s.description, s.module ? labels.module(s.module) : null].filter(Boolean).join(' · ')}
-              </div>
-              <div className="mt-1 lg:hidden">
-                {s.resource && (
-                  <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
-                )}
-              </div>
-            </TD>
-            <TD className="hidden lg:table-cell">
-              <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
-            </TD>
-            <TD className="text-right">
-              <PriceText amount={s.unitPrice} currency={s.currency} interval={s.interval} />
-              {s.quantity !== 1 && (
-                <div className="text-xs text-muted tabular">
-                  {t('billing.service.quantity', { quantity: formatQuantity(s.quantity, locale) })}
+        {services.map((s) => {
+          const end = scheduledEndOf(s);
+          const early = !!showEndedEarly && endedEarly(s, today);
+          // Past its end date with a period up to it unbilled (e.g. in another currency or with the automatic
+          // run off): it only ends once that period is billed, so say so.
+          const endText = end
+            ? t(
+                waitsForBilling(s, today)
+                  ? 'billing.service.endWaitsForBilling'
+                  : 'billing.service.cancelledPer',
+                {
+                  date: formatDay(end, locale),
+                },
+              )
+            : early
+              ? t('billing.service.endedEarly', { date: formatDay(s.endsAt!, locale) })
+              : null;
+          return (
+            <tr key={s.id} className={s.status === 'cancelled' && !early ? 'opacity-70' : undefined}>
+              <TD className="min-w-[180px]">
+                <div className="font-medium text-text">{s.name}</div>
+                <div className="text-xs text-muted">
+                  {[s.description, s.module ? labels.module(s.module) : null].filter(Boolean).join(' · ')}
                 </div>
-              )}
-            </TD>
-            <TD className="hidden whitespace-nowrap md:table-cell">
-              {s.status === 'cancelled' ? (
-                <span className="text-muted">
-                  {s.endsAt ? t('billing.service.endsAt', { date: formatDay(s.endsAt, locale) }) : '–'}
-                </span>
-              ) : s.nextBillingAt ? (
-                <span className="text-text">{formatDay(s.nextBillingAt, locale)}</span>
-              ) : (
-                <span className="text-muted">
-                  {s.interval === 'once' ? t('billing.service.billedOnce') : '–'}
-                </span>
-              )}
-              <div className="text-xs text-muted">{labels.interval(s.interval)}</div>
-            </TD>
-            <TD>
-              <ServiceStatusBadge status={s.status} />
-            </TD>
-            {actions && <TD className="w-10 text-right">{actions(s)}</TD>}
-          </tr>
-        ))}
+                {/* On a phone the status column lies beyond the table's sideways scroll, so the end date that
+                  matters most shows under the name. */}
+                {endText && <div className="mt-1 text-xs text-warning sm:hidden">{endText}</div>}
+                <div className="mt-1 lg:hidden">
+                  {s.resource && (
+                    <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
+                  )}
+                </div>
+              </TD>
+              <TD className="hidden lg:table-cell">
+                <ServiceResource resource={s.resource} base={base} linkable={linkable?.(s) ?? true} />
+              </TD>
+              <TD className="text-right">
+                <PriceText amount={s.unitPrice} currency={s.currency} interval={s.interval} />
+                {s.quantity !== 1 && (
+                  <div className="text-xs text-muted tabular">
+                    {t('billing.service.quantity', { quantity: formatQuantity(s.quantity, locale) })}
+                  </div>
+                )}
+              </TD>
+              <TD className="hidden whitespace-nowrap md:table-cell">
+                {s.status === 'cancelled' || billedToEnd(s) ? (
+                  <span className="text-muted">
+                    {/* Ended already, although the end date lies ahead: "Endet am" would not be true. */}
+                    {s.endsAt && !early
+                      ? t('billing.service.endsAt', { date: formatDay(s.endsAt, locale) })
+                      : '–'}
+                  </span>
+                ) : s.nextBillingAt ? (
+                  <span className="text-text">{formatDay(s.nextBillingAt, locale)}</span>
+                ) : (
+                  <span className="text-muted">
+                    {s.interval === 'once' ? t('billing.service.billedOnce') : '–'}
+                  </span>
+                )}
+                <div className="text-xs text-muted">{labels.interval(s.interval)}</div>
+              </TD>
+              <TD>
+                <ServiceStatusBadge status={s.status} />
+                {endText && <div className="mt-1 hidden text-xs text-warning sm:block">{endText}</div>}
+                {end && s.deactivateModuleAtEnd && s.module && (
+                  <div className="text-xs text-muted">
+                    {t('billing.service.moduleOffAtEnd', { module: labels.module(s.module) })}
+                  </div>
+                )}
+              </TD>
+              {actions && <TD className="w-10 text-right">{actions(s)}</TD>}
+            </tr>
+          );
+        })}
       </TBody>
     </Table>
   );

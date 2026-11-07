@@ -1,12 +1,19 @@
+import type { Locale } from '@weblion/shared';
+import type { Tr } from '../i18n/service';
+
 /**
  * Mail contract used by every module that sends email. The implementation lives in
  * mail/service.ts (SMTP via nodemailer, settings from env or the admin area).
  *
- * Modules never build raw emails: they pick a template and pass its data. Templates
- * render German or English (mail/templates.ts) and share one HTML layout.
+ * Modules never build raw emails: they pick a template and pass its data. Templates render from the
+ * email.* keys in the language of the mail (mail/templates.ts, i18n 8.2) and share one HTML layout.
  */
 
-export type MailLocale = 'de' | 'en';
+/**
+ * Any of the five console languages, so senders pass the recipient's users.locale as it is. A text missing
+ * in fr, it or nl falls back to English, then German (fallbackChain).
+ */
+export type MailLocale = Locale;
 
 export interface MailTemplates {
   /** Someone was invited to an organization (also used for new customer owners). */
@@ -56,6 +63,20 @@ export interface MailTemplates {
   };
   /** Test message from the admin area. */
   test: { sentBy: string };
+  /** The monthly AI budget passed the warning mark or is used up (ai 7.2). */
+  ai_budget: {
+    kind: 'warning' | 'exhausted';
+    /** Formatted in the mail language, e.g. "November 2026". */
+    month: string;
+    /** e.g. "USD 81.20" */
+    spent: string;
+    /** e.g. "USD 100.00" */
+    budget: string;
+    /** Rounded down; shown only for 'warning'. */
+    percent: number;
+    /** `${APP_URL}/admin/ai` */
+    link: string;
+  };
 }
 
 export type MailTemplateName = keyof MailTemplates;
@@ -83,6 +104,8 @@ export interface MailResult {
 export interface Mailer {
   /** True when SMTP is configured (env or admin area). */
   isConfigured(): Promise<boolean>;
+  /** The server texts of a mail language with their overrides, for values formatted before send(). */
+  translator(locale: MailLocale): Tr;
   /**
    * Renders and sends a template. Never throws: failures are logged to mail_log and
    * returned, so a broken SMTP server can't fail the request that triggered the mail.

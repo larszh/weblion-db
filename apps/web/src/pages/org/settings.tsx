@@ -6,8 +6,9 @@ import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { formatDate } from '@/lib/format';
 import { qk, useApiMutation } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
+import { OrgAiCard } from '@/components/ai/cards';
 import {
   Badge,
   Card,
@@ -86,6 +87,8 @@ export function OrgSettingsPage() {
             />
           </CardBody>
         </Card>
+        {/* Whatever the platform state, also while suspended (plan O27): the customer can always decline. */}
+        {can('ai:settings') && <OrgAiCard org={org} />}
       </div>
     </>
   );

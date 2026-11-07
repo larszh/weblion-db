@@ -2,9 +2,11 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Building2, CircleAlert, Cloud, Server, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { formatRelative } from '@/lib/format';
-import { useAdminActions, useAdminStats } from '@/lib/queries';
+import { useAdminActions, useAdminStats, useMe } from '@/lib/queries';
+import { useAdminAiSettings } from '@/lib/api/ai';
+import { AuditSummaryButton } from '@/components/ai/feature-dialogs';
 import {
   Badge,
   Card,
@@ -47,10 +49,39 @@ function Tile({
   );
 }
 
+/** The AI budget from the warning mark on (ai 7.2, 12.5); only for platform:settings, like the KI page. */
+function AiBudgetNotice() {
+  const { t } = useI18n();
+  const me = useMe();
+  const allowed = !!me.data?.platformPermissions.includes('platform:settings');
+  const settings = useAdminAiSettings(allowed);
+  const budget = settings.data?.budget;
+  if (!allowed || !budget || !(budget.warned || budget.exhausted)) return null;
+  return (
+    <Notice
+      tone={budget.exhausted ? 'danger' : 'warning'}
+      className="mb-6"
+      icon={<AlertTriangle className="size-4" />}
+      title={
+        budget.exhausted
+          ? t('admin.ai.dashboard.exhausted')
+          : t('admin.ai.dashboard.warning', { percent: budget.percent })
+      }
+    >
+      <Link to="/admin/ai" className="font-medium underline">
+        {t('admin.ai.dashboard.open')}
+      </Link>
+    </Notice>
+  );
+}
+
 export function AdminDashboard() {
   const { t, locale } = useI18n();
   const stats = useAdminStats();
   const actions = useAdminActions();
+  const me = useMe();
+  // "Audit-Log zusammenfassen" for the last day needs the audit log too (ai 12.5).
+  const audit = !!me.data?.platformPermissions.includes('platform:audit:read');
 
   if (stats.isPending) return <LoadingBlock rows={6} />;
   if (stats.isError) return <ErrorState error={stats.error} />;
@@ -63,7 +94,9 @@ export function AdminDashboard() {
         eyebrow={t('nav.section.admin')}
         title={t('admin.title')}
         description={t('admin.subtitle')}
+        actions={audit ? <AuditSummaryButton scope="admin" defaultPeriod="day" /> : undefined}
       />
+      <AiBudgetNotice />
       {brokenProviders.length > 0 && (
         <Notice
           tone="danger"

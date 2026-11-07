@@ -64,6 +64,7 @@ import {
 import { runStart } from '../../lib/clock';
 import { AppError, badRequest, conflict, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import { JELLYFIN_ADMIN_REFUSED, mediaAccountDisabled } from '../../providers/jellyfin/rules';
 import type { ProviderAdapter, SeerrCheckResult } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
@@ -208,8 +209,6 @@ const INSTANCE_LIVE_TIMEOUT_MS = 10_000;
 const LIVE_TIMEOUT_MS = 10_000;
 /** Budget of the live Seerr check of the admin dialog. */
 const SEERR_CHECK_TIMEOUT_MS = 10_000;
-
-const like = (q: string) => `%${q.replace(/[%_\\]/g, '')}%`;
 
 /** Passwords and anything answered for a Quick Connect code must not end up in browser or proxy caches. */
 function noStore(reply: FastifyReply) {
@@ -1208,7 +1207,7 @@ export async function mediaRoutes(app: FastifyInstance, ctx: AppContext) {
     const filters: (SQL | undefined)[] = [
       query.orgId ? eq(mediaAccounts.orgId, query.orgId) : undefined,
       query.providerId ? eq(mediaAccounts.providerConnectionId, query.providerId) : undefined,
-      query.q ? ilike(mediaAccounts.username, like(query.q)) : undefined,
+      query.q ? ilike(mediaAccounts.username, containsPattern(query.q)) : undefined,
       query.issues === 'true'
         ? sql`${mediaAccounts.issues} <> '[]'::jsonb`
         : query.issues === 'false'

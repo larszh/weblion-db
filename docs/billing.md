@@ -41,6 +41,113 @@ Kontrolle, mit "Wiederkehrende Rechnungen automatisch abschliessen" gehen sie di
 Abschalten mit `BILLING_JOB_ENABLED=false`. Manuell geht es pro Kunde mit "Fällige Dienste
 abrechnen".
 
+### Kündigen
+
+Ohne Datum, mit heute oder einem früheren Datum endet ein Dienst sofort: Er wird nicht mehr
+abgerechnet, und "Modul sperren" schaltet das Modul gleich aus. "Heute" ist dabei das Datum in Zürich
+(Europe/Zurich), in der API wie im Dialog, auch wenn der Browser in einer anderen Zeitzone läuft. Mit
+einem späteren Datum ist die
+Kündigung vorgemerkt ("Gekündigt per ..."): Der Dienst läuft bis zu diesem Tag weiter, behält seinen
+Status (aktiv oder pausiert) und wird für jede Periode abgerechnet, die bis zu diesem Tag beginnt, die
+letzte bis zum Enddatum, aber zum vollen Periodenpreis (nicht anteilig). Bezahlt der Kunde so für Tage,
+die er nicht mehr nutzt, warnt der Dialog bei einem aktiven Dienst: Er nennt die Periode, die das
+Enddatum noch voll verrechnet, also die letzte, die am oder vor dem Enddatum beginnt, und bietet den Tag
+vor ihrem Beginn an ("Stattdessen per ... kündigen"), solange dieser Tag nicht vorbei ist. Endet der
+Dienst vor der nächsten Rechnung oder am letzten Tag einer Periode, gibt es keinen Hinweis. Wichtig bei
+Diensten, die gegen Ende eines Monats begonnen haben: Fällt der Rechnungstag auf das Monatsende (ein
+Start am 31. rechnet im November am 30. ab), kostet "per Ende Monat" eine ganze Periode mehr. Am Tag
+nach dem Enddatum beendet der tägliche Job den Dienst (Audit-Eintrag `service.end`, Akteur
+"Abrechnungsjob") und sperrt erst dann das Modul, falls gewählt. Der Job rechnet zuerst ab und
+beendet danach. Hat ein aktiver Dienst noch eine Periode bis zum Enddatum offen (etwa weil sie in einer
+anderen Währung steht oder der Betrag nicht passt), bleibt er aktiv, bis sie abgerechnet ist. Das
+Beenden läuft auch mit `BILLING_JOB_ENABLED=false`, dann bleibt ein solcher Dienst aktiv, bis "Fällige
+Dienste abrechnen" die Perioden abgerechnet hat.
+
+"Modul sperren" gilt nur, solange der Kunde keinen anderen laufenden Dienst mit demselben Modul hat
+(aktiv oder pausiert, ohne Enddatum oder mit einem Enddatum ab heute). Das prüft die Console beim
+Sperren selbst, bei einer vorgemerkten Kündigung also erst am Ende: Hat der Kunde bis dahin etwa
+einen neuen Dienst mit dem Modul bekommen (Wechsel des Pakets), bleibt das Modul aktiv, und
+`service.end` bzw. `service.cancel` vermerkt `moduleKept` statt `moduleDeactivated`. Von zwei
+Diensten mit demselben Modul kann es also erst der sperren, der zuletzt endet.
+
+Eine vorgemerkte Kündigung lässt sich bis zum Enddatum ändern (nochmals kündigen, mit heute endet der
+Dienst sofort) oder mit "Kündigung zurücknehmen" aufheben (`POST /services/:id/cancel/withdraw`,
+Audit-Eintrag `service.cancel_withdraw`). Die Abrechnung geht dann mit der Periode nach dem alten
+Enddatum weiter. Nach dem Enddatum lehnen beide Routen ab (409), auch wenn der Dienst noch auf die
+Abrechnung seiner letzten Periode wartet: Eine neue Kündigung würde diese Periode verwerfen oder den
+Dienst wieder öffnen. Die Tabelle zeigt einen solchen Dienst als "Gekündigt per ..., endet, sobald bis
+dahin abgerechnet ist". Lässt sich die Periode nicht automatisch abrechnen (andere Währung), stellt der
+Verkäufer sie von Hand in Rechnung und leert unter "Bearbeiten" die nächste Rechnung; danach beendet
+der Job den Dienst. Ein beendeter Dienst lässt sich nicht mehr ändern. Gutschriften für Perioden, die
+schon über das Enddatum hinaus verrechnet sind (etwa ein Jahresdienst), entstehen nicht von selbst.
+
+### Früher sofort beendete Kündigungen wiederherstellen
+
+Bis zur Korrektur im November 2026 beendete eine Kündigung auf ein späteres Datum den Dienst sofort: Status
+"Gekündigt", kein nächstes Abrechnungsdatum, und "Modul sperren" schaltete das Modul gleich aus. Die Perioden
+bis zum Enddatum wurden nie abgerechnet. Einen gekündigten Dienst mit einem Enddatum nach heute hinterlässt
+nur dieser alte Weg: Eine sofortige Kündigung endet heute oder früher, und der tägliche Job beendet nur
+Dienste, deren Enddatum vorbei ist.
+
+Die Diensttabelle des Verkäufers zeigt einen solchen Dienst als "Sofort beendet, gekündigt per ...". Die
+Karte "Früher gekündigte Dienste prüfen" listet alle, solange es welche gibt: unter Admin > Abrechnung die
+Kunden der Plattform (`GET /admin/billing/services/ended-early`), in der Kundenliste eines Resellers seine
+Kunden (`GET /orgs/:orgId/reseller/services/ended-early`), jeweils mit einem Link zu den Diensten des Kunden.
+Dort stellt "Kündigung per ... wiederherstellen" die Kündigung her, wie sie heute vorgemerkt würde: Der Dienst
+läuft wieder, behält Enddatum und Kündigungszeitpunkt, wird bis zum Enddatum abgerechnet und danach vom
+täglichen Job beendet (`POST /services/:id/resume`, Audit-Eintrag `service.resume`).
+
+Die alte Kündigung hat Status und Abrechnungsdatum überschrieben. Beides kommt aus dem, was vor ihr
+geschrieben wurde:
+
+- **Status:** War der Dienst pausiert (die letzte Änderung `service.update` mit einem Status vor der
+  Kündigung), kommt er pausiert zurück, wie eine vorgemerkte Kündigung die Pause behält. Verrechnet wird erst,
+  wenn der Verkäufer ihn fortsetzt, dann ab der Periode, die an diesem Tag beginnt. Sonst ist er aktiv.
+- **Abrechnungsdatum:** von zwei Daten das, das später geschrieben wurde. Das eine setzte eine Änderung von
+  Hand (ein verschobenes Datum, eine fortgesetzte Pause, `service.update` mit `nextBillingAt`). Das andere ist
+  die Periode nach der letzten, für die eine Rechnung eine Zeile des Dienstes hat. Entwürfe zählen, stornierte Rechnungen auch,
+  ausser sie wurden von Hand angelegt: Der Lauf hat das Datum beim Erstellen weitergeschoben und verrechnet
+  eine stornierte Periode nie noch einmal. Ohne beides beginnt die Abrechnung am Startdatum.
+
+Der Dialog (`GET /services/:id/resume`) listet die unverrechneten Perioden, die vor heute begonnen haben, mit
+den Beträgen des Abrechnungslaufs (ohne MWST) und dem "Total nicht verrechnet". Der Verkäufer wählt:
+
+- **Nachverrechnen:** Die Abrechnung geht mit der ersten unverrechneten Periode weiter, der nächste Lauf
+  stellt die verpassten Perioden in Rechnung.
+- **Erst ab der nächsten Periode:** Die Abrechnung geht mit der ersten Periode weiter, die heute oder
+  später beginnt. Die verpassten Perioden bleiben unverrechnet.
+- **Modul wieder einschalten**, wenn der Kunde es nicht mehr hat (wie beim Anlegen eines Dienstes). Ein
+  Reseller kann das nur mit Modulen, die er selbst hat, sonst ist der Schalter gesperrt. Dazu **Modul am
+  Enddatum sperren** (wie bei einer vorgemerkten Kündigung, also nur, wenn bis dahin kein anderer laufender
+  Dienst das Modul hat).
+
+Unter der Wahl steht, was der Lauf damit bis zum Enddatum noch in Rechnung stellt, von wann bis wann und für
+wie viel. Kürzt das Enddatum die letzte Periode, sagt der Dialog wie beim Kündigen, dass sie voll verrechnet
+wird. Hat der Verkäufer dem Kunden seit der Kündigung Rechnungen mit Zeilen ohne Dienst gestellt, nennt der
+Dialog sie: Darin können Perioden stehen, die er schon von Hand verrechnet hat.
+
+Vorgewählt ist "Nachverrechnen", ausser die alte Kündigung hat das Modul gesperrt (ihr Audit-Eintrag
+`service.cancel` nennt es unter `moduleDeactivated`) und es ist noch aus: Dann konnte der Kunde den Dienst
+nicht nutzen, und "erst ab der nächsten Periode" und "wieder einschalten" sind vorgewählt. Ist das Modul
+inzwischen wieder an, weist der Dialog darauf hin. "Am Enddatum sperren" ist vorgewählt, wenn die alte
+Kündigung das Modul gesperrt hat. Ein einmaliger Dienst hat keine Perioden: Ist er verrechnet, bleibt es dabei,
+sonst stellt ihn der nächste Lauf in Rechnung, sofern sein Datum nicht nach dem Enddatum liegt.
+
+Die Routen antworten mit 409 und dem Grund in `details.reason`:
+
+- `notEndedEarly`: Der Dienst ist nicht (mehr) gekündigt mit einem Enddatum nach heute. Ist das Enddatum
+  schon vorbei, gilt er als beendet. Fehlende Perioden bis dahin stellt der Verkäufer bei Bedarf von Hand in
+  Rechnung. Solche Dienste findet er im Audit-Log unter der Aktion `service.cancel`: Einträge ohne
+  `scheduled`, deren `endsAt` nach dem Tag des Eintrags liegt.
+- `sellerChanged`: Der Kunde hat seit dem Verkauf des Dienstes den Verkäufer gewechselt (ein Wechsel im
+  Audit-Log nach dem Anlegen des Dienstes, ein Produkt aus einem anderen Katalog oder eine Zeile auf einer
+  Rechnung eines anderen Rechnungsstellers). Der Dienst gehört dem bisherigen Verkäufer, der neue darf ihn nicht
+  abrechnen. Die Listen zeigen solche Dienste nicht. Neue Fälle entstehen nicht mehr: Jeder sofort beendete
+  Dienst mit einem Enddatum nach heute sperrt den Wechsel des Verkäufers (siehe [Reseller](#reseller)).
+- `resourceGone`: Der Server, die Domain oder der Webspace des Dienstes gehört nicht mehr dem Kunden (einer
+  anderen Organisation zugewiesen oder gelöscht). Wiederhergestellt würde der Kunde für etwas verrechnet, das er
+  nicht mehr hat. Die Listen zeigen solche Dienste nicht.
+
 ### Domain-Verlängerungen
 
 Verlängert Joker.com eine Domain (automatisch oder über "Jetzt verlängern" im Admin-Bereich),
@@ -89,7 +196,9 @@ Resellers erreichen auch seine Kunden, aber nie den Admin-Bereich.
 Plattform-Admins legen Reseller unter Admin > Kunden an (Typ "Reseller") und können bestehende
 Kunden einem Reseller zuordnen. Der Wechsel des Verkäufers ist gesperrt, solange beim Kunden
 noch Guthaben, offene Rechnungen, Entwürfe, ausstehende Zahlungen oder laufende Dienste
-existieren: Das Geld gehört jeweils dem bisherigen Verkäufer.
+existieren: Das Geld gehört jeweils dem bisherigen Verkäufer. Als laufend zählt auch ein Dienst,
+den eine Kündigung auf ein späteres Datum bis November 2026 sofort beendet hat, solange sein
+Enddatum nach heute liegt: Wiederhergestellt würde er sonst über den neuen Verkäufer abgerechnet.
 
 ## Cloud-Speicher (Nextcloud) verkaufen
 
@@ -255,7 +364,10 @@ Entwürfe bekommen das Wasserzeichen "ENTWURF" und keinen Zahlteil.
 
 SMTP entweder in der `.env` (`SMTP_HOST` usw., hat Vorrang und ist im Admin-Bereich dann nur
 lesbar) oder unter Admin > Einstellungen > E-Mail (verschlüsselt in der Datenbank). Versendet
-werden Einladungen, Rechnungen mit PDF, Zahlungsbestätigungen und Guthaben-Buchungen, auf
-Deutsch oder Englisch je nach Sprache des Empfängers. Jede Mail steht im Mail-Log, auch
-fehlgeschlagene. Ohne SMTP läuft alles weiter, die Mails werden dann als "übersprungen"
-protokolliert und Einladungslinks lassen sich weiterhin kopieren.
+werden Einladungen, Rechnungen mit PDF, Zahlungsbestätigungen und Guthaben-Buchungen. Einladungen
+gehen in der Sprache der eingeladenen Person, wenn sie schon ein Konto hat, sonst in der Sprache der
+Person, die einlädt. Rechnungen, Zahlungsbestätigungen und Guthaben-Buchungen folgen der "Sprache für
+Rechnungen" im Abrechnungsprofil des Kunden (leer: die Sprache des Owners), eine abgeschlossene
+Rechnung behält ihre Sprache. Jede Mail steht im Mail-Log, auch fehlgeschlagene. Ohne SMTP läuft
+alles weiter, die Mails werden dann als "übersprungen" protokolliert und Einladungslinks lassen sich
+weiterhin kopieren.

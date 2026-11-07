@@ -6,6 +6,8 @@ import { useT } from '@/lib/i18n';
 import { OrgProvider } from '@/lib/org-context';
 import { qk, useMe, useOrgBySlug } from '@/lib/queries';
 import { AppShell } from '@/components/layout/app-shell';
+import { AiProvider } from '@/components/ai/ai-provider';
+import { clearAiChats } from '@/components/ai/storage';
 import { EmptyState, ErrorState, Spinner } from '@/components/ui/primitives';
 import { LoginPage } from '@/pages/auth/login';
 import { InvitePage } from '@/pages/auth/invite';
@@ -48,6 +50,10 @@ const ProviderDetailPage = lazy(() =>
 );
 const ExplorerPage = lazy(() => import('@/pages/admin/explorer').then((m) => ({ default: m.ExplorerPage })));
 const AdminAuditPage = lazy(() => import('@/pages/admin/audit').then((m) => ({ default: m.AdminAuditPage })));
+const AdminAiPage = lazy(() => import('@/pages/admin/ai').then((m) => ({ default: m.AdminAiPage })));
+const TranslationsPage = lazy(() =>
+  import('@/pages/admin/translations').then((m) => ({ default: m.TranslationsPage })),
+);
 
 // Billing, reseller, hosting and settings areas.
 const BillingPage = lazy(() =>
@@ -127,6 +133,8 @@ function UnauthorizedRedirect() {
   useEffect(() => {
     setUnauthorizedHandler(() => {
       qc.removeQueries({ queryKey: qk.me });
+      // The session is gone: whoever signs in next in this tab must not see the chats (like the logout).
+      clearAiChats();
       if (!location.pathname.startsWith('/login')) {
         navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true });
       }
@@ -200,8 +208,9 @@ function AdminLayout() {
 }
 
 export function App() {
+  // AiProvider sits outside Suspense, so a lazy route never remounts it (the DNS proposal hand-over).
   return (
-    <>
+    <AiProvider>
       <UnauthorizedRedirect />
       <Suspense fallback={<FullScreenSpinner />}>
         <Routes>
@@ -279,6 +288,8 @@ export function App() {
             <Route path="providers/:providerId" element={<ProviderDetailPage />} />
             <Route path="explorer" element={<ExplorerPage />} />
             <Route path="audit" element={<AdminAuditPage />} />
+            <Route path="ai" element={<AdminAiPage />} />
+            <Route path="translations" element={<TranslationsPage />} />
             <Route path="hosting" element={<AdminHostingPage />} />
             <Route path="phone" element={<AdminPhonePage />} />
             <Route path="media" element={<AdminMediaPage />} />
@@ -291,6 +302,6 @@ export function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
-    </>
+    </AiProvider>
   );
 }

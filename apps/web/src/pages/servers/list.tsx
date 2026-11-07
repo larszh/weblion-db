@@ -86,7 +86,7 @@ export function ServersPage() {
             value={status ?? ''}
             onChange={(e) => setParam('status', e.target.value)}
             className="w-auto min-w-[150px]"
-            aria-label="Status"
+            aria-label={t('aria.statusFilter')}
           >
             <option value="">{t('servers.allStatuses')}</option>
             {STATUS_FILTERS.map((s) => (

@@ -36,10 +36,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Format
-        run: pnpm exec prettier --check "apps/*/src/**/*.{ts,tsx,css}" "apps/api/test/**/*.ts" "packages/*/src/**/*.ts"
+        run: pnpm exec prettier --check "apps/*/src/**/*.{ts,tsx,css}" "apps/api/test/**/*.ts" "packages/*/src/**/*.ts" "apps/api/scripts/**/*.ts"
       - name: Typecheck
         run: pnpm typecheck
       - name: Test
         run: pnpm test
+        env:
+          # The AI data notice (legal keys) must stay complete and current in all five languages.
+          I18N_REQUIRE_LEGAL: '1'
+      # Prints the missing and stale translations per locale, so later gaps show in every run, also after a
+      # failed step; never fails.
+      - name: Translation report
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @weblion/api i18n:report || true
       - name: Build
         run: pnpm build
+      # Locale dictionaries only in their own chunks, none in the entry, no server texts in the web.
+      - name: Locale chunks
+        run: pnpm --filter @weblion/web check:chunks

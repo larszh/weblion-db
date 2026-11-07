@@ -8,7 +8,8 @@ import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import type pg from 'pg';
 import type { ApiErrorBody } from '@weblion/shared';
-import type { Env } from './config/env';
+import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
+import { fastifyTrustProxy, type Env } from './config/env';
 import type { Database } from './db/client';
 import type { AppContext } from './context';
 import { AuditService } from './audit';
@@ -42,12 +43,26 @@ import { resellerRoutes } from './modules/reseller/routes';
 import { settingsRoutes } from './modules/settings/routes';
 import { MailService } from './mail/service';
 import { ZohoService } from './integrations/zoho';
+import { I18nService } from './i18n/service';
+import { seedGlossary } from './i18n/glossary';
+import { TranslationJobRunner } from './i18n/jobs';
+import { i18nRoutes } from './modules/i18n/routes';
+import { i18nAiRoutes } from './modules/i18n/ai-routes';
+import { AiService } from './modules/ai/service';
+import { initAiSecrets } from './modules/ai/redact';
+import { aiRoutes } from './modules/ai/routes';
+import { aiOrgRoutes } from './modules/ai/org-routes';
+import { aiAdminRoutes } from './modules/ai/admin-routes';
+import { aiFeatureRoutes } from './modules/ai/feature-routes';
+import { aiChatRoutes } from './modules/ai/chat-routes';
 
 export interface BuildOptions {
   env: Env;
   db: Database;
   pool: pg.Pool;
   logger?: boolean;
+  /** Compiled texts; tests pass a small catalog (plan 2.2). Default: the repository (loadCatalog()). */
+  i18nCatalog?: I18nCatalog;
 }
 
 export async function buildApp({
@@ -55,9 +70,10 @@ export async function buildApp({
   db,
   pool,
   logger = true,
+  i18nCatalog,
 }: BuildOptions): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const app = Fastify({
-    trustProxy: env.TRUST_PROXY,
+    trustProxy: fastifyTrustProxy(env.TRUST_PROXY),
     bodyLimit: 1024 * 1024,
     // Path parameters up to an e-mail address of 254 characters (Fastify's default is 100).
     routerOptions: { maxParamLength: 512 },
@@ -69,10 +85,20 @@ export async function buildApp({
         }
       : false,
   });
+  if (env.TRUST_PROXY === true || typeof env.TRUST_PROXY === 'number') {
+    // Kept for existing installations, but a client that reaches the port directly then picks
+    // the IP that the rate limits and the audit log see.
+    app.log.warn('TRUST_PROXY trusts X-Forwarded-For from any peer; list the proxy addresses instead');
+  }
 
   const box = new SecretBox(env.ENCRYPTION_KEY);
   const providers = new ProviderRegistry(db, box);
-  const ctx: AppContext = {
+  // The texts first: the mail service renders with them, and every route may answer in a language.
+  const i18n = new I18nService(db, env, app.log, i18nCatalog);
+  await i18n.load();
+  await seedGlossary(db);
+  // The services below that take the context itself are assigned right after the literal.
+  const base: Omit<AppContext, 'i18nJobs' | 'ai'> = {
     env,
     db,
     box,
@@ -82,10 +108,16 @@ export async function buildApp({
     audit: new AuditService(db, app.log),
     consoleTickets: new ConsoleTickets(),
     sync: new SyncService(db, pool, providers, app.log),
-    mail: new MailService(db, box, env, app.log),
+    mail: new MailService(db, box, env, app.log, i18n),
     zoho: new ZohoService(db, env, app.log),
+    i18n,
     secureCookies: env.APP_URL.startsWith('https://'),
   };
+  const ctx = base as AppContext;
+  // Exact secret values of the environment, removed from everything the AI module sends (ai 11.2).
+  initAiSecrets(env);
+  ctx.ai = new AiService(ctx);
+  ctx.i18nJobs = new TranslationJobRunner(ctx, pool, { concurrency: env.I18N_AI_CONCURRENCY });
 
   await app.register(cookie);
   await app.register(helmet, {
@@ -112,10 +144,17 @@ export async function buildApp({
     },
   });
   await app.register(authPlugin, { db, appUrl: env.APP_URL, sessionTtlHours: env.SESSION_TTL_HOURS });
+  // The assistant's tools read through app.inject with the person's session (ai 8.1).
+  ctx.ai.attach(app);
 
   app.setErrorHandler((error: FastifyError | AppError, req, reply) => {
     if (error instanceof AppError) {
       if (error.statusCode >= 500) req.log.error({ err: error }, error.message);
+      // AI limits and a busy Claude API name the wait when it is known (ai 4.2).
+      const retryAfter = (error.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+      if ((error.code === 'ai_limit' || error.code === 'ai_busy') && typeof retryAfter === 'number') {
+        reply.header('retry-after', String(retryAfter));
+      }
       const body: ApiErrorBody = {
         error: { code: error.code, message: error.message, details: error.details },
       };
@@ -167,6 +206,13 @@ export async function buildApp({
         paymentRoutes,
         resellerRoutes,
         settingsRoutes,
+        i18nRoutes,
+        i18nAiRoutes,
+        aiRoutes,
+        aiOrgRoutes,
+        aiAdminRoutes,
+        aiFeatureRoutes,
+        aiChatRoutes,
       ]) {
         await register(api, ctx);
       }

@@ -60,6 +60,7 @@ import {
   unsupported,
 } from '../../lib/errors';
 import { parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import type {
   MonitorInput,
   MonitorPatch,
@@ -196,7 +197,6 @@ const CONFIG_FIELDS = [
 const NO_HISTORY = 'No history available for this monitor and range';
 const NOT_SIGNED_IN = 'not signed in for management';
 
-const like = (q: string) => `%${q.replace(/[%_]/g, '')}%`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const isWeb = (kind: MonitorKind) => kind === 'http' || kind === 'keyword';
 const sameList = (a: readonly string[], b: readonly string[]) =>
@@ -952,9 +952,9 @@ export async function monitoringRoutes(app: FastifyInstance, ctx: AppContext) {
       query.status ? eq(monitors.status, query.status) : undefined,
       query.q
         ? or(
-            ilike(monitors.name, like(query.q)),
-            ilike(monitors.providerName, like(query.q)),
-            ilike(monitors.target, like(query.q)),
+            ilike(monitors.name, containsPattern(query.q)),
+            ilike(monitors.providerName, containsPattern(query.q)),
+            ilike(monitors.target, containsPattern(query.q)),
           )
         : undefined,
     ];

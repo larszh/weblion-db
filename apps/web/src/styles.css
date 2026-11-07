@@ -29,7 +29,8 @@
 
   --success: #0f9f78;
   --success-soft: #e3f6f0;
-  --warning: #c27c00;
+  /* Dark enough for 12 px text on the soft background and on white (4.8:1 and 5.3:1, WCAG AA). */
+  --warning: #946000;
   --warning-soft: #fdf3dc;
   --danger: #d33b45;
   --danger-hover: #b8313a;
@@ -58,10 +59,12 @@
   --border-strong: #2f4563;
   --text: #e7eef7;
   --text-muted: #9fb0c5;
-  --text-subtle: #71849c;
+  /* 5.5:1 on the card surface: hints in 12 px stay readable (WCAG AA). */
+  --text-subtle: #8494aa;
 
-  --primary: #408bcb;
-  --primary-hover: #5a9dd6;
+  /* White text on primary buttons needs 4.5:1, as in the light theme: 5.1:1, and 4.6:1 while hovered. */
+  --primary: #2f72ad;
+  --primary-hover: #3679b4;
   --primary-soft: #16304b;
   --primary-text: #7db4e6;
 

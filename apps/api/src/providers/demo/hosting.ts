@@ -74,7 +74,8 @@ const DOMAINS: DomainSeed[] = [
       ['A', 'mail', '185.101.20.25'],
       ['MX', '@', '10 mail.muster-ag.ch'],
       ['TXT', '@', 'v=spf1 mx a:mail.muster-ag.ch -all'],
-      ['TXT', '_dmarc', 'v=DMARC1; p=quarantine; rua=mailto:dmarc@muster-ag.ch'],
+      // No DMARC record on purpose: the AI DNS check and the assistant show the DMARC proposal on this domain
+      // in the demo (plan 8.4 scenario 1).
       ['CNAME', 'autodiscover', 'autodiscover.outlook.com'],
       ['CAA', '@', '0 issue "letsencrypt.org"'],
       ['DYNA', 'home', '203.0.113.7', true],

@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn';
 import { useI18n } from '@/lib/i18n';
 import { formatBytes, formatDate, formatPercent, formatRate } from '@/lib/format';
 import { useServerMetrics, useServerMonitoring, useServerTraffic } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { MetricChart } from '@/components/metric-chart';
 import {
   Badge,
@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
 import { useServerContext } from '../context';
+import { useOptionalOrg } from '@/lib/org-context';
+import { ServerHealthButton } from '@/components/ai/feature-dialogs';
 
 const RANGE_LABEL: Record<MetricRange, TranslationKey> = {
   hour: 'graphs.range.hour',
@@ -156,6 +158,7 @@ function TrafficCard() {
 function MetricsSection() {
   const { t } = useI18n();
   const { server } = useServerContext();
+  const orgCtx = useOptionalOrg();
   const [range, setRange] = useState<MetricRange>('day');
   const metrics = useServerMetrics(server.id, range);
   const keys = new Set(metrics.data?.series.map((s) => s.key) ?? []);
@@ -189,6 +192,16 @@ function MetricsSection() {
         {metrics.data?.resolutionSeconds && (
           <span className="text-xs text-subtle">
             {t('graphs.resolution', { s: Math.round(metrics.data.resolutionSeconds / 60) || 1 })}
+          </span>
+        )}
+        {/* "Mit KI auswerten" (ai 10.4): the analysis takes the last day or week, nearest to the chart. */}
+        {orgCtx?.can('server:metrics') && (
+          <span className="ml-auto">
+            <ServerHealthButton
+              orgId={orgCtx.org.id}
+              serverId={server.id}
+              range={range === 'hour' || range === 'day' ? 'day' : 'week'}
+            />
           </span>
         )}
       </div>

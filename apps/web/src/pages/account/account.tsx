@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n';
 import { formatRelative } from '@/lib/format';
 import { qk, useApiMutation, useMe, useSessions } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
+import { LanguageRadioGroup, useSaveProfileLocale } from '@/components/language-picker';
 import { Dialog } from '@/components/ui/dialog';
 import {
   Badge,
@@ -19,7 +20,6 @@ import {
   Mono,
   Notice,
   PageHeader,
-  Select,
 } from '@/components/ui/primitives';
 
 function MfaCard({ me }: { me: MeDto }) {
@@ -151,7 +151,9 @@ function MfaCard({ me }: { me: MeDto }) {
 }
 
 export function AccountPage() {
-  const { t, locale, setLocale } = useI18n();
+  const { t, locale } = useI18n();
+  const saveLocale = useSaveProfileLocale();
+  const [savingLocale, setSavingLocale] = useState(false);
   const me = useMe();
   const qc = useQueryClient();
   const sessions = useSessions();
@@ -184,26 +186,30 @@ export function AccountPage() {
   return (
     <>
       <PageHeader title={t('nav.account')} description={me.data.user.email} />
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* grid-cols-1 below lg: an auto track would take the max-content width of the language tiles. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* The language first and in full width: it is the profile setting people look for most (i18n 6.1). */}
+        <Card className="lg:col-span-2">
+          <CardHeader title={<span id="acc-lang-label">{t('account.language')}</span>} />
+          <CardBody className="space-y-3">
+            <LanguageRadioGroup
+              labelledBy="acc-lang-label"
+              value={locale}
+              disabled={savingLocale}
+              onChange={(next) => {
+                setSavingLocale(true);
+                void saveLocale(next).finally(() => setSavingLocale(false));
+              }}
+            />
+            <p className="text-xs text-muted">{t('language.profileHint')}</p>
+          </CardBody>
+        </Card>
+
         <Card>
           <CardHeader title={t('account.profile')} />
           <CardBody className="space-y-4">
             <Field label={t('invite.name')} htmlFor="acc-name">
               <Input id="acc-name" value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
-            <Field label={t('account.language')} htmlFor="acc-lang">
-              <Select
-                id="acc-lang"
-                value={locale}
-                onChange={(e) => {
-                  const l = e.target.value as 'de' | 'en';
-                  setLocale(l);
-                  profile.mutate({ locale: l });
-                }}
-              >
-                <option value="de">Deutsch</option>
-                <option value="en">English</option>
-              </Select>
             </Field>
             <Button
               variant="primary"

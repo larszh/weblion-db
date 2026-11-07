@@ -15,7 +15,6 @@ import {
   Users,
 } from 'lucide-react';
 import {
-  MODULE_DEFS,
   MONITOR_DEFAULT_MAX_MONITORS,
   MONITOR_DEFAULT_MIN_INTERVAL_SECONDS,
   MONITOR_MAX_MONITORS_LIMIT,
@@ -32,7 +31,7 @@ import {
   type MonitoringInstanceDto,
   type Permission,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { formatNumber, formatRelative } from '@/lib/format';
 import { useI18n, type TFunction } from '@/lib/i18n';
@@ -778,10 +777,10 @@ function ModuleChoice({
   enable: boolean;
   onEnable: (value: boolean) => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const orgs = useAdminOrgs();
   if (!target) return null;
-  const label = MODULE_DEFS[MODULE].label[locale];
+  const label = t('module.monitoring.label');
   if (target.modules.includes(MODULE)) {
     return <p className="text-sm text-muted">{t('hosting.admin.moduleActive', { module: label })}</p>;
   }
@@ -1230,7 +1229,7 @@ function AdminAllowanceDialog({
   current: MonitorAllowanceDto | null;
   onClose: () => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const instances = useMonitoringInstances();
   const monitorError = useMonitorError();
   const reseller = org.kind === 'reseller';
@@ -1270,7 +1269,7 @@ function AdminAllowanceDialog({
   const sameInstance = !!current && current.provider?.id === selected;
   const minMonitors = Math.max(1, sameInstance ? current.committed : 0);
   const hasModule = org.modules.includes(MODULE);
-  const moduleLabel = MODULE_DEFS[MODULE].label[locale];
+  const moduleLabel = t('module.monitoring.label');
   const resellerLacks = !!parent && !parent.modules.includes(MODULE);
   const choices = intervalChoices(MONITOR_MIN_INTERVAL_SECONDS, minInterval);
 

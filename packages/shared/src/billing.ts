@@ -1,3 +1,4 @@
+import { intlLocale, type Locale, type TargetLocale } from './i18n/locales';
 import type { ModuleKey } from './modules';
 
 /**
@@ -24,6 +25,47 @@ export const INTERVAL_MONTHS: Record<BillingInterval, number> = {
   quarterly: 3,
   yearly: 12,
 };
+
+/**
+ * Today in Europe/Zurich as "YYYY-MM-DD". Billing dates are Swiss local dates: the API decides with this day
+ * (a cancellation ends at once or is scheduled, an end date has passed), so the console must use the same day
+ * and not the browser's. Intl only, so it runs in the browser too.
+ */
+export function todayZurich(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Zurich',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+/**
+ * The billing date after `current` ("YYYY-MM-DD") for a service that started on `startsAt`, or null for
+ * one-off services. Keeps the start day where the month allows it, so a service from Jan 31 is billed on
+ * Feb 28, Mar 31, Apr 30; a date moved by hand becomes the new anchor. Shared so the console steps through
+ * the periods exactly as the billing run does.
+ */
+export function nextBillingDate(current: string, interval: BillingInterval, startsAt: string): string | null {
+  const months = INTERVAL_MONTHS[interval];
+  if (months === 0) return null;
+  const [y, m, d] = dateParts(current);
+  const anchor = dateParts(startsAt)[2];
+  const onAnchor = d === Math.min(anchor, daysIn(y, m));
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  const nd = Math.min(onAnchor ? anchor : d, daysIn(ny, nm));
+  return `${String(ny).padStart(4, '0')}-${String(nm).padStart(2, '0')}-${String(nd).padStart(2, '0')}`;
+}
+
+function dateParts(date: string): [number, number, number] {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) throw new Error(`Invalid date: ${date}`);
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+const daysIn = (year: number, month: number): number => new Date(Date.UTC(year, month, 0)).getUTCDate();
 
 export const INVOICE_STATUSES = ['draft', 'open', 'paid', 'void'] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
@@ -79,6 +121,15 @@ export interface BillingProfileDto extends PostalAddress {
   paymentTermsDays: number;
   /** Overrides the issuer's default tax rate, e.g. 0 for customers abroad. */
   taxRateBp: number | null;
+  /** "Sprache für Rechnungen"; null = the owner's language (i18n 9). */
+  locale: Locale | null;
+  /** locale ?? users.locale of the oldest active owner ?? 'de'. */
+  effectiveLocale: Locale;
+  /**
+   * users.locale of the oldest active owner ?? 'de', also while the profile has a language of its own, so the
+   * option "Sprache des Owners (<Sprache>)" can always name it.
+   */
+  ownerLocale: Locale;
   updatedAt: string | null;
 }
 
@@ -113,6 +164,9 @@ export interface BillingSettingsDto {
   autoApplyCredit: boolean;
 }
 
+/** Name and description per target language; German stays in ProductDto.name and description (plan O14). */
+export type ProductTranslations = Partial<Record<TargetLocale, { name: string; description: string | null }>>;
+
 export interface ProductDto {
   id: string;
   /** null for the platform catalog, otherwise the reseller organization. */
@@ -126,6 +180,8 @@ export interface ProductDto {
   /** null means the issuer's default rate. */
   taxRateBp: number | null;
   active: boolean;
+  /** Texts in the other languages; read them through productText(). */
+  translations: ProductTranslations;
   createdAt: string;
 }
 
@@ -147,11 +203,122 @@ export interface ServiceDto {
   startsAt: string;
   /** Next date an invoice line is due. null once a one-off service was billed or it ended. */
   nextBillingAt: string | null;
+  /**
+   * Last day of the service. Together with a status other than "cancelled" a scheduled cancellation: the
+   * service runs and is billed up to this day and ends afterwards.
+   */
   endsAt: string | null;
   cancelledAt: string | null;
+  /** A scheduled cancellation also switches the module off when the service ends. False otherwise. */
+  deactivateModuleAtEnd: boolean;
   /** Internal note of the seller. Always null in the customer's view. */
   notes: string | null;
   createdAt: string;
+}
+
+/**
+ * Until the fix of November 2026 a cancellation to a later date ended the service at once: status "cancelled",
+ * no billing date, the end date in the future. Only that old cancellation leaves a cancelled service with an end
+ * date after today (an immediate cancellation ends on today or earlier, the daily job only ends services whose
+ * end date has passed). Such a service can be restored as the scheduled cancellation it was meant to be.
+ */
+export function endedEarly(service: Pick<ServiceDto, 'status' | 'endsAt'>, today: string): boolean {
+  return service.status === 'cancelled' && service.endsAt !== null && service.endsAt > today;
+}
+
+/** One period as the billing run bills it: one invoice line from `start` to `end`. */
+export interface ServicePeriodDto {
+  start: string;
+  /** Last day of the period, at most the end date of the cancellation. */
+  end: string | null;
+  /** Net amount of the line, lineTotal(quantity, unitPrice). */
+  amount: number;
+}
+
+/** GET /services/:id/resume: what restoring a service ended early (endedEarly) as a scheduled cancellation bills. */
+export interface ServiceResumePreviewDto {
+  serviceId: string;
+  name: string;
+  /** Start date of the service: the day anchor of its periods. */
+  startsAt: string;
+  /** The end date of the cancellation, after today. The restored service runs and is billed up to this day. */
+  endsAt: string;
+  cancelledAt: string | null;
+  currency: Currency;
+  interval: BillingInterval;
+  /**
+   * The billing date as it stood when the old cancellation cleared it: the billing date with billFrom "missed",
+   * and the one a paused service keeps. Whichever was written later: the date a change set by hand (a date
+   * moved, a pause resumed; audit service.update) or the period after the last one an invoice bills (a draft
+   * counts, a void invoice too unless it was made by hand: the run moved the date on and never bills a voided
+   * period again). For a one-off service its start date while it is not billed, null once it is.
+   */
+  firstUnbilled: string | null;
+  /**
+   * The service was paused when the old cancellation ended it (the last service.update before it set
+   * "suspended"). It is restored paused, as a scheduled cancellation keeps the pause: nothing is billed until
+   * the seller resumes it, and then from the period that begins on that day (no missed or upcoming periods).
+   */
+  pausedBeforeCancel: boolean;
+  /** Periods from firstUnbilled that began before today (Zurich) and on or before endsAt. None for one-off services. */
+  missedPeriods: ServicePeriodDto[];
+  /** Sum of the missed periods' amounts, net. */
+  missedTotal: number;
+  /** The first period that begins today or later: the billing date with billFrom "next". */
+  nextFromToday: string | null;
+  /**
+   * Periods from nextFromToday up to endsAt: the billing run bills them with either choice, the last one in full
+   * even when the end date cuts it short. None for one-off and paused services.
+   */
+  upcomingPeriods: ServicePeriodDto[];
+  /** Sum of the upcoming periods' amounts, net. */
+  upcomingTotal: number;
+  /** Net amount of one period (of the one-off charge for a one-off service). */
+  periodAmount: number;
+  module: ModuleKey | null;
+  /** Whether the customer has the module now. */
+  moduleActive: boolean;
+  /** Whether the cancellation switched the module off (its audit entry service.cancel says so). */
+  moduleDeactivatedByCancel: boolean;
+  /** Whether the seller may switch the module on again: always for the platform, for a reseller if it has it. */
+  sellerHasModule: boolean;
+  /**
+   * Invoices of the seller to the customer since the cancellation, not void, with a line not linked to a service:
+   * periods of this service the seller billed by hand would not be seen otherwise. At most ten, oldest first.
+   */
+  manualInvoices: { id: string; number: string | null }[];
+}
+
+/**
+ * The reason of a 409 from GET or POST /services/:id/resume: not (or no longer) a service ended early, or the
+ * customer changed its seller since the service was sold (the old seller's service is not billed by the new one).
+ */
+export type ServiceResumeRefusal = 'notEndedEarly' | 'sellerChanged' | 'resourceGone';
+
+/** POST /services/:id/resume */
+export interface ServiceResumeInput {
+  /**
+   * missed: bill from firstUnbilled, the missed periods too; next: from nextFromToday, the missed ones stay
+   * unbilled. Without effect for a service paused before the cancellation (pausedBeforeCancel).
+   */
+  billFrom: 'missed' | 'next';
+  /** Switches the module on again when the customer does not have it. */
+  activateModule: boolean;
+  /** Switches the module off once the service ends, unless another running service has it. */
+  deactivateModuleAtEnd: boolean;
+}
+
+/**
+ * A service ended early (endedEarly) that its seller may restore: GET /admin/billing/services/ended-early (the
+ * customers the platform bills) and GET /orgs/:orgId/reseller/services/ended-early (the reseller's customers).
+ */
+export interface EndedEarlyServiceDto {
+  serviceId: string;
+  name: string;
+  customer: { id: string; name: string };
+  endsAt: string;
+  cancelledAt: string | null;
+  module: ModuleKey | null;
 }
 
 export interface InvoiceLineDto {
@@ -212,6 +379,8 @@ export interface InvoiceDetailDto extends InvoiceDto {
   can: { edit: boolean; finalize: boolean; void: boolean; markPaid: boolean; pay: boolean; send: boolean };
   /** Online payment methods available for this invoice right now. */
   payMethods: PaymentMethod[];
+  /** invoices.locale (fixed at finalize) ?? the current billing language for drafts and old invoices. */
+  locale: Locale;
 }
 
 export interface CreditTransactionDto {
@@ -294,9 +463,28 @@ export interface InvoiceLineInput {
   periodEnd?: string | null;
 }
 
-/** Formats an amount in minor units, e.g. formatMoney(12345, 'CHF', 'de') → "CHF 123.45". */
-export function formatMoney(amount: number, currency: Currency | string, locale: 'de' | 'en' = 'de'): string {
-  return new Intl.NumberFormat(locale === 'de' ? 'de-CH' : 'en-CH', {
+/**
+ * The product text in a language: per field the translation when set, else the German text (plan O14).
+ * de: name and description as stored.
+ */
+export function productText(
+  product: Pick<ProductDto, 'name' | 'description' | 'translations'>,
+  locale: Locale,
+): { name: string; description: string | null } {
+  if (locale === 'de') return { name: product.name, description: product.description };
+  const translated = product.translations?.[locale];
+  return {
+    name: translated?.name?.trim() ? translated.name : product.name,
+    description: translated?.description?.trim() ? translated.description : product.description,
+  };
+}
+
+/**
+ * Formats an amount in minor units in the Intl format of the locale, e.g. formatMoney(12345, 'CHF', 'de') gives
+ * "CHF 123.45" and 'en' gives en-GB. Billing mails and the PDF pass 'de' (Swiss format in every language).
+ */
+export function formatMoney(amount: number, currency: Currency | string, locale: Locale = 'de'): string {
+  return new Intl.NumberFormat(intlLocale(locale), {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,

@@ -1,20 +1,41 @@
-import { and, count, desc, eq, ilike, isNotNull, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  ilike,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   BILLING_INTERVALS,
   CURRENCIES,
+  LOCALES,
   MODULES,
   SERVICE_RESOURCE_TYPES,
+  TARGET_LOCALES,
   formatMoney,
   normalizeModules,
   type BillingStatsDto,
+  type EndedEarlyServiceDto,
   type InvoiceDetailDto,
   type InvoiceIssuerSettings,
   type ModuleKey,
   type Paginated,
+  type TargetLocale,
   type InvoiceDto,
   type SellerCustomerBillingDto,
+  type ServiceResumePreviewDto,
+  type ServiceResumeRefusal,
 } from '@weblion/shared';
 import type { AppContext } from '../../context';
 import type { Tx } from '../../db/client';
@@ -31,13 +52,25 @@ import {
   type Organization,
   type Service,
 } from '../../db/schema';
-import { badRequest, conflict, forbidden, notFound } from '../../lib/errors';
+import { AppError, badRequest, conflict, forbidden, notFound } from '../../lib/errors';
 import { paginationQuery, parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import { loadOrg } from '../orgs/routes';
 import { addCredit, billingCurrency, creditBalance, currencyChangeProblem, lockOrgBilling } from './ledger';
+import { endModule, isScheduledEnd, moduleEndDetails } from './service-end';
+import {
+  endedEarly,
+  manualInvoicesSince,
+  moduleDeactivatedByCancel,
+  resumePlan,
+  resourceGone,
+  soldByAnotherSeller,
+} from './resume';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
 import {
   billingLink,
+  billingLocale,
+  billingProfileLocales,
   billingSummary,
   creditPage,
   listPayments,
@@ -59,7 +92,9 @@ import {
   deleteDraftInTx,
   finalizeInTx,
   inBackground,
+  contentDisposition,
   invoiceFilename,
+  invoiceLocale,
   invoicePdf,
   linesSchema,
   loadInvoiceFor,
@@ -111,6 +146,8 @@ const addressShape = {
   country: countrySchema.default('CH'),
   email: optionalEmail,
   vatId: optionalText(40),
+  /** "Sprache für Rechnungen"; null = the owner's language (i18n 9). The customer may choose it too. */
+  locale: z.enum(LOCALES).nullable().optional(),
 };
 /** Customers maintain their address; currency, terms and tax are the seller's. */
 const customerProfileBody = z.object(addressShape);
@@ -172,6 +209,16 @@ const productFields = {
   interval: z.enum(BILLING_INTERVALS),
   taxRateBp: taxRateSchema.nullish(),
   active: z.boolean(),
+  /**
+   * Name and description per target language (plan O14, 2.7); German stays in name and description. A PATCH
+   * replaces the whole object. partialRecord: z.record with an enum key requires every key in zod 4.
+   */
+  translations: z
+    .partialRecord(
+      z.enum(TARGET_LOCALES),
+      z.object({ name: z.string().trim().min(1).max(200), description: z.string().max(1000).nullable() }),
+    )
+    .optional(),
 };
 const productBody = z.object({
   ...productFields,
@@ -214,11 +261,11 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
         : query.status
           ? eq(invoices.status, query.status as Invoice['status'])
           : undefined;
-    const q = query.q?.replace(/[%_]/g, '');
+    const q = query.q ? containsPattern(query.q) : undefined;
     const where = and(
       ...filters,
       status,
-      q ? or(ilike(invoices.number, `%${q}%`), ilike(organizations.name, `%${q}%`)) : undefined,
+      q ? or(ilike(invoices.number, q), ilike(organizations.name, q)) : undefined,
     );
     const [rows, total] = await Promise.all([
       db
@@ -291,16 +338,6 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     return true;
   }
 
-  async function deactivateModule(tx: Tx, orgId: string, module: ModuleKey): Promise<boolean> {
-    const [org] = await tx.select().from(organizations).where(eq(organizations.id, orgId)).for('update');
-    if (!org || !org.modules.includes(module)) return false;
-    await tx
-      .update(organizations)
-      .set({ modules: org.modules.filter((m) => m !== module) })
-      .where(eq(organizations.id, orgId));
-    return true;
-  }
-
   /** Catalog access: platform catalog via platform permissions, a reseller's via reseller:billing. */
   async function assertCatalog(req: FastifyRequest, ownerOrgId: string | null, mode: 'read' | 'write') {
     requireAuth(req);
@@ -360,7 +397,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       loadProfile(db, orgId),
       issuerSettings(db, sellerOrgId(org)),
     ]);
-    return toBillingProfileDto(orgId, profile, issuer);
+    const locales = await billingProfileLocales(db, orgId, profile ?? null);
+    return toBillingProfileDto(orgId, profile, issuer, locales.effectiveLocale, locales.ownerLocale);
   });
 
   app.put('/orgs/:orgId/billing/profile', async (req) => {
@@ -385,7 +423,9 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceId: orgId,
       details: body,
     });
-    return toBillingProfileDto(orgId, await loadProfile(db, orgId), issuer);
+    const saved = await loadProfile(db, orgId);
+    const locales = await billingProfileLocales(db, orgId, saved ?? null);
+    return toBillingProfileDto(orgId, saved, issuer, locales.effectiveLocale, locales.ownerLocale);
   });
 
   // --- Single invoices (customer or issuer) ---------------------------------------
@@ -401,9 +441,10 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     // Drafts only reach their issuer here, rendered with an "ENTWURF" watermark.
     const { invoice, org } = await loadInvoiceFor(ctx, req, id);
     const pdf = await invoicePdf(ctx, invoice, org);
+    const filename = invoiceFilename(invoice, ctx.i18n.translator(await invoiceLocale(db, invoice)));
     return reply
       .header('content-type', 'application/pdf')
-      .header('content-disposition', `inline; filename="${invoiceFilename(invoice)}"`)
+      .header('content-disposition', contentDisposition('inline', filename))
       .header('cache-control', 'private, no-store')
       .send(pdf);
   });
@@ -552,10 +593,11 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       billingSummary(ctx, req, org),
       canActAsSeller(ctx, req, org, 'write'),
     ]);
+    const locales = await billingProfileLocales(db, orgId, profile ?? null);
     return {
       org: { id: org.id, name: org.name, slug: org.slug, status: org.status, modules: org.modules },
       seller: summary.seller,
-      profile: toBillingProfileDto(orgId, profile, issuer),
+      profile: toBillingProfileDto(orgId, profile, issuer, locales.effectiveLocale, locales.ownerLocale),
       summary,
       can: { write },
     };
@@ -585,7 +627,9 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       resourceId: orgId,
       details: { ...body, asSeller: true },
     });
-    return toBillingProfileDto(orgId, await loadProfile(db, orgId), issuer);
+    const saved = await loadProfile(db, orgId);
+    const locales = await billingProfileLocales(db, orgId, saved ?? null);
+    return toBillingProfileDto(orgId, saved, issuer, locales.effectiveLocale, locales.ownerLocale);
   });
 
   app.get('/billing/customers/:orgId/invoices', async (req) => {
@@ -699,6 +743,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     if (body.notify) {
       const to = await billingRecipients(db, orgId);
       if (to.length > 0) {
+        // Texts in the billing language, amounts in Swiss format like on every invoice (i18n 2.3, 8.2).
         await ctx.mail.send(
           'credit_booked',
           {
@@ -708,7 +753,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
             description: row.description,
             link: billingLink(ctx.env, org.slug),
           },
-          { to, locale: 'de', orgId },
+          { to, locale: await billingLocale(db, orgId), orgId },
         );
       }
     }
@@ -867,6 +912,14 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     return toServiceDto(db, updated, { seller: true });
   });
 
+  /**
+   * Cancels a service. An end date after today schedules the cancellation: the service keeps
+   * running and is billed up to that day, the daily billing job ends it afterwards and only
+   * then switches the module off (if chosen and no other running service has it). Today, an
+   * earlier date or none ends it at once.
+   * Calling it again on a scheduled cancellation sets the new date and module choice, until its
+   * end date has passed.
+   */
   app.post('/services/:id/cancel', async (req) => {
     const { id } = parse(idParams, req.params);
     const { service } = await loadServiceAsSeller(req, id);
@@ -874,30 +927,259 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       z.object({ endsAt: dateSchema.optional(), deactivateModule: z.boolean().default(false) }),
       req.body ?? {},
     );
-    const { updated, deactivated } = await db.transaction(async (tx) => {
+    const today = todayZurich();
+    const endsAt = body.endsAt ?? today;
+    const scheduled = endsAt > today;
+    const { updated, moduleEnd, previousEndsAt } = await db.transaction(async (tx) => {
+      // Under the billing lock, like a PATCH: the end date limits what a billing run bills.
+      await lockOrgBilling(tx, service.orgId);
+      const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
+      if (!current || current.status === 'cancelled') throw conflict('The service is already cancelled');
+      // After the end date the service only waits to be ended, maybe for its last periods to be billed.
+      // Cancelling again would drop those periods (an end today clears the billing date) or reopen the
+      // service with a later date, which withdraw refuses for the same reason.
+      if (isScheduledEnd(current) && current.endsAt! < today) {
+        throw conflict('The end date of the cancellation has passed');
+      }
       const [row] = await tx
         .update(services)
-        .set({
-          status: 'cancelled',
-          cancelledAt: new Date(),
-          nextBillingAt: null,
-          endsAt: body.endsAt ?? todayZurich(),
-        })
-        .where(and(eq(services.id, service.id), ne(services.status, 'cancelled')))
+        .set(
+          scheduled
+            ? { cancelledAt: new Date(), endsAt, deactivateModuleAtEnd: body.deactivateModule }
+            : {
+                status: 'cancelled',
+                cancelledAt: new Date(),
+                nextBillingAt: null,
+                endsAt,
+                deactivateModuleAtEnd: false,
+              },
+        )
+        .where(eq(services.id, current.id))
         .returning();
-      if (!row) throw conflict('The service is already cancelled');
-      const deactivated =
-        body.deactivateModule && row.module ? await deactivateModule(tx, row.orgId, row.module) : false;
-      return { updated: row, deactivated };
+      // The same rule as the end step: another running service with the module keeps it.
+      const moduleEnd =
+        !scheduled && body.deactivateModule && row!.module
+          ? await endModule(tx, { id: row!.id, orgId: row!.orgId, module: row!.module }, today)
+          : 'none';
+      return { updated: row!, moduleEnd, previousEndsAt: current.endsAt };
     });
     await audit.record(req, {
       action: 'service.cancel',
       orgId: service.orgId,
       resourceType: 'service',
       resourceId: service.id,
-      details: { endsAt: updated.endsAt, moduleDeactivated: deactivated ? updated.module : null },
+      details: {
+        endsAt: updated.endsAt,
+        scheduled,
+        ...moduleEndDetails(updated.module, moduleEnd),
+        ...(scheduled && updated.deactivateModuleAtEnd && updated.module
+          ? { moduleDeactivatedAtEnd: updated.module }
+          : {}),
+        ...(previousEndsAt ? { previousEndsAt } : {}),
+      },
     });
     return toServiceDto(db, updated, { seller: true });
+  });
+
+  /** Withdraws a scheduled cancellation while the service still runs (end date today or later). */
+  app.post('/services/:id/cancel/withdraw', async (req) => {
+    const { id } = parse(idParams, req.params);
+    const { service } = await loadServiceAsSeller(req, id);
+    const { updated, previousEndsAt } = await db.transaction(async (tx) => {
+      await lockOrgBilling(tx, service.orgId);
+      const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
+      if (!current || current.status === 'cancelled') throw conflict('The service is already cancelled');
+      if (!current.endsAt) throw conflict('The service has no scheduled cancellation');
+      // After the end date the service only waits for the daily job to end it.
+      if (current.endsAt < todayZurich()) throw conflict('The service has already ended');
+      const [row] = await tx
+        .update(services)
+        .set({ cancelledAt: null, endsAt: null, deactivateModuleAtEnd: false })
+        .where(eq(services.id, current.id))
+        .returning();
+      return { updated: row!, previousEndsAt: current.endsAt };
+    });
+    await audit.record(req, {
+      action: 'service.cancel_withdraw',
+      orgId: service.orgId,
+      resourceType: 'service',
+      resourceId: service.id,
+      details: { endsAt: previousEndsAt },
+    });
+    return toServiceDto(db, updated, { seller: true });
+  });
+
+  // --- Restoring services ended early ---------------------------------------------
+  // Until the fix of November 2026 a cancellation to a later date ended the service at once (resume.ts).
+
+  /** 409 with its reason in the details (ServiceResumeRefusal), so the console can explain it. */
+  const notRestorable = (reason: ServiceResumeRefusal) =>
+    new AppError(
+      409,
+      'conflict',
+      reason === 'sellerChanged'
+        ? 'The customer changed its seller since this service was sold, so it cannot be restored here'
+        : reason === 'resourceGone'
+          ? 'The resource of this service no longer belongs to the customer, so it cannot be restored'
+          : 'Only a service that a cancellation to a later date ended at once can be restored',
+      { reason },
+    );
+
+  /** Whether the reseller of a customer has the module (the platform passes on any module). */
+  async function sellerHasModule(org: Organization, module: ModuleKey | null) {
+    if (!module || !org.parentOrgId) return true;
+    const parent = await db.query.organizations.findFirst({ where: eq(organizations.id, org.parentOrgId) });
+    return !!parent?.modules.includes(module);
+  }
+
+  /** What restoring the service as a scheduled cancellation would bill. */
+  app.get('/services/:id/resume', async (req): Promise<ServiceResumePreviewDto> => {
+    const { id } = parse(idParams, req.params);
+    const { service, org } = await loadServiceAsSeller(req, id);
+    const today = todayZurich();
+    if (!endedEarly(service, today)) throw notRestorable('notEndedEarly');
+    if (await soldByAnotherSeller(db, service, org)) throw notRestorable('sellerChanged');
+    if (await resourceGone(db, service)) throw notRestorable('resourceGone');
+    const [plan, switchedOff, hasModule, manual] = await Promise.all([
+      resumePlan(db, service, today),
+      moduleDeactivatedByCancel(db, service),
+      sellerHasModule(org, service.module),
+      manualInvoicesSince(db, service, sellerOrgId(org)),
+    ]);
+    const sum = (list: { amount: number }[]) => list.reduce((total, p) => total + p.amount, 0);
+    return {
+      serviceId: service.id,
+      name: service.name,
+      startsAt: service.startsAt,
+      endsAt: service.endsAt!,
+      cancelledAt: service.cancelledAt?.toISOString() ?? null,
+      currency: service.currency,
+      interval: service.interval,
+      ...plan,
+      missedTotal: sum(plan.missedPeriods),
+      upcomingTotal: sum(plan.upcomingPeriods),
+      module: service.module,
+      moduleActive: !!service.module && org.modules.includes(service.module),
+      moduleDeactivatedByCancel: switchedOff,
+      sellerHasModule: hasModule,
+      manualInvoices: manual,
+    };
+  });
+
+  /**
+   * Restores a service ended early as a scheduled cancellation, the end date and cancellation time kept: active
+   * and billed from the first unbilled period (billFrom missed) or from the next one that begins today or later
+   * (next, the missed periods stay unbilled). A service paused at the cancellation is restored paused with its
+   * billing date, as a scheduled cancellation keeps the pause. The daily job ends it after the end date.
+   */
+  app.post('/services/:id/resume', async (req) => {
+    const { id } = parse(idParams, req.params);
+    const { service, org } = await loadServiceAsSeller(req, id);
+    const body = parse(
+      z.object({
+        billFrom: z.enum(['missed', 'next']),
+        activateModule: z.boolean(),
+        deactivateModuleAtEnd: z.boolean(),
+      }),
+      req.body,
+    );
+    const { updated, activated } = await db.transaction(async (tx) => {
+      // Under the billing lock, like cancel: a billing run or the end step cannot work on it in between.
+      await lockOrgBilling(tx, service.orgId);
+      const [current] = await tx.select().from(services).where(eq(services.id, service.id)).for('update');
+      const today = todayZurich();
+      if (!current || !endedEarly(current, today)) throw notRestorable('notEndedEarly');
+      // A seller change takes the same billing lock (assertSellerChangeable): read the customer again under it.
+      // The permission check above was for the seller it had then.
+      const [customer] = await tx.select().from(organizations).where(eq(organizations.id, current.orgId));
+      if (
+        !customer ||
+        sellerOrgId(customer) !== sellerOrgId(org) ||
+        (await soldByAnotherSeller(tx, current, customer))
+      ) {
+        throw notRestorable('sellerChanged');
+      }
+      if (await resourceGone(tx, current)) throw notRestorable('resourceGone');
+      const plan = await resumePlan(tx, current, today);
+      // The same helper as a new service with a module, with its lock on the organization row and its check
+      // that a reseller only passes on modules it has.
+      const activated =
+        body.activateModule && current.module
+          ? await activateModule(tx, current.orgId, current.module)
+          : false;
+      const [row] = await tx
+        .update(services)
+        .set({
+          ...(plan.pausedBeforeCancel
+            ? { status: 'suspended' as const, nextBillingAt: plan.firstUnbilled }
+            : {
+                status: 'active' as const,
+                nextBillingAt: body.billFrom === 'missed' ? plan.firstUnbilled : plan.nextFromToday,
+              }),
+          deactivateModuleAtEnd: !!current.module && body.deactivateModuleAtEnd,
+        })
+        .where(eq(services.id, current.id))
+        .returning();
+      return { updated: row!, activated };
+    });
+    await audit.record(req, {
+      action: 'service.resume',
+      orgId: service.orgId,
+      resourceType: 'service',
+      resourceId: service.id,
+      details: {
+        endsAt: updated.endsAt,
+        status: updated.status,
+        nextBillingAt: updated.nextBillingAt,
+        billFrom: body.billFrom,
+        moduleActivated: activated ? updated.module : null,
+        deactivateModuleAtEnd: updated.deactivateModuleAtEnd,
+      },
+    });
+    return toServiceDto(db, updated, { seller: true });
+  });
+
+  /**
+   * Services ended early of the given customers, the oldest end date first. Not those the customer's current
+   * seller did not sell (soldByAnotherSeller) or whose resource the customer no longer has (resourceGone):
+   * nobody can restore them, the seller bills missing periods by hand.
+   */
+  async function endedEarlyServices(customers: SQL): Promise<EndedEarlyServiceDto[]> {
+    const rows = await db
+      .select({ service: services, customer: organizations })
+      .from(services)
+      .innerJoin(organizations, eq(organizations.id, services.orgId))
+      .where(
+        and(
+          customers,
+          eq(services.status, 'cancelled'),
+          isNotNull(services.endsAt),
+          gt(services.endsAt, todayZurich()),
+        ),
+      )
+      .orderBy(asc(services.endsAt), asc(organizations.name), asc(services.name));
+    const own = await Promise.all(
+      rows.map(
+        async ({ service, customer }) =>
+          !(await soldByAnotherSeller(db, service, customer)) && !(await resourceGone(db, service)),
+      ),
+    );
+    return rows
+      .filter((_, i) => own[i])
+      .map(({ service, customer }) => ({
+        serviceId: service.id,
+        name: service.name,
+        customer: { id: customer.id, name: customer.name },
+        endsAt: service.endsAt!,
+        cancelledAt: service.cancelledAt?.toISOString() ?? null,
+        module: service.module,
+      }));
+  }
+
+  /** Staff: the customers the platform bills (not those of resellers, who bill them themselves). */
+  app.get('/admin/billing/services/ended-early', async (req) => {
+    await access.assert(req, 'platform:billing:read', platformScope);
+    return endedEarlyServices(isNull(organizations.parentOrgId));
   });
 
   // --- Products -------------------------------------------------------------------
@@ -938,7 +1220,13 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       orgId: product!.ownerOrgId,
       resourceType: 'product',
       resourceId: product!.id,
-      details: { name: product!.name, unitPrice: product!.unitPrice, interval: product!.interval },
+      details: {
+        name: product!.name,
+        unitPrice: product!.unitPrice,
+        interval: product!.interval,
+        // The languages filled, not the texts (plan 4.3).
+        translations: Object.keys(product!.translations) as TargetLocale[],
+      },
     });
     return toProductDto(product!);
   });
@@ -1148,6 +1436,12 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       },
     });
     return resellerIssuer(db, org.id);
+  });
+
+  /** A reseller: its customers, whom it bills (endedEarlyServices, with the restore routes above). */
+  app.get('/orgs/:orgId/reseller/services/ended-early', async (req): Promise<EndedEarlyServiceDto[]> => {
+    const org = await resellerOrg(req);
+    return endedEarlyServices(eq(organizations.parentOrgId, org.id));
   });
 }
 

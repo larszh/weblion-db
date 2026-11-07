@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import {
   DEFAULT_MODULES,
-  MODULE_DEFS,
   ORG_KINDS,
   formatMoney,
   type AdminOrgDto,
@@ -24,7 +23,7 @@ import {
 import { api, ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { formatDate } from '@/lib/format';
-import { qk, useAdminOrg, useAdminServers, useApiMutation, useMe, useMeta } from '@/lib/queries';
+import { qk, useAdminOrg, useAdminServers, useApiMutation, useMe } from '@/lib/queries';
 import {
   useAdminOrgList,
   useCreateAdminOrg,
@@ -53,6 +52,7 @@ import {
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { ServerTable } from '@/components/server-table';
 import { SellerBillingPanel } from '@/pages/billing/seller-panel';
+import { AdminAiCard } from '@/components/ai/cards';
 import { CloudAllowanceAdminCard } from './cloud';
 import { MediaAllowanceAdminCard } from './media';
 import { MonitorAllowanceAdminCard } from './monitoring';
@@ -426,8 +426,7 @@ function buildBoundary(denied: string[]): PolicyStatement[] {
 }
 
 function BoundaryCard({ org, canWrite }: { org: AdminOrgDto; canWrite: boolean }) {
-  const { t, locale } = useI18n();
-  const meta = useMeta();
+  const { t } = useI18n();
   const simple = parseSimpleBoundary(org.boundary);
   const [denied, setDenied] = useState<string[]>(simple ?? []);
   const [advanced, setAdvanced] = useState(simple === null);
@@ -493,7 +492,7 @@ function BoundaryCard({ org, canWrite }: { org: AdminOrgDto; canWrite: boolean }
                   className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
                 >
                   <span className="min-w-0 text-sm">
-                    {meta.data?.permissions[p]?.label[locale] ?? p}
+                    {t(`perm.${p}`)}
                     <Mono className="block truncate text-[11px] text-subtle">{p}</Mono>
                   </span>
                   <Switch
@@ -534,7 +533,7 @@ function ModulesCard({
   parent: AdminOrgDto | undefined;
   canWrite: boolean;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const update = useUpdateAdminOrg(org.id, t('common.saved'));
   const [disabling, setDisabling] = useState<ModuleKey | null>(null);
   const resellerWithCustomers = org.kind === 'reseller' && org.counts.customers > 0;
@@ -566,7 +565,7 @@ function ModulesCard({
         description={
           disabling
             ? t(resellerWithCustomers ? 'admin.modules.disableReseller' : 'admin.modules.disableText', {
-                module: MODULE_DEFS[disabling].label[locale],
+                module: t(`module.${disabling}.label`),
                 name: org.name,
               })
             : undefined
@@ -591,6 +590,8 @@ interface MoveBlockerDetails {
   invoices: number;
   payments: number;
   services: number;
+  /** Cancelled services with an end date after today, ended at once before the fix of November 2026. */
+  endedEarly: number;
 }
 
 /** Explains why the reseller can't change (409 with open billing), nothing for other errors. */
@@ -608,6 +609,7 @@ function MoveBlockers({ error }: { error: unknown }) {
     details.invoices ? t('admin.orgs.moveBlocker.invoices', { n: details.invoices }) : null,
     details.payments ? t('admin.orgs.moveBlocker.payments', { n: details.payments }) : null,
     details.services ? t('admin.orgs.moveBlocker.services', { n: details.services }) : null,
+    details.endedEarly ? t('admin.orgs.moveBlocker.endedEarly', { n: details.endedEarly }) : null,
   ].filter((item): item is string => item !== null);
   if (items.length === 0) return null;
   return (
@@ -794,7 +796,12 @@ function InfoCard({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
         </div>
         <div className="flex justify-between gap-3">
           <span className="text-muted">{t('admin.resources')}</span>
-          <ResourceCounts counts={org.counts} modules={org.modules} />
+          {/* Seven modules do not fit one line of the side card on a phone: the icons wrap, right-aligned. */}
+          <ResourceCounts
+            counts={org.counts}
+            modules={org.modules}
+            className="min-w-0 flex-wrap justify-end gap-y-1"
+          />
         </div>
         <div className="flex justify-between gap-3">
           <span className="text-muted">{t('orgSettings.created')}</span>
@@ -928,8 +935,10 @@ function OverviewTab({ org, canWrite }: { org: DetailOrg; canWrite: boolean }) {
         </Card>
         <BoundaryCard org={org} canWrite={canWrite} />
       </div>
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
         <InfoCard org={org} canWrite={canWrite} />
+        {/* Shown whatever the platform state (plan O27); switching on asks for the consent (plan O34). */}
+        <AdminAiCard orgId={org.id} orgName={org.name} canWrite={canWrite} />
         {org.kind === 'customer' && <ResellerCard org={org} resellers={resellers.data} canWrite={canWrite} />}
         <NotesCard org={org} canWrite={canWrite} />
         {canWrite && <DeleteOrgCard org={org} />}

@@ -1043,7 +1043,8 @@ describe('admin', () => {
     await anna.patch(`/phone-systems/${zh}`, { name: 'Zentrale' });
     try {
       expect(await adminList('?q=zuerich')).toEqual([zh]);
-      expect(await adminList('?q=%25')).toHaveLength(3);
+      // A % is searched literally, not as a LIKE wildcard that would match every system.
+      expect(await adminList('?q=%25')).toEqual([]);
     } finally {
       await anna.patch(`/phone-systems/${zh}`, { name: 'pbx-zuerich.demo.weblion.one' });
     }

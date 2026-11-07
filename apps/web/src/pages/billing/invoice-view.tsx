@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import {
   formatMoney,
+  LOCALE_META,
   type InvoiceDetailDto,
   type InvoiceDto,
   type PaymentDto,
@@ -51,6 +52,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead } from '@/components/ui/table';
+import { LanguageFlag } from '@/components/language-picker';
 import { InvoiceStatusBadge, PaymentStatusBadge, ZohoBadge, useBillingLabels } from './bits';
 import { InvoiceEditorDialog } from './invoice-editor';
 import { formatDay, formatQuantity, formatRate, moneyInput, parseMoney, showPeriod } from './money';
@@ -148,6 +150,14 @@ export function InvoiceDocument({ invoice }: { invoice: InvoiceDetailDto }) {
             <dt className="text-muted">{t('billing.doc.dueDate')}</dt>
             <dd className={cn('text-right tabular', invoice.overdue && 'font-medium text-danger')}>
               {invoice.dueDate ? formatDay(invoice.dueDate, locale) : t('billing.doc.onFinalize')}
+            </dd>
+            {/* The PDF and the invoice mails go out in this language (i18n 9), whatever the viewer reads. */}
+            <dt className="text-muted">{t('billing.invoice.locale')}</dt>
+            <dd className="text-right">
+              <span className="inline-flex items-center gap-1.5">
+                <LanguageFlag locale={invoice.locale} />
+                {LOCALE_META[invoice.locale].native}
+              </span>
             </dd>
             <dt className="text-muted">{t('billing.doc.customer')}</dt>
             <dd className="text-right">{invoice.org.name}</dd>

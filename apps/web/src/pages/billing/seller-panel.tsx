@@ -13,10 +13,12 @@ import {
   PiggyBank,
   Play,
   Plus,
+  RotateCcw,
+  Undo2,
   Wallet,
   Zap,
 } from 'lucide-react';
-import { formatMoney, type ServiceDto } from '@weblion/shared';
+import { formatMoney, todayZurich, type ServiceDto } from '@weblion/shared';
 import { ApiError, api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useApiMutation } from '@/lib/queries';
@@ -32,6 +34,7 @@ import {
   type InvoiceFilter,
 } from '@/lib/api/billing';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/dialog';
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/menu';
 import {
   Card,
@@ -52,8 +55,10 @@ import {
   CreditBookDialog,
   EditServiceDialog,
   GenerateDialog,
+  ResumeServiceDialog,
 } from './seller-dialogs';
 import { formatDay } from './money';
+import { endPassed, endedEarly, scheduledEndOf } from './service-end';
 import { SummaryCards, SummarySkeleton } from './summary';
 import { CreditTable, InvoiceTable, ServiceTable } from './tables';
 
@@ -204,6 +209,16 @@ function ServicesSection({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ServiceDto | null>(null);
   const [cancelling, setCancelling] = useState<ServiceDto | null>(null);
+  const [withdrawing, setWithdrawing] = useState<ServiceDto | null>(null);
+  const [restoring, setRestoring] = useState<ServiceDto | null>(null);
+  const withdraw = useApiMutation(
+    (service: ServiceDto) => api.post<ServiceDto>(`/services/${service.id}/cancel/withdraw`),
+    {
+      success: (s) => t('billing.service.cancelWithdrawn', { name: s.name }),
+      invalidate: [billingKeys.all],
+      onSuccess: () => setWithdrawing(null),
+    },
+  );
   const setStatus = useApiMutation(
     ({ service, status }: { service: ServiceDto; status: 'active' | 'suspended' }) =>
       api.patch<ServiceDto>(`/services/${service.id}`, { status }),
@@ -259,10 +274,26 @@ function ServicesSection({
       ) : (
         <ServiceTable
           services={services.data}
+          showEndedEarly
           actions={
             canWrite
               ? (s) =>
-                  s.status === 'cancelled' ? null : (
+                  s.status === 'cancelled' ? (
+                    // Ended at once by a cancellation to a later date (until November 2026): restorable.
+                    endedEarly(s, todayZurich()) ? (
+                      <Menu
+                        trigger={
+                          <Button size="icon" variant="ghost" aria-label={t('common.actions')}>
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        }
+                      >
+                        <MenuItem icon={<RotateCcw />} onSelect={() => setRestoring(s)}>
+                          {t('billing.service.restoreCancel', { date: formatDay(s.endsAt!, locale) })}
+                        </MenuItem>
+                      </Menu>
+                    ) : null
+                  ) : (
                     <Menu
                       trigger={
                         <Button size="icon" variant="ghost" aria-label={t('common.actions')}>
@@ -290,10 +321,23 @@ function ServicesSection({
                           {t('billing.service.resume')}
                         </MenuItem>
                       )}
-                      <MenuSeparator />
-                      <MenuItem icon={<Ban />} danger onSelect={() => setCancelling(s)}>
-                        {t('billing.service.cancel')}
-                      </MenuItem>
+                      {/* A scheduled cancellation can be changed or withdrawn until its end date (the API
+                          refuses both afterwards), then the service only waits to be ended. */}
+                      {!endPassed(s, todayZurich()) && (
+                        <>
+                          <MenuSeparator />
+                          <MenuItem icon={<Ban />} danger onSelect={() => setCancelling(s)}>
+                            {scheduledEndOf(s)
+                              ? t('billing.service.changeCancel')
+                              : t('billing.service.cancel')}
+                          </MenuItem>
+                          {scheduledEndOf(s) && (
+                            <MenuItem icon={<Undo2 />} onSelect={() => setWithdrawing(s)}>
+                              {t('billing.service.withdrawCancel')}
+                            </MenuItem>
+                          )}
+                        </>
+                      )}
                     </Menu>
                   )
               : undefined
@@ -313,7 +357,26 @@ function ServicesSection({
             onOpenChange={(o) => !o && setEditing(null)}
             defaultTaxRateBp={taxDefault}
           />
-          <CancelServiceDialog service={cancelling} onOpenChange={(o) => !o && setCancelling(null)} />
+          <CancelServiceDialog
+            service={cancelling}
+            services={services.data ?? []}
+            onOpenChange={(o) => !o && setCancelling(null)}
+          />
+          <ResumeServiceDialog
+            service={restoring}
+            services={services.data ?? []}
+            onOpenChange={(o) => !o && setRestoring(null)}
+          />
+          <ConfirmDialog
+            open={!!withdrawing}
+            onOpenChange={(o) => !o && setWithdrawing(null)}
+            title={t('billing.service.withdrawCancelTitle', { name: withdrawing?.name ?? '' })}
+            description={t('billing.service.withdrawCancelText')}
+            confirmLabel={t('billing.service.withdrawCancel')}
+            danger={false}
+            loading={withdraw.isPending}
+            onConfirm={() => withdrawing && withdraw.mutate(withdrawing)}
+          />
         </>
       )}
     </Card>

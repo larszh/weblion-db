@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { and, desc, eq } from 'drizzle-orm';
 import nodemailer from 'nodemailer';
 import type { IntegrationsDto, MailLogDto, MailSettingsDto, Paginated } from '@weblion/shared';
+import { SECTION_SOURCES } from '@weblion/shared/i18n/server';
 import { auditLogs, mailLog, settings, users } from '../src/db/schema';
 import { MailService, smtpTransport, type TransportFactory } from '../src/mail/service';
 import { renderMail } from '../src/mail/templates';
@@ -134,6 +135,14 @@ describe('templates', () => {
       link: 'https://console.example/o/muster-ag/billing',
     },
     test: { sentBy: 'weblion Admin' },
+    ai_budget: {
+      kind: 'warning',
+      month: 'November 2026',
+      spent: 'USD 81.20',
+      budget: 'USD 100.00',
+      percent: 81,
+      link: 'https://console.example/admin/ai',
+    },
   };
 
   it('renders every template in German and English with a text and an HTML part', () => {
@@ -157,6 +166,17 @@ describe('templates', () => {
     expect(invoice.text).toContain(samples.invoice.link);
     expect(invoice.html).toContain(`href="${samples.invoice.link}"`);
     expect(renderMail('invoice', { ...samples.invoice, paid: true }, 'en').subject).toContain('(paid)');
+    const budget = renderMail('ai_budget', samples.ai_budget, 'de');
+    expect(budget.subject).toBe('KI-Budget zu 81 % verbraucht');
+    expect(budget.text).toContain('Im November 2026 sind USD 81.20 von USD 100.00 verbraucht (81 %).');
+    expect(budget.html).toContain('href="https://console.example/admin/ai"');
+    const exhausted = renderMail('ai_budget', { ...samples.ai_budget, kind: 'exhausted' }, 'en');
+    expect(exhausted.subject).toBe('AI budget used up');
+    expect(exhausted.text).not.toContain('81 %');
+    // fr, it and nl render from their own email.* keys, no longer from the English templates.
+    const french = renderMail('ai_budget', { ...samples.ai_budget, kind: 'exhausted' }, 'fr');
+    expect(french.subject).toBe(SECTION_SOURCES.email.fr['email.aiBudget.exhausted.subject']);
+    expect(french.html).toContain('lang="fr"');
   });
 
   it('escapes every interpolated value and drops unsafe links', () => {

@@ -76,6 +76,7 @@ export function ConfirmDialog({
   confirmText,
   danger = true,
   loading,
+  disabled,
   onConfirm,
   children,
 }: {
@@ -87,6 +88,8 @@ export function ConfirmDialog({
   confirmText?: string;
   danger?: boolean;
   loading?: boolean;
+  /** Keeps the confirm button off, e.g. until what it confirms has loaded. */
+  disabled?: boolean;
   onConfirm: () => void;
   children?: ReactNode;
 }) {
@@ -115,7 +118,7 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant={danger ? 'danger' : 'primary'}
-            disabled={blocked}
+            disabled={blocked || disabled}
             loading={loading}
             onClick={onConfirm}
           >

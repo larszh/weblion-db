@@ -1,10 +1,23 @@
-import type { OrgRole } from '@weblion/shared';
+import {
+  fallbackChain,
+  interpolate,
+  intlLocale,
+  normalizeLocale,
+  type I18nParams,
+  type Locale,
+  type OrgRole,
+  type ServerTranslationKey,
+} from '@weblion/shared';
+import { loadCatalog, type I18nCatalog } from '@weblion/shared/i18n/catalog';
+import type { Tr } from '../i18n/service';
 import type { MailLocale, MailTemplateName, MailTemplates } from './types';
 
 /**
- * Email templates in German and English. Every template is described as a short list of
- * blocks that render to both the plain text part and the HTML part, so the two never drift
- * apart and every interpolated value goes through one escaping function.
+ * Email templates from the email.* keys (i18n 8.2, plan O15). Every template is described as a short list of
+ * blocks that render to both the plain text part and the HTML part, so the two never drift apart and every
+ * interpolated value goes through one escaping function. The texts come from a translator `Tr` of the mail's
+ * language: MailService passes the I18nService's (overrides included); without one the compiled texts with
+ * the fallback chain fr, it, nl -> en -> de are used.
  */
 
 export interface RenderedMail {
@@ -36,261 +49,184 @@ const MUTED = '#5a6a7e';
 const SUBTLE = '#8593a5';
 const FONT = "-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
-const ROLE_LABELS: Record<OrgRole, Record<MailLocale, string>> = {
-  owner: { de: 'Owner', en: 'Owner' },
-  admin: { de: 'Admin', en: 'Admin' },
-  member: { de: 'Member', en: 'Member' },
-  restricted: { de: 'Eingeschränkt', en: 'Restricted' },
-  viewer: { de: 'Nur lesen', en: 'Read only' },
-  billing: { de: 'Buchhaltung', en: 'Billing' },
-};
-
-/** Role name as shown in the console, for the invitation template. */
-export function roleLabel(role: OrgRole, locale: MailLocale): string {
-  return ROLE_LABELS[role]?.[locale] ?? role;
+/**
+ * The compiled texts of a locale without overrides, along the fallback chain (fr -> en -> de). For callers
+ * without the I18nService (tests, scripts); the service's translator adds the overrides on top. `catalog`
+ * lets a test check the chain on a catalog where a locale lacks a text by construction.
+ */
+export function catalogTranslator(locale: Locale, catalog: I18nCatalog = loadCatalog()): Tr {
+  const chain = fallbackChain(locale);
+  return (key: ServerTranslationKey, params?: I18nParams) => {
+    for (const l of chain) {
+      const value = catalog.bundles[l][key];
+      if (value !== undefined) return interpolate(value, params);
+    }
+    return interpolate(key, params);
+  };
 }
 
+/** Role name as shown in the console (the core keys role.*), for the invitation template. */
+export function roleLabel(role: OrgRole, tr: Tr): string {
+  return tr(`role.${role}`);
+}
+
+/** A stored language (users.locale) as a mail language; unknown values give German. */
 export function mailLocale(value: string | null | undefined): MailLocale {
-  return value?.toLowerCase().startsWith('en') ? 'en' : 'de';
+  return normalizeLocale(value) ?? 'de';
 }
 
-/** Date for mail texts, e.g. "14. Oktober 2026" or "14 October 2026" (Swiss time). */
+/** Date for mail texts in the mail language, e.g. "14. Oktober 2026" or "14 October 2026" (Swiss time). */
 export function mailDate(date: Date, locale: MailLocale): string {
-  return new Intl.DateTimeFormat(locale === 'de' ? 'de-CH' : 'en-GB', {
+  return new Intl.DateTimeFormat(intlLocale(locale), {
     dateStyle: 'long',
     timeZone: 'Europe/Zurich',
   }).format(date);
 }
 
-type Builders = { [K in MailTemplateName]: (data: MailTemplates[K], locale: MailLocale) => Content };
+type Builders = { [K in MailTemplateName]: (data: MailTemplates[K], tr: Tr) => Content };
+
+/** The closing line of the billing mails: "Freundliche Grüsse" and the issuer's name below it. */
+const closing = (tr: Tr, issuer: string) => `${tr('email.common.closing')}\n${issuer}`;
 
 const TEMPLATES: Builders = {
-  invitation: (d, l) => {
-    const inviter = d.inviterName ?? (l === 'de' ? 'Jemand' : 'Someone');
-    return l === 'de'
-      ? {
-          subject: `Einladung zu ${d.orgName} auf ${BRAND}`,
-          heading: `Einladung zu ${d.orgName}`,
-          blocks: [
-            { p: 'Guten Tag' },
-            { p: `${inviter} hat Sie eingeladen, der Organisation ${d.orgName} auf ${BRAND} beizutreten.` },
-            {
-              facts: [
-                ['Rolle', d.role],
-                ['Gültig bis', d.expiresAt],
-              ],
-            },
-            { button: { label: 'Einladung annehmen', href: d.link } },
-            {
-              note: 'Falls Sie diese Einladung nicht erwartet haben, können Sie diese E-Mail ignorieren.',
-            },
+  invitation: (d, tr) => {
+    const inviter = d.inviterName ?? tr('email.invitation.someone');
+    return {
+      subject: tr('email.invitation.subject', { org: d.orgName }),
+      heading: tr('email.invitation.heading', { org: d.orgName }),
+      blocks: [
+        { p: tr('email.common.greeting') },
+        { p: tr('email.invitation.text', { inviter, org: d.orgName }) },
+        {
+          facts: [
+            [tr('email.invitation.role'), d.role],
+            [tr('email.invitation.validUntil'), d.expiresAt],
           ],
-        }
-      : {
-          subject: `Invitation to ${d.orgName} on ${BRAND}`,
-          heading: `Invitation to ${d.orgName}`,
-          blocks: [
-            { p: 'Hello' },
-            { p: `${inviter} invited you to join the organization ${d.orgName} on ${BRAND}.` },
-            {
-              facts: [
-                ['Role', d.role],
-                ['Valid until', d.expiresAt],
-              ],
-            },
-            { button: { label: 'Accept invitation', href: d.link } },
-            { note: 'If you did not expect this invitation, you can ignore this email.' },
-          ],
-        };
+        },
+        { button: { label: tr('email.invitation.button'), href: d.link } },
+        { note: tr('email.invitation.note') },
+      ],
+    };
   },
 
-  invoice: (d, l) =>
-    l === 'de'
-      ? {
-          subject: `Rechnung ${d.invoiceNumber} von ${d.issuerName}${d.paid ? ' (bezahlt)' : ''}`,
-          heading: `Rechnung ${d.invoiceNumber}`,
-          blocks: [
-            { p: 'Guten Tag' },
-            { p: `Im Anhang finden Sie die Rechnung ${d.invoiceNumber} für ${d.orgName}.` },
-            {
-              facts: [['Betrag', d.total], d.paid ? ['Status', 'Bezahlt'] : ['Zahlbar bis', d.dueDate]],
-            },
-            {
-              p: d.paid
-                ? 'Die Rechnung ist bereits bezahlt, Sie müssen nichts weiter tun.'
-                : 'Sie können die Rechnung auch in der Konsole ansehen und bezahlen.',
-            },
-            { button: { label: 'Rechnung ansehen', href: d.link } },
-            { p: `Freundliche Grüsse\n${d.issuerName}` },
-          ],
-        }
-      : {
-          subject: `Invoice ${d.invoiceNumber} from ${d.issuerName}${d.paid ? ' (paid)' : ''}`,
-          heading: `Invoice ${d.invoiceNumber}`,
-          blocks: [
-            { p: 'Hello' },
-            { p: `Please find attached invoice ${d.invoiceNumber} for ${d.orgName}.` },
-            {
-              facts: [['Amount', d.total], d.paid ? ['Status', 'Paid'] : ['Due date', d.dueDate]],
-            },
-            {
-              p: d.paid
-                ? 'The invoice is already paid, there is nothing left to do.'
-                : 'You can also view and pay the invoice in the console.',
-            },
-            { button: { label: 'View invoice', href: d.link } },
-            { p: `Kind regards\n${d.issuerName}` },
+  invoice: (d, tr) => {
+    const names = { number: d.invoiceNumber, issuer: d.issuerName, org: d.orgName };
+    return {
+      subject: tr(d.paid ? 'email.invoice.subjectPaid' : 'email.invoice.subject', names),
+      heading: tr('email.invoice.heading', names),
+      blocks: [
+        { p: tr('email.common.greeting') },
+        { p: tr('email.invoice.text', names) },
+        {
+          facts: [
+            [tr('email.invoice.amount'), d.total],
+            d.paid
+              ? [tr('email.invoice.status'), tr('email.invoice.statusPaid')]
+              : [tr('email.invoice.dueDate'), d.dueDate],
           ],
         },
+        { p: tr(d.paid ? 'email.invoice.paidText' : 'email.invoice.openText') },
+        { button: { label: tr('email.invoice.button'), href: d.link } },
+        { p: closing(tr, d.issuerName) },
+      ],
+    };
+  },
 
-  invoice_reminder: (d, l) =>
-    l === 'de'
-      ? {
-          subject: `Zahlungserinnerung: Rechnung ${d.invoiceNumber}`,
-          heading: 'Zahlungserinnerung',
-          blocks: [
-            { p: 'Guten Tag' },
-            {
-              p: `Die Rechnung ${d.invoiceNumber} für ${d.orgName} ist noch offen. Bitte begleichen Sie den offenen Betrag.`,
-            },
-            {
-              facts: [
-                ['Offener Betrag', d.amountDue],
-                ['Fällig seit', d.dueDate],
-              ],
-            },
-            { button: { label: 'Rechnung ansehen', href: d.link } },
-            {
-              note: 'Falls Sie die Zahlung bereits ausgelöst haben, betrachten Sie diese E-Mail als erledigt.',
-            },
-            { p: `Freundliche Grüsse\n${d.issuerName}` },
-          ],
-        }
-      : {
-          subject: `Payment reminder: invoice ${d.invoiceNumber}`,
-          heading: 'Payment reminder',
-          blocks: [
-            { p: 'Hello' },
-            { p: `Invoice ${d.invoiceNumber} for ${d.orgName} is still open. Please pay the amount due.` },
-            {
-              facts: [
-                ['Amount due', d.amountDue],
-                ['Due since', d.dueDate],
-              ],
-            },
-            { button: { label: 'View invoice', href: d.link } },
-            { note: 'If you have already paid, please ignore this email.' },
-            { p: `Kind regards\n${d.issuerName}` },
+  invoice_reminder: (d, tr) => {
+    const names = { number: d.invoiceNumber, org: d.orgName };
+    return {
+      subject: tr('email.reminder.subject', names),
+      heading: tr('email.reminder.heading'),
+      blocks: [
+        { p: tr('email.common.greeting') },
+        { p: tr('email.reminder.text', names) },
+        {
+          facts: [
+            [tr('email.reminder.amountDue'), d.amountDue],
+            [tr('email.reminder.dueSince'), d.dueDate],
           ],
         },
+        { button: { label: tr('email.reminder.button'), href: d.link } },
+        { note: tr('email.reminder.note') },
+        { p: closing(tr, d.issuerName) },
+      ],
+    };
+  },
 
-  payment_received: (d, l) =>
-    l === 'de'
-      ? {
-          subject: `Zahlung erhalten: ${d.amount}`,
-          heading: 'Vielen Dank für Ihre Zahlung',
-          blocks: [
-            { p: 'Guten Tag' },
-            { p: `Wir haben Ihre Zahlung für ${d.orgName} erhalten.` },
-            {
-              facts: [
-                ['Betrag', d.amount],
-                ...(d.invoiceNumber ? [['Rechnung', d.invoiceNumber] as [string, string]] : []),
-              ],
-            },
-            { button: { label: 'Zur Abrechnung', href: d.link } },
-          ],
-        }
-      : {
-          subject: `Payment received: ${d.amount}`,
-          heading: 'Thank you for your payment',
-          blocks: [
-            { p: 'Hello' },
-            { p: `We have received your payment for ${d.orgName}.` },
-            {
-              facts: [
-                ['Amount', d.amount],
-                ...(d.invoiceNumber ? [['Invoice', d.invoiceNumber] as [string, string]] : []),
-              ],
-            },
-            { button: { label: 'Go to billing', href: d.link } },
-          ],
-        },
+  payment_received: (d, tr) => ({
+    subject: tr('email.payment.subject', { amount: d.amount }),
+    heading: tr('email.payment.heading'),
+    blocks: [
+      { p: tr('email.common.greeting') },
+      { p: tr('email.payment.text', { org: d.orgName }) },
+      {
+        facts: [
+          [tr('email.payment.amount'), d.amount],
+          ...(d.invoiceNumber ? [[tr('email.payment.invoice'), d.invoiceNumber] as [string, string]] : []),
+        ],
+      },
+      { button: { label: tr('email.payment.button'), href: d.link } },
+    ],
+  }),
 
-  credit_booked: (d, l) =>
-    l === 'de'
-      ? {
-          subject: `Guthaben verbucht: ${d.amount}`,
-          heading: 'Guthaben verbucht',
-          blocks: [
-            { p: 'Guten Tag' },
-            { p: `Auf dem Konto von ${d.orgName} wurde eine Gutschrift oder Korrektur verbucht.` },
-            {
-              facts: [
-                ['Betrag', d.amount],
-                ['Beschreibung', d.description],
-                ['Neues Guthaben', d.balance],
-              ],
-            },
-            { button: { label: 'Guthaben ansehen', href: d.link } },
-          ],
-        }
-      : {
-          subject: `Credit booked: ${d.amount}`,
-          heading: 'Credit booked',
-          blocks: [
-            { p: 'Hello' },
-            { p: `A credit or correction was booked to the account of ${d.orgName}.` },
-            {
-              facts: [
-                ['Amount', d.amount],
-                ['Description', d.description],
-                ['New balance', d.balance],
-              ],
-            },
-            { button: { label: 'View credit', href: d.link } },
-          ],
-        },
+  credit_booked: (d, tr) => ({
+    subject: tr('email.credit.subject', { amount: d.amount }),
+    heading: tr('email.credit.heading'),
+    blocks: [
+      { p: tr('email.common.greeting') },
+      { p: tr('email.credit.text', { org: d.orgName }) },
+      {
+        facts: [
+          [tr('email.credit.amount'), d.amount],
+          [tr('email.credit.description'), d.description],
+          [tr('email.credit.balance'), d.balance],
+        ],
+      },
+      { button: { label: tr('email.credit.button'), href: d.link } },
+    ],
+  }),
 
-  test: (d, l) =>
-    l === 'de'
-      ? {
-          subject: `Test-E-Mail von ${BRAND}`,
-          heading: 'Der E-Mail-Versand funktioniert',
-          blocks: [
-            { p: `Diese Test-E-Mail wurde von ${d.sentBy} im Adminbereich ausgelöst.` },
-            { p: 'Wenn Sie diese Nachricht lesen, sind die SMTP-Einstellungen korrekt.' },
-          ],
-        }
-      : {
-          subject: `Test email from ${BRAND}`,
-          heading: 'Email delivery works',
-          blocks: [
-            { p: `This test email was sent by ${d.sentBy} from the admin area.` },
-            { p: 'If you can read this message, the SMTP settings are correct.' },
-          ],
-        },
+  test: (d, tr) => ({
+    subject: tr('email.test.subject'),
+    heading: tr('email.test.heading'),
+    blocks: [{ p: tr('email.test.text', { name: d.sentBy }) }, { p: tr('email.test.check') }],
+  }),
+
+  ai_budget: (d, tr) => {
+    const values = { month: d.month, spent: d.spent, budget: d.budget, percent: d.percent };
+    const kind = d.kind === 'warning' ? 'warning' : 'exhausted';
+    return {
+      subject: tr(`email.aiBudget.${kind}.subject`, values),
+      heading: tr(`email.aiBudget.${kind}.heading`, values),
+      blocks: [
+        { p: tr(`email.aiBudget.${kind}.text`, values) },
+        { button: { label: tr('email.aiBudget.button'), href: d.link } },
+      ],
+    };
+  },
 };
 
-const FOOTER: Record<MailLocale, string> = {
-  de: `Diese E-Mail wurde automatisch von ${BRAND} versendet.`,
-  en: `This email was sent automatically by ${BRAND}.`,
-};
-
-const BUTTON_FALLBACK: Record<MailLocale, string> = {
-  de: 'Falls der Button nicht funktioniert, öffnen Sie diesen Link:',
-  en: 'If the button does not work, open this link:',
-};
-
+/**
+ * Renders a template in a language. `tr` is the translator of that language (MailService passes
+ * ctx.i18n.translator(locale), overrides included); without it the compiled texts are used.
+ */
 export function renderMail<T extends MailTemplateName>(
   template: T,
   data: MailTemplates[T],
   locale: MailLocale = 'de',
+  tr: Tr = catalogTranslator(locale),
 ): RenderedMail {
-  const content = (TEMPLATES[template] as (d: MailTemplates[T], l: MailLocale) => Content)(data, locale);
+  const content = (TEMPLATES[template] as (d: MailTemplates[T], tr: Tr) => Content)(data, tr);
   // Header injection: a subject is one line, whatever the data contains.
   const subject = content.subject.replace(/[\r\n]+/g, ' ').trim();
-  return { subject, text: renderText(content, locale), html: renderHtml(content, subject, locale) };
+  const layout = { footer: tr('email.layout.footer'), buttonFallback: tr('email.layout.buttonFallback') };
+  return { subject, text: renderText(content, layout), html: renderHtml(content, subject, locale, layout) };
+}
+
+/** The texts of the layout around every template. */
+interface Layout {
+  footer: string;
+  buttonFallback: string;
 }
 
 export function escapeHtml(value: string): string {
@@ -309,7 +245,7 @@ function safeHref(href: string): string | null {
 
 const html = (value: string) => escapeHtml(value).replace(/\n/g, '<br>');
 
-function renderText(content: Content, locale: MailLocale): string {
+function renderText(content: Content, layout: Layout): string {
   const parts: string[] = [content.heading, ''];
   for (const block of content.blocks) {
     if ('p' in block) parts.push(block.p, '');
@@ -317,12 +253,12 @@ function renderText(content: Content, locale: MailLocale): string {
     else if ('facts' in block) parts.push(...block.facts.map(([k, v]) => `${k}: ${v}`), '');
     else parts.push(`${block.button.label}: ${block.button.href}`, '');
   }
-  parts.push('--', FOOTER[locale]);
+  parts.push('--', layout.footer);
   return parts.join('\n');
 }
 
-function renderHtml(content: Content, subject: string, locale: MailLocale): string {
-  const body = content.blocks.map((block) => renderBlock(block, locale)).join('\n');
+function renderHtml(content: Content, subject: string, locale: MailLocale, layout: Layout): string {
+  const body = content.blocks.map((block) => renderBlock(block, layout)).join('\n');
   return `<!doctype html>
 <html lang="${locale}">
 <head>
@@ -341,7 +277,7 @@ ${body}
 </td></tr>
 </table>
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;">
-<tr><td style="padding:16px 32px;font-family:${FONT};font-size:12px;line-height:1.5;color:${SUBTLE};text-align:center;">${html(FOOTER[locale])}</td></tr>
+<tr><td style="padding:16px 32px;font-family:${FONT};font-size:12px;line-height:1.5;color:${SUBTLE};text-align:center;">${html(layout.footer)}</td></tr>
 </table>
 </td></tr>
 </table>
@@ -350,7 +286,7 @@ ${body}
 `;
 }
 
-function renderBlock(block: Block, locale: MailLocale): string {
+function renderBlock(block: Block, layout: Layout): string {
   if ('p' in block) return `<p style="margin:0 0 16px 0;">${html(block.p)}</p>`;
   if ('note' in block) {
     return `<p style="margin:0 0 16px 0;font-size:13px;color:${MUTED};">${html(block.note)}</p>`;
@@ -368,5 +304,5 @@ function renderBlock(block: Block, locale: MailLocale): string {
   if (!href) return `<p style="margin:0 0 16px 0;">${html(block.button.label)}</p>`;
   const link = escapeHtml(href);
   return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px 0;"><tr><td style="background-color:${TEAL};border-radius:6px;"><a href="${link}" style="display:inline-block;padding:12px 24px;font-family:${FONT};font-size:15px;font-weight:bold;color:${ON_TEAL};text-decoration:none;border-radius:6px;">${html(block.button.label)}</a></td></tr></table>
-<p style="margin:0 0 16px 0;font-size:12px;line-height:1.5;color:${SUBTLE};">${html(BUTTON_FALLBACK[locale])}<br><a href="${link}" style="color:${MUTED};word-break:break-all;">${link}</a></p>`;
+<p style="margin:0 0 16px 0;font-size:12px;line-height:1.5;color:${SUBTLE};">${html(layout.buttonFallback)}<br><a href="${link}" style="color:${MUTED};word-break:break-all;">${link}</a></p>`;
 }

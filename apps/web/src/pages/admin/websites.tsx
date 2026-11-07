@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, CloudDownload, Eraser, Globe, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   CREATABLE_WEBSITE_TYPES,
-  MODULE_DEFS,
   NODEJS_VERSIONS,
   type AdminOrgDto,
   type CreatableWebsiteType,
@@ -270,7 +269,7 @@ function AdminCreateWebsiteDialog({
   providers: ProviderConnectionDto[];
   onClose: () => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const orgs = useAdminOrgs();
   const [providerId, setProviderId] = useState(providers[0]!.id);
   const [orgId, setOrgId] = useState('');
@@ -289,7 +288,7 @@ function AdminCreateWebsiteDialog({
     error: false,
   });
   const org = orgs.data?.find((o) => o.id === orgId);
-  const moduleLabel = MODULE_DEFS.webhosting.label[locale];
+  const moduleLabel = t('module.webhosting.label');
   const request = form.request ? { ...form.request, providerId: provider.id, orgId: orgId || null } : null;
   const submitted = useSubmitError(create.error);
   const serverError = submitted.errorFor(request);
@@ -750,7 +749,7 @@ function AdminWebsiteAllowanceDialog({
   const instance = options.find((p) => p.id === selected);
   const instanceLocked = !!pool || (!!current && current.customers > 0);
   const hasModule = org.modules.includes('webhosting');
-  const moduleLabel = MODULE_DEFS.webhosting.label[locale];
+  const moduleLabel = t('module.webhosting.label');
   const resellerLacks = !!parent && !parent.modules.includes('webhosting');
   const n = (value: number) => formatNumber(value, locale);
 

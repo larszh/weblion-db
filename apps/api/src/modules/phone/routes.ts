@@ -26,6 +26,7 @@ import { platformScope, requireSession } from '../../auth/access';
 import { organizations, phoneSystems } from '../../db/schema';
 import { badRequest, forbidden, notFound } from '../../lib/errors';
 import { parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import type { PhoneUserInput, PhoneUserPatch, RemotePhoneSystem } from '../../providers/types';
 import { assignmentTarget } from '../hosting/service';
 import { loadOrg } from '../orgs/routes';
@@ -125,7 +126,6 @@ const PROTECTED_DELETE =
 const PROTECTED_EMAIL =
   'This user administers the phone system or is a system user. Only weblion staff can change its e-mail address.';
 
-const like = (q: string) => `%${q.replace(/[%_]/g, '')}%`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Live answers must not end up in browser or proxy caches. */
@@ -492,9 +492,9 @@ export async function phoneRoutes(app: FastifyInstance, ctx: AppContext) {
       query.orgId ? eq(phoneSystems.orgId, query.orgId) : undefined,
       query.q
         ? or(
-            ilike(phoneSystems.name, like(query.q)),
-            ilike(phoneSystems.fqdn, like(query.q)),
-            ilike(phoneSystems.externalId, like(query.q)),
+            ilike(phoneSystems.name, containsPattern(query.q)),
+            ilike(phoneSystems.fqdn, containsPattern(query.q)),
+            ilike(phoneSystems.externalId, containsPattern(query.q)),
           )
         : undefined,
     ];

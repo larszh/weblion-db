@@ -7,7 +7,6 @@ import {
   MAIL_DEFAULT_LIMITS,
   MAIL_DKIM_KEY_SIZES,
   MAIL_RATE_LIMIT_FRAMES,
-  MODULE_DEFS,
   mailDomainAscii,
   mailLimitsIssue,
   type AdminOrgDto,
@@ -413,7 +412,7 @@ function OrgPicker({
   onEnableModule: (value: boolean) => void;
   emptyLabel: string;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const orgs = useAdminOrgs();
   const [filter, setFilter] = useState('');
   const all = orgs.data ?? [];
@@ -422,7 +421,7 @@ function OrgPicker({
   const reseller = selected?.parent ? (byId.get(selected.parent.id) ?? null) : null;
   const hasModule = !!selected?.modules.includes('mail');
   const resellerLacks = !!reseller && !reseller.modules.includes('mail');
-  const moduleLabel = MODULE_DEFS.mail.label[locale];
+  const moduleLabel = t('module.mail.label');
 
   const groups = useMemo(() => {
     const needle = filter.trim().toLowerCase();

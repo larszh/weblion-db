@@ -1,9 +1,10 @@
 import type { ProviderType, ServerKind, ServerSpecs, ServerStatus } from '@weblion/shared';
 import { Box, Server as ServerIcon } from 'lucide-react';
+import { intlLocale, type Locale } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { formatMemoryMb } from '@/lib/format';
-import { useT } from '@/lib/i18n';
-import type { TranslationKey } from '@/i18n/de';
+import { useOptionalLocale, useT } from '@/lib/i18n';
+import type { TranslationKey } from '@weblion/shared';
 
 const STATUS_STYLE: Record<ServerStatus, { dot: string; text: string; pulse?: boolean }> = {
   running: { dot: 'bg-success', text: 'text-success' },
@@ -48,25 +49,63 @@ export function StatusLabel({ status, className }: { status: ServerStatus; class
   );
 }
 
-/** Small inline flags. Emoji flags do not render on Windows, so these are drawn. */
-export function Flag({ country, className }: { country: string; className?: string }) {
+const regionNames = new Map<string, Intl.DisplayNames | null>();
+
+/** The name of a country in the UI language ("Frankreich", "France", "Francia"), the code when unknown. */
+export function regionName(country: string, locale: Locale): string {
+  const tag = intlLocale(locale);
+  if (!regionNames.has(tag)) {
+    try {
+      regionNames.set(tag, new Intl.DisplayNames([tag], { type: 'region' }));
+    } catch {
+      regionNames.set(tag, null);
+    }
+  }
+  try {
+    return regionNames.get(tag)?.of(country) ?? country;
+  } catch {
+    return country;
+  }
+}
+
+/**
+ * Small inline flags. Emoji flags do not render on Windows, so these are drawn. country: ISO 3166-1 alpha-2.
+ * decorative: the language or country name is written next to the flag (pickers, column headers), so the
+ * flag is hidden from screen readers (aria-hidden, no role, no label). Otherwise the label is the country's
+ * name in the UI language (English outside the provider).
+ */
+export function Flag({
+  country,
+  className,
+  decorative = false,
+}: {
+  country: string;
+  className?: string;
+  decorative?: boolean;
+}) {
   const c = country.toUpperCase();
   const base = cn(
     'inline-block h-3 w-[18px] shrink-0 overflow-hidden rounded-[2px] ring-1 ring-black/10',
     className,
   );
+  const locale = useOptionalLocale() ?? 'en';
+  const a11y = () =>
+    decorative
+      ? { 'aria-hidden': true as const }
+      : { role: 'img' as const, 'aria-label': regionName(c, locale) };
   if (c === 'CH') {
     return (
-      <svg viewBox="0 0 32 32" className={cn(base, 'h-3.5 w-3.5')} role="img" aria-label="Schweiz">
+      <svg viewBox="0 0 32 32" className={cn(base, 'h-3.5 w-3.5')} {...a11y()}>
         <rect width="32" height="32" fill="#da291c" />
         <rect x="13" y="6" width="6" height="20" fill="#fff" />
         <rect x="6" y="13" width="20" height="6" fill="#fff" />
       </svg>
     );
   }
+  // Striped flags fill the 3:2 box like the others (preserveAspectRatio none stretches the stripes only).
   if (c === 'DE') {
     return (
-      <svg viewBox="0 0 5 3" className={base} role="img" aria-label="Deutschland">
+      <svg viewBox="0 0 5 3" preserveAspectRatio="none" className={base} {...a11y()}>
         <rect width="5" height="1" y="0" fill="#000" />
         <rect width="5" height="1" y="1" fill="#dd0000" />
         <rect width="5" height="1" y="2" fill="#ffce00" />
@@ -75,7 +114,7 @@ export function Flag({ country, className }: { country: string; className?: stri
   }
   if (c === 'AT') {
     return (
-      <svg viewBox="0 0 3 3" className={base} role="img" aria-label="Österreich">
+      <svg viewBox="0 0 3 3" preserveAspectRatio="none" className={base} {...a11y()}>
         <rect width="3" height="3" fill="#ed2939" />
         <rect width="3" height="1" y="1" fill="#fff" />
       </svg>
@@ -83,17 +122,48 @@ export function Flag({ country, className }: { country: string; className?: stri
   }
   if (c === 'NL') {
     return (
-      <svg viewBox="0 0 3 3" className={base} role="img" aria-label="Niederlande">
+      <svg viewBox="0 0 3 3" preserveAspectRatio="none" className={base} {...a11y()}>
         <rect width="3" height="1" fill="#ae1c28" />
         <rect width="3" height="1" y="1" fill="#fff" />
         <rect width="3" height="1" y="2" fill="#21468b" />
       </svg>
     );
   }
+  // The flags of the languages French, Italian and English (en-GB formats, so the British flag).
+  if (c === 'FR') {
+    return (
+      <svg viewBox="0 0 3 2" className={base} {...a11y()}>
+        <rect width="1" height="2" fill="#002654" />
+        <rect width="1" height="2" x="1" fill="#fff" />
+        <rect width="1" height="2" x="2" fill="#ce1126" />
+      </svg>
+    );
+  }
+  if (c === 'IT') {
+    return (
+      <svg viewBox="0 0 3 2" className={base} {...a11y()}>
+        <rect width="1" height="2" fill="#009246" />
+        <rect width="1" height="2" x="1" fill="#fff" />
+        <rect width="1" height="2" x="2" fill="#ce2b37" />
+      </svg>
+    );
+  }
+  if (c === 'GB') {
+    // Simplified for 18 x 12 px: the red saltire is not offset. slice fills the 3:2 box like the others.
+    return (
+      <svg viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice" className={base} {...a11y()}>
+        <rect width="60" height="30" fill="#012169" />
+        <path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" strokeWidth="6" />
+        <path d="M0,0 L60,30 M60,0 L0,30" stroke="#c8102e" strokeWidth="2" />
+        <path d="M30,0 v30 M0,15 h60" stroke="#fff" strokeWidth="10" />
+        <path d="M30,0 v30 M0,15 h60" stroke="#c8102e" strokeWidth="6" />
+      </svg>
+    );
+  }
   // Hetzner Cloud locations outside the DACH region.
   if (c === 'FI') {
     return (
-      <svg viewBox="0 0 18 11" className={base} role="img" aria-label="Finnland">
+      <svg viewBox="0 0 18 11" className={base} {...a11y()}>
         <rect width="18" height="11" fill="#fff" />
         <rect x="5" width="3" height="11" fill="#002f6c" />
         <rect y="4" width="18" height="3" fill="#002f6c" />
@@ -102,7 +172,7 @@ export function Flag({ country, className }: { country: string; className?: stri
   }
   if (c === 'US') {
     return (
-      <svg viewBox="0 0 19 10" className={base} role="img" aria-label="USA">
+      <svg viewBox="0 0 19 10" className={base} {...a11y()}>
         <rect width="19" height="10" fill="#fff" />
         {[0, 2, 4, 6, 8].map((y) => (
           <rect key={y} y={y} width="19" height="1" fill="#b22234" />
@@ -113,13 +183,20 @@ export function Flag({ country, className }: { country: string; className?: stri
   }
   if (c === 'SG') {
     return (
-      <svg viewBox="0 0 3 2" className={base} role="img" aria-label="Singapur">
+      <svg viewBox="0 0 3 2" className={base} {...a11y()}>
         <rect width="3" height="1" fill="#ef3340" />
         <rect width="3" height="1" y="1" fill="#fff" />
       </svg>
     );
   }
-  return <span className="rounded bg-surface-3 px-1 text-[10px] font-semibold text-muted">{c}</span>;
+  return (
+    <span
+      className="rounded bg-surface-3 px-1 text-[10px] font-semibold text-muted"
+      aria-hidden={decorative || undefined}
+    >
+      {c}
+    </span>
+  );
 }
 
 const PROVIDER_STYLE: Record<ProviderType, string> = {

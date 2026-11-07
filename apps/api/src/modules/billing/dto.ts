@@ -4,6 +4,7 @@ import {
   INTERVAL_MONTHS,
   invoiceTotals,
   lineTotal,
+  normalizeLocale,
   type BillingProfileDto,
   type BillingSummaryDto,
   type CreditTransactionDto,
@@ -12,6 +13,7 @@ import {
   type InvoiceDto,
   type InvoiceIssuerSettings,
   type InvoiceLineDto,
+  type Locale,
   type OrgRef,
   type PaymentDto,
   type PaymentMethod,
@@ -29,6 +31,7 @@ import {
   domains,
   invoiceLines,
   invoices,
+  memberships,
   organizations,
   payments,
   products,
@@ -105,11 +108,57 @@ export async function loadProfile(db: DbOrTx, orgId: string): Promise<BillingPro
   return db.query.billingProfiles.findFirst({ where: eq(billingProfiles.orgId, orgId) });
 }
 
-/** `issuer` is the seller's: its defaults apply while the organization has no profile. */
+/** users.locale of the oldest active owner (by membership), so several owners give a stable answer. */
+export async function ownerLocale(db: DbOrTx, orgId: string): Promise<Locale> {
+  const [owner] = await db
+    .select({ locale: users.locale })
+    .from(memberships)
+    .innerJoin(users, eq(users.id, memberships.userId))
+    .where(and(eq(memberships.orgId, orgId), eq(memberships.role, 'owner'), eq(users.status, 'active')))
+    .orderBy(asc(memberships.createdAt), asc(memberships.id))
+    .limit(1);
+  return normalizeLocale(owner?.locale) ?? 'de';
+}
+
+/**
+ * The billing language of an organization (i18n 9): the profile's "Sprache für Rechnungen", else the
+ * language of the oldest active owner, else German. Invoices, reminders and payment mails follow it; an
+ * issued invoice keeps the one it was finalized with (invoices.locale). Pass the profile when it is loaded.
+ */
+export async function billingLocale(
+  db: DbOrTx,
+  orgId: string,
+  profile?: BillingProfile | null,
+): Promise<Locale> {
+  const row = profile === undefined ? await loadProfile(db, orgId) : profile;
+  return normalizeLocale(row?.locale) ?? (await ownerLocale(db, orgId));
+}
+
+/**
+ * Both languages of BillingProfileDto with a single owner lookup: the billing language (billingLocale) and the
+ * owner's language, which the profile form names also while the profile has a language of its own.
+ */
+export async function billingProfileLocales(
+  db: DbOrTx,
+  orgId: string,
+  profile?: BillingProfile | null,
+): Promise<{ effectiveLocale: Locale; ownerLocale: Locale }> {
+  const row = profile === undefined ? await loadProfile(db, orgId) : profile;
+  const owner = await ownerLocale(db, orgId);
+  return { effectiveLocale: normalizeLocale(row?.locale) ?? owner, ownerLocale: owner };
+}
+
+/**
+ * `issuer` is the seller's: its defaults apply while the organization has no profile. `effectiveLocale` and
+ * `ownerLocale` come from billingProfileLocales() (the builder is synchronous, so the caller looks them up).
+ * Both are required, so a route that forgets the owner's language does not compile.
+ */
 export function toBillingProfileDto(
   orgId: string,
   profile: BillingProfile | null | undefined,
   issuer: Pick<InvoiceIssuerSettings, 'defaultPaymentTermsDays' | 'defaultCurrency'>,
+  effectiveLocale: Locale,
+  ownerLocale: Locale,
 ): BillingProfileDto {
   return {
     orgId,
@@ -126,6 +175,9 @@ export function toBillingProfileDto(
     currency: profile?.currency ?? issuer.defaultCurrency,
     paymentTermsDays: profile?.paymentTermsDays ?? issuer.defaultPaymentTermsDays,
     taxRateBp: profile?.taxRateBp ?? null,
+    locale: normalizeLocale(profile?.locale) ?? null,
+    effectiveLocale,
+    ownerLocale,
     updatedAt: iso(profile?.updatedAt),
   };
 }
@@ -259,6 +311,8 @@ export async function toInvoiceDetailDto(
       send: sellerWrite && (open || invoice.status === 'paid'),
     },
     payMethods,
+    // Fixed at finalize; drafts and old invoices follow the current billing language (i18n 9).
+    locale: normalizeLocale(invoice.locale) ?? (await billingLocale(db, invoice.orgId)),
   };
 }
 
@@ -409,6 +463,7 @@ export function toProductDto(product: Product): ProductDto {
     interval: product.interval,
     taxRateBp: product.taxRateBp,
     active: product.active,
+    translations: product.translations,
     createdAt: product.createdAt.toISOString(),
   };
 }
@@ -503,6 +558,7 @@ export async function serviceDtos(db: Database, rows: Service[], view: ServiceVi
     nextBillingAt: s.nextBillingAt,
     endsAt: s.endsAt,
     cancelledAt: iso(s.cancelledAt),
+    deactivateModuleAtEnd: s.deactivateModuleAtEnd,
     notes: view.seller ? s.notes : null,
     createdAt: s.createdAt.toISOString(),
   }));

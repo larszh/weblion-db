@@ -26,6 +26,7 @@ import {
   services,
 } from '../src/db/schema';
 import { seedDemo } from '../src/db/seed';
+import { addDays, todayZurich } from '../src/modules/billing/dates';
 import { ADMIN, Client, DEMO_PASSWORD, createTestApp, json, type TestApp } from './helpers';
 
 let t: TestApp;
@@ -490,6 +491,7 @@ describe('admin organizations', () => {
         invoices: 0,
         payments: 0,
         services: 0,
+        endedEarly: 0,
         ...details,
       });
       return json(res).error.message as string;
@@ -531,7 +533,14 @@ describe('admin organizations', () => {
       })
       .returning();
     await refused(berg.id, { services: 1 });
-    await t.db.update(services).set({ status: 'cancelled' }).where(eq(services.id, service!.id));
+    // Cancelled to a later date before the fix of November 2026, which ended it at once: restored, the new
+    // seller would bill the old seller's service. Scheduled today it would still run.
+    await t.db
+      .update(services)
+      .set({ status: 'cancelled', endsAt: addDays(todayZurich(), 1) })
+      .where(eq(services.id, service!.id));
+    expect(await refused(berg.id, { endedEarly: 1 })).toContain('ended at once');
+    await t.db.update(services).set({ endsAt: todayZurich() }).where(eq(services.id, service!.id));
 
     // Settled: the move goes through, history stays.
     expect(json<AdminOrgDto>(await move(berg.id)).parent?.id).toBe(berg.id);

@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
 import { formatRelative } from '@/lib/format';
 import { qk, useApiMutation, useMeta, usePolicies, useProjects, useServers } from '@/lib/queries';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import {
@@ -167,7 +167,7 @@ function templates(projectId: string | undefined): { key: TranslationKey; statem
 }
 
 function ActionPicker({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const meta = useMeta();
   const [custom, setCustom] = useState('');
   if (!meta.data) return <LoadingBlock rows={1} />;
@@ -210,7 +210,7 @@ function ActionPicker({ value, onChange }: { value: string[]; onChange: (v: stri
                       onChange={() => toggle(key)}
                     />
                     <span className={cn(def.dangerous && 'text-danger')}>
-                      {def.label[locale]}
+                      {t(`perm.${key}`)}
                       <Mono className="ml-1.5 text-[11px] text-subtle">{key}</Mono>
                     </span>
                   </label>
@@ -394,7 +394,7 @@ function LabelConditions({
           onChange={(e) => setK(e.target.value)}
           placeholder="env"
           className="h-8 w-32 font-mono text-xs"
-          aria-label="Label key"
+          aria-label={t('aria.labelKey')}
         />
         <span className="text-subtle">=</span>
         <Input
@@ -402,7 +402,7 @@ function LabelConditions({
           onChange={(e) => setV(e.target.value)}
           placeholder="prod"
           className="h-8 w-32 font-mono text-xs"
-          aria-label="Label value"
+          aria-label={t('aria.labelValue')}
         />
         <Button
           size="sm"

@@ -48,6 +48,7 @@ import { MailCard } from '@/pages/mail/dashboard-card';
 import { PhoneCard } from '@/pages/phone/dashboard-card';
 import { ProjectDialog } from './projects';
 import { ActivityList } from './audit';
+import { AskAssistantMenu } from '@/components/ai/ask-assistant';
 
 function StatTile({
   icon,
@@ -71,8 +72,9 @@ function StatTile({
       </div>
       <div className="min-w-0">
         <div className="text-2xl font-semibold text-text tabular">{value}</div>
-        <div className="truncate text-sm text-muted">{label}</div>
-        {sub && <div className="truncate text-xs text-subtle tabular">{sub}</div>}
+        {/* Wrapped, not cut: labels like "Cloud-Konten" or "Maandelijks terugkerend" do not fit a phone tile. */}
+        <div className="text-sm break-words hyphens-auto text-muted">{label}</div>
+        {sub && <div className="text-xs break-words hyphens-auto text-subtle tabular">{sub}</div>}
       </div>
     </Card>
   );
@@ -519,12 +521,14 @@ export function OrgDashboard() {
         title={org.name}
         description={hasServers ? t('dashboard.subtitle') : t('admin.dash.subtitle')}
         actions={
-          hasServers &&
-          can('project:create') && (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
-              {t('projects.new')}
-            </Button>
-          )
+          <>
+            <AskAssistantMenu />
+            {hasServers && can('project:create') && (
+              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+                {t('projects.new')}
+              </Button>
+            )}
+          </>
         }
       />
 

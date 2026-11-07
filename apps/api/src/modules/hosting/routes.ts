@@ -18,6 +18,7 @@ import { platformScope, requireSession } from '../../auth/access';
 import { domains, organizations, webspaces } from '../../db/schema';
 import { badRequest, notFound, unsupported } from '../../lib/errors';
 import { parse } from '../../lib/validation';
+import { containsPattern } from '../../lib/like';
 import type { DnsRecordPatch, ProviderAdapter } from '../../providers/types';
 import { loadOrg } from '../orgs/routes';
 import { assertNoLinkedService } from '../reseller/service';
@@ -78,7 +79,6 @@ const renewBody = z.object({
     .optional(),
 });
 
-const like = (q: string) => `%${q.replace(/[%_]/g, '')}%`;
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Secrets must not end up in browser or proxy caches. */
@@ -162,7 +162,9 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     await loadOrg(ctx, req, orgId);
     const query = parse(listQuery, req.query);
     const rows = await domainRowsQuery(ctx)
-      .where(and(eq(domains.orgId, orgId), query.q ? ilike(domains.name, like(query.q)) : undefined))
+      .where(
+        and(eq(domains.orgId, orgId), query.q ? ilike(domains.name, containsPattern(query.q)) : undefined),
+      )
       .orderBy(domains.name);
     const visible = [];
     for (const row of rows) {
@@ -335,7 +337,12 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
     await loadOrg(ctx, req, orgId);
     const query = parse(listQuery, req.query);
     const rows = await webspaceRowsQuery(ctx)
-      .where(and(eq(webspaces.orgId, orgId), query.q ? ilike(webspaces.name, like(query.q)) : undefined))
+      .where(
+        and(
+          eq(webspaces.orgId, orgId),
+          query.q ? ilike(webspaces.name, containsPattern(query.q)) : undefined,
+        ),
+      )
       .orderBy(webspaces.name);
     const visible = [];
     for (const row of rows) {
@@ -396,7 +403,12 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       query.assigned === 'false' ? isNull(domains.orgId) : undefined,
       query.providerId ? eq(domains.providerConnectionId, query.providerId) : undefined,
       query.orgId ? eq(domains.orgId, query.orgId) : undefined,
-      query.q ? or(ilike(domains.name, like(query.q)), ilike(domains.externalId, like(query.q))) : undefined,
+      query.q
+        ? or(
+            ilike(domains.name, containsPattern(query.q)),
+            ilike(domains.externalId, containsPattern(query.q)),
+          )
+        : undefined,
     ];
     const rows = await domainRowsQuery(ctx)
       .where(and(...filters))
@@ -498,7 +510,10 @@ export async function hostingRoutes(app: FastifyInstance, ctx: AppContext) {
       query.providerId ? eq(webspaces.providerConnectionId, query.providerId) : undefined,
       query.orgId ? eq(webspaces.orgId, query.orgId) : undefined,
       query.q
-        ? or(ilike(webspaces.name, like(query.q)), ilike(webspaces.externalId, like(query.q)))
+        ? or(
+            ilike(webspaces.name, containsPattern(query.q)),
+            ilike(webspaces.externalId, containsPattern(query.q)),
+          )
         : undefined,
     ];
     const rows = await webspaceRowsQuery(ctx)

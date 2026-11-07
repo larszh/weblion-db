@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { FIRE24_DEFAULT_BASE_URL } from '../providers/fire24/config';
 
@@ -9,6 +10,85 @@ const bool = (fallback: boolean) =>
       v === undefined || v === '' ? fallback : ['1', 'true', 'yes', 'on'].includes(v.toLowerCase()),
     );
 
+/** Address groups of proxy-addr that Fastify resolves itself. */
+const TRUST_PROXY_NAMES = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+/**
+ * TRUST_PROXY parsed: trust every proxy (true), none (false), a hop count, or the addresses
+ * of the proxies whose X-Forwarded-For is believed. Unset means loopback: the reverse proxy on
+ * the same host (nginx of CloudPanel, Caddy). Trusting every proxy was the default before, so
+ * anyone who reached the API port directly could choose the client IP that the rate limits and
+ * the audit log see.
+ */
+export type TrustProxy = boolean | number | string[];
+
+/**
+ * "10.0.0.0/8", "fd00::/8", "192.168.0.0/255.255.0.0" or a plain address, as proxy-addr reads them.
+ * proxy-addr refuses a range of 0 ("0.0.0.0/0", a netmask 0.0.0.0) and a netmask with gaps
+ * ("255.0.255.0") only when Fastify is built, with a bare TypeError; checked here so the start fails
+ * with the TRUST_PROXY message instead. Trusting every address is spelled "true".
+ */
+function validProxyAddress(entry: string): boolean {
+  const [address, range, ...rest] = entry.split('/');
+  const family = isIP(address ?? '');
+  if (family === 0 || rest.length > 0) return false;
+  if (range === undefined) return true;
+  if (/^\d{1,3}$/.test(range)) return Number(range) >= 1 && Number(range) <= (family === 4 ? 32 : 128);
+  if (family !== 4 || isIP(range) !== 4) return false;
+  // A netmask is ones followed by zeros, so its inverse is zeros followed by ones: inverse & (inverse + 1)
+  // is 0 then. 0.0.0.0 would pass that and is the range 0 proxy-addr refuses.
+  const mask = range.split('.').reduce((acc, part) => acc * 256 + Number(part), 0);
+  const inverse = 0xffffffff - mask;
+  return mask !== 0 && (inverse & (inverse + 1)) === 0;
+}
+
+export function parseTrustProxy(value: string | undefined): TrustProxy | { invalid: string } {
+  const raw = value?.trim() ?? '';
+  if (raw === '') return ['loopback'];
+  const lower = raw.toLowerCase();
+  // The words of bool() keep an existing TRUST_PROXY=true or =false working.
+  if (['true', 'yes', 'on'].includes(lower)) return true;
+  if (['false', 'no', 'off'].includes(lower)) return false;
+  if (/^\d+$/.test(raw)) return Number(raw) === 0 ? false : Number(raw);
+  const entries = raw
+    .split(',')
+    .map((e) => e.trim())
+    .filter((e) => e !== '')
+    .map((e) => (TRUST_PROXY_NAMES.has(e.toLowerCase()) ? e.toLowerCase() : e));
+  if (entries.length === 0) return { invalid: raw };
+  const invalid = entries.find((e) => !TRUST_PROXY_NAMES.has(e) && !validProxyAddress(e));
+  return invalid === undefined ? entries : { invalid };
+}
+
+const trustProxy = z
+  .string()
+  .optional()
+  .transform((value, ctx) => {
+    const parsed = parseTrustProxy(value);
+    if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `"${parsed.invalid}" is not a proxy address: use true, false, a number of hops or a comma separated list of IP addresses, CIDR ranges, loopback, linklocal and uniquelocal`,
+      });
+      return z.NEVER;
+    }
+    return parsed;
+  });
+
+/**
+ * The trustProxy option of Fastify for a parsed TRUST_PROXY. Fastify 5.12 no longer honours a hop
+ * count: a number makes it trust no proxy at all (it cannot tell a proxy from a direct client by
+ * the count alone). A configured count is therefore passed as the trust function proxy-addr used
+ * for counts: the first `hops` addresses, counted from the socket, are proxies. Like true, this
+ * believes a client that reaches the port directly, so addresses are the safer choice.
+ */
+export function fastifyTrustProxy(
+  setting: TrustProxy,
+): boolean | string[] | ((address: string, hop: number) => boolean) {
+  if (typeof setting === 'number') return (_address, hop) => hop < setting;
+  return setting;
+}
+
 const optionalString = z
   .string()
   .optional()
@@ -19,7 +99,7 @@ const EnvSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-  TRUST_PROXY: bool(true),
+  TRUST_PROXY: trustProxy,
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   /** Public URL of the panel, used for invite links and origin checks. */
@@ -163,8 +243,23 @@ const EnvSchema = z.object({
   /** Zoho tax id per rate in basis points, e.g. "810:1234567890,0:0987654321". */
   ZOHO_TAX_IDS: optionalString,
 
-  /** Daily job that turns due services into invoices. */
+  /** Daily job that turns due services into invoices. Off, the job only ends services whose cancellation date passed. */
   BILLING_JOB_ENABLED: bool(true),
+
+  // Claude (AI features). Optional; a key saved in the admin area (KI page) wins over ANTHROPIC_API_KEY.
+  ANTHROPIC_API_KEY: optionalString,
+  /** Claude API endpoint. Tests point it at a local mock. */
+  ANTHROPIC_BASE_URL: z.string().url().default('https://api.anthropic.com'),
+  /** Retries of the SDK on 408, 409, 429, 5xx and connection errors. */
+  ANTHROPIC_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  /** Upper bound of one AI request (a chat turn or a feature call) in seconds. */
+  AI_TURN_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
+
+  // Translations (Mass Translate jobs of the translation admin).
+  /** Runs translation jobs in this process. false on secondary API processes. */
+  I18N_JOB_ENABLED: bool(true),
+  /** Translation batches sent to Claude at the same time. */
+  I18N_AI_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
 
   ENABLE_DEMO_PROVIDER: bool(false),
   /** A second demo connection that simulates a Cloudflare account (needs ENABLE_DEMO_PROVIDER). */

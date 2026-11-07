@@ -8,7 +8,7 @@
 | Datenbank | **PostgreSQL** 14 oder neuer (getestet mit 16). MySQL/MariaDB geht nicht, siehe unten |
 | Ressourcen | rund 250 MB RAM für die App, 100 bis 200 MB für Postgres, unter 1 GB Disk |
 | Netz eingehend | HTTPS über einen Reverse Proxy, inkl. Websockets (Browser-Konsole) |
-| Netz ausgehend | 24fire (HTTPS zu `api.24fire.de`, für die Konsole je nach Antwort ein Websocket zu 24fire), Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), 3CX-Telefonanlagen (HTTPS zu `/connect/token` und zur XAPI), Jellyfin-Instanzen (HTTP(S) zur API, mit Anfragen auch zu ihrem Seerr), Uptime-Kuma-Instanzen (HTTP(S) zu `/metrics` und den Statusseiten, für die Verwaltung ein Websocket auf `/socket.io/`), Stripe, Zoho, SMTP |
+| Netz ausgehend | 24fire (HTTPS zu `api.24fire.de`, für die Konsole je nach Antwort ein Websocket zu 24fire), Proxmox, Hetzner Cloud (HTTPS zur API, Websockets für die Konsole), Joker.com (`dmapi.joker.com`), Cloudflare (`api.cloudflare.com`), Nextcloud-Instanz (HTTPS zur OCS-API), Mailcow-Instanz (HTTPS zur API, von einer festen IP), CloudPanel-Server (SSH, meist Port 22, von einer festen IP), öffentliche DNS-Resolver für die DNS-Prüfung der Websites (`DNS_CHECK_RESOLVERS`, Port 53), 3CX-Telefonanlagen (HTTPS zu `/connect/token` und zur XAPI), Jellyfin-Instanzen (HTTP(S) zur API, mit Anfragen auch zu ihrem Seerr), Uptime-Kuma-Instanzen (HTTP(S) zu `/metrics` und den Statusseiten, für die Verwaltung ein Websocket auf `/socket.io/`), die Claude API für die KI-Funktionen (HTTPS zu `api.anthropic.com`), Stripe, Zoho, SMTP |
 
 Ein eigener (dedizierter) Server nur für die Console ist **nicht nötig**. Ein kleiner VPS mit
 2 GB RAM reicht, und die Console kann problemlos auf einem Server mitlaufen, der schon andere
@@ -164,6 +164,30 @@ Monitore der Kunden prüfen von dort aus. Einrichtung in
 - **DNS:** Die Ziele eigener Monitore löst die Console über den Resolver ihres Servers auf (im
   Container der von Docker), mit höchstens 3 Sekunden pro Name.
 
+### Claude für die KI-Funktionen
+
+Claude ist kein eigener Server, sondern die API von Anthropic. Einrichtung, Kosten und die
+Checkliste vor dem Einschalten in [ai.md](ai.md). Für den Betrieb der Console wichtig:
+
+- **Ausgehend HTTPS zu `api.anthropic.com`** (oder der Adresse in `ANTHROPIC_BASE_URL`). Ohne
+  diesen Weg scheitert "Verbindung testen" auf der Seite KI.
+- **Schlüssel nach dem Deploy** im Admin-Bereich unter KI speichern und "Verbindung testen". Er wird
+  verschlüsselt gespeichert und hat Vorrang vor `ANTHROPIC_API_KEY` in der `.env`. Die KI bleibt
+  trotzdem aus, bis ein Superadmin sie auf derselben Seite einschaltet, und für jeden Kunden, bis
+  weblion.one oder sein Reseller sie einzeln einschaltet.
+- **Abhängigkeit:** Das SDK `@anthropic-ai/sdk` (genau 1.3.0) ist eine Laufzeit-Abhängigkeit der
+  API. `pnpm install --prod` in `deploy/cloudpanel/update.sh` und das Docker-Image bringen es mit.
+- **Antworten als Stream:** Der Assistent antwortet mit Server-Sent Events, siehe
+  [Antworten des KI-Assistenten](#antworten-des-ki-assistenten-server-sent-events).
+- **Mehrere API-Prozesse:** Budget und Limits der KI gelten über alle Prozesse, gezählt wird in der
+  Datenbank. Nur die 30 Abfragen bei Providern pro Minute und Organisation zählt jeder Prozess für sich.
+  Aufträge von Mass Translate (Übersetzungen mit KI) führt jeder Prozess mit `I18N_JOB_ENABLED=true`
+  (Standard) aus. Auf weiteren Prozessen `I18N_JOB_ENABLED=false` setzen, damit nur einer die Jobs
+  übernimmt. Ein Advisory Lock verhindert ohnehin, dass zwei Prozesse denselben Job gleichzeitig
+  bearbeiten. Docker Compose und die Node.js-Site auf CloudPanel laufen mit einem Prozess.
+- **Skripte für Übersetzungen** (`i18n:stamp`, `i18n:report`, `i18n:apply`) laufen wie
+  `kuma:token` nicht im Docker-Image, sondern in einem Checkout des Repositorys nach `pnpm install`.
+
 ## Mit Docker Compose
 
 ```bash
@@ -251,6 +275,10 @@ ZOHO_CLIENT_SECRET=...
 ZOHO_REFRESH_TOKEN=...
 ZOHO_ORGANIZATION_ID=...
 ZOHO_TAX_IDS=810:...,0:...
+
+# KI (Claude): API-Schlüssel aus der Claude Console. Besser nach dem Start im Admin-Bereich unter
+# KI speichern, der dort gespeicherte hat Vorrang.
+ANTHROPIC_API_KEY='sk-ant-...'
 ```
 
 Der Stripe-Webhook zeigt auf `https://cp.weblion.cloud/api/v1/payments/stripe/webhook`.
@@ -286,7 +314,63 @@ Websockets (Konsole) leitet Caddy automatisch weiter. Bei nginx `proxy_http_vers
 und die `Upgrade`/`Connection`-Header setzen. Mit Mailcow, CloudPanel und Jellyfin (viele
 Zugänge) braucht nginx ausserdem ein längeres `proxy_read_timeout`, siehe
 [Mailcow für E-Mail](#mailcow-für-e-mail), [CloudPanel für Websites](#cloudpanel-für-websites)
-und [Jellyfin für Streaming](#jellyfin-für-streaming).
+und [Jellyfin für Streaming](#jellyfin-für-streaming). Die Antworten des KI-Assistenten darf der
+Proxy nicht puffern, siehe [unten](#antworten-des-ki-assistenten-server-sent-events).
+
+### Client-IP hinter dem Proxy (`TRUST_PROXY`)
+
+Die Console nimmt die IP des Clients für die Login-Sperre, die übrigen Rate Limits und das
+Audit-Protokoll aus `X-Forwarded-For`, aber nur, wenn die Anfrage von einem vertrauenswürdigen
+Proxy kommt. Welche Proxys das sind, sagt `TRUST_PROXY`:
+
+| Wert | Bedeutung |
+|---|---|
+| leer (Standard) | `loopback`: nur ein Proxy auf demselben Server (nginx von CloudPanel, Caddy). Passt für Variante B mit PM2 |
+| Liste, z.B. `10.0.0.0/8,127.0.0.1` | IP-Adressen, CIDR-Bereiche (Präfix ab 1, eine Netzmaske ohne Lücken) und die Namen `loopback`, `linklocal` und `uniquelocal` (private Bereiche), durch Kommas getrennt |
+| `true` | jeder Absender. Nur noch für bestehende Installationen |
+| Zahl, z.B. `2` | so viele Proxys ab der Verbindung, ohne ihre Adresse zu prüfen |
+
+Mit `true` oder einer Zahl kann jeder, der den Port der Console direkt erreicht, eine beliebige
+IP vortäuschen und so die Login-Sperre umgehen und das Audit-Protokoll verfälschen. Die Console
+schreibt dann beim Start eine Warnung ins Log. Hängt der Proxy an einen mitgeschickten Header an
+(nginx mit `$proxy_add_x_forwarded_for`), zählt mit `true` sogar über den Proxy der erste, vom
+Client frei gewählte Eintrag. Besser die Adressen der Proxys eintragen.
+
+`docker-compose.yml` setzt `loopback` und das eigene Netz der Compose-Datei (`172.30.0.0/24`),
+solange `TRUST_PROXY` in der `.env` leer ist: Die Anfragen des Proxys auf dem Host kommen im
+Container vom Gateway dieses Netzes, nicht von `127.0.0.1`. Bewusst nicht alle privaten Bereiche
+(`uniquelocal`): Der Proxy hängt die Adresse seines Clients an, und ein Client mit einer eigenen
+privaten Adresse (LAN, VPN, Tailscale) könnte sonst seine IP selbst wählen. Meldet Docker beim
+Start, der Bereich überschneide sich mit einem anderen Netz ("Pool overlaps"), in der `.env`
+einen freien als `CONSOLE_SUBNET` setzen, etwa `10.213.0.0/24`; `TRUST_PROXY` folgt von selbst.
+Nach dem Update auf diesen Stand braucht eine bestehende Installation einmal `docker compose down`
+und `docker compose up -d`, damit ihr Netz den festen Bereich bekommt (die Daten im Volume bleiben).
+
+Steht vor dem Proxy auf dem Server noch ein weiterer, etwa Cloudflare mit orangener Wolke oder ein
+Load Balancer, dessen Adressen zusätzlich eintragen (bei Cloudflare die Bereiche von
+<https://www.cloudflare.com/ips/>), sonst sieht die Console nur dessen Adressen und alle Nutzer
+teilen sich die Login-Sperre. Prüfen lässt es sich mit einem fehlgeschlagenen Login: Im
+Audit-Protokoll muss die eigene öffentliche IP stehen, nicht `127.0.0.1` oder eine Adresse wie
+`172.30.0.1`.
+
+### Antworten des KI-Assistenten (Server-Sent Events)
+
+Der KI-Assistent schickt seine Antwort Stück für Stück als Server-Sent Events
+(`POST /api/v1/orgs/<id>/ai/chat`, `Content-Type: text/event-stream`). Ein Proxy darf diese Antwort
+nicht puffern, sonst erscheint sie erst am Schluss. Die Console sendet dafür den Header
+`X-Accel-Buffering: no`, den nginx beachtet. Ausserdem:
+
+- **nginx:** `proxy_read_timeout` mindestens 60 Sekunden. nginx misst diese Zeit zwischen zwei
+  Datenpaketen, und die Console schickt alle 15 Sekunden einen Ping. So reicht der Standard von 60
+  Sekunden, auch wenn eine ganze Antwort bis `AI_TURN_TIMEOUT_SECONDS` (Standard 180 Sekunden)
+  dauert. Die Zeilen aus [Websockets im Vhost](#websockets-im-vhost) mit 3600 Sekunden passen
+  ebenfalls. Den Header nicht mit `proxy_ignore_headers X-Accel-Buffering` übergehen.
+- **Caddy** reicht Antworten mit `text/event-stream` von sich aus sofort weiter.
+- **Hinter Cloudflare** gilt die Grenze von rund 100 Sekunden ohne Daten (siehe
+  [Hinter Cloudflare](#hinter-cloudflare)). Die Pings alle 15 Sekunden bleiben darunter.
+
+Test: im Panel eines Kunden, für den die KI eingeschaltet ist, den Assistenten etwas fragen. Kommt
+die Antwort erst ganz am Schluss auf einmal, puffert der Proxy.
 
 ## Auf CloudPanel
 
@@ -470,8 +554,8 @@ docker compose exec db pg_dump -U weblion weblion | gzip > weblion-$(date +%F).s
 ```
 
 Den `ENCRYPTION_KEY` separat und sicher aufbewahren (Passwort-Manager). Ohne ihn lassen sich
-gespeicherte Provider-Zugangsdaten, SMTP-Passwort und 2FA-Secrets aus einem Backup nicht mehr
-lesen.
+gespeicherte Provider-Zugangsdaten, SMTP-Passwort, der Schlüssel für Claude und 2FA-Secrets aus
+einem Backup nicht mehr lesen.
 
 Die Dateien der Cloud-Konten liegen in Nextcloud, nicht in der Datenbank der Console. Dafür
 braucht es ein eigenes Backup der Nextcloud-Instanz (bei AIO das eingebaute BorgBackup). Ebenso

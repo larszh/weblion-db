@@ -8,7 +8,7 @@ import {
   type MonitorEvent,
   type MonitorHistoryRange,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { formatDate, formatNumber, formatRelative } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -46,6 +46,7 @@ import {
   targetHref,
 } from './bits';
 import { MonitorActionButtons } from './dialogs';
+import { ExplainButton } from '@/components/ai/explain-dialog';
 
 /** One monitor (/o/:slug/monitoring/:monitorId): live facts, response time chart, status changes, configuration. */
 export function MonitorDetailPage() {
@@ -133,11 +134,20 @@ function MonitorView({ monitor }: { monitor: MonitorDetailDto }) {
           ) : undefined
         }
         actions={
-          <MonitorActionButtons
-            monitor={monitor}
-            minIntervalSeconds={minIntervalSeconds}
-            onDeleted={() => navigate(`${base}/monitoring`, { replace: true })}
-          />
+          <>
+            {/* "Mit KI erklären" while down or after a failed check (ai 10.1, 12.5). */}
+            {(monitor.status === 'down' || newest?.status === 'down') && (
+              <ExplainButton
+                scope={{ orgId: org.id }}
+                source={() => ({ kind: 'monitor', monitorId: monitor.id })}
+              />
+            )}
+            <MonitorActionButtons
+              monitor={monitor}
+              minIntervalSeconds={minIntervalSeconds}
+              onDeleted={() => navigate(`${base}/monitoring`, { replace: true })}
+            />
+          </>
         }
       />
 

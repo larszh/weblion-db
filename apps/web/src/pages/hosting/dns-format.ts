@@ -1,11 +1,12 @@
 import {
   DNS_PROXIABLE_TYPES,
   DNS_TTL_AUTO,
+  type AiDnsProposalDto,
   type DnsRecord,
   type DnsRecordInput,
   type DnsRecordType,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 
 /**
  * Client side checks for DNS records and name servers. They mirror the API rules (generic
@@ -211,4 +212,25 @@ export function formatRemaining(seconds: number | null): string | null {
   const rest = minutes % 60;
   if (hours === 0) return `${minutes} min`;
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+}
+
+/** What an AI proposal opens in the records page (ai 8.4, 12.3). */
+export type ProposalForm =
+  { state: 'wait' } | { state: 'missing' } | { state: 'open'; record: DnsRecord | null };
+
+/**
+ * An addition opens the empty form once the records are loaded. A change opens the form of the record it names;
+ * when the records could not be loaded or no loaded record has that id (it changed meanwhile, Joker ids are
+ * content hashes), it is 'missing' and never falls back to the empty form, whose save would add a second record
+ * (for example a second SPF TXT record). A failed background refetch keeps the loaded list, so an open form stays:
+ * its save changes the record by id and never adds one.
+ */
+export function proposalForm(
+  proposal: Pick<AiDnsProposalDto, 'action' | 'recordId'>,
+  records: { isPending: boolean; data: readonly DnsRecord[] | undefined },
+): ProposalForm {
+  if (records.isPending) return { state: 'wait' };
+  if (proposal.action !== 'change') return { state: 'open', record: null };
+  const record = records.data?.find((r) => r.id === proposal.recordId);
+  return record ? { state: 'open', record } : { state: 'missing' };
 }

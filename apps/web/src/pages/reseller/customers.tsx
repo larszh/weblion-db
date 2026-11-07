@@ -12,13 +12,7 @@ import {
   Search,
   Undo2,
 } from 'lucide-react';
-import {
-  DEFAULT_MODULES,
-  MODULE_DEFS,
-  formatMoney,
-  type ModuleKey,
-  type ResellerCustomerDto,
-} from '@weblion/shared';
+import { DEFAULT_MODULES, formatMoney, type ModuleKey, type ResellerCustomerDto } from '@weblion/shared';
 import { ApiError } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useOrg } from '@/lib/org-context';
@@ -35,7 +29,7 @@ import {
   type ResellerCustomerCreated,
   type ResourceType,
 } from '@/lib/api/admin';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog, Dialog } from '@/components/ui/dialog';
 import {
@@ -55,6 +49,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
+import { EndedEarlyCard } from '@/pages/billing/ended-early';
 import { SellerBillingPanel } from '@/pages/billing/seller-panel';
 import { ResellerIssuerForm } from '@/pages/billing/settings-form';
 import {
@@ -72,6 +67,7 @@ import { ResellerCloudAllowanceCard } from './cloud-allowance';
 import { ResellerMediaAllowanceCard } from './media-allowance';
 import { ResellerMonitorAllowanceCard } from './monitor-allowance';
 import { ResellerWebsiteAllowanceCard } from './website-allowance';
+import { ResellerAiCard } from '@/components/ai/cards';
 
 /** Resource types a reseller hands out, with the module each one belongs to. */
 const RESOURCE_TYPES: {
@@ -322,7 +318,7 @@ function CustomerList() {
 
 export function ResellerCustomersPage() {
   const { t } = useI18n();
-  const { org, can } = useOrg();
+  const { org, can, base } = useOrg();
   // The invoice issuer settings (name, address, bank details) belong to whoever bills the customers.
   const tabs = [
     { value: 'customers' as const, label: t('admin.reseller.tab.customers'), icon: <Briefcase /> },
@@ -344,7 +340,21 @@ export function ResellerCustomersPage() {
       {can('reseller:billing') && (
         <TabBar label={t('nav.customers')} current={tab} onChange={setTab} tabs={tabs} />
       )}
-      {tab === 'issuer' ? <ResellerIssuerForm orgId={org.id} /> : <CustomerList />}
+      {tab === 'issuer' ? (
+        <ResellerIssuerForm orgId={org.id} />
+      ) : (
+        <>
+          {/* Its customers' services a cancellation to a later date ended at once, to restore in their billing. */}
+          {can('reseller:billing') && (
+            <EndedEarlyCard
+              resellerOrgId={org.id}
+              customerHref={(id) => `${base}/customers/${id}?tab=billing&billing=services`}
+              className="mb-6"
+            />
+          )}
+          <CustomerList />
+        </>
+      )}
     </>
   );
 }
@@ -482,6 +492,13 @@ function OverviewTab({ customer }: { customer: ResellerCustomerDto }) {
             />
           </CardBody>
         </Card>
+        {/* Whatever the platform state (plan O27); switching on asks for the customer's consent (plan O34). */}
+        <ResellerAiCard
+          resellerId={org.id}
+          customerId={customer.id}
+          customerName={customer.name}
+          canWrite={canWrite}
+        />
         {canWrite && <DeleteCard customer={customer} />}
       </div>
       <ConfirmDialog
@@ -491,7 +508,7 @@ function OverviewTab({ customer }: { customer: ResellerCustomerDto }) {
         description={
           disabling
             ? t('admin.modules.disableText', {
-                module: MODULE_DEFS[disabling].label[locale],
+                module: t(`module.${disabling}.label`),
                 name: customer.name,
               })
             : undefined
@@ -559,7 +576,7 @@ function AssignDialog({
   pool: CustomerResources['pool'];
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { org } = useOrg();
   const [selected, setSelected] = useState('');
   const def = RESOURCE_TYPES.find((r) => r.type === type);
@@ -613,7 +630,7 @@ function AssignDialog({
           )}
           {!customer.modules.includes(def.module) && (
             <Notice tone="warning">
-              {t('admin.resources.enablesModule', { module: MODULE_DEFS[def.module].label[locale] })}
+              {t('admin.resources.enablesModule', { module: t(`module.${def.module}.label`) })}
             </Notice>
           )}
         </div>
@@ -623,7 +640,7 @@ function AssignDialog({
 }
 
 function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { org, can } = useOrg();
   const canWrite = can('reseller:customer:write');
   const resources = useCustomerResources(org.id, customer.id);
@@ -661,7 +678,7 @@ function ResourcesTab({ customer }: { customer: ResellerCustomerDto }) {
               title={t(`admin.resources.title.${def.type}` as TranslationKey)}
               description={
                 <>
-                  {MODULE_DEFS[def.module].label[locale]}
+                  {t(`module.${def.module}.label`)}
                   {' · '}
                   {t('admin.resources.poolCount', { n: pool.length })}
                 </>

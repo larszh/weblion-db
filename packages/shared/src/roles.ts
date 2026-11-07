@@ -63,6 +63,9 @@ export const ORG_ROLE_POLICIES: Record<OrgRole, PolicyStatement[]> = {
         'domain:dns:write',
         'monitor:write',
         'reseller:customer:access',
+        // AI is allowed for members; the organization switch and the customer's decline still deny it
+        // through the boundary (aiDenyStatements).
+        'ai:use',
       ],
     },
   ],
@@ -73,7 +76,11 @@ export const ORG_ROLE_POLICIES: Record<OrgRole, PolicyStatement[]> = {
       actions: ['org:read', 'apitoken:read', 'apitoken:write'],
     },
   ],
-  viewer: [{ sid: 'ReadOnly', effect: 'allow', actions: [...READ_ACTIONS, 'reseller:customer:access'] }],
+  // Viewers may use the AI assistant too: it only reads (plan decision 20). Not in READ_ACTIONS, which is also the
+  // read token scope and the support role.
+  viewer: [
+    { sid: 'ReadOnly', effect: 'allow', actions: [...READ_ACTIONS, 'reseller:customer:access', 'ai:use'] },
+  ],
   billing: [{ sid: 'Billing', effect: 'allow', actions: ['org:read', 'billing:*'] }],
 };
 
@@ -96,6 +103,10 @@ export const PLATFORM_ROLE_POLICIES: Record<PlatformRole, PolicyStatement[]> = {
         'platform:audit:read',
         'platform:billing:read',
         'billing:read',
+        // AI features in the admin area and on customer data, and reading translations; not editing them.
+        'ai:use',
+        'platform:ai:use',
+        'platform:i18n:read',
       ],
     },
     {

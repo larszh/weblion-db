@@ -11,7 +11,7 @@ import {
   type MonitorDto,
   type MonitorKind,
 } from '@weblion/shared';
-import type { TranslationKey } from '@/i18n/de';
+import type { TranslationKey } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { useI18n } from '@/lib/i18n';
 import {

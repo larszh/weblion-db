@@ -182,6 +182,7 @@ export async function settingsRoutes(app: FastifyInstance, ctx: AppContext) {
         twint: !!env.STRIPE_SECRET_KEY && stripeMethods.includes('twint'),
       },
       zoho: await ctx.zoho.status(),
+      ai: await ctx.ai.integrationStatus(),
     };
   });
 }
