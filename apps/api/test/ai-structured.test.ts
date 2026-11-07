@@ -375,6 +375,11 @@ describe('errors of the Claude API', () => {
       const row = await lastRow();
       expect(row).toMatchObject({ status: 'error', errorCode: expected.code, reservedMicros: 0 });
       expect(usageOfError(err)?.usageId).toBe(row.id);
+      // A stream that started is billed by Anthropic and recorded; an error answer before it costs nothing.
+      const started = turn.midStreamError !== undefined;
+      expect(row.apiCalls).toBe(started ? 1 : 0);
+      expect(row.costMicros > 0).toBe(started);
+      expect(usageOfError(err)?.costMicros).toBe(row.costMicros);
     });
   }
 
@@ -434,7 +439,41 @@ describe('errors of the Claude API', () => {
     release();
     expect(err).toBeInstanceOf(AiCancelled);
     expect(usageOfError(err)).not.toBeNull();
-    expect(await lastRow()).toMatchObject({ status: 'cancelled', errorCode: null, reservedMicros: 0 });
+    // Aborted before any answer: no message_start, nothing to record.
+    expect(await lastRow()).toMatchObject({
+      status: 'cancelled',
+      errorCode: null,
+      reservedMicros: 0,
+      apiCalls: 0,
+      costMicros: 0,
+    });
+  });
+
+  it('a call aborted or timed out after its stream started is recorded with the tokens of message_start', async () => {
+    const usage = { input_tokens: 150_000, output_tokens: 20_000 };
+    script({ text: 'x'.repeat(4_000), streamDelayMs: 20, usage });
+    const controller = new AbortController();
+    const pending = explain({ signal: controller.signal });
+    setTimeout(() => controller.abort(), 300);
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiCancelled);
+    const aborted = await lastRow();
+    expect(aborted).toMatchObject({ status: 'cancelled', apiCalls: 1, inputTokens: 150_000 });
+    expect(aborted.costMicros).toBeGreaterThan(0);
+    expect(usageOfError(err)?.costMicros).toBe(aborted.costMicros);
+
+    const env = t.ctx.env as { AI_TURN_TIMEOUT_SECONDS: number };
+    const before = env.AI_TURN_TIMEOUT_SECONDS;
+    env.AI_TURN_TIMEOUT_SECONDS = 1;
+    try {
+      script({ text: 'x'.repeat(4_000), streamDelayMs: 20, usage });
+      expect(await failure(explain())).toMatchObject({ code: 'ai_timeout' });
+      const timedOut = await lastRow();
+      expect(timedOut).toMatchObject({ status: 'error', errorCode: 'ai_timeout', inputTokens: 150_000 });
+      expect(timedOut.costMicros).toBeGreaterThan(0);
+    } finally {
+      env.AI_TURN_TIMEOUT_SECONDS = before;
+    }
   });
 });
 
