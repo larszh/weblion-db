@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import {
+  isTargetLocale,
   lineBreakCount,
   LOCALES,
   type Locale,
@@ -7,6 +8,7 @@ import {
   type TranslationCleanupInput,
   type TranslationCleanupResultDto,
 } from '@weblion/shared';
+import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
 import { fixFrenchTypography, hasEmDash, hasSharpS, placeholdersMatch } from '@weblion/shared/i18n/checks';
 import type { DbOrTx } from '../db/client';
 import { translationOverrides } from '../db/schema';
@@ -175,6 +177,22 @@ export async function confirmCurrent(
 }
 
 /**
+ * An override the repository already holds (A8 "same as compiled" and its count in A2). For German the value
+ * is enough. A translation must also carry the source hash of its compiled stamp: an A7 confirmation of a stale
+ * compiled value has the same text with a newer hash, and only export and i18n:apply carry that into the
+ * repository; deleting it before would make the cell stale again.
+ */
+export function sameAsCompiled(
+  catalog: I18nCatalog,
+  row: { key: string; locale: Locale; value: string; sourceHash: string },
+): boolean {
+  if (!catalog.has(row.key)) return false;
+  if (catalog.bundles[row.locale][row.key] !== row.value) return false;
+  if (!isTargetLocale(row.locale)) return true;
+  return catalog.stamps[row.locale][row.key]?.[0] === row.sourceHash;
+}
+
+/**
  * A8 (i18n 14.2): deletes orphan overrides (the key is gone), overrides equal to the compiled value (the export
  * reached the repository) and, with `demo`, every demo row (plan O11). A row is counted once, in this order:
  * orphan, demo, same as compiled. `dryRun` only counts.
@@ -190,6 +208,7 @@ export async function cleanup(
       key: translationOverrides.key,
       locale: translationOverrides.locale,
       value: translationOverrides.value,
+      sourceHash: translationOverrides.sourceHash,
       demo: translationOverrides.demo,
     })
     .from(translationOverrides)
@@ -205,8 +224,7 @@ export async function cleanup(
     let kind: 'orphans' | 'demo' | 'sameAsCompiled' | null = null;
     if (!catalog.has(row.key)) kind = input.orphans ? 'orphans' : null;
     else if (row.demo) kind = input.demo ? 'demo' : null;
-    else if (catalog.bundles[row.locale][row.key] === row.value)
-      kind = input.sameAsCompiled ? 'sameAsCompiled' : null;
+    else if (sameAsCompiled(catalog, row)) kind = input.sameAsCompiled ? 'sameAsCompiled' : null;
     if (!kind) continue;
     result[kind]++;
     doomed.get(row.locale)?.push(row.key);

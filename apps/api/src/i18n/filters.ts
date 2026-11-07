@@ -17,6 +17,7 @@ import {
   type TranslationSummaryDto,
 } from '@weblion/shared';
 import type { I18nCatalog } from '@weblion/shared/i18n/catalog';
+import { sameAsCompiled } from './entries';
 import type { I18nService } from './service';
 
 /**
@@ -272,7 +273,7 @@ export function summaryStats(i18n: I18nService): Omit<TranslationSummaryDto, 'ai
   }
 
   let orphans = 0;
-  let sameAsCompiled = 0;
+  let sameAsCompiledCount = 0;
   let demoOverrides = 0;
   for (const row of i18n.rows()) {
     if (row.demo) demoOverrides++;
@@ -280,7 +281,7 @@ export function summaryStats(i18n: I18nService): Omit<TranslationSummaryDto, 'ai
       orphans++;
       continue;
     }
-    if (!row.demo && catalog.bundles[row.locale][row.key] === row.value) sameAsCompiled++;
+    if (!row.demo && sameAsCompiled(catalog, row)) sameAsCompiledCount++;
     if (i18n.isServable(row)) stats.get(row.locale)!.overrides++;
   }
   for (const s of stats.values()) {
@@ -302,7 +303,7 @@ export function summaryStats(i18n: I18nService): Omit<TranslationSummaryDto, 'ai
     areas: [...areas].map(([area, keys]) => ({ area, keys })).sort((a, b) => a.area.localeCompare(b.area)),
     sections: [...sections].map(([section, keys]) => ({ section, keys })),
     orphans,
-    sameAsCompiled,
+    sameAsCompiled: sameAsCompiledCount,
     demoOverrides,
     legal: { keys: legalKeys, staleOrMissing },
   };

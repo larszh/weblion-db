@@ -590,6 +590,27 @@ describe('A5 to A8', () => {
     const summary = json<TranslationSummaryDto>(await admin.get('/admin/i18n/summary'));
     expect(summary).toMatchObject({ orphans: 0, sameAsCompiled: 0, demoOverrides: 0 });
   });
+
+  it('keeps an A7 confirmation of a stale compiled value until the repository holds its stamp', async () => {
+    const key = STALE_FR[0];
+    expect((await admin.post(`${cellUrl('fr', key)}/confirm`)).statusCode).toBe(200);
+    // The same text as compiled, but the stamp of the repository is still the old one; a German row equal to
+    // the compiled German is in the repository already.
+    await put('common.cancel', 'de', 'Abbrechen');
+    await t.ctx.i18n.reload();
+    const summary = json<TranslationSummaryDto>(await admin.get('/admin/i18n/summary'));
+    expect(summary.sameAsCompiled).toBe(1);
+    const all = { orphans: true, sameAsCompiled: true, demo: true };
+    expect(json<TranslationCleanupResultDto>(await admin.post('/admin/i18n/cleanup', all))).toMatchObject({
+      sameAsCompiled: 1,
+    });
+    const left = await t.db.select().from(translationOverrides);
+    expect(left.map((r) => `${r.locale}:${r.key}`)).toEqual([`fr:${key}`]);
+    expect(t.ctx.i18n.cell('fr', key as ServerTranslationKey)).toMatchObject({
+      state: 'current',
+      origin: 'manual',
+    });
+  });
 });
 
 describe('A9 to A12 glossary', () => {
