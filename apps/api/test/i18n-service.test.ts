@@ -383,6 +383,34 @@ describe('refresh and reload', () => {
     expect(await t.ctx.i18n.refresh()).toBe(true);
     expect(t.ctx.i18n.t('it', 'common.add')).toBe('Aggiungere');
 
+    // An update that commits with an older stamp than the newest row (another instance's clock, or a job
+    // batch that took its time before the commit) changes neither the count nor max(updated_at).
+    await t.db.insert(translationOverrides).values({
+      key: 'common.cancel',
+      locale: 'it',
+      value: 'Annulla',
+      origin: 'manual',
+      sourceHash: t.ctx.i18n.source('common.cancel').hash,
+      reviewed: true,
+      updatedAt: sql`now() + interval '1 hour'`,
+    });
+    expect(await t.ctx.i18n.refresh()).toBe(true);
+    await t.db
+      .update(translationOverrides)
+      .set({ value: 'Aggiungi ora', updatedAt: sql`now() - interval '1 hour'` })
+      .where(eq(translationOverrides.key, 'common.add'));
+    expect(await t.ctx.i18n.refresh()).toBe(true);
+    expect(t.ctx.i18n.t('it', 'common.add')).toBe('Aggiungi ora');
+    // The same for the glossary: one term changed with an old stamp.
+    const [term] = await t.db.select().from(translationGlossary).limit(1);
+    await t.db
+      .update(translationGlossary)
+      .set({ note: 'changed elsewhere', updatedAt: sql`now() - interval '1 day'` })
+      .where(eq(translationGlossary.id, term!.id));
+    expect(await t.ctx.i18n.refresh()).toBe(true);
+    expect(t.ctx.i18n.glossaryTerms().find((g) => g.term === term!.term)?.note).toBe('changed elsewhere');
+    expect(await t.ctx.i18n.refresh()).toBe(false);
+
     await t.db.delete(translationOverrides);
     await t.ctx.i18n.reload();
     expect(t.ctx.i18n.t('it', 'common.add')).toBe(t.ctx.i18n.catalog.bundles.en['common.add']);

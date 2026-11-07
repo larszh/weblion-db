@@ -137,8 +137,8 @@ export class I18nService {
   }
 
   /**
-   * One refresh step of the timer: compares count and newest updated_at of overrides and glossary with the
-   * state of the last load and reloads when they differ. Returns whether it reloaded. Public for tests, so
+   * One refresh step of the timer: compares a digest of the overrides and the glossary (readSignature) with
+   * the state of the last load and reloads when they differ. Returns whether it reloaded. Public for tests, so
    * they drive the refresh without a real timer.
    */
   async refresh(): Promise<boolean> {
@@ -300,16 +300,23 @@ export class I18nService {
     return undefined;
   }
 
+  /**
+   * Count and a digest of every row of both tables (the row as text holds every column, quoted). count and
+   * max(updated_at) were not enough: updated_at comes from the clock of the writing instance before its
+   * transaction, so an update of existing rows that committed with an older stamp than the newest, or on a host
+   * whose clock is behind, left both unchanged and the other instances never reloaded. A few thousand short
+   * rows are hashed in milliseconds, once per instance every 15 s.
+   */
   private async readSignature(): Promise<string> {
-    const { rows } = await this.db.execute<{ oc: string; om: string | null; gc: string; gm: string | null }>(
+    const { rows } = await this.db.execute<{ o: string; g: string }>(
       sql`select
-        (select count(*) from translation_overrides)::text as oc,
-        (select max(updated_at) from translation_overrides)::text as om,
-        (select count(*) from translation_glossary)::text as gc,
-        (select max(updated_at) from translation_glossary)::text as gm`,
+        (select count(*)::text || ':' || coalesce(md5(string_agg(o::text, ',' order by o.key, o.locale)), '')
+           from translation_overrides o) as o,
+        (select count(*)::text || ':' || coalesce(md5(string_agg(g::text, ',' order by g.id)), '')
+           from translation_glossary g) as g`,
     );
     const r = rows[0];
-    return r ? `${r.oc}|${r.om ?? ''}|${r.gc}|${r.gm ?? ''}` : '';
+    return r ? `${r.o}|${r.g}` : '';
   }
 
   private async read(): Promise<void> {

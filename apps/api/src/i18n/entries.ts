@@ -49,7 +49,7 @@ export async function saveOverride(
     sourceHash: input.sourceHash,
     demo: input.demo ?? false,
     updatedBy: input.userId,
-    // Set explicitly on update too: the refresh signature of I18nService compares max(updated_at).
+    // Set explicitly on update too: the admin shows when a cell was last changed.
     updatedAt: new Date(),
   };
   await tx
