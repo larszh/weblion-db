@@ -8,6 +8,7 @@ import {
   formatRemaining,
   isProxiable,
   newRecordInput,
+  proposalForm,
   recordPatch,
   sameNameservers,
   type RecordForm,
@@ -175,5 +176,30 @@ describe('formatRemaining', () => {
     expect(formatRemaining(-120)).toBeNull();
     expect(formatRemaining(null)).toBeNull();
     expect(formatRemaining(Number.NaN)).toBeNull();
+  });
+});
+
+describe('proposalForm (ai 8.4)', () => {
+  const spf: DnsRecord = { id: 'rec-spf', type: 'TXT', name: '@', data: '"v=spf1 -all"', ttl: 3600 };
+  const loaded = { isPending: false, data: [spf] };
+  const change = { action: 'change' as const, recordId: 'rec-spf' };
+
+  it('a change opens the form of the record it names', () => {
+    expect(proposalForm(change, loaded)).toEqual({ state: 'open', record: spf });
+    expect(proposalForm(change, { isPending: true, data: undefined })).toEqual({ state: 'wait' });
+  });
+
+  it('a change whose records failed to load or whose record is gone never opens as an addition', () => {
+    // The query failed (isPending false, no data): the notice with a retry, not the empty form.
+    expect(proposalForm(change, { isPending: false, data: undefined })).toEqual({ state: 'missing' });
+    // Joker ids are content hashes: an edited record has a new id.
+    expect(proposalForm({ ...change, recordId: 'rec-old' }, loaded)).toEqual({ state: 'missing' });
+    expect(proposalForm({ ...change, recordId: null }, loaded)).toEqual({ state: 'missing' });
+  });
+
+  it('an addition opens the empty form, also when the records failed to load', () => {
+    const add = { action: 'add' as const, recordId: null };
+    expect(proposalForm(add, loaded)).toEqual({ state: 'open', record: null });
+    expect(proposalForm(add, { isPending: false, data: undefined })).toEqual({ state: 'open', record: null });
   });
 });

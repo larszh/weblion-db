@@ -159,6 +159,8 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
   'ai.proposal.unverifiedConfirm.action': 'Open anyway',
   'ai.proposal.textOnly': 'You cannot add this record here directly. Enter it where the DNS zone is managed.',
   'ai.proposal.opened': 'The proposal is filled into the form. Check it and save.',
+  'ai.proposal.recordMissing':
+    'The DNS record this proposal changes could not be loaded or has changed in the meantime. Reload the records or run the check again.',
 
   // Organization, reseller and staff cards
   'ai.org.title': 'AI features',

@@ -154,6 +154,8 @@ export const aiFr: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.proposal.textOnly':
     'Vous ne pouvez pas créer cet enregistrement directement ici. Saisissez-le là où la zone DNS est gérée.',
   'ai.proposal.opened': 'La proposition a été reportée dans le formulaire. Vérifiez-la, puis enregistrez.',
+  'ai.proposal.recordMissing':
+    "L'enregistrement DNS que cette proposition modifie n'a pas pu être chargé ou a été modifié entre-temps. Rechargez les enregistrements ou relancez la vérification.",
   'ai.org.title': 'Fonctions IA',
   'ai.org.description':
     "Avec les fonctions IA, Claude d'Anthropic répond aux questions sur votre organisation et explique les erreurs. L'IA lit uniquement et ne modifie rien.",
