@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -1172,6 +1172,47 @@ describe('i18n:apply', () => {
     expect(enStamps['common.cancel']).toEqual([sourceHash(german['common.cancel']!), sourceHash('Abort')]);
     // Nothing was written: planFiles only computes.
     expect(readFileSync(join(sections, 'core.fr.ts'), 'utf8')).toBe(fr.before);
+  });
+
+  it('keeps the stamp of a locale file value left as it is, a stale legal notice included', async () => {
+    const sections = join(temp, 'sections-unchanged');
+    const stamps = join(temp, 'stamps-unchanged');
+    cpSync(SECTIONS_DIR, sections, { recursive: true });
+    cpSync(STAMPS_DIR, stamps, { recursive: true });
+    // The German notice changed after the French one was stamped: the cell is stale.
+    const stampPath = join(stamps, 'fr', 'ai.json');
+    const before = JSON.parse(readFileSync(stampPath, 'utf8')) as Record<string, [string, string]>;
+    const staleStamp: [string, string] = ['0000000000000000', before['ai.notice.text']![1]];
+    writeFileSync(stampPath, JSON.stringify({ ...before, 'ai.notice.text': staleStamp }, null, 2));
+    const fr = SECTION_SOURCES.ai.fr;
+    const rows = parseImportFile({
+      format: 'weblion-i18n-locale',
+      version: 1,
+      locale: 'fr',
+      entries: {
+        // Exported with its old value and left alone by the translator.
+        'ai.notice.text': { value: fr['ai.notice.text'] },
+        // Filled in or changed by the translator.
+        'ai.assistant.title': { value: 'Assistant du site' },
+      },
+    });
+    const plan = planApply(rows, {});
+    expect(plan.unchanged).toEqual(['fr:ai.notice.text']);
+    expect(plan.values.map((v) => `${v.locale}:${v.key}`)).toEqual(['fr:ai.assistant.title']);
+    expect(plan.failures).toEqual([]);
+
+    const changes = await planFiles(plan, { sections, stamps });
+    const frStamps = JSON.parse(changes.find((c) => c.path === stampPath)!.after) as Record<
+      string,
+      [string, string]
+    >;
+    // Still stale: the outdated notice is not served as current after the deploy.
+    expect(frStamps['ai.notice.text']).toEqual(staleStamp);
+    // The changed value is stamped against the current German.
+    expect(frStamps['ai.assistant.title']).toEqual([
+      sourceHash(SECTION_SOURCES.ai.de['ai.assistant.title']!),
+      sourceHash('Assistant du site'),
+    ]);
   });
 
   it('replaces only one string literal and refuses what it cannot replace', () => {

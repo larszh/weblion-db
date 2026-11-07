@@ -9,7 +9,8 @@
 // files are regenerated in German key order; in de and en only the string of each applied key is replaced, so
 // their comments stay. The stamps of the touched files are updated like i18n:stamp does, with one difference:
 // an applied value is stamped with the source hash of its row, so a stale override stays stale and a confirmed
-// one (A7) becomes current.
+// one (A7) becomes current. A value of a locale file (no source hash) that equals the compiled one is left out
+// as unchanged and keeps its stamp; a changed one is stamped against the current German.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -46,6 +47,11 @@ export interface ApplyPlan {
   warnings: string[];
   /** Entries left out on purpose (other locale, not reviewed, unknown key). */
   ignored: string[];
+  /**
+   * Entries of a locale file whose value equals the compiled one: not applied, so their stamp stays as it is
+   * (a stale translation the translator left alone stays stale).
+   */
+  unchanged: string[];
 }
 
 const sectionByKey = new Map<string, SectionName>();
@@ -60,7 +66,7 @@ export function planApply(
   rows: readonly ImportRow[],
   options: { locale?: Locale | null; onlyReviewed?: boolean },
 ): ApplyPlan {
-  const plan: ApplyPlan = { values: [], failures: [], warnings: [], ignored: [] };
+  const plan: ApplyPlan = { values: [], failures: [], warnings: [], ignored: [], unchanged: [] };
   // German first: a translation of the same run is checked against the German it was written for.
   const german = new Map<string, string>();
   const ordered = [...rows].sort((a, b) => (a.locale === 'de' ? 0 : 1) - (b.locale === 'de' ? 0 : 1));
@@ -79,6 +85,13 @@ export function planApply(
     const compiledGerman = SECTION_SOURCES[section].de[row.key]!;
     const source = row.locale === 'de' ? compiledGerman : (german.get(row.key) ?? compiledGerman);
     const { value } = prepareValue(row.locale, source, row.value);
+    // A locale file carries no source hash, and its export holds stale cells with their old value. A value the
+    // translator left as it is must keep its stamp: stamping it against the current German would turn a stale
+    // translation, a legal notice included, into a current one (only A7 or i18n:stamp --confirm may do that).
+    if (row.sourceHash === null && value === SECTION_SOURCES[section][row.locale][row.key]) {
+      plan.unchanged.push(id);
+      continue;
+    }
     const problems: string[] = [];
     const placeholders = placeholdersMatch(source, value);
     if (!placeholders.ok) {
@@ -307,6 +320,7 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   const plan = planApply(rows, { locale: options.locale, onlyReviewed: options.onlyReviewed });
   for (const line of plan.ignored) console.log(`ignored: ${line}`);
+  for (const line of plan.unchanged) console.log(`unchanged: ${line}`);
   for (const line of plan.warnings) console.log(`warning: ${line}`);
   for (const line of plan.failures) console.error(`not applied: ${line}`);
   const changes = await planFiles(plan);
@@ -317,7 +331,7 @@ async function main(argv: readonly string[]): Promise<number> {
     if (!options.dryRun) writeFileSync(change.path, change.after);
   }
   console.log(
-    `i18n:apply: ${plan.values.length} applied, ${plan.failures.length} not applied, ${plan.warnings.length} warning(s)` +
+    `i18n:apply: ${plan.values.length} applied, ${plan.unchanged.length} unchanged, ${plan.failures.length} not applied, ${plan.warnings.length} warning(s)` +
       (options.dryRun ? ' (dry run, nothing written)' : ''),
   );
   return plan.failures.length > 0 ? 1 : 0;
