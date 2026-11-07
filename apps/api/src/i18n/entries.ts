@@ -96,6 +96,8 @@ export function currentHash(i18n: I18nService, key: ServerTranslationKey, locale
 export function checkSource(i18n: I18nService, key: ServerTranslationKey, locale: Locale): string {
   // A German edit keeps the placeholders of the code, which passes exactly those parameters.
   if (locale === 'de') return i18n.catalog.bundles.de[key] ?? key;
+  // The effective German: a German override whose placeholders no longer match the code is not served, so a
+  // translation is checked against the compiled German then (I18nService.placeholdersCurrent).
   return i18n.source(key).text;
 }
 
@@ -172,8 +174,9 @@ export async function confirmCurrent(
   if (!i18n.catalog.has(key)) throw notStale();
   const hash = currentHash(i18n, key, locale);
   const row = i18n.override(locale, key);
-  // A demo row that is not served is a leftover; the cell is the compiled text then.
-  if (row && (!row.demo || i18n.isServable(row))) {
+  // A demo row that is not served is a leftover, and so is a row whose placeholders no longer match the code;
+  // the cell is the compiled text then.
+  if (row && (!row.demo || i18n.isServable(row)) && i18n.placeholdersCurrent(row)) {
     if (row.sourceHash === hash) throw notStale();
     await tx
       .update(translationOverrides)
