@@ -143,6 +143,8 @@ export const adminDe = {
   'admin.orgs.moveBlocker.invoices': 'Offene Rechnungen und Entwürfe: {n}',
   'admin.orgs.moveBlocker.payments': 'Ausstehende Zahlungen: {n}',
   'admin.orgs.moveBlocker.services': 'Aktive oder pausierte Dienste: {n}',
+  'admin.orgs.moveBlocker.endedEarly':
+    'Sofort beendete Kündigungen auf ein späteres Datum (zuerst wiederherstellen): {n}',
   'admin.orgs.moveBlockedHint':
     'Schliessen oder stornieren Sie die Rechnungen, erstatten oder verbrauchen Sie das Guthaben und kündigen Sie die Dienste. Danach kann der neue Rechnungssteller neue Dienste anlegen.',
   'admin.orgs.suspendedByPlatform':

@@ -408,10 +408,10 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
   'billing.service.restoreCancel': 'Restore the cancellation effective {date}',
   'billing.service.restoreTitle': 'Restore the cancellation of "{name}"',
   'billing.service.restoreText':
-    'The service was cancelled effective {date} but ended at once, as a cancellation to a later date did until the fix in November 2026. Restored, it keeps running until {date} and ends then.',
+    'The service was cancelled effective {date} but ended at once, as a cancellation effective a later date did until the fix in November 2026. Restored, it keeps running until {date} and ends then.',
   'billing.service.restoreMissed': 'Periods not billed',
   'billing.service.restorePeriod': '{start} to {end}',
-  'billing.service.restoreTotal': 'Total',
+  'billing.service.restoreTotal': 'Total not billed',
   'billing.service.restoreNet': 'Amounts excluding VAT.',
   'billing.service.restoreBillMissed': 'Bill them retroactively',
   'billing.service.restoreBillMissedHint': 'The next billing run invoices these periods.',
@@ -422,13 +422,27 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
     'These periods stay unbilled. No further period begins before the end date.',
   'billing.service.restoreOneOff':
     'The one-off charge ({price}) is not billed yet. The next billing run invoices it.',
+  'billing.service.restorePaused':
+    'The service was paused when the cancellation ended it. It is restored paused and billed only once you resume it, from the period that begins then.',
+  'billing.service.restoreBilled': 'For {start} to {end}, billing still invoices {total}.',
+  'billing.service.restoreBilledNothing': 'Up to the end date, billing invoices nothing more.',
+  'billing.service.restoreManualInvoices':
+    'Since the cancellation you have sent the customer invoices with lines not linked to a service: {numbers}. Check whether they bill periods of this service by hand.',
+  'billing.service.restoreModuleBackOn':
+    'The cancellation deactivated the module "{module}", it has been activated again since.',
+  'billing.service.restoreModuleMissing':
+    'You no longer have the module "{module}" yourself and cannot activate it again.',
+  'billing.service.restoreGone':
+    'This service can no longer be restored, it has been changed in the meantime. The services have been reloaded.',
+  'billing.service.restoreSellerChanged':
+    'The customer changed its invoice issuer since this service was sold. The service belongs to the previous invoice issuer and cannot be restored here.',
   'billing.service.restoreActivateModule': 'Activate the module "{module}" again',
   'billing.service.restoreDeactivateAtEnd': 'Deactivate the module "{module}" on the end date',
   'billing.service.restoreConfirm': 'Restore',
   'billing.service.restored': 'Cancellation of "{name}" effective {date} restored',
   'billing.endedEarly.title': 'Check services cancelled earlier',
   'billing.endedEarly.text':
-    'These services were cancelled to a later date but, as was the case until November 2026, ended at once and have not been billed since. Restore the cancellation on the service.',
+    "These services were cancelled effective a later date but, as was the case until November 2026, ended at once and have not been billed since. Restore the cancellation in the service's row.",
 
   // Products
   'billing.products.title': 'Products',

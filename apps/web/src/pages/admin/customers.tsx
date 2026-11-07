@@ -590,6 +590,8 @@ interface MoveBlockerDetails {
   invoices: number;
   payments: number;
   services: number;
+  /** Cancelled services with an end date after today, ended at once before the fix of November 2026. */
+  endedEarly: number;
 }
 
 /** Explains why the reseller can't change (409 with open billing), nothing for other errors. */
@@ -607,6 +609,7 @@ function MoveBlockers({ error }: { error: unknown }) {
     details.invoices ? t('admin.orgs.moveBlocker.invoices', { n: details.invoices }) : null,
     details.payments ? t('admin.orgs.moveBlocker.payments', { n: details.payments }) : null,
     details.services ? t('admin.orgs.moveBlocker.services', { n: details.services }) : null,
+    details.endedEarly ? t('admin.orgs.moveBlocker.endedEarly', { n: details.endedEarly }) : null,
   ].filter((item): item is string => item !== null);
   if (items.length === 0) return null;
   return (

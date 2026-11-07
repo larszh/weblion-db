@@ -239,22 +239,40 @@ export interface ServicePeriodDto {
 export interface ServiceResumePreviewDto {
   serviceId: string;
   name: string;
+  /** Start date of the service: the day anchor of its periods. */
+  startsAt: string;
   /** The end date of the cancellation, after today. The restored service runs and is billed up to this day. */
   endsAt: string;
   cancelledAt: string | null;
   currency: Currency;
   interval: BillingInterval;
   /**
-   * The first period no invoice has a line for (drafts count, void invoices do not): the billing date with
-   * billFrom "missed". For a one-off service its start date while it is not billed, null once it is.
+   * The billing date as it stood when the old cancellation cleared it: the billing date with billFrom "missed",
+   * and the one a paused service keeps. Whichever was written later: the date a change set by hand (a date
+   * moved, a pause resumed; audit service.update) or the period after the last one an invoice bills (a draft
+   * counts, a void invoice too unless it was made by hand: the run moved the date on and never bills a voided
+   * period again). For a one-off service its start date while it is not billed, null once it is.
    */
   firstUnbilled: string | null;
+  /**
+   * The service was paused when the old cancellation ended it (the last service.update before it set
+   * "suspended"). It is restored paused, as a scheduled cancellation keeps the pause: nothing is billed until
+   * the seller resumes it, and then from the period that begins on that day (no missed or upcoming periods).
+   */
+  pausedBeforeCancel: boolean;
   /** Periods from firstUnbilled that began before today (Zurich) and on or before endsAt. None for one-off services. */
   missedPeriods: ServicePeriodDto[];
   /** Sum of the missed periods' amounts, net. */
   missedTotal: number;
   /** The first period that begins today or later: the billing date with billFrom "next". */
   nextFromToday: string | null;
+  /**
+   * Periods from nextFromToday up to endsAt: the billing run bills them with either choice, the last one in full
+   * even when the end date cuts it short. None for one-off and paused services.
+   */
+  upcomingPeriods: ServicePeriodDto[];
+  /** Sum of the upcoming periods' amounts, net. */
+  upcomingTotal: number;
   /** Net amount of one period (of the one-off charge for a one-off service). */
   periodAmount: number;
   module: ModuleKey | null;
@@ -262,11 +280,27 @@ export interface ServiceResumePreviewDto {
   moduleActive: boolean;
   /** Whether the cancellation switched the module off (its audit entry service.cancel says so). */
   moduleDeactivatedByCancel: boolean;
+  /** Whether the seller may switch the module on again: always for the platform, for a reseller if it has it. */
+  sellerHasModule: boolean;
+  /**
+   * Invoices of the seller to the customer since the cancellation, not void, with a line not linked to a service:
+   * periods of this service the seller billed by hand would not be seen otherwise. At most ten, oldest first.
+   */
+  manualInvoices: { id: string; number: string | null }[];
 }
+
+/**
+ * The reason of a 409 from GET or POST /services/:id/resume: not (or no longer) a service ended early, or the
+ * customer changed its seller since the service was sold (the old seller's service is not billed by the new one).
+ */
+export type ServiceResumeRefusal = 'notEndedEarly' | 'sellerChanged';
 
 /** POST /services/:id/resume */
 export interface ServiceResumeInput {
-  /** missed: bill from firstUnbilled, the missed periods too; next: from nextFromToday, the missed ones stay unbilled. */
+  /**
+   * missed: bill from firstUnbilled, the missed periods too; next: from nextFromToday, the missed ones stay
+   * unbilled. Without effect for a service paused before the cancellation (pausedBeforeCancel).
+   */
   billFrom: 'missed' | 'next';
   /** Switches the module on again when the customer does not have it. */
   activateModule: boolean;

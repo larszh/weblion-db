@@ -136,6 +136,8 @@ export const adminEn: Record<keyof typeof adminDe, string> = {
   'admin.orgs.moveBlocker.invoices': 'Open and draft invoices: {n}',
   'admin.orgs.moveBlocker.payments': 'Pending payments: {n}',
   'admin.orgs.moveBlocker.services': 'Active or paused services: {n}',
+  'admin.orgs.moveBlocker.endedEarly':
+    'Cancellations effective a later date that ended at once (restore them first): {n}',
   'admin.orgs.moveBlockedHint':
     'Settle or void the invoices, refund or use up the credit and cancel the services. The new invoice issuer can then add new services.',
   'admin.orgs.suspendedByPlatform': 'Suspended by weblion.one. The reseller cannot lift this suspension.',

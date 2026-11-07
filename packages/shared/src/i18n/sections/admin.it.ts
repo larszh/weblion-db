@@ -134,6 +134,8 @@ export const adminIt: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.orgs.moveBlocker.invoices': 'Fatture aperte e bozze: {n}',
   'admin.orgs.moveBlocker.payments': 'Pagamenti in sospeso: {n}',
   'admin.orgs.moveBlocker.services': 'Servizi attivi o in pausa: {n}',
+  'admin.orgs.moveBlocker.endedEarly':
+    'Disdette con effetto a una data successiva terminate subito (da ripristinare prima): {n}',
   'admin.orgs.moveBlockedHint':
     'Chiuda o storni le fatture, rimborsi o utilizzi il credito e disdica i servizi. In seguito il nuovo emittente delle fatture potrà creare nuovi servizi.',
   'admin.orgs.suspendedByPlatform':

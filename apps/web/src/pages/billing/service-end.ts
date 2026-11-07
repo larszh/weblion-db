@@ -4,7 +4,9 @@ import {
   type ServiceDto,
   type ServiceResumeInput,
   type ServiceResumePreviewDto,
+  type ServiceResumeRefusal,
 } from '@weblion/shared';
+import { ApiError } from '@/lib/api';
 import { addDaysISO } from './money';
 
 /**
@@ -98,25 +100,50 @@ export { endedEarly };
 
 type ResumeFacts = Pick<
   ServiceResumePreviewDto,
-  'endsAt' | 'missedPeriods' | 'nextFromToday' | 'module' | 'moduleActive' | 'moduleDeactivatedByCancel'
+  | 'startsAt'
+  | 'endsAt'
+  | 'interval'
+  | 'pausedBeforeCancel'
+  | 'missedPeriods'
+  | 'nextFromToday'
+  | 'upcomingPeriods'
+  | 'module'
+  | 'moduleActive'
+  | 'moduleDeactivatedByCancel'
+  | 'sellerHasModule'
 >;
 
 /**
- * Defaults of the restore dialog. A cancellation that switched the module off took the service away from the
- * customer, so the missed periods are not billed, the module comes back and goes off again at the end date.
- * Otherwise the customer kept using the service unbilled: bill the missed periods, leave the module alone.
+ * Defaults of the restore dialog. While the module the cancellation switched off is still off, the customer
+ * could not use the service: the missed periods are not billed and the module comes back (if the seller has it).
+ * Otherwise the customer could use it unbilled (the module stayed on, or someone switched it on again): bill
+ * them. The module goes off at the end date when the cancellation switched it off, as the seller chose then.
  */
-export function resumeDefaults(preview: Pick<ResumeFacts, 'moduleDeactivatedByCancel'>): ServiceResumeInput {
-  const off = preview.moduleDeactivatedByCancel;
-  return { billFrom: off ? 'next' : 'missed', activateModule: off, deactivateModuleAtEnd: off };
+export function resumeDefaults(
+  preview: Pick<ResumeFacts, 'moduleDeactivatedByCancel' | 'moduleActive' | 'sellerHasModule'>,
+): ServiceResumeInput {
+  const off = preview.moduleDeactivatedByCancel && !preview.moduleActive;
+  return {
+    billFrom: off ? 'next' : 'missed',
+    activateModule: off && preview.sellerHasModule,
+    deactivateModuleAtEnd: preview.moduleDeactivatedByCancel,
+  };
 }
 
-/** The switches the dialog shows: a module to switch on again only while the customer does not have it. */
-export function resumeSwitches(preview: Pick<ResumeFacts, 'module' | 'moduleActive'>): {
+/**
+ * The switches the dialog shows: a module to switch on again only while the customer does not have it, and only
+ * usable when the seller has it itself (a reseller passes on only its own modules, the API refuses otherwise).
+ */
+export function resumeSwitches(preview: Pick<ResumeFacts, 'module' | 'moduleActive' | 'sellerHasModule'>): {
   activate: boolean;
+  canActivate: boolean;
   deactivateAtEnd: boolean;
 } {
-  return { activate: !!preview.module && !preview.moduleActive, deactivateAtEnd: !!preview.module };
+  return {
+    activate: !!preview.module && !preview.moduleActive,
+    canActivate: preview.sellerHasModule,
+    deactivateAtEnd: !!preview.module,
+  };
 }
 
 /** Whether a period begins on or after today and up to the end date, so "bill only from {date}" bills one. */
@@ -124,13 +151,49 @@ export function billsFromNext(preview: Pick<ResumeFacts, 'nextFromToday' | 'ends
   return !!preview.nextFromToday && preview.nextFromToday <= preview.endsAt;
 }
 
-/** What the dialog sends: a choice the dialog does not show has no effect. */
+/**
+ * What the billing run bills up to the end date with a choice: the missed periods (billFrom missed) and the
+ * upcoming ones, from `from` to `to`. `fullPeriod` is the last one when the end date cuts it short, as the run
+ * bills it in full (fullPeriodAhead says the same when cancelling). null for a one-off or paused service, which
+ * the dialog explains apart.
+ */
+export function resumeBilling(
+  preview: ResumeFacts,
+  billFrom: ServiceResumeInput['billFrom'],
+): {
+  total: number;
+  from: string | null;
+  to: string | null;
+  fullPeriod: { from: string; price: number } | null;
+} | null {
+  if (preview.interval === 'once' || preview.pausedBeforeCancel) return null;
+  const billed = [...(billFrom === 'missed' ? preview.missedPeriods : []), ...preview.upcomingPeriods];
+  const last = billed.at(-1);
+  const following = last ? nextBillingDate(last.start, preview.interval, preview.startsAt) : null;
+  // The line ends on the end date, the period would have run until the day before the next one.
+  const cut = !!last?.end && !!following && last.end < addDaysISO(following, -1);
+  return {
+    total: billed.reduce((sum, p) => sum + p.amount, 0),
+    from: billed[0]?.start ?? null,
+    to: last?.end ?? null,
+    fullPeriod: last && cut ? { from: last.start, price: last.amount } : null,
+  };
+}
+
+/** What the dialog sends: a choice the dialog does not show (or cannot be used) has no effect. */
 export function resumeBody(preview: ResumeFacts, choice: ServiceResumeInput): ServiceResumeInput {
   const switches = resumeSwitches(preview);
   return {
-    // Without missed periods both choices give the same billing date.
-    billFrom: preview.missedPeriods.length > 0 ? choice.billFrom : 'missed',
-    activateModule: switches.activate && choice.activateModule,
+    // Without missed periods both choices give the same billing date; a paused service keeps its date anyway.
+    billFrom: preview.missedPeriods.length > 0 && !preview.pausedBeforeCancel ? choice.billFrom : 'missed',
+    activateModule: switches.activate && switches.canActivate && choice.activateModule,
     deactivateModuleAtEnd: switches.deactivateAtEnd && choice.deactivateModuleAtEnd,
   };
+}
+
+/** The reason of a 409 from the restore routes (ServiceResumeRefusal), null for any other error. */
+export function resumeRefusal(error: unknown): ServiceResumeRefusal | null {
+  if (!(error instanceof ApiError) || error.status !== 409) return null;
+  const reason = (error.details as { reason?: unknown } | null | undefined)?.reason;
+  return reason === 'notEndedEarly' || reason === 'sellerChanged' ? reason : null;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   BILLING_INTERVALS,
@@ -48,8 +49,10 @@ import {
 import {
   billsFromNext,
   fullPeriodAhead,
+  resumeBilling,
   resumeBody,
   resumeDefaults,
+  resumeRefusal,
   resumeSwitches,
   scheduledEndOf,
   servicesKeepingModule,
@@ -887,7 +890,8 @@ export function CancelServiceDialog({
 /**
  * Restores a service that a cancellation to a later date ended at once (until the fix of November 2026) as the
  * scheduled cancellation it was meant to be. The preview (GET /services/:id/resume) lists the periods missed
- * since, so the seller decides whether they are billed and what happens to the module.
+ * since and what is billed up to the end date, so the seller decides whether the missed periods are billed and
+ * what happens to the module.
  */
 export function ResumeServiceDialog({
   service,
@@ -900,6 +904,7 @@ export function ResumeServiceDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t, locale } = useI18n();
+  const qc = useQueryClient();
   const preview = useServiceResumePreview(service?.id);
   const data = preview.data?.serviceId === service?.id ? preview.data : undefined;
   // The seller's choice for this service; the defaults until they change something. Cleared on every opening,
@@ -915,44 +920,59 @@ export function ResumeServiceDialog({
       success: (s) => t('billing.service.restored', { name: s.name, date: formatDay(s.endsAt!, locale) }),
       invalidate: moduleChangeKeys,
       onSuccess: () => onOpenChange(false),
+      // A refusal is explained in the dialog, any other error as well (the toast would hide behind it).
+      errorToast: false,
     },
   );
+  const { reset } = restore;
+  useEffect(() => reset(), [service, reset]);
+  // Refused: the table is out of date (restored or changed elsewhere), so load the services again.
+  const refusal = resumeRefusal(preview.error) ?? resumeRefusal(restore.error);
+  useEffect(() => {
+    if (refusal) void qc.invalidateQueries({ queryKey: billingKeys.all });
+  }, [refusal, qc]);
 
   return (
     <Dialog
       open={!!service}
       onOpenChange={onOpenChange}
       title={t('billing.service.restoreTitle', { name: service?.name ?? '' })}
-      description={
-        service?.endsAt
-          ? t('billing.service.restoreText', { date: formatDay(service.endsAt, locale) })
-          : undefined
-      }
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
+            {refusal ? t('common.close') : t('common.cancel')}
           </Button>
-          <Button
-            variant="primary"
-            disabled={!data || !value}
-            loading={restore.isPending}
-            onClick={() => restore.mutate(undefined)}
-          >
-            {t('billing.service.restoreConfirm')}
-          </Button>
+          {!refusal && (
+            <Button
+              variant="primary"
+              disabled={!data || !value}
+              loading={restore.isPending}
+              onClick={() => restore.mutate(undefined)}
+            >
+              {t('billing.service.restoreConfirm')}
+            </Button>
+          )}
         </>
       }
     >
-      {preview.isError ? (
+      {refusal ? (
+        <Notice tone="warning">
+          {refusal === 'sellerChanged'
+            ? t('billing.service.restoreSellerChanged')
+            : t('billing.service.restoreGone')}
+        </Notice>
+      ) : preview.isError ? (
         <ErrorState error={preview.error} onRetry={() => void preview.refetch()} />
       ) : data && value ? (
-        <ResumeServiceForm
-          preview={data}
-          value={value}
-          onChange={(v) => setChoice({ id: data.serviceId, value: v })}
-          keeping={keeping}
-        />
+        <div className="space-y-4">
+          <ResumeServiceForm
+            preview={data}
+            value={value}
+            onChange={(v) => setChoice({ id: data.serviceId, value: v })}
+            keeping={keeping}
+          />
+          {restore.isError && <ErrorState error={restore.error} />}
+        </div>
       ) : (
         <LoadingBlock />
       )}
@@ -977,11 +997,16 @@ export function ResumeServiceForm({
   const labels = useBillingLabels();
   const day = (date: string) => formatDay(date, locale);
   const money = (amount: number) => formatMoney(amount, preview.currency, locale);
+  const paused = preview.pausedBeforeCancel;
   const missed = preview.missedPeriods;
   const switches = resumeSwitches(preview);
+  const billing = resumeBilling(preview, resumeBody(preview, value).billFrom);
   // A one-off charge not billed yet: the next billing run bills it, whichever choice (it is not a period).
   const oneOffOpen =
-    preview.interval === 'once' && !!preview.firstUnbilled && preview.firstUnbilled <= preview.endsAt;
+    preview.interval === 'once' &&
+    !paused &&
+    !!preview.firstUnbilled &&
+    preview.firstUnbilled <= preview.endsAt;
   const options: { value: ServiceResumeInput['billFrom']; label: string; hint: string }[] = [
     {
       value: 'missed',
@@ -1004,6 +1029,9 @@ export function ResumeServiceForm({
 
   return (
     <div className="space-y-4">
+      {/* In the body, not the dialog's fixed header: on a small screen it scrolls away with the rest. */}
+      <p className="text-sm text-muted">{t('billing.service.restoreText', { date: day(preview.endsAt) })}</p>
+      {paused && <Notice tone="info">{t('billing.service.restorePaused')}</Notice>}
       {missed.length > 0 && (
         <fieldset className="space-y-2">
           <legend className="mb-1.5 text-[13px] font-medium text-text">
@@ -1021,7 +1049,9 @@ export function ResumeServiceForm({
               </li>
             ))}
             <li className="flex items-baseline justify-between gap-3 bg-surface-2 px-3 py-2 font-medium">
-              <span className="text-text">{t('billing.service.restoreTotal')}</span>
+              <span className="min-w-0 text-text [overflow-wrap:anywhere]">
+                {t('billing.service.restoreTotal')}
+              </span>
               <span className="whitespace-nowrap tabular text-text">{money(preview.missedTotal)}</span>
             </li>
           </ul>
@@ -1054,16 +1084,52 @@ export function ResumeServiceForm({
           </div>
         </fieldset>
       )}
+      {billing && (
+        <div className="space-y-1 text-sm text-text" aria-live="polite">
+          <p>
+            {billing.total > 0 && billing.from && billing.to
+              ? t('billing.service.restoreBilled', {
+                  total: money(billing.total),
+                  start: day(billing.from),
+                  end: day(billing.to),
+                })
+              : t('billing.service.restoreBilledNothing')}
+          </p>
+          {billing.fullPeriod && (
+            <p className="text-xs text-muted">
+              {t('billing.service.fullPeriod', {
+                date: day(billing.fullPeriod.from),
+                price: money(billing.fullPeriod.price),
+              })}
+            </p>
+          )}
+        </div>
+      )}
       {oneOffOpen && (
         <Notice tone="info">
           {t('billing.service.restoreOneOff', { price: money(preview.periodAmount) })}
         </Notice>
       )}
+      {preview.manualInvoices.length > 0 && (
+        <Notice tone="warning">
+          {t('billing.service.restoreManualInvoices', {
+            numbers: preview.manualInvoices.map((i) => i.number ?? t('billing.status.draft')).join(', '),
+          })}
+        </Notice>
+      )}
+      {preview.module && preview.moduleDeactivatedByCancel && preview.moduleActive && (
+        <Notice tone="info">{t('billing.service.restoreModuleBackOn', { module: moduleName })}</Notice>
+      )}
       {switches.activate && (
         <SwitchRow
           label={t('billing.service.restoreActivateModule', { module: moduleName })}
-          hint={t('billing.service.activateModuleHint')}
-          checked={value.activateModule}
+          hint={
+            switches.canActivate
+              ? t('billing.service.activateModuleHint')
+              : t('billing.service.restoreModuleMissing', { module: moduleName })
+          }
+          checked={switches.canActivate && value.activateModule}
+          disabled={!switches.canActivate}
           onCheckedChange={(v) => onChange({ ...value, activateModule: v })}
         />
       )}

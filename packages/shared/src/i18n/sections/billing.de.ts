@@ -420,7 +420,7 @@ export const billingDe = {
     'Der Dienst wurde per {date} gekündigt, aber sofort beendet, wie es bei einer Kündigung auf ein späteres Datum bis zur Korrektur im November 2026 geschah. Wiederhergestellt läuft er bis zum {date} weiter und endet dann.',
   'billing.service.restoreMissed': 'Nicht verrechnete Perioden',
   'billing.service.restorePeriod': '{start} bis {end}',
-  'billing.service.restoreTotal': 'Total',
+  'billing.service.restoreTotal': 'Total nicht verrechnet',
   'billing.service.restoreNet': 'Beträge ohne MWST.',
   'billing.service.restoreBillMissed': 'Nachverrechnen',
   'billing.service.restoreBillMissedHint': 'Die nächste Abrechnung stellt diese Perioden in Rechnung.',
@@ -431,6 +431,21 @@ export const billingDe = {
     'Diese Perioden bleiben unverrechnet. Bis zum Enddatum beginnt keine weitere Periode.',
   'billing.service.restoreOneOff':
     'Die einmalige Verrechnung ({price}) ist noch offen. Die nächste Abrechnung stellt sie in Rechnung.',
+  'billing.service.restorePaused':
+    'Der Dienst war pausiert, als die Kündigung ihn beendete. Er wird pausiert wiederhergestellt und erst verrechnet, wenn Sie ihn fortsetzen, ab der Periode, die dann beginnt.',
+  'billing.service.restoreBilled':
+    'Für die Zeit vom {start} bis {end} stellt die Abrechnung noch {total} in Rechnung.',
+  'billing.service.restoreBilledNothing': 'Bis zum Enddatum stellt die Abrechnung nichts mehr in Rechnung.',
+  'billing.service.restoreManualInvoices':
+    'Seit der Kündigung haben Sie dem Kunden Rechnungen mit Positionen ohne Dienst gestellt: {numbers}. Prüfen Sie, ob darin Perioden dieses Dienstes von Hand verrechnet sind.',
+  'billing.service.restoreModuleBackOn':
+    'Die Kündigung hat das Modul «{module}» gesperrt, inzwischen ist es wieder eingeschaltet.',
+  'billing.service.restoreModuleMissing':
+    'Sie haben das Modul «{module}» selbst nicht mehr und können es nicht wieder einschalten.',
+  'billing.service.restoreGone':
+    'Dieser Dienst lässt sich nicht mehr wiederherstellen, er wurde inzwischen geändert. Die Dienste sind neu geladen.',
+  'billing.service.restoreSellerChanged':
+    'Der Kunde hat den Rechnungssteller gewechselt, seit dieser Dienst verkauft wurde. Der Dienst gehört dem bisherigen Rechnungssteller und lässt sich hier nicht wiederherstellen.',
   'billing.service.restoreActivateModule': 'Modul «{module}» wieder einschalten',
   'billing.service.restoreDeactivateAtEnd': 'Modul «{module}» am Enddatum sperren',
   'billing.service.restoreConfirm': 'Wiederherstellen',

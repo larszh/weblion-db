@@ -111,6 +111,7 @@
   "admin.orgs.moveBlocker.invoices": ["33f5451fcc40e6be", "d1d763d5b0587036"],
   "admin.orgs.moveBlocker.payments": ["04136fe698aacd02", "de004bca2c1a8fdf"],
   "admin.orgs.moveBlocker.services": ["d5435e2ac1d99cb1", "d2e17aa7ce1610fb"],
+  "admin.orgs.moveBlocker.endedEarly": ["5659942a964ba5ed", "d4dda7d3ac88408b"],
   "admin.orgs.moveBlockedHint": ["9f3d9a4a9a0eaa46", "d484b144b866ec4d"],
   "admin.orgs.suspendedByPlatform": ["b5480390702b0e1e", "3bf07998622f77f1"],
   "admin.orgs.suspendedByReseller": ["39500830b1adad23", "ee7b3871d4a7630b"],

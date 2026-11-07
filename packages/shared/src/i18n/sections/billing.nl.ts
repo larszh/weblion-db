@@ -387,10 +387,10 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.restoreCancel': 'Opzegging per {date} herstellen',
   'billing.service.restoreTitle': 'Opzegging van "{name}" herstellen',
   'billing.service.restoreText':
-    'De dienst is per {date} opgezegd, maar direct beëindigd, zoals een opzegging op een latere datum tot de correctie in november 2026 werkte. Na het herstellen loopt hij door tot {date} en eindigt dan.',
+    'De dienst is per {date} opgezegd, maar direct beëindigd, zoals een opzegging per een latere datum tot de correctie in november 2026 werkte. Na het herstellen loopt hij door tot {date} en eindigt dan.',
   'billing.service.restoreMissed': 'Niet gefactureerde perioden',
   'billing.service.restorePeriod': '{start} tot {end}',
-  'billing.service.restoreTotal': 'Totaal',
+  'billing.service.restoreTotal': 'Totaal niet gefactureerd',
   'billing.service.restoreNet': 'Bedragen exclusief btw.',
   'billing.service.restoreBillMissed': 'Achteraf factureren',
   'billing.service.restoreBillMissedHint': 'De volgende facturering zet deze perioden op een factuur.',
@@ -401,13 +401,28 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
     'Deze perioden blijven ongefactureerd. Vóór de einddatum begint geen nieuwe periode meer.',
   'billing.service.restoreOneOff':
     'Het eenmalige bedrag ({price}) is nog niet gefactureerd. De volgende facturering zet het op een factuur.',
+  'billing.service.restorePaused':
+    'De dienst was gepauzeerd toen de opzegging hem beëindigde. Hij wordt gepauzeerd hersteld en pas gefactureerd wanneer u hem hervat, vanaf de periode die dan begint.',
+  'billing.service.restoreBilled':
+    'Voor de periode van {start} tot {end} zet de facturering nog {total} op een factuur.',
+  'billing.service.restoreBilledNothing': 'Tot de einddatum zet de facturering niets meer op een factuur.',
+  'billing.service.restoreManualInvoices':
+    'Sinds de opzegging hebt u de klant facturen gestuurd met regels zonder dienst: {numbers}. Controleer of daarin perioden van deze dienst met de hand zijn gefactureerd.',
+  'billing.service.restoreModuleBackOn':
+    'De opzegging heeft de module "{module}" gedeactiveerd, intussen is hij weer geactiveerd.',
+  'billing.service.restoreModuleMissing':
+    'U hebt de module "{module}" zelf niet meer en kunt hem niet weer activeren.',
+  'billing.service.restoreGone':
+    'Deze dienst kan niet meer worden hersteld, hij is intussen gewijzigd. De diensten zijn opnieuw geladen.',
+  'billing.service.restoreSellerChanged':
+    'De klant heeft van factuurafzender gewisseld sinds deze dienst is verkocht. De dienst hoort bij de vorige factuurafzender en kan hier niet worden hersteld.',
   'billing.service.restoreActivateModule': 'Module "{module}" weer activeren',
   'billing.service.restoreDeactivateAtEnd': 'Module "{module}" op de einddatum deactiveren',
   'billing.service.restoreConfirm': 'Herstellen',
   'billing.service.restored': 'Opzegging van "{name}" per {date} hersteld',
   'billing.endedEarly.title': 'Eerder opgezegde diensten controleren',
   'billing.endedEarly.text':
-    'Deze diensten zijn op een latere datum opgezegd, maar zoals tot november 2026 direct beëindigd en sindsdien niet meer gefactureerd. Herstel de opzegging bij de dienst.',
+    'Deze diensten zijn per een latere datum opgezegd, maar zoals tot november 2026 gebruikelijk was direct beëindigd en sindsdien niet meer gefactureerd. Herstel de opzegging bij de dienst.',
   'billing.products.title': 'Producten',
   'billing.products.text':
     'Prijslijst voor nieuwe diensten. Prijswijzigingen gelden alleen voor nieuwe diensten.',

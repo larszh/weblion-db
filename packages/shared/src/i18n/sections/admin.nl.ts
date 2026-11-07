@@ -130,6 +130,8 @@ export const adminNl: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.orgs.moveBlocker.invoices': 'Openstaande facturen en concepten: {n}',
   'admin.orgs.moveBlocker.payments': 'Lopende betalingen: {n}',
   'admin.orgs.moveBlocker.services': 'Actieve of gepauzeerde diensten: {n}',
+  'admin.orgs.moveBlocker.endedEarly':
+    'Direct beëindigde opzeggingen per een latere datum (eerst herstellen): {n}',
   'admin.orgs.moveBlockedHint':
     'Rond de facturen af of annuleer ze, betaal het tegoed terug of verbruik het, en zeg de diensten op. Daarna kan de nieuwe factuurafzender nieuwe diensten aanmaken.',
   'admin.orgs.suspendedByPlatform':

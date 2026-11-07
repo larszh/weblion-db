@@ -134,6 +134,8 @@ export const adminFr: Partial<Record<keyof typeof adminDe, string>> = {
   'admin.orgs.moveBlocker.invoices': 'Factures ouvertes et brouillons de facture : {n}',
   'admin.orgs.moveBlocker.payments': 'Paiements en attente : {n}',
   'admin.orgs.moveBlocker.services': 'Services actifs ou en pause : {n}',
+  'admin.orgs.moveBlocker.endedEarly':
+    "Résiliations pour une date ultérieure terminées immédiatement (à rétablir d'abord) : {n}",
   'admin.orgs.moveBlockedHint':
     'Clôturez ou annulez les factures, remboursez ou utilisez le crédit et résiliez les services. Le nouvel émetteur des factures pourra ensuite créer de nouveaux services.',
   'admin.orgs.suspendedByPlatform':

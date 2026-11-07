@@ -391,10 +391,10 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
   'billing.service.restoreCancel': 'Ripristina la disdetta con effetto al {date}',
   'billing.service.restoreTitle': 'Ripristino della disdetta di "{name}"',
   'billing.service.restoreText':
-    'Il servizio è stato disdetto con effetto al {date}, ma è terminato subito, come avveniva per una disdetta a una data successiva fino alla correzione di novembre 2026. Una volta ripristinato, continua fino al {date} e poi termina.',
+    'Il servizio è stato disdetto con effetto al {date}, ma è terminato subito, come avveniva per una disdetta con effetto a una data successiva fino alla correzione di novembre 2026. Una volta ripristinato, continua fino al {date} e poi termina.',
   'billing.service.restoreMissed': 'Periodi non fatturati',
   'billing.service.restorePeriod': 'Dal {start} al {end}',
-  'billing.service.restoreTotal': 'Totale',
+  'billing.service.restoreTotal': 'Totale non fatturato',
   'billing.service.restoreNet': 'Importi IVA esclusa.',
   'billing.service.restoreBillMissed': 'Fatturare a posteriori',
   'billing.service.restoreBillMissedHint': 'La prossima fatturazione include questi periodi.',
@@ -405,13 +405,27 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
     'Questi periodi restano non fatturati. Prima della data di fine non inizia nessun altro periodo.',
   'billing.service.restoreOneOff':
     "L'importo unico ({price}) non è ancora fatturato. La prossima fatturazione lo include.",
+  'billing.service.restorePaused':
+    'Il servizio era in pausa quando la disdetta lo ha terminato. Viene ripristinato in pausa e fatturato solo quando lo riprende, dal periodo che inizia allora.',
+  'billing.service.restoreBilled':
+    'Per il periodo dal {start} al {end}, la fatturazione include ancora {total}.',
+  'billing.service.restoreBilledNothing': 'Fino alla data di fine, la fatturazione non include più nulla.',
+  'billing.service.restoreManualInvoices':
+    'Dalla disdetta ha emesso al cliente fatture con posizioni senza servizio: {numbers}. Verifichi se vi sono fatturati a mano periodi di questo servizio.',
+  'billing.service.restoreModuleBackOn':
+    'La disdetta ha disattivato il modulo "{module}", nel frattempo è stato riattivato.',
+  'billing.service.restoreModuleMissing': 'Non ha più il modulo "{module}" e non può riattivarlo.',
+  'billing.service.restoreGone':
+    'Questo servizio non può più essere ripristinato, nel frattempo è stato modificato. I servizi sono stati ricaricati.',
+  'billing.service.restoreSellerChanged':
+    "Il cliente ha cambiato emittente delle fatture da quando questo servizio è stato venduto. Il servizio appartiene all'emittente delle fatture precedente e qui non può essere ripristinato.",
   'billing.service.restoreActivateModule': 'Riattiva il modulo "{module}"',
   'billing.service.restoreDeactivateAtEnd': 'Disattiva il modulo "{module}" alla data di fine',
   'billing.service.restoreConfirm': 'Ripristina',
   'billing.service.restored': 'Disdetta di "{name}" con effetto al {date} ripristinata',
   'billing.endedEarly.title': 'Verificare i servizi disdetti in precedenza',
   'billing.endedEarly.text':
-    'Questi servizi sono stati disdetti a una data successiva, ma come fino a novembre 2026 sono terminati subito e da allora non vengono più fatturati. Ripristini la disdetta nel servizio.',
+    'Questi servizi sono stati disdetti con effetto a una data successiva, ma, come avveniva fino a novembre 2026, sono terminati subito e da allora non vengono più fatturati. Ripristini la disdetta sulla riga del servizio.',
   'billing.products.title': 'Prodotti',
   'billing.products.text':
     'Listino prezzi per nuovi servizi. Le modifiche di prezzo valgono solo per i nuovi servizi.',

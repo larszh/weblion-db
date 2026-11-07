@@ -1,6 +1,7 @@
-import { and, asc, count, eq, ilike, inArray, ne, notInArray, or } from 'drizzle-orm';
+import { and, asc, count, eq, gt, ilike, inArray, ne, notInArray, or } from 'drizzle-orm';
 import {
   formatMoney,
+  todayZurich,
   type Currency,
   type ModuleKey,
   type OrgRole,
@@ -237,13 +238,18 @@ export interface SellerChangeBlockers {
   payments: number;
   /** Active and paused services. */
   services: number;
+  /**
+   * Cancelled services with an end date after today: ended at once by a cancellation to a later date before the
+   * fix of November 2026 (billing/resume.ts). Scheduled today they would run and count as services above.
+   */
+  endedEarly: number;
 }
 
 /**
  * Credit, invoices, payments and services all belong to the seller that issued them, and
  * credit is not kept per seller. Moving an organization to another seller while any of
  * them is left would let one seller's credit pay the other's invoices, or bill the old
- * seller's services through the new one. Takes the billing lock, so nothing is booked
+ * seller's services through the new one (a service ended early too, once restored). Takes the billing lock, so nothing is booked
  * between this check and the move in the same transaction.
  */
 export async function assertSellerChangeable(tx: Tx, orgId: string): Promise<void> {
@@ -270,6 +276,18 @@ export async function assertSellerChangeable(tx: Tx, orgId: string): Promise<voi
         .from(services)
         .where(and(eq(services.orgId, orgId), inArray(services.status, ['active', 'suspended']))),
     ),
+    endedEarly: n(
+      await tx
+        .select({ n: count() })
+        .from(services)
+        .where(
+          and(
+            eq(services.orgId, orgId),
+            eq(services.status, 'cancelled'),
+            gt(services.endsAt, todayZurich()),
+          ),
+        ),
+    ),
   };
   const parts = [
     blockers.balance !== 0
@@ -278,6 +296,9 @@ export async function assertSellerChangeable(tx: Tx, orgId: string): Promise<voi
     blockers.invoices > 0 ? `${blockers.invoices} draft or open invoices` : null,
     blockers.payments > 0 ? `${blockers.payments} pending payments` : null,
     blockers.services > 0 ? `${blockers.services} active or paused services` : null,
+    blockers.endedEarly > 0
+      ? `${blockers.endedEarly} services a cancellation to a later date ended at once (restore them first)`
+      : null,
   ].filter((p): p is string => p !== null);
   if (parts.length === 0) return;
   throw new AppError(
