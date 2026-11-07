@@ -4,7 +4,7 @@ Recovered from the session transcript after the container restart of 06.11.2026.
 
 ## map
 
-The code map is written to `/tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d9a10bafc/scratchpad/design/ai-i18n-map.md` (554 lines). I changed no repository files.
+The code map is written to `<scratchpad>/design/ai-i18n-map.md` (554 lines). I changed no repository files.
 
 1. **i18n:** `apps/web/src/lib/i18n.tsx` loads `de` and `en` up front and falls back `DICTIONARIES[locale][key] ?? de[key] ?? key`.
    - Placeholders are `{name}`. There is no plural support: call sites pick a key by count (`*One`, `year1`/`yearsN`).
@@ -62,11 +62,11 @@ Die Datei enthält dazu:
 
 Nicht prüfen konnte ich die offiziellen Dokus von Stripe, NinjaOne, Headscale, Netbird, Hornetsecurity und peoplefone. Ob Anthropic im Swiss-U.S. Data Privacy Framework zertifiziert ist, musst du auf der offiziellen Liste nachschauen. Das ist wichtig, weil die KI pro Kunde standardmässig eingeschaltet ist.
 
-Datei: /tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d9a10bafc/scratchpad/ideas/ideen-2026-11.md
+Datei: <scratchpad>/ideas/ideen-2026-11.md
 
 ## i18n
 
-I wrote the i18n design to `/tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d9a10bafc/scratchpad/design/i18n.md` (23 sections). No repository files were changed, and nothing in it was built or run.
+I wrote the i18n design to `<scratchpad>/design/i18n.md` (23 sections). No repository files were changed, and nothing in it was built or run.
 
 1. **Where dictionaries live:** they move to `packages/shared/src/i18n/sections/*.{de,en,fr,it,nl}.ts`, so the API can list keys and source texts and render emails and PDFs. de and en are complete `Record<TranslationKey, string>`; fr, it and nl are `Partial`, so a new key never breaks the build.
 2. **Fallback:** fr, it and nl fall back to en, then de. English is complete by type, and French, Italian or Dutch readers understand it better than German.
@@ -92,7 +92,7 @@ The design also covers routes, DTOs, the migration, audit, rate limits, the full
 
 ## ai
 
-I wrote the AI module design to `/tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d9a10bafc/scratchpad/design/ai.md` (about 2,100 lines, 19 sections). No repository files were changed. Nothing was built or run.
+I wrote the AI module design to `<scratchpad>/design/ai.md` (about 2,100 lines, 19 sections). No repository files were changed. Nothing was built or run.
 
 - **SDK:** the official `@anthropic-ai/sdk` with `baseURL` from env, key passed explicitly and `authToken: null`. Default model `claude-opus-5-5`; Sonnet 5.5 and Haiku 5.5 selectable, never switched by us. Adaptive thinking, effort set per feature (medium or low), streaming with `finalMessage()`, `stop_reason` checked first. Refusal fallback on Opus and Sonnet only (Haiku has none). Prompt cache breakpoint on the fixed system prompt.
 - **Chat:** manual streaming loop instead of the beta tool runner. The main reason is the rule that tool calls before a mid-answer fallback must not be re-sent or run. Also needed: per-call budget accounting, a cap of 8 calls and 24 tool calls, a forced text answer on the last call, and one abort signal. Answers stream to the browser as SSE over a POST.
@@ -117,7 +117,7 @@ For the i18n design: `i18n.md` did not exist yet, so the shared points are in se
 
 ## plan
 
-I wrote the build plan to `/tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d9a10bafc/scratchpad/design/ai-i18n-plan.md` (968 lines). No repository file was changed. Nothing in it has been built or run yet. I checked the repository layout and the SDK package, but the steps themselves are untested.
+I wrote the build plan to `<scratchpad>/design/ai-i18n-plan.md` (968 lines). No repository file was changed. Nothing in it has been built or run yet. I checked the repository layout and the SDK package, but the steps themselves are untested.
 
 - **Conflicts resolved (O1 to O25, binding over both designs):**
   - Locales live in `packages/shared/src/i18n/locales.ts`. All dictionaries move to `packages/shared/src/i18n/`, and the AI texts become a new section `ai`. Permission labels become `perm.<action>` keys.
@@ -154,7 +154,7 @@ I wrote the build plan to `/tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d
 
 ## review
 
-I reviewed the three designs against the code at `c6c51ad` and the claude-api skill files, and wrote 24 findings with fixes to `/tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d9a10bafc/scratchpad/design/ai-i18n-review.md`. Most of the Claude API usage is correct: exact model ids, adaptive thinking with explicit effort, auto/none tool choice with strict tools, streaming with `finalMessage()`, and refusal fallback on Opus/Sonnet only. The serious gaps are tenant isolation, the default-on privacy flow, the budget and the job runner. H = change the plan before building, M = fix in the named unit, L = small.
+I reviewed the three designs against the code at `c6c51ad` and the claude-api skill files, and wrote 24 findings with fixes to `<scratchpad>/design/ai-i18n-review.md`. Most of the Claude API usage is correct: exact model ids, adaptive thinking with explicit effort, auto/none tool choice with strict tools, streaming with `finalMessage()`, and refusal fallback on Opus/Sonnet only. The serious gaps are tenant isolation, the default-on privacy flow, the budget and the job runner. H = change the plan before building, M = fix in the named unit, L = small.
 
 1. H. Tools that read sub-resources by id (`/domains/{id}/dns`, `/servers/{id}/metrics`, `/mail/domains/{id}/mailboxes`) get answers with no `org` field, so they pass `assertSameOrg`. Resources with `org: null` pass too. A member of two orgs, or reseller staff, can pull another org's data into the model even if that org declined. Fix: read and check the parent resource first, and treat a missing or null org as not found.
 2. H. Customers cannot decline in advance (the decline card is hidden while platform AI is off), and a suspended org cannot decline at all (`ai:settings` is not in `SUSPENDED_ALLOWED`). Under the nDSG a new US sub-processor needs the customer's prior approval and a basis for the US transfer. Fix: always show the decline card, allow `ai:settings` while suspended, and add a go-live checklist (contract update, owner mail 30 days ahead).
@@ -226,7 +226,7 @@ I updated `ai.md`, `i18n.md` and `ai-i18n-plan.md` for all 24 findings: 23 are f
   I moved billing from the review's group A to C to balance the size.
 - **Then:** one review unit per language (R-fr, R-it, R-nl) merges its three groups and checks the whole language. After that, I integrates and D writes the docs.
 
-Files are in /tmp/claude-0/-home-user/e1b53ffa-f166-56c7-af42-717d9a10bafc/scratchpad/design/:
+Files are in <scratchpad>/design/:
 - ai-i18n-plan.md
 - ai.md
 - i18n.md

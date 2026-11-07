@@ -1,6 +1,6 @@
 # Build plan: KI-Modul (Claude) and five languages (de, en, fr, it, nl)
 
-Repository `/home/user/weblion-db`, base `main` = `c6c51ad` (branch `claude/nice-mendel-eiwx53`). This plan merges
+Base `main` = `c6c51ad` (branch `claude/nice-mendel-eiwx53`). This plan merges
 the two designs into one build:
 
 - `docs/design/ai-i18n/i18n.md` (five languages, translation admin, Mass Translate), cited as "i18n x.y"
