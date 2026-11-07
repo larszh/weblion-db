@@ -103,9 +103,9 @@ geschrieben wurde:
 - **Status:** War der Dienst pausiert (die letzte Änderung `service.update` mit einem Status vor der
   Kündigung), kommt er pausiert zurück, wie eine vorgemerkte Kündigung die Pause behält. Verrechnet wird erst,
   wenn der Verkäufer ihn fortsetzt, dann ab der Periode, die an diesem Tag beginnt. Sonst ist er aktiv.
-- **Abrechnungsdatum:** von zwei Daten das, das später geschrieben wurde. Das eine setzte eine Änderung von Hand (ein verschobenes
-  Datum, eine fortgesetzte Pause, `service.update` mit `nextBillingAt`). Das andere ist die Periode nach der
-  letzten, für die eine Rechnung eine Zeile des Dienstes hat. Entwürfe zählen, stornierte Rechnungen auch,
+- **Abrechnungsdatum:** von zwei Daten das, das später geschrieben wurde. Das eine setzte eine Änderung von
+  Hand (ein verschobenes Datum, eine fortgesetzte Pause, `service.update` mit `nextBillingAt`). Das andere ist
+  die Periode nach der letzten, für die eine Rechnung eine Zeile des Dienstes hat. Entwürfe zählen, stornierte Rechnungen auch,
   ausser sie wurden von Hand angelegt: Der Lauf hat das Datum beim Erstellen weitergeschoben und verrechnet
   eine stornierte Periode nie noch einmal. Ohne beides beginnt die Abrechnung am Startdatum.
 
@@ -142,8 +142,8 @@ Die Routen antworten mit 409 und dem Grund in `details.reason`:
 - `sellerChanged`: Der Kunde hat seit dem Verkauf des Dienstes den Verkäufer gewechselt (ein Wechsel im
   Audit-Log nach dem Anlegen des Dienstes, ein Produkt aus einem anderen Katalog oder eine Zeile auf einer
   Rechnung eines anderen Rechnungsstellers). Der Dienst gehört dem bisherigen Verkäufer, der neue darf ihn nicht
-  abrechnen. Die Listen zeigen solche Dienste nicht. Seit der Korrektur sperrt ein solcher Dienst den Wechsel
-  des Verkäufers, bis sein Enddatum vorbei ist (siehe [Reseller](#reseller)).
+  abrechnen. Die Listen zeigen solche Dienste nicht. Neue Fälle entstehen nicht mehr: Jeder sofort beendete
+  Dienst mit einem Enddatum nach heute sperrt den Wechsel des Verkäufers (siehe [Reseller](#reseller)).
 
 ### Domain-Verlängerungen
 
