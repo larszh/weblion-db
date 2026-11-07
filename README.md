@@ -7,7 +7,8 @@ CDN bei Cloudflare, Websites auf eigenen CloudPanel-Servern und Webspaces bei 24
 Cloud-Speicher auf der eigenen Nextcloud, E-Mail auf eigenen Mailcow-Servern, Telefonanlagen mit
 3CX, Streaming auf eigenen Jellyfin-Servern, Monitoring mit Uptime Kuma, Abrechnung mit
 QR-Rechnung, Stripe/TWINT und Zoho Books, ein Reseller-Modell sowie Rollen, Access Policies und
-Audit-Log. Dazu KI-Funktionen mit Claude, die weblion.one für jeden Kunden einzeln einschaltet.
+Audit-Log. Dazu KI-Funktionen mit Claude, die weblion.one oder der Reseller für jeden Kunden einzeln
+einschaltet.
 Die Console gibt es auf Deutsch, Englisch, Französisch, Italienisch und Niederländisch; jede Person
 wählt ihre Sprache im Profil, Rechnungen gehen in der Sprache des Kunden. Inspiriert von der Hetzner
 Cloud Console.

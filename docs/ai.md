@@ -19,10 +19,10 @@ Console nennen diesen Ort "Verwaltung > KI". Die Übersetzungen der Console besc
   DNS-Eintrag vorschlagen.
 - **Fehler erklären:** "Mit KI erklären" bei Fehlermeldungen, bei Einträgen im Audit-Log, bei fehlgeschlagenen
   Server-Aktionen, bei Monitoren und Websites. Im Admin-Bereich auch bei Fehlern eines Providers und im
-  E-Mail-Protokoll.
+  Versandprotokoll der E-Mails (Admin > Einstellungen).
 - **DNS- und E-Mail-Prüfung:** "Mit KI prüfen" bei den DNS-Einträgen einer Domain und bei den DNS-Einträgen
   einer Mail-Domain. Das Ergebnis nennt pro Thema (MX, SPF, DKIM, DMARC, automatische Einrichtung, Website,
-  CAA) den Stand und schlägt Einträge vor.
+  CAA, weitere Einträge) den Stand und schlägt Einträge vor.
 - **Audit-Zusammenfassung:** "Mit KI zusammenfassen" im Audit-Log des Kunden (mit `audit:read`), für
   Mitarbeitende auch auf der Admin-Übersicht (mit `platform:audit:read`). Ausgewertet werden höchstens die
   500 neuesten Einträge des Zeitraums.
@@ -85,8 +85,9 @@ günstig, für einfache Aufgaben; ohne Ersatzmodell bei Ablehnungen". Ändert An
 
 Lehnt Claude Opus oder Sonnet eine Anfrage aus Sicherheitsgründen ab, beantwortet Anthropic sie in derselben
 Anfrage mit einem Ersatzmodell. Solche Antworten sind markiert ("Ein Teil dieser Antwort stammt von einem
-Ersatzmodell von Anthropic."). Die Console bucht die Kosten eines Ersatzmodells vorsichtig mit dem 1.25-fachen
-Preis des gewählten Modells. Haiku hat kein Ersatzmodell: Dort endet eine Ablehnung mit einer Fehlermeldung.
+Ersatzmodell von Anthropic."). Ein Ersatzmodell, das nicht in der Tabelle steht, bucht die Console vorsichtig
+mit dem 1.25-fachen Preis des gewählten Modells. Haiku hat kein Ersatzmodell: Dort endet eine Ablehnung mit
+einer Fehlermeldung.
 
 Jede Funktion arbeitet mit einem festen Aufwand (Effort), damit der Cache warm bleibt: Assistent,
 DNS-Prüfung, Server-Auswertung und Übersetzungen mit "medium", die übrigen mit "low".
@@ -126,7 +127,7 @@ Die KI arbeitet für einen Kunden nur, wenn alle diese Schalter es erlauben.
 **Plattform.** Der Hauptschalter "KI-Funktionen auf der Plattform einschalten" auf der KI-Seite, nur für
 Superadmins (`platform:settings`). Standard: aus, mit `ENABLE_DEMO_PROVIDER=true` an. Solange er aus ist, gibt
 es keine KI-Funktion, auch keine im Admin-Bereich. Ohne Schlüssel bleiben die Funktionen ebenfalls aus
-(ausser im [Demo-Modus](#demo-modus)). Beim Einschalten fragt die Console jedes Mal die Punkte aus
+(ausser im [Demo-Modus](#demo-modus)). Beim Einschalten fragt die Console jedes Mal die Punkte 1 bis 4 aus
 [Vor dem Einschalten](#vor-dem-einschalten) ab.
 
 **Funktionen.** Ein Schalter pro Funktion auf der KI-Seite, Karte "Funktionen". Standard: alle an. Eine
@@ -156,8 +157,9 @@ Für Mitarbeitende gilt beim Kunden dasselbe wie für seine Mitglieder: Ist die 
 Reseller aus oder abgelehnt, ist sie es auch für sie. Zusammenfassungen des Audit-Logs lassen Einträge zu
 solchen Kunden aus und sagen, wie viele.
 
-Die Karten zeigen die Zahl der KI-Anfragen dieses Monats, davon die der Mitarbeitenden. Kunden und Reseller
-sehen nur Anzahlen, Mitarbeitende im Admin-Bereich auch die Kosten in USD.
+Die Karten zeigen die Zahl der KI-Anfragen dieses Monats, die Karte des Kunden und die im Admin-Bereich dazu
+die Zahl der Anfragen von Mitarbeitenden. Kunden und Reseller sehen nur Anzahlen, Mitarbeitende im
+Admin-Bereich auch die Kosten in USD.
 
 ## Budget und Limits
 
@@ -173,7 +175,8 @@ Einstellbar auf der KI-Seite, Karte "Budget und Limits":
 Fest im Code:
 
 - pro Person 12 Anfragen pro Minute und 2 gleichzeitig
-- pro Organisation 3 Anfragen gleichzeitig und 30 Abfragen bei Providern pro Minute
+- pro Organisation 3 Anfragen gleichzeitig und 30 Abfragen bei Providern pro Minute (die 30 zählt jeder
+  Prozess der API für sich)
 - auf der ganzen Plattform 6 Anfragen gleichzeitig
 - pro Antwort des Assistenten höchstens 8 Aufrufe von Claude und 24 Abfragen, davon 8 bei Providern, und
   Kosten bis zum Fünffachen der Schätzung. Ist eine Grenze erreicht, liest der Assistent nichts mehr und sagt,
@@ -315,9 +318,9 @@ Einstellungen ("Datenschutzhinweis lesen"). Er ist der Übersetzungsschlüssel `
 
 Der Text lässt sich pro Sprache unter Admin > Übersetzungen bearbeiten, die Karte "Datenschutzhinweis" auf
 der KI-Seite führt mit "Text bearbeiten" dorthin. Er wird nie maschinell übersetzt. Ist eine Übersetzung nach
-einer Änderung am deutschen Text veraltet, zeigt die Console den englischen Text, sonst den deutschen, bis
-jemand die Übersetzung nachführt. "Als geprüft markieren" auf der KI-Seite hält fest, wer den Text wann
-geprüft hat. Mehr dazu in [i18n.md](i18n.md#rechtstexte).
+einer Änderung am deutschen Text veraltet, zeigt die Console den englischen Text, wenn dieser aktuell ist,
+sonst den deutschen, bis jemand die Übersetzung nachführt. "Als geprüft markieren" auf der KI-Seite hält fest,
+wer den Text wann geprüft hat. Mehr dazu in [i18n.md](i18n.md#rechtstexte).
 
 ## Betrieb
 
