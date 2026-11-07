@@ -172,6 +172,7 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
     'In seguito weblion.one non invierà più dati della sua organizzazione ad Anthropic, nemmeno per le funzioni dei collaboratori di weblion. Può revocare il rifiuto in qualsiasi momento.',
   'ai.org.declineConfirm.action': 'Rifiuta',
   'ai.org.allow': 'Revoca il rifiuto',
+  'ai.org.allowOwnOnly': "Solo l'organizzazione stessa può revocare il proprio rifiuto.",
   'ai.org.allowConfirm.title': 'Consentire le funzioni IA?',
   'ai.org.allowConfirm.text':
     'Le funzioni IA torneranno quindi a disposizione della sua organizzazione, a condizione che weblion.one ed eventualmente il suo fornitore le abbiano attivate.',
@@ -220,6 +221,8 @@ export const aiIt: Partial<Record<keyof typeof aiDe, string>> = {
   'ai.error.platformLocked': "weblion ha disattivato l'IA per questo cliente. Solo weblion può riattivarla.",
   'ai.error.resellerBlocked':
     "L'IA è disattivata per la sua organizzazione. Per questo non può attivarla per i clienti.",
+  'ai.error.declineOrgOnly':
+    "Solo l'organizzazione stessa può revocare il proprio rifiuto delle funzioni IA.",
   'ai.error.adminKey':
     'Questa è una chiave API admin. Occorre salvare una normale chiave API della Claude Console.',
   'ai.error.notConfigured': "L'IA non è disponibile. La configuri in Amministrazione > IA.",

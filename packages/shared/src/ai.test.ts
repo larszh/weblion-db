@@ -161,8 +161,8 @@ describe('ai vocabulary (ai 3.1)', () => {
   });
 
   it('lists the frozen error vocabulary (plan 2.10)', () => {
-    expect(AI_ERROR_CODES).toHaveLength(11);
-    expect(new Set(AI_ERROR_CODES).size).toBe(11);
+    expect(AI_ERROR_CODES).toHaveLength(12);
+    expect(new Set(AI_ERROR_CODES).size).toBe(12);
     expect(AI_ERROR_CODES.every((c) => c.startsWith('ai_'))).toBe(true);
     expect(AI_LIMIT_KINDS).toEqual([
       'budget',

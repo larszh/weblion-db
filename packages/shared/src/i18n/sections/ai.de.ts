@@ -181,6 +181,7 @@ export const aiDe = {
     'Danach sendet weblion.one keine Daten Ihrer Organisation mehr an Anthropic, auch nicht für Funktionen der weblion-Mitarbeitenden. Sie können die Ablehnung jederzeit zurücknehmen.',
   'ai.org.declineConfirm.action': 'Ablehnen',
   'ai.org.allow': 'Ablehnung zurücknehmen',
+  'ai.org.allowOwnOnly': 'Nur die Organisation selbst kann ihre Ablehnung zurücknehmen.',
   'ai.org.allowConfirm.title': 'KI-Funktionen erlauben?',
   'ai.org.allowConfirm.text':
     'Die KI-Funktionen stehen Ihrer Organisation dann wieder zur Verfügung, sofern weblion.one und gegebenenfalls Ihr Anbieter sie eingeschaltet haben.',
@@ -235,6 +236,8 @@ export const aiDe = {
     'weblion hat die KI für diesen Kunden ausgeschaltet. Nur weblion kann sie wieder einschalten.',
   'ai.error.resellerBlocked':
     'Die KI ist für Ihre eigene Organisation ausgeschaltet. Deshalb können Sie sie für Kunden nicht einschalten.',
+  'ai.error.declineOrgOnly':
+    'Nur die Organisation selbst kann ihre Ablehnung der KI-Funktionen zurücknehmen.',
   'ai.error.adminKey':
     'Das ist ein Admin-API-Schlüssel. Speichern Sie einen normalen API-Schlüssel aus der Claude Console.',
   'ai.error.notConfigured': 'Die KI ist nicht verfügbar. Richten Sie sie unter Verwaltung > KI ein.',

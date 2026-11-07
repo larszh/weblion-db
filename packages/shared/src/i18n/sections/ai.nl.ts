@@ -171,6 +171,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
     'Daarna stuurt weblion.one geen gegevens van uw organisatie meer naar Anthropic, ook niet voor functies van de weblion-medewerkers. U kunt de weigering op elk moment intrekken.',
   'ai.org.declineConfirm.action': 'Weigeren',
   'ai.org.allow': 'Weigering intrekken',
+  'ai.org.allowOwnOnly': 'Alleen de organisatie zelf kan haar weigering intrekken.',
   'ai.org.allowConfirm.title': 'AI-functies toestaan?',
   'ai.org.allowConfirm.text':
     'De AI-functies zijn dan weer beschikbaar voor uw organisatie, mits weblion.one en eventueel uw aanbieder ze hebben ingeschakeld.',
@@ -219,6 +220,7 @@ export const aiNl: Partial<Record<keyof typeof aiDe, string>> = {
     'weblion heeft de AI voor deze klant uitgeschakeld. Alleen weblion kan deze weer inschakelen.',
   'ai.error.resellerBlocked':
     'De AI is uitgeschakeld voor uw eigen organisatie. Daarom kunt u deze niet voor klanten inschakelen.',
+  'ai.error.declineOrgOnly': 'Alleen de organisatie zelf kan haar weigering van de AI-functies intrekken.',
   'ai.error.adminKey':
     'Dit is een Admin-API-sleutel. U moet een normale API-sleutel uit de Claude Console opslaan.',
   'ai.error.notConfigured': 'De AI is niet beschikbaar. Stel deze in onder Beheer > AI.',

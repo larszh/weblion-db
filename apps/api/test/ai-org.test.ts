@@ -276,6 +276,28 @@ describe("the customer's decline (PUT /orgs/:orgId/ai/decline)", () => {
     ).toEqual([[ids['muster-ag'], 'org', ids['muster-ag'], { declined: false }]]);
   });
 
+  it('reseller staff and weblion staff may decline for a customer, but only its members withdraw it', async () => {
+    const path = `/orgs/${ids['baeckerei-huber']}/ai/decline`;
+    await setOrg('baeckerei-huber', { aiEnabled: true });
+    expect((await hanna.request('PUT', path, { declined: true })).statusCode).toBe(200);
+    for (const outsider of [reto, admin]) {
+      const res = await outsider.request('PUT', path, { declined: false });
+      expect(res.statusCode).toBe(403);
+      expect(json(res).error.code).toBe('ai_decline_org_only');
+    }
+    expect((await org('baeckerei-huber')).aiOptOutAt).not.toBeNull();
+    expect(await audits('ai.org_allow')).toHaveLength(0);
+    expect((await reto.post(`/orgs/${ids['baeckerei-huber']}/ai/chat`, CHAT)).statusCode).toBe(403);
+    // Declining stays open to them, and the customer's own owner withdraws.
+    await setOrg('baeckerei-huber', { aiOptOutAt: null, aiOptOutBy: null });
+    expect((await reto.request('PUT', path, { declined: true })).statusCode).toBe(200);
+    expect((await admin.request('PUT', path, { declined: true })).statusCode).toBe(200);
+    const allow = await hanna.request('PUT', path, { declined: false });
+    expect(allow.statusCode).toBe(200);
+    expect(json(allow)).toMatchObject({ declined: null });
+    expect((await org('baeckerei-huber')).aiOptOutAt).toBeNull();
+  });
+
   it('members of a declined organization get 403 ai_org_disabled, staff too', async () => {
     await setOrg('muster-ag', { aiOptOutAt: new Date() });
     const member = await anna.post(`/orgs/${ids['muster-ag']}/ai/chat`, CHAT);

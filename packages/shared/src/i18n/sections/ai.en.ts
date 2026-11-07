@@ -180,6 +180,7 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
     'After this, weblion.one sends no data of your organization to Anthropic, not even for features used by weblion staff. You can withdraw the decision at any time.',
   'ai.org.declineConfirm.action': 'Decline',
   'ai.org.allow': 'Withdraw decline',
+  'ai.org.allowOwnOnly': 'Only the organization itself can withdraw its decline.',
   'ai.org.allowConfirm.title': 'Allow AI features?',
   'ai.org.allowConfirm.text':
     'The AI features are then available to your organization again, provided weblion.one and, if applicable, your provider have switched them on.',
@@ -231,6 +232,7 @@ export const aiEn: Record<keyof typeof aiDe, string> = {
     'weblion switched AI off for this customer. Only weblion can switch it on again.',
   'ai.error.resellerBlocked':
     'AI is switched off for your own organization, so you cannot switch it on for customers.',
+  'ai.error.declineOrgOnly': 'Only the organization itself can withdraw its decline of the AI features.',
   'ai.error.adminKey': 'This is an Admin API key. Save a normal API key from the Claude Console.',
   'ai.error.notConfigured': 'AI is not available. Set it up under Administration > AI.',
 
