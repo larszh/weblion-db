@@ -118,8 +118,8 @@ export interface ImportWrite {
 }
 
 /**
- * Step 2: every row through the checks of a save. Unknown keys, failed hard checks, AI texts for legal keys and
- * manual or reviewed cells (without replaceManual) are skipped; equal values are unchanged; the soft checks are
+ * Step 2: every row through the checks of a save. Unknown keys, empty values, failed hard checks, AI texts for
+ * legal keys and manual or reviewed cells (without replaceManual) are skipped; equal values are unchanged; the soft checks are
  * warnings only (a human wrote the text).
  */
 export function planImport(
@@ -155,6 +155,11 @@ export function planImport(
     const key = row.key as ServerTranslationKey;
     const source = checkSource(i18n, key, row.locale);
     const { value } = prepareValue(row.locale, source, row.value);
+    // The rule of A4: an empty text would blank the label, button or notice in that language.
+    if (value.trim() === '') {
+      skip(row, 'empty');
+      continue;
+    }
     const placeholders = placeholdersMatch(source, value);
     if (!placeholders.ok) {
       const detail = [

@@ -45,7 +45,7 @@ export interface ApplyPlan {
   failures: string[];
   /** Soft check results: applied anyway. */
   warnings: string[];
-  /** Entries left out on purpose (other locale, not reviewed, unknown key). */
+  /** Entries left out on purpose (not reviewed, unknown key, empty value). */
   ignored: string[];
   /**
    * Entries of a locale file whose value equals the compiled one: not applied, so their stamp stays as it is
@@ -85,6 +85,11 @@ export function planApply(
     const compiledGerman = SECTION_SOURCES[section].de[row.key]!;
     const source = row.locale === 'de' ? compiledGerman : (german.get(row.key) ?? compiledGerman);
     const { value } = prepareValue(row.locale, source, row.value);
+    // The rule of A4: an empty text would blank the label, button or notice in that language.
+    if (value.trim() === '') {
+      plan.ignored.push(`${id}: empty value`);
+      continue;
+    }
     // A locale file carries no source hash, and its export holds stale cells with their old value. A value the
     // translator left as it is must keep its stamp: stamping it against the current German would turn a stale
     // translation, a legal notice included, into a current one (only A7 or i18n:stamp --confirm may do that).

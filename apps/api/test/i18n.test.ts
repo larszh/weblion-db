@@ -825,6 +825,40 @@ describe('A15 import and A16 export', () => {
     expect(json(bad).error.details.problems.length).toBeGreaterThan(0);
   });
 
+  it('skips empty and whitespace-only values like a cell save, also in i18n:apply', async () => {
+    const data = {
+      format: 'weblion-i18n-overrides',
+      version: 1,
+      entries: [
+        { key: 'ai.notice.title', locale: 'en', value: '   ', sourceHash: hashOf('ai.notice.title') },
+        { key: 'nav.servers', locale: 'fr', value: '', sourceHash: hashOf('nav.servers') },
+        { key: 'common.edit', locale: 'fr', value: ' Modifier ', sourceHash: hashOf('common.edit') },
+      ],
+    };
+    const res = json<TranslationImportResultDto>(
+      await admin.post('/admin/i18n/import', { data, dryRun: false }),
+    );
+    expect(res).toMatchObject({ created: 1, updated: 0 });
+    expect(res.skipped).toEqual([
+      { key: 'ai.notice.title', locale: 'en', reason: 'empty' },
+      { key: 'nav.servers', locale: 'fr', reason: 'empty' },
+    ]);
+    expect(t.ctx.i18n.t('en', 'ai.notice.title' as ServerTranslationKey)).toBe('Privacy notice');
+    expect(t.ctx.i18n.t('fr', 'common.edit' as ServerTranslationKey)).toBe('Modifier');
+
+    const plan = planApply(
+      parseImportFile({
+        format: 'weblion-i18n-overrides',
+        version: 1,
+        entries: [{ key: 'common.cancel', locale: 'en', value: ' \n ', origin: 'manual', reviewed: true }],
+      }),
+      {},
+    );
+    expect(plan.values).toEqual([]);
+    expect(plan.failures).toEqual([]);
+    expect(plan.ignored).toEqual(['en:common.cancel: empty value']);
+  });
+
   it('exports both scopes, round-trips through the import and limits to 10 per minute', async () => {
     await put('nav.dashboard', 'fr', 'Tableau de bord');
     await put('common.delete', 'fr', 'Supprimer', { hash: sourceHash('Entfernen') });

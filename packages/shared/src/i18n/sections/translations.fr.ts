@@ -188,6 +188,7 @@ export const translationsFr: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.import.result':
     '{created} nouveaux, {updated} modifiés, {unchanged} inchangés, {skipped} ignorés',
   'admin.i18n.import.done': 'Import terminé',
+  'admin.i18n.import.skip.empty': 'Texte vide',
   'admin.i18n.import.skip.placeholders': 'Espaces réservés différents',
   'admin.i18n.import.skip.characters': 'Caractère non autorisé',
   'admin.i18n.import.skip.unknown_key': 'Clé inconnue',
