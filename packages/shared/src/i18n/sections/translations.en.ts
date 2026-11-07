@@ -204,6 +204,7 @@ export const translationsEn: Record<keyof typeof translationsDe, string> = {
   'admin.i18n.import.apply': 'Import',
   'admin.i18n.import.result': '{created} new, {updated} changed, {unchanged} unchanged, {skipped} skipped',
   'admin.i18n.import.done': 'Import finished',
+  'admin.i18n.import.skip.empty': 'Empty text',
   'admin.i18n.import.skip.placeholders': 'Placeholders differ',
   'admin.i18n.import.skip.characters': 'Character not allowed',
   'admin.i18n.import.skip.unknown_key': 'Unknown key',

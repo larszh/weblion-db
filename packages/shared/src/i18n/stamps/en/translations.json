@@ -167,6 +167,7 @@
   "admin.i18n.import.apply": ["b0b045d64b415dc2", "2cff9baabf56ca00"],
   "admin.i18n.import.result": ["d3621c79bda8d0f3", "7be468afa1b4f91d"],
   "admin.i18n.import.done": ["efd98acaae6e90e4", "2194340e961ab3bd"],
+  "admin.i18n.import.skip.empty": ["3020d5b9ff3e24cb", "7d62294c308242fc"],
   "admin.i18n.import.skip.placeholders": ["8c2c00e965c453a1", "4c7b07719d1c6570"],
   "admin.i18n.import.skip.characters": ["2ac013a1738fce7e", "7df38a2d12f46f4e"],
   "admin.i18n.import.skip.unknown_key": ["756c09878af7ff66", "158f66e524e9465b"],

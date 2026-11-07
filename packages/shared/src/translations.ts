@@ -221,7 +221,7 @@ export interface TranslationImportInput {
   markReviewed?: boolean;
 }
 export type TranslationImportSkip =
-  'placeholders' | 'characters' | 'unknown_key' | 'manual' | 'legal_ai' | 'unchanged';
+  'empty' | 'placeholders' | 'characters' | 'unknown_key' | 'manual' | 'legal_ai' | 'unchanged';
 export interface TranslationImportResultDto {
   dryRun: boolean;
   created: number;

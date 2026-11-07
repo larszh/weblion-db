@@ -210,6 +210,7 @@ export const translationsDe = {
   'admin.i18n.import.result':
     '{created} neu, {updated} geändert, {unchanged} unverändert, {skipped} übersprungen',
   'admin.i18n.import.done': 'Import abgeschlossen',
+  'admin.i18n.import.skip.empty': 'Leerer Text',
   'admin.i18n.import.skip.placeholders': 'Platzhalter weichen ab',
   'admin.i18n.import.skip.characters': 'Nicht erlaubtes Zeichen',
   'admin.i18n.import.skip.unknown_key': 'Unbekannter Schlüssel',

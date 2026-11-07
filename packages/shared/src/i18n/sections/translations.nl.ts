@@ -186,6 +186,7 @@ export const translationsNl: Partial<Record<keyof typeof translationsDe, string>
   'admin.i18n.import.result':
     '{created} nieuw, {updated} gewijzigd, {unchanged} ongewijzigd, {skipped} overgeslagen',
   'admin.i18n.import.done': 'Import voltooid',
+  'admin.i18n.import.skip.empty': 'Lege tekst',
   'admin.i18n.import.skip.placeholders': 'Plaatshouders wijken af',
   'admin.i18n.import.skip.characters': 'Niet-toegestaan teken',
   'admin.i18n.import.skip.unknown_key': 'Onbekende sleutel',
