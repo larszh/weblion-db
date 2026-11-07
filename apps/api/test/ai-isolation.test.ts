@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { and, eq, isNull, ne, notInArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, notInArray } from 'drizzle-orm';
 import { DEFAULT_CUSTOMER_BOUNDARY } from '@weblion/shared';
 import type { FastifyRequest } from 'fastify';
 import {
   aiUsage,
+  auditLogs,
   domains,
   mailDomains,
   memberships,
@@ -222,6 +223,55 @@ describe('another organization of the same person', () => {
         .update(organizations)
         .set({ aiOptOutAt: null })
         .where(eq(organizations.id, ids['beispiel-gmbh']!));
+    }
+  });
+});
+
+describe("a server's earlier owner", () => {
+  it('audit entries of an earlier owner whose AI is off never reach the model; the own entries stay', async () => {
+    const muster = ids['muster-ag']!;
+    const beispiel = ids['beispiel-gmbh']!;
+    const [server] = await t.db
+      .select({ id: servers.id })
+      .from(servers)
+      .innerJoin(projects, eq(projects.id, servers.projectId))
+      .where(eq(projects.orgId, muster))
+      .limit(1);
+    const entry = (orgId: string, actorName: string, name: string) => ({
+      orgId,
+      actorName,
+      action: 'server.rename',
+      resourceType: 'server',
+      resourceId: server!.id,
+      status: 'success' as const,
+      details: { name },
+    });
+    const inserted = await t.db
+      .insert(auditLogs)
+      .values([
+        entry(beispiel, 'Bruno Beispiel', 'SECRET-PROJECT-OF-BEISPIEL'),
+        entry(muster, 'Anna Muster', 'MUSTER-OWN-ENTRY'),
+      ])
+      .returning({ id: auditLogs.id });
+    await t.db.update(organizations).set({ aiOptOutAt: new Date() }).where(eq(organizations.id, beispiel));
+    try {
+      const { results } = await chatIn(anna, muster, [
+        { name: 'get_server_activity', input: { server_id: server!.id } },
+      ]);
+      const audit = JSON.parse(results[0].content).audit;
+      expect(audit.hidden).toBe(1);
+      expect(JSON.stringify(audit.items)).toContain('MUSTER-OWN-ENTRY');
+      const sent = allRequests();
+      expect(sent).not.toContain('SECRET-PROJECT-OF-BEISPIEL');
+      expect(sent).not.toContain('Bruno Beispiel');
+    } finally {
+      await t.db.update(organizations).set({ aiOptOutAt: null }).where(eq(organizations.id, beispiel));
+      await t.db.delete(auditLogs).where(
+        inArray(
+          auditLogs.id,
+          inserted.map((r) => r.id),
+        ),
+      );
     }
   });
 });
