@@ -628,7 +628,7 @@ Einschalten in [ai.md](ai.md).
 
 ```
 Browser ──POST /orgs/:orgId/ai/chat──> aiRequestGate (KI der Organisation an? ai:use,
-   ▲                                    bei Staff dazu platform:ai:use)
+   ▲                                    bei Mitarbeitenden dazu platform:ai:use)
    │                                  ──> reserve() (Budget, Limits, Zeile in ai_usage)
    │                                  ──> Claude API (Stream) ──tool_use──> Werkzeug (tools/*)
    │                                                                        ──> ConsoleReader: GET-Route
@@ -644,8 +644,8 @@ Browser ──POST /orgs/:orgId/ai/chat──> aiRequestGate (KI der Organisatio
   Cache des Prompts warm bleibt. Lehnt Claude Opus oder Sonnet eine Anfrage aus Sicherheitsgründen
   ab, antwortet bei Anthropic ein Ersatzmodell (`fallbacks`). Von sich aus wechselt die Console nie
   das Modell.
-- **Schalter:** der Hauptschalter der Plattform und die einzelnen Funktionen (Einstellung `ai`,
-  Standard aus, nur mit `ENABLE_DEMO_PROVIDER=true` an), der Schalter der Organisation
+- **Schalter:** der Hauptschalter der Plattform (Einstellung `ai`, Standard aus, nur mit
+  `ENABLE_DEMO_PROVIDER=true` an), die einzelnen Funktionen (Standard an), der Schalter der Organisation
   (`ai_enabled`, Standard aus), der des Resellers (gilt für seine Kunden mit) und die Ablehnung des
   Kunden (`ai_opt_out_at`, gewinnt immer). Ohne Schlüssel und mit `ENABLE_DEMO_PROVIDER=true`
   antwortet statt Claude ein Emulator im Prozess (`demo.ts`).
@@ -665,15 +665,16 @@ Browser ──POST /orgs/:orgId/ai/chat──> aiRequestGate (KI der Organisatio
   pro Person, 3 pro Organisation, 6 auf der Plattform). Gezählt wird in `ai_usage`, die Limits
   gelten also über alle API-Prozesse. Nach jedem Aufruf bucht die Console die Kosten aus den
   Token-Zahlen. Ist das Budget aufgebraucht, beginnt kein weiterer Aufruf, auch nicht mitten in
-  einer Antwort, und eine Antwort darf höchstens das Fünffache ihrer Schätzung kosten.
+  einer Antwort, und eine Antwort darf höchstens das Fünffache ihrer Schätzung kosten. Erreicht der
+  Verbrauch nach einer Anfrage die Warnschwelle oder das Budget, geht je einmal im Monat eine E-Mail
+  an die Superadmins.
 - **Mitarbeitende auf Kundendaten** laufen mit dem Bereich `staff` und der Organisation des Kunden
   in `ai_usage`, so sieht der Kunde auch diese Anfragen in seinen Zahlen. Kunden und Reseller sehen
   nur Zahlen, Kosten nur weblion.one.
 - **Wartung** (`maintenance.ts`): 5 Sekunden nach dem Start und dann alle 10 Minuten, unter einer
   Session-Sperre nur in einem Prozess. Laufende Zeilen, die älter als `AI_TURN_TIMEOUT_SECONDS`
   plus 60 Sekunden sind, werden `stale`, Zeilen nach 400 Tagen gelöscht, Fehlertexte nach 30 Tagen
-  geleert. Erreicht der Verbrauch die Warnschwelle oder das Budget, geht je einmal im Monat eine
-  E-Mail an die Superadmins.
+  geleert.
 
 ## Sprachen und Übersetzungen
 
@@ -701,7 +702,7 @@ Bedienung in [i18n.md](i18n.md).
   `pnpm --filter @weblion/api i18n:apply <Datei>`.
 - **Prüfungen:** Dieselben Regeln (`packages/shared/src/i18n/checks.ts`) gelten für die Wörterbücher
   in den Tests, für Änderungen auf der Seite Übersetzungen und für Ergebnisse der KI: Platzhalter,
-  Zeilenumbrüche, kein scharfes S, kein Em Dash, die Leerzeichen im Französischen, dazu
+  Zeilenumbrüche, kein scharfes S, kein langer Gedankenstrich, die Leerzeichen im Französischen, dazu
   Warnungen wie verbliebenes Deutsch oder Begriffe des Glossars.
 - **Rechtstexte** (`LEGAL_KEYS`: Titel und Text des Datenschutzhinweises der KI) übersetzt die KI
   nie. Ist eine Übersetzung nach einer Änderung des deutschen Textes veraltet, zeigt die Console

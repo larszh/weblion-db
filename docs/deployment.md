@@ -180,8 +180,9 @@ Checkliste vor dem Einschalten in [ai.md](ai.md). Für den Betrieb der Console w
 - **Antworten als Stream:** Der Assistent antwortet mit Server-Sent Events, siehe
   [Antworten des KI-Assistenten](#antworten-des-ki-assistenten-server-sent-events).
 - **Mehrere API-Prozesse:** Budget und Limits der KI gelten über alle Prozesse, gezählt wird in der
-  Datenbank. Mass Translate (Übersetzungen mit KI) startet jeder Prozess mit `I18N_JOB_ENABLED=true`
-  (Standard). Auf weiteren Prozessen `I18N_JOB_ENABLED=false` setzen, damit nur einer die Jobs
+  Datenbank. Nur die 30 Abfragen bei Providern pro Minute und Organisation zählt jeder Prozess für sich.
+  Aufträge von Mass Translate (Übersetzungen mit KI) führt jeder Prozess mit `I18N_JOB_ENABLED=true`
+  (Standard) aus. Auf weiteren Prozessen `I18N_JOB_ENABLED=false` setzen, damit nur einer die Jobs
   übernimmt. Ein Advisory Lock verhindert ohnehin, dass zwei Prozesse denselben Job gleichzeitig
   bearbeiten. Docker Compose und die Node.js-Site auf CloudPanel laufen mit einem Prozess.
 - **Skripte für Übersetzungen** (`i18n:stamp`, `i18n:report`, `i18n:apply`) laufen wie
