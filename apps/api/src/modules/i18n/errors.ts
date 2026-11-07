@@ -45,7 +45,9 @@ export const placeholderMismatch = (details: {
   extra: string[];
   lineBreaks?: { expected: number; actual: number };
 }) => i18nError('placeholder_mismatch', details);
-export const forbiddenCharacter = (characters: string[]) => i18nError('forbidden_character', { characters });
+/** reason pdf: a pdf.* value with characters outside Windows-1252 (the web names the PDF then). */
+export const forbiddenCharacter = (characters: string[], reason: 'pdf' | null = null) =>
+  i18nError('forbidden_character', { characters, ...(reason ? { reason } : {}) });
 export const unknownKey = (key: string) => i18nError('unknown_key', { key });
 export const legalKey = (keys: string[]) => i18nError('legal_key', { keys });
 export const nothingToTranslate = () => i18nError('nothing_to_translate');

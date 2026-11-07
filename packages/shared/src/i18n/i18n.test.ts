@@ -12,11 +12,13 @@ import {
   hasSharpS,
   incompleteLocales,
   informalWord,
+  isWindows1252,
   legalProblems,
   lengthLimit,
   lengthOk,
   looksGerman,
   missingKeys,
+  nonWindows1252,
   placeholdersMatch,
   typographyProblems,
   unknownKeys,
@@ -416,6 +418,20 @@ describe('check predicates', () => {
       'Statut\u00A0: 12\u00A0%! Oui; non? https://x.ch',
     );
     expect(typographyProblems(fixFrenchTypography('A : b ? c ; d !'))).toEqual([]);
+    // A narrow no-break space before ":" and "%" becomes a no-break space too (the PDF fonts lack it).
+    expect(fixFrenchTypography('Total\u202F: 12\u202F\u202F%')).toBe('Total\u00A0: 12\u00A0%');
+    expect(fixFrenchTypography('Total\u00A0: 12\u00A0%')).toBe('Total\u00A0: 12\u00A0%');
+  });
+
+  it('knows the characters of Windows-1252 (the PDF fonts)', () => {
+    expect(nonWindows1252('Facture\u00A0: Total \u20AC \u2026 \u2019 \u00E9\n')).toEqual([]);
+    expect(nonWindows1252('Bez\u0151 \u202F: \u2192 \u0151 \u0081')).toEqual([
+      'U+0151',
+      'U+202F',
+      'U+2192',
+      'U+0081',
+    ]);
+    expect(isWindows1252('\t')).toBe(false);
   });
 
   it('runs the hard checks everywhere and the soft checks for fr, it and nl', () => {

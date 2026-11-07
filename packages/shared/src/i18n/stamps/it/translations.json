@@ -180,6 +180,7 @@
   "admin.i18n.cleanup.done": ["df27771fc509faa0", "9b8eb399a5cfa23a"],
   "admin.i18n.error.placeholder_mismatch": ["5ae976b6188eeafc", "d9dadd2b64aa958d"],
   "admin.i18n.error.forbidden_character": ["131ebe3ab527c70b", "2244a2cb69df4056"],
+  "admin.i18n.error.forbidden_character.pdf": ["561b857a2220b94d", "aea0fbb00565ec96"],
   "admin.i18n.error.unknown_key": ["0e463228b8f3654c", "35813b89db450966"],
   "admin.i18n.error.legal_key": ["dbedf682cfecd2ee", "1f3a948f9f2eeed7"],
   "admin.i18n.error.nothing_to_translate": ["dabf7c096e1f380d", "39870f5457c8e2ac"],

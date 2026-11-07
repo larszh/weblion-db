@@ -205,6 +205,8 @@ export const translationsFr: Partial<Record<keyof typeof translationsDe, string>
     'Les espaces réservés doivent être exactement ceux du texte allemand. Manquants : {missing}. En trop : {extra}.',
   'admin.i18n.error.forbidden_character':
     'Le texte contient un caractère non autorisé (eszett ou tiret cadratin).',
+  'admin.i18n.error.forbidden_character.pdf':
+    "Les textes de la facture PDF ne peuvent contenir que des caractères Windows-1252 (sa police ne peut pas en imprimer d'autres), ni eszett ni tiret cadratin. Non autorisés : {characters}",
   'admin.i18n.error.unknown_key': "Ce texte n'existe plus. Rechargez la page.",
   'admin.i18n.error.legal_key': 'Les textes juridiques ne sont jamais traduits automatiquement.',
   'admin.i18n.error.nothing_to_translate': "Il n'y a rien à traduire pour cette sélection.",

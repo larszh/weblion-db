@@ -215,6 +215,7 @@ export async function i18nAiRoutes(app: FastifyInstance, ctx: AppContext): Promi
         text,
         demo: answer.meta.demo,
         glossary,
+        section: i18n.catalog.sectionOf(key),
       });
       suggestions.push(
         check.ok

@@ -103,7 +103,7 @@ export function planApply(
         ].join(', '),
       );
     }
-    const characters = forbiddenCharacters(value);
+    const characters = forbiddenCharacters(value, section);
     if (characters.length > 0) problems.push(`forbidden character ${characters.join(', ')}`);
     if (row.locale === 'fr') problems.push(...typographyProblems(value));
     if (problems.length > 0) {

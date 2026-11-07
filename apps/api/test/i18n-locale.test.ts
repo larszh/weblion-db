@@ -9,9 +9,12 @@ import {
   type InvoiceIssuerSettings,
   type Locale,
   type MeDto,
+  type TranslationImportResultDto,
   type UserDto,
 } from '@weblion/shared';
 import { buildCatalog } from '@weblion/shared/i18n/catalog';
+import { isWindows1252 } from '@weblion/shared/i18n/checks';
+import { DEFAULT_GLOSSARY } from '@weblion/shared/i18n/glossary';
 import { SECTION_SOURCES } from '@weblion/shared/i18n/server';
 import {
   auditLogs,
@@ -26,6 +29,8 @@ import { hashPassword } from '../src/lib/crypto';
 import { toUserDto } from '../src/lib/dto';
 import { I18nService } from '../src/i18n/service';
 import { saveOverride } from '../src/i18n/entries';
+import { parseImportFile } from '../src/i18n/import';
+import { validateItem } from '../src/i18n/translator';
 import { catalogTranslator } from '../src/mail/templates';
 import {
   billingLocale,
@@ -40,6 +45,7 @@ import {
   renderInvoicePdf,
 } from '../src/modules/billing/pdf';
 import { checkoutLocale } from '../src/modules/payments/checkout';
+import { planApply } from '../scripts/i18n-apply';
 import { ADMIN, Client, createTestApp, DEMO_PASSWORD, json, type TestApp } from './helpers';
 import { startMockServer, type RecordedRequest } from './mock-server';
 
@@ -527,13 +533,11 @@ describe('invoice PDF in five languages (i18n 8.3)', () => {
   });
 
   it('keeps every pdf.* text of every bundle encodable in Windows-1252 (standard PDF fonts)', () => {
+    // The predicate of every write path (A4, import, i18n:apply, Mass Translate) agrees with the decoder for
+    // 0x80 to 0x9F, the five unassigned bytes (decoded as C1 controls) left out.
     const high = new TextDecoder('windows-1252').decode(Uint8Array.from({ length: 32 }, (_, i) => 0x80 + i));
-    const allowed = (ch: string) => {
-      const code = ch.codePointAt(0)!;
-      return (
-        (code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff) || code === 0x0a || high.includes(ch)
-      );
-    };
+    for (const ch of high) expect(isWindows1252(ch), ch).toBe(ch.codePointAt(0)! > 0x9f);
+    const allowed = isWindows1252;
     const bad: string[] = [];
     for (const locale of LOCALES) {
       for (const [key, value] of Object.entries(SECTION_SOURCES.pdf[locale] ?? {})) {
@@ -545,6 +549,61 @@ describe('invoice PDF in five languages (i18n 8.3)', () => {
     // The narrow no-break space of fr-CH numbers is not in Windows-1252, the no-break space is.
     expect(allowed(' ')).toBe(false);
     expect(allowed(' ')).toBe(true);
+  });
+
+  it('refuses pdf.* values outside Windows-1252 on every write path', async () => {
+    const key = 'pdf.invoice.title';
+    const url = `/admin/i18n/entries/fr/${encodeURIComponent(key)}`;
+    // A4: an arrow and an o with double acute have no glyph in the standard fonts.
+    const bad = await admin.request('PUT', url, { value: 'Facture {number} → Bező' });
+    expect(bad.statusCode, bad.body).toBe(400);
+    expect(json(bad).error).toMatchObject({
+      code: 'forbidden_character',
+      details: { characters: ['U+2192', 'U+0151'], reason: 'pdf' },
+    });
+    // The narrow no-break space before ":" becomes a no-break space, so the PDF can print it.
+    const narrow = await admin.request('PUT', url, { value: 'Facture : {number}' });
+    expect(narrow.statusCode, narrow.body).toBe(200);
+    expect(t.ctx.i18n.t('fr', key, { number: '7' })).toBe('Facture : 7');
+    expect((await admin.del(url)).statusCode).toBe(200);
+    // Other sections keep their rules: an arrow is allowed there.
+    const webUrl = `/admin/i18n/entries/fr/${encodeURIComponent('common.save')}`;
+    const web = await admin.request('PUT', webUrl, { value: 'Enregistrer →' });
+    expect(web.statusCode, web.body).toBe(200);
+    expect((await admin.del(webUrl)).statusCode).toBe(200);
+
+    // A15 import and i18n:apply.
+    const file = {
+      format: 'weblion-i18n-locale',
+      version: 1,
+      locale: 'it',
+      entries: { [key]: { value: 'Fattura {number} Bező' } },
+    };
+    const imported = json<TranslationImportResultDto>(
+      await admin.post('/admin/i18n/import', { data: file, dryRun: true }),
+    );
+    expect(imported.skipped).toEqual([{ key, locale: 'it', reason: 'characters', detail: 'U+0151' }]);
+    const plan = planApply(parseImportFile(file), {});
+    expect(plan.values).toEqual([]);
+    expect(plan.failures).toHaveLength(1);
+    expect(plan.failures[0]).toMatch(/^it:pdf\.invoice\.title: forbidden character U\+0151/);
+
+    // Mass Translate.
+    const item = {
+      key,
+      locale: 'nl' as const,
+      source: 'Rechnung {number}',
+      english: 'Invoice {number}',
+      text: 'Factuur {number} →',
+      demo: true,
+      glossary: DEFAULT_GLOSSARY,
+    };
+    expect(validateItem({ ...item, section: t.ctx.i18n.catalog.sectionOf(key) })).toMatchObject({
+      ok: false,
+      reason: 'characters',
+      detail: 'forbidden character U+2192',
+    });
+    expect(validateItem(item).ok).toBe(true);
   });
 });
 
