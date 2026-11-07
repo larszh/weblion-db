@@ -12,7 +12,7 @@ import type {
 } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
-import { useFreshOverrides, useT, type FreshOverridesState } from '@/lib/i18n';
+import { useFreshOverrides, useT, type FreshOverridesState, type TFunction } from '@/lib/i18n';
 import { qk } from '@/lib/queries';
 import { useOptionalOrg } from '@/lib/org-context';
 import { aiErrorText, aiFeatureOn, useAiStatus } from '@/lib/api/ai';
@@ -129,6 +129,14 @@ export function NoticeGate({
   );
 }
 
+/**
+ * The notice's title (ai.notice.title) is a legal text as well, so the dialog shows it only with the current texts;
+ * until then the plain label of the notice link, which is no legal text.
+ */
+export function noticeTitle(t: TFunction, state: FreshOverridesState): string {
+  return state === 'ready' ? t('ai.notice.title') : t('ai.notice.open');
+}
+
 /** The data notice (ai 13.10) in a dialog; its text is the translation key ai.notice.text. */
 export function NoticeDialog({
   open,
@@ -140,7 +148,7 @@ export function NoticeDialog({
   const t = useT();
   const fresh = useFreshOverrides(open);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={t('ai.notice.title')} size="lg">
+    <Dialog open={open} onOpenChange={onOpenChange} title={noticeTitle(t, fresh.state)} size="lg">
       <NoticeGate state={fresh.state} onRetry={fresh.retry}>
         <AiText text={t('ai.notice.text')} />
       </NoticeGate>

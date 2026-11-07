@@ -5,7 +5,7 @@ import { en } from '@weblion/shared/i18n/en';
 import type { TFunction } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
 import { withI18n } from '@/test/i18n';
-import { NoticeGate } from './bits';
+import { NoticeGate, noticeTitle } from './bits';
 import {
   adminAiLines,
   ConsentBody,
@@ -114,6 +114,13 @@ describe('switch cards (ai 12.4, plan O34)', () => {
     expect(failed).toContain('role="alert"');
     expect(failed).toContain(esc(en['ai.noticeUnavailable']));
     expect(failed).toContain(esc(en['common.retry']));
+  });
+
+  it('the dialog shows the legal title of the notice only with the current texts too (i18n 8.1)', () => {
+    expect(noticeTitle(t, 'ready')).toBe(en['ai.notice.title']);
+    // ai.notice.title is a legal key: while loading or after an error, the label of the link instead.
+    expect(noticeTitle(t, 'loading')).toBe(en['ai.notice.open']);
+    expect(noticeTitle(t, 'error')).toBe(en['ai.notice.open']);
   });
 
   it('locks the reseller switch when weblion switched the customer off or the reseller is off', () => {
