@@ -27,6 +27,20 @@ export const INTERVAL_MONTHS: Record<BillingInterval, number> = {
 };
 
 /**
+ * Today in Europe/Zurich as "YYYY-MM-DD". Billing dates are Swiss local dates: the API decides with this day
+ * (a cancellation ends at once or is scheduled, an end date has passed), so the console must use the same day
+ * and not the browser's. Intl only, so it runs in the browser too.
+ */
+export function todayZurich(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Zurich',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+/**
  * The billing date after `current` ("YYYY-MM-DD") for a service that started on `startsAt`, or null for
  * one-off services. Keeps the start day where the month allows it, so a service from Jan 31 is billed on
  * Feb 28, Mar 31, Apr 30; a date moved by hand becomes the new anchor. Shared so the console steps through

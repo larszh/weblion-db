@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { INTERVAL_MONTHS, nextBillingDate, type BillingInterval } from '@weblion/shared';
+import { INTERVAL_MONTHS, nextBillingDate, todayZurich, type BillingInterval } from '@weblion/shared';
 
 /**
  * Calendar dates as "YYYY-MM-DD" strings. Billing works with dates in Swiss local time
@@ -31,15 +31,8 @@ export function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-/** Today in Europe/Zurich. */
-export function todayZurich(now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Zurich',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now);
-}
+/** Today in Europe/Zurich, in the shared package because the console decides with the same day. */
+export { todayZurich };
 
 export function addDays(date: string, days: number): string {
   const [y, m, d] = parts(date);

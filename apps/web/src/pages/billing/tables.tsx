@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatMoney, type InvoiceDto, type ServiceDto } from '@weblion/shared';
+import { formatMoney, todayZurich, type InvoiceDto, type ServiceDto } from '@weblion/shared';
 import { cn } from '@/lib/cn';
 import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -16,7 +16,7 @@ import {
   ZohoBadge,
   useBillingLabels,
 } from './bits';
-import { formatDay, formatQuantity, todayISO } from './money';
+import { formatDay, formatQuantity } from './money';
 import { scheduledEndOf, waitsForBilling } from './service-end';
 
 /** Tables shared by the customer view, the seller panel and the admin overview. */
@@ -201,7 +201,8 @@ export function ServiceTable({
   base,
   linkable,
   actions,
-  today = todayISO(),
+  // The API's day (Europe/Zurich), not the browser's: it decides when an end date has passed.
+  today = todayZurich(),
 }: {
   services: ServiceDto[];
   /** /o/<slug> of the customer, to link resources. */

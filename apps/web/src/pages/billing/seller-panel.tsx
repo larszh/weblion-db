@@ -17,7 +17,7 @@ import {
   Wallet,
   Zap,
 } from 'lucide-react';
-import { formatMoney, type ServiceDto } from '@weblion/shared';
+import { formatMoney, todayZurich, type ServiceDto } from '@weblion/shared';
 import { ApiError, api } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { useApiMutation } from '@/lib/queries';
@@ -55,7 +55,7 @@ import {
   EditServiceDialog,
   GenerateDialog,
 } from './seller-dialogs';
-import { formatDay, todayISO } from './money';
+import { formatDay } from './money';
 import { endPassed, scheduledEndOf } from './service-end';
 import { SummaryCards, SummarySkeleton } from './summary';
 import { CreditTable, InvoiceTable, ServiceTable } from './tables';
@@ -304,7 +304,7 @@ function ServicesSection({
                       )}
                       {/* A scheduled cancellation can be changed or withdrawn until its end date (the API
                           refuses both afterwards), then the service only waits to be ended. */}
-                      {!endPassed(s, todayISO()) && (
+                      {!endPassed(s, todayZurich()) && (
                         <>
                           <MenuSeparator />
                           <MenuItem icon={<Ban />} danger onSelect={() => setCancelling(s)}>
