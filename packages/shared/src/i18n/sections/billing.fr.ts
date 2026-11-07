@@ -424,6 +424,8 @@ export const billingFr: Partial<Record<keyof typeof billingDe, string>> = {
     'Ce service ne peut plus être rétabli, il a été modifié entre-temps. Les services ont été rechargés.',
   'billing.service.restoreSellerChanged':
     "Le client a changé d'émetteur des factures depuis la vente de ce service. Le service appartient à l'émetteur des factures précédent et ne peut pas être rétabli ici.",
+  'billing.service.restoreResourceGone':
+    "La ressource de ce service n'appartient plus à ce client ou a été supprimée. Le service ne peut donc pas être rétabli.",
   'billing.service.restoreActivateModule': 'Réactiver le module "{module}"',
   'billing.service.restoreDeactivateAtEnd': 'Désactiver le module "{module}" à la date de fin',
   'billing.service.restoreConfirm': 'Rétablir',

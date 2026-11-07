@@ -293,7 +293,7 @@ export interface ServiceResumePreviewDto {
  * The reason of a 409 from GET or POST /services/:id/resume: not (or no longer) a service ended early, or the
  * customer changed its seller since the service was sold (the old seller's service is not billed by the new one).
  */
-export type ServiceResumeRefusal = 'notEndedEarly' | 'sellerChanged';
+export type ServiceResumeRefusal = 'notEndedEarly' | 'sellerChanged' | 'resourceGone';
 
 /** POST /services/:id/resume */
 export interface ServiceResumeInput {

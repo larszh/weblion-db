@@ -419,6 +419,8 @@ export const billingIt: Partial<Record<keyof typeof billingDe, string>> = {
     'Questo servizio non può più essere ripristinato, nel frattempo è stato modificato. I servizi sono stati ricaricati.',
   'billing.service.restoreSellerChanged':
     "Il cliente ha cambiato emittente delle fatture da quando questo servizio è stato venduto. Il servizio appartiene all'emittente delle fatture precedente e qui non può essere ripristinato.",
+  'billing.service.restoreResourceGone':
+    'La risorsa di questo servizio non appartiene più a questo cliente o è stata eliminata. Il servizio quindi non può essere ripristinato.',
   'billing.service.restoreActivateModule': 'Riattiva il modulo "{module}"',
   'billing.service.restoreDeactivateAtEnd': 'Disattiva il modulo "{module}" alla data di fine',
   'billing.service.restoreConfirm': 'Ripristina',

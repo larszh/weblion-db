@@ -959,7 +959,9 @@ export function ResumeServiceDialog({
         <Notice tone="warning">
           {refusal === 'sellerChanged'
             ? t('billing.service.restoreSellerChanged')
-            : t('billing.service.restoreGone')}
+            : refusal === 'resourceGone'
+              ? t('billing.service.restoreResourceGone')
+              : t('billing.service.restoreGone')}
         </Notice>
       ) : preview.isError ? (
         <ErrorState error={preview.error} onRetry={() => void preview.refetch()} />

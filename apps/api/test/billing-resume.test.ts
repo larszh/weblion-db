@@ -11,11 +11,13 @@ import {
 } from '@weblion/shared';
 import {
   auditLogs,
+  domains,
   invoiceLines,
   invoices,
   memberships,
   organizations,
   products,
+  providerConnections,
   services,
   users,
 } from '../src/db/schema';
@@ -805,6 +807,55 @@ describe('seller change', () => {
       .set({ endsAt: addMonths(today, 3) })
       .where(eq(services.id, d.id));
     expect((await rita.get(`/services/${d.id}/resume`)).statusCode).toBe(200);
+  });
+});
+
+describe('resource gone', () => {
+  it('refuses a service whose domain moved to another customer or was deleted, and lists it for nobody', async () => {
+    const body = { billFrom: 'missed', ...none };
+    const demo = (await t.db.query.providerConnections.findFirst({
+      where: eq(providerConnections.envKey, 'demo'),
+    }))!;
+    const orgId = await customer('resume-resource');
+    const other = await customer('resume-resource-other');
+    const domain = async (name: string) =>
+      (
+        await t.db
+          .insert(domains)
+          .values({ providerConnectionId: demo.id, externalId: `resume-${name}`, name, orgId, status: 'OK' })
+          .returning({ id: domains.id })
+      )[0]!.id;
+    const movedId = await domain('resume-moved.ch');
+    const deletedId = await domain('resume-deleted.ch');
+    const keptId = await domain('resume-kept.ch');
+    const svc = async (resourceId: string, name: string) => {
+      const s = await service(orgId, { name, startsAt: today, resourceType: 'domain', resourceId });
+      await legacyCancel(s, addMonths(today, 3));
+      return s;
+    };
+    const moved = await svc(movedId, 'Domain verschoben');
+    const deleted = await svc(deletedId, 'Domain gelöscht');
+    const kept = await svc(keptId, 'Domain noch da');
+    expect((await admin.get(`/services/${moved.id}/resume`)).statusCode).toBe(200);
+
+    await t.db.update(domains).set({ orgId: other }).where(eq(domains.id, movedId));
+    await t.db.delete(domains).where(eq(domains.id, deletedId));
+
+    const staff = json<EndedEarlyServiceDto[]>(await admin.get('/admin/billing/services/ended-early'));
+    for (const s of [moved, deleted]) {
+      expect(staff.map((e) => e.serviceId)).not.toContain(s.id);
+      const get = await admin.get(`/services/${s.id}/resume`);
+      expect(get.statusCode, s.name).toBe(409);
+      expect(json(get).error.details).toEqual({ reason: 'resourceGone' });
+      const post = await resume(s.id, body);
+      expect(post.statusCode, s.name).toBe(409);
+      expect(json(post).error.details).toEqual({ reason: 'resourceGone' });
+      expect((await load(s.id)).status).toBe('cancelled');
+    }
+    // The service whose domain the customer still has stays listed and restorable.
+    expect(staff.map((e) => e.serviceId)).toContain(kept.id);
+    expect((await resume(kept.id, body)).statusCode).toBe(200);
+    expect((await load(kept.id)).status).toBe('active');
   });
 });
 

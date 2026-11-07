@@ -198,6 +198,9 @@ describe('resume defaults and body', () => {
     expect(resumeRefusal(new ApiError(409, 'conflict', 'x', { reason: 'notEndedEarly' }))).toBe(
       'notEndedEarly',
     );
+    expect(resumeRefusal(new ApiError(409, 'conflict', 'x', { reason: 'resourceGone' }))).toBe(
+      'resourceGone',
+    );
     expect(resumeRefusal(new ApiError(409, 'conflict', 'The reseller does not have the module'))).toBeNull();
     expect(resumeRefusal(new ApiError(403, 'forbidden', 'x', { reason: 'sellerChanged' }))).toBeNull();
     expect(resumeRefusal(new TypeError('offline'))).toBeNull();

@@ -446,6 +446,8 @@ export const billingDe = {
     'Dieser Dienst lässt sich nicht mehr wiederherstellen, er wurde inzwischen geändert. Die Dienste sind neu geladen.',
   'billing.service.restoreSellerChanged':
     'Der Kunde hat den Rechnungssteller gewechselt, seit dieser Dienst verkauft wurde. Der Dienst gehört dem bisherigen Rechnungssteller und lässt sich hier nicht wiederherstellen.',
+  'billing.service.restoreResourceGone':
+    'Die Ressource dieses Dienstes gehört nicht mehr diesem Kunden oder wurde gelöscht. Der Dienst lässt sich deshalb nicht wiederherstellen.',
   'billing.service.restoreActivateModule': 'Modul «{module}» wieder einschalten',
   'billing.service.restoreDeactivateAtEnd': 'Modul «{module}» am Enddatum sperren',
   'billing.service.restoreConfirm': 'Wiederherstellen',

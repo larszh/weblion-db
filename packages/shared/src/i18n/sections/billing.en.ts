@@ -436,6 +436,8 @@ export const billingEn: Record<keyof typeof billingDe, string> = {
     'This service can no longer be restored, it has been changed in the meantime. The services have been reloaded.',
   'billing.service.restoreSellerChanged':
     'The customer changed its invoice issuer since this service was sold. The service belongs to the previous invoice issuer and cannot be restored here.',
+  'billing.service.restoreResourceGone':
+    'The resource of this service no longer belongs to this customer or has been deleted, so the service cannot be restored.',
   'billing.service.restoreActivateModule': 'Activate the module "{module}" again',
   'billing.service.restoreDeactivateAtEnd': 'Deactivate the module "{module}" on the end date',
   'billing.service.restoreConfirm': 'Restore',

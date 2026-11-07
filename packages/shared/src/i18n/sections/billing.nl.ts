@@ -416,6 +416,8 @@ export const billingNl: Partial<Record<keyof typeof billingDe, string>> = {
     'Deze dienst kan niet meer worden hersteld, hij is intussen gewijzigd. De diensten zijn opnieuw geladen.',
   'billing.service.restoreSellerChanged':
     'De klant heeft van factuurafzender gewisseld sinds deze dienst is verkocht. De dienst hoort bij de vorige factuurafzender en kan hier niet worden hersteld.',
+  'billing.service.restoreResourceGone':
+    'De resource van deze dienst hoort niet meer bij deze klant of is verwijderd. De dienst kan daarom niet worden hersteld.',
   'billing.service.restoreActivateModule': 'Module "{module}" weer activeren',
   'billing.service.restoreDeactivateAtEnd': 'Module "{module}" op de einddatum deactiveren',
   'billing.service.restoreConfirm': 'Herstellen',

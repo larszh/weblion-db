@@ -384,6 +384,7 @@
   "billing.service.restoreModuleMissing": ["764f823acf56131b", "75f588a6af8b08da"],
   "billing.service.restoreGone": ["7f3932d8ece2d558", "a96b07351e2a748c"],
   "billing.service.restoreSellerChanged": ["16806190ae0995f1", "d0a648b70e7ca1fe"],
+  "billing.service.restoreResourceGone": ["7c51d0a677cad271", "6a53cfaeaf9bfa3a"],
   "billing.service.restoreActivateModule": ["67d5d61e559fea14", "1974f65446a1a153"],
   "billing.service.restoreDeactivateAtEnd": ["6d008032fb2c7524", "4bfa9b2bf19d8851"],
   "billing.service.restoreConfirm": ["ab99a15c6bcda979", "a76e13b9839270eb"],

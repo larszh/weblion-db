@@ -63,6 +63,7 @@ import {
   manualInvoicesSince,
   moduleDeactivatedByCancel,
   resumePlan,
+  resourceGone,
   soldByAnotherSeller,
 } from './resume';
 import { canActAsSeller, loadCustomerAsSeller, sellerOrgId } from './seller';
@@ -1018,7 +1019,9 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       'conflict',
       reason === 'sellerChanged'
         ? 'The customer changed its seller since this service was sold, so it cannot be restored here'
-        : 'Only a service that a cancellation to a later date ended at once can be restored',
+        : reason === 'resourceGone'
+          ? 'The resource of this service no longer belongs to the customer, so it cannot be restored'
+          : 'Only a service that a cancellation to a later date ended at once can be restored',
       { reason },
     );
 
@@ -1036,6 +1039,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
     const today = todayZurich();
     if (!endedEarly(service, today)) throw notRestorable('notEndedEarly');
     if (await soldByAnotherSeller(db, service, org)) throw notRestorable('sellerChanged');
+    if (await resourceGone(db, service)) throw notRestorable('resourceGone');
     const [plan, switchedOff, hasModule, manual] = await Promise.all([
       resumePlan(db, service, today),
       moduleDeactivatedByCancel(db, service),
@@ -1095,6 +1099,7 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       ) {
         throw notRestorable('sellerChanged');
       }
+      if (await resourceGone(tx, current)) throw notRestorable('resourceGone');
       const plan = await resumePlan(tx, current, today);
       // The same helper as a new service with a module, with its lock on the organization row and its check
       // that a reseller only passes on modules it has.
@@ -1136,7 +1141,8 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
 
   /**
    * Services ended early of the given customers, the oldest end date first. Not those the customer's current
-   * seller did not sell (soldByAnotherSeller): nobody can restore them, the old seller bills them by hand.
+   * seller did not sell (soldByAnotherSeller) or whose resource the customer no longer has (resourceGone):
+   * nobody can restore them, the seller bills missing periods by hand.
    */
   async function endedEarlyServices(customers: SQL): Promise<EndedEarlyServiceDto[]> {
     const rows = await db
@@ -1153,7 +1159,10 @@ export async function billingRoutes(app: FastifyInstance, ctx: AppContext) {
       )
       .orderBy(asc(services.endsAt), asc(organizations.name), asc(services.name));
     const own = await Promise.all(
-      rows.map(async ({ service, customer }) => !(await soldByAnotherSeller(db, service, customer))),
+      rows.map(
+        async ({ service, customer }) =>
+          !(await soldByAnotherSeller(db, service, customer)) && !(await resourceGone(db, service)),
+      ),
     );
     return rows
       .filter((_, i) => own[i])

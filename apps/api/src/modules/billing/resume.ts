@@ -10,6 +10,7 @@ import {
   type Service,
 } from '../../db/schema';
 import { addDays, nextBillingDate, resumeBillingDate } from './dates';
+import { resourceOfOrg } from './dto';
 import { sellerOrgId } from './seller';
 
 /**
@@ -205,6 +206,19 @@ export async function moduleDeactivatedByCancel(
     .orderBy(desc(auditLogs.id))
     .limit(1);
   return entry?.details?.moduleDeactivated === service.module;
+}
+
+/**
+ * Whether the server, domain or web space the service bills for no longer belongs to the customer (moved to
+ * another organization or deleted since the cancellation). Restoring it would bill the customer for a resource
+ * it does not have, so it cannot be restored.
+ */
+export async function resourceGone(
+  db: DbOrTx,
+  service: Pick<Service, 'orgId' | 'resourceType' | 'resourceId'>,
+): Promise<boolean> {
+  if (!service.resourceType || !service.resourceId) return false;
+  return !(await resourceOfOrg(db, service.orgId, service.resourceType, service.resourceId));
 }
 
 /**

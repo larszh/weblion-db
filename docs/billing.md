@@ -144,6 +144,9 @@ Die Routen antworten mit 409 und dem Grund in `details.reason`:
   Rechnung eines anderen Rechnungsstellers). Der Dienst gehört dem bisherigen Verkäufer, der neue darf ihn nicht
   abrechnen. Die Listen zeigen solche Dienste nicht. Neue Fälle entstehen nicht mehr: Jeder sofort beendete
   Dienst mit einem Enddatum nach heute sperrt den Wechsel des Verkäufers (siehe [Reseller](#reseller)).
+- `resourceGone`: Der Server, die Domain oder der Webspace des Dienstes gehört nicht mehr dem Kunden (einer
+  anderen Organisation zugewiesen oder gelöscht). Wiederhergestellt würde der Kunde für etwas verrechnet, das er
+  nicht mehr hat. Die Listen zeigen solche Dienste nicht.
 
 ### Domain-Verlängerungen
 

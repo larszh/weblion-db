@@ -195,5 +195,7 @@ export function resumeBody(preview: ResumeFacts, choice: ServiceResumeInput): Se
 export function resumeRefusal(error: unknown): ServiceResumeRefusal | null {
   if (!(error instanceof ApiError) || error.status !== 409) return null;
   const reason = (error.details as { reason?: unknown } | null | undefined)?.reason;
-  return reason === 'notEndedEarly' || reason === 'sellerChanged' ? reason : null;
+  return reason === 'notEndedEarly' || reason === 'sellerChanged' || reason === 'resourceGone'
+    ? reason
+    : null;
 }
