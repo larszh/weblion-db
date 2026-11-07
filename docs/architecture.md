@@ -21,20 +21,25 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
                                        │                       └─> Uptime Kuma: /metrics, Statusseiten,
                                        │                           Socket.IO zum Verwalten (Monitoring)
                                        │    ├─ Abrechnung ──> Stripe (Karte, TWINT), Zoho Books
+                                       │    ├─ KI ──> Claude API (Anthropic, USA)
                                        │    └─ E-Mail der Console (SMTP)
                                        ├─ Websocket-Bridge für die Konsole (noVNC)
                                        └─ Jobs: Sync (Server, Domains und Zonen, Webspaces,
                                           Cloud-Konten, Mail-Domains, Websites,
                                           Telefonanlagen, Streaming-Zugänge, Monitore,
-                                          Tasks), wiederkehrende Abrechnung
-                                     Postgres (Benutzer, Kunden, Inventar, Rechnungen, Audit-Log)
+                                          Tasks), wiederkehrende Abrechnung,
+                                          Übersetzungen (Mass Translate), Wartung der KI
+                                     Postgres (Benutzer, Kunden, Inventar, Rechnungen, Audit-Log,
+                                     Nutzung der KI, angepasste Texte)
 ```
 
 ## Pakete
 
 - `packages/shared`: Katalog aller Berechtigungen, Rollen, Policy-Auswertung, API-Typen.
   Die API entscheidet damit, die Console blendet damit Buttons aus. Gleiche Regeln an
-  beiden Stellen, aber nur die API ist massgeblich.
+  beiden Stellen, aber nur die API ist massgeblich. Dazu die Texte aller fünf Sprachen
+  (`src/i18n`), damit API und Console E-Mails, PDF und Oberfläche mit denselben Texten zeigen, und
+  das Vokabular der KI (`src/ai.ts`: Modelle, Preise, Funktionen, Fehlercodes).
 - `apps/api`: Fastify, Drizzle ORM, Postgres. Module unter `src/modules/*`, Provider unter
   `src/providers/*`.
 - `apps/web`: React 19, Vite, Tailwind 4, TanStack Query, Radix-Primitives, Recharts, noVNC.
@@ -42,7 +47,11 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
 ## Datenmodell (Kurzfassung)
 
 - `organizations`: Kunden, Reseller und interne Organisationen, mit `boundary`
-  (Berechtigungsgrenze), `modules` (freigeschaltete Module) und `parent_org_id` (Reseller)
+  (Berechtigungsgrenze), `modules` (freigeschaltete Module) und `parent_org_id` (Reseller). Dazu
+  die Schalter der KI: `ai_enabled` (Standard aus, weblion.one oder der Reseller schaltet pro Kunde
+  ein), `ai_disabled_by` (`platform` oder `reseller`: wer ausgeschaltet hat, ein Reseller schaltet
+  nie ein, was weblion.one ausgeschaltet hat) und `ai_opt_out_at`, `ai_opt_out_by` (der Kunde hat
+  die KI abgelehnt, das gilt vor jedem Schalter)
 - `memberships`: Benutzer in Organisationen mit Rolle, `membership_policies` hängt Policies an
 - `projects`: gruppieren Server innerhalb einer Organisation
 - `provider_connections`: 24fire, Proxmox, Hetzner Cloud (ein Projekt pro Verbindung),
@@ -109,7 +118,26 @@ Browser ──HTTPS──> Reverse Proxy ──> Console-Container (Node 22)
   (Slug, optional eine eigene Adresse)
 - `server_actions`: über die Console ausgelöste Aktionen mit Provider-Task-Referenz
 - `products`, `services`, `invoices`, `invoice_lines`, `payments`, `credit_transactions`,
-  `billing_profiles`, `number_sequences`: Abrechnung, siehe [billing.md](billing.md)
+  `billing_profiles`, `number_sequences`: Abrechnung, siehe [billing.md](billing.md).
+  `products.translations` hält Name und Beschreibung in Englisch, Französisch, Italienisch und
+  Niederländisch (Deutsch bleibt in `name` und `description`), `billing_profiles.locale` die
+  "Sprache für Rechnungen" (leer: die Sprache des Owners, der am längsten Mitglied ist, sonst
+  Deutsch), `invoices.locale` die Sprache einer Rechnung (beim Abschliessen gesetzt, danach nie
+  geändert, leer bei Entwürfen und älteren Rechnungen) und `services.deactivate_module_at_end`, ob
+  eine vorgemerkte Kündigung am Ende auch das Modul sperrt
+- `users.locale`: die Sprache einer Person (`de`, `en`, `fr`, `it` oder `nl`), gilt nach dem Login
+  auf jedem Gerät
+- `ai_usage`: eine Zeile pro KI-Anfrage (eine Antwort im Chat, ein Aufruf einer Funktion, ein Paket
+  einer Übersetzung) mit Funktion, Bereich (`org`, `staff`, `platform`), Organisation der Daten,
+  Person, Modell, Status, Token-Zahlen, Reservierung und Kosten in Mikro-USD. Nie eine Frage, eine
+  Antwort oder ein Ergebnis eines Werkzeugs. Zeilen bleiben 400 Tage, Fehlertexte 30 Tage
+- `translation_overrides`: angepasste Texte pro Schlüssel und Sprache, mit Herkunft (`manual` oder
+  `ai`), geprüft oder nicht und dem Hash des deutschen Textes, gegen den übersetzt wurde
+  (`source_hash`, daran erkennt die Console veraltete Übersetzungen)
+- `translation_glossary`: feste Übersetzungen von Begriffen und Namen, die nie übersetzt werden
+  (eingebaute Einträge lassen sich ändern, nicht löschen)
+- `translation_jobs`: Läufe von Mass Translate mit Sprachen, festem Plan der Pakete, Fortschritt,
+  Tokens, Kosten und Schätzung. Höchstens ein Job wartet oder läuft (eindeutiger Index)
 - `mail_log`: jede versendete (oder übersprungene) E-Mail
 - `audit_logs`: unveränderliches Protokoll (wer, was, wann, Ergebnis, IP)
 - `api_tokens`, `sessions`, `invitations`
@@ -137,10 +165,15 @@ Auswertung einer Anfrage:
    freischaltbar. Gesperrte Kunden dürfen nur noch lesen (und bezahlen).
 5. **Module**: Aktionen eines nicht freigeschalteten Moduls (`server:*`/`project:*`,
    `domain:*`, `webspace:*`, `cloud:*`, `mail:*`, `phone:*`, `media:*`, `monitor:*`) werden
-   verweigert, als zusätzliche Regel in der Grenze.
-6. **Reseller**: Gehört die Organisation zu einem Reseller, gilt dessen Grenze (inkl. Module
-   und Sperre) zusätzlich. Mitarbeitende des Resellers, die beim Kunden kein Mitglied sind,
-   handeln dort mit ihrer Reseller-Rolle und -Policies, wenn diese
+   verweigert, als zusätzliche Regel in der Grenze. Ebenso `ai:use`, solange die KI für die
+   Organisation nicht eingeschaltet ist (Standard) oder der Kunde sie abgelehnt hat
+   (`aiDenyStatements()`). `ai:settings` bleibt erlaubt, auch bei gesperrten Kunden: Ein Kunde kann
+   die KI immer ablehnen und eine Ablehnung zurücknehmen. Weil Plattform-Rollen an keiner Grenze
+   hängen, prüfen die Routen der KI den Zustand der Organisation zusätzlich selbst: Ist die KI für
+   einen Kunden aus, bekommen auch Mitarbeitende von weblion.one keine KI auf seinen Daten.
+6. **Reseller**: Gehört die Organisation zu einem Reseller, gilt dessen Grenze (inkl. Module,
+   KI-Schalter und Sperre) zusätzlich. Mitarbeitende des Resellers, die beim Kunden kein Mitglied
+   sind, handeln dort mit ihrer Reseller-Rolle und -Policies, wenn diese
    `reseller:customer:access` erlauben, und bleiben an beide Grenzen gebunden. Ist der
    Reseller gesperrt, dürfen sie beim Kunden nur noch lesen (auch nicht bezahlen).
 
@@ -155,11 +188,11 @@ Einstellungen anwenden (`platform:media:write`), die Willkommens-E-Mail eines Te
 erneut senden und seine E-Mail-Adresse ändern (`phone:credentials`), Domains verlängern und die
 automatische Verlängerung schalten (kostet beim Registrar Geld, Berechtigung `platform:domain:write`),
 DNS zu Cloudflare umziehen (`platform:domain:move`), Websites im Admin-Bereich anlegen, übernehmen und
-entfernen (`platform:website:write`), Uptime Kuma für die Verwaltung an- und abmelden und der API
-Explorer. Cloud-Konten legt ein API-Token nur mit Einladung per E-Mail an, Telefonie-Benutzer mit
-der Willkommens-E-Mail an die Adresse, die es selbst angibt, Postfächer, Websites, Datenbanken und
-Streaming-Zugänge nur mit einem Passwort, das es selbst mitschickt. Ein erzeugtes Passwort bekommt
-es nie.
+entfernen (`platform:website:write`), Uptime Kuma für die Verwaltung an- und abmelden, der API
+Explorer, alle KI-Funktionen mit ihren Schaltern und die Seite Übersetzungen. Cloud-Konten legt ein
+API-Token nur mit Einladung per E-Mail an, Telefonie-Benutzer mit der Willkommens-E-Mail an die
+Adresse, die es selbst angibt, Postfächer, Websites, Datenbanken und Streaming-Zugänge nur mit einem
+Passwort, das es selbst mitschickt. Ein erzeugtes Passwort bekommt es nie.
 
 ## Provider-Schicht
 
@@ -585,6 +618,106 @@ Ein zweiter Job verfolgt laufende Provider-Tasks (z.B. Proxmox-UPIDs) und schlie
 Aktionen ab. Beide laufen hinter Postgres-Advisory-Locks, also auch mit mehreren
 API-Instanzen nur einmal.
 
+## KI (Claude)
+
+Das Modul `src/modules/ai` bindet Claude von Anthropic an, für sieben Funktionen: den Assistenten
+(Chat), Erklärungen von Fehlern und Einträgen, die Prüfung von DNS und E-Mail-Einträgen,
+Zusammenfassungen des Audit-Logs, die Analyse eines Servers, Produkttexte und Übersetzungen. Die
+gemeinsamen Typen stehen in `packages/shared/src/ai.ts`. Bedienung, Kosten und die Schritte vor dem
+Einschalten in [ai.md](ai.md).
+
+```
+Browser ──POST /orgs/:orgId/ai/chat──> aiRequestGate (KI der Organisation an? ai:use,
+   ▲                                    bei Staff dazu platform:ai:use)
+   │                                  ──> reserve() (Budget, Limits, Zeile in ai_usage)
+   │                                  ──> Claude API (Stream) ──tool_use──> Werkzeug (tools/*)
+   │                                                                        ──> ConsoleReader: GET-Route
+   │                                                                            per app.inject, als die Person
+   └── Server-Sent Events: meta, text, tool, source, proposal, notice, error, done (Ping alle 15 s)
+```
+
+- **Ein Weg zu Claude:** Jeder Aufruf geht über `AiService` (`service.ts`) und das SDK
+  `@anthropic-ai/sdk` (genau Version 1.3.0). Jede Funktion ist eine Anfrage, deren Antwort als
+  JSON gegen ein Schema geprüft wird (`structured()`), der Assistent ist eine Schleife aus Aufrufen
+  und Werkzeugen (`chat.ts`, höchstens 8 Aufrufe und 24 Werkzeuge pro Antwort). Ein Modell für alles,
+  auf der Seite KI gewählt (Standard Claude Opus 5.5), mit festem `effort` pro Funktion, damit der
+  Cache des Prompts warm bleibt. Lehnt Claude Opus oder Sonnet eine Anfrage aus Sicherheitsgründen
+  ab, antwortet bei Anthropic ein Ersatzmodell (`fallbacks`). Von sich aus wechselt die Console nie
+  das Modell.
+- **Schalter:** der Hauptschalter der Plattform und die einzelnen Funktionen (Einstellung `ai`,
+  Standard aus, nur mit `ENABLE_DEMO_PROVIDER=true` an), der Schalter der Organisation
+  (`ai_enabled`, Standard aus), der des Resellers (gilt für seine Kunden mit) und die Ablehnung des
+  Kunden (`ai_opt_out_at`, gewinnt immer). Ohne Schlüssel und mit `ENABLE_DEMO_PROVIDER=true`
+  antwortet statt Claude ein Emulator im Prozess (`demo.ts`).
+- **Schlüssel:** Ein auf der Seite KI gespeicherter Schlüssel (Einstellung `ai_key`, als Ganzes mit
+  dem `ENCRYPTION_KEY` verschlüsselt) gewinnt über `ANTHROPIC_API_KEY`, so lässt er sich ohne
+  Deploy tauschen. Einstellungen und Schlüssel liest jeder Prozess höchstens alle 10 Sekunden neu.
+- **Lesen über die Routen der Console:** Werkzeuge und Funktionen fragen keine Tabellen ab. Der
+  `ConsoleReader` (`reader.ts`) ruft eine feste Liste von GET-Routen im selben Prozess auf
+  (`app.inject`), als die Person, die fragt. So gelten alle Rechte, Module und Sperren dieser Routen
+  unverändert. Pfade entstehen aus festen Vorlagen mit geprüften IDs, nie aus Angaben des Modells.
+  Eine Ressource, die per ID gelesen wird, muss im Body die Organisation der Anfrage nennen, sonst
+  gilt sie als nicht gefunden. Auch `propose_dns_record` speichert nichts: Es prüft einen Eintrag
+  mit den Regeln der Console, übernommen wird er im normalen DNS-Formular.
+- **Budget und Limits** (`usage.ts`): `reserve()` prüft vor jeder Anfrage unter einer
+  Transaktionssperre das Monatsbudget samt den Reservierungen laufender Anfragen, die Tageslimits
+  pro Organisation und Person, 12 Anfragen pro Person und Minute und die gleichzeitigen Anfragen (2
+  pro Person, 3 pro Organisation, 6 auf der Plattform). Gezählt wird in `ai_usage`, die Limits
+  gelten also über alle API-Prozesse. Nach jedem Aufruf bucht die Console die Kosten aus den
+  Token-Zahlen. Ist das Budget aufgebraucht, beginnt kein weiterer Aufruf, auch nicht mitten in
+  einer Antwort, und eine Antwort darf höchstens das Fünffache ihrer Schätzung kosten.
+- **Mitarbeitende auf Kundendaten** laufen mit dem Bereich `staff` und der Organisation des Kunden
+  in `ai_usage`, so sieht der Kunde auch diese Anfragen in seinen Zahlen. Kunden und Reseller sehen
+  nur Zahlen, Kosten nur weblion.one.
+- **Wartung** (`maintenance.ts`): 5 Sekunden nach dem Start und dann alle 10 Minuten, unter einer
+  Session-Sperre nur in einem Prozess. Laufende Zeilen, die älter als `AI_TURN_TIMEOUT_SECONDS`
+  plus 60 Sekunden sind, werden `stale`, Zeilen nach 400 Tagen gelöscht, Fehlertexte nach 30 Tagen
+  geleert. Erreicht der Verbrauch die Warnschwelle oder das Budget, geht je einmal im Monat eine
+  E-Mail an die Superadmins.
+
+## Sprachen und Übersetzungen
+
+Die Console gibt es auf Deutsch (die Ausgangssprache), Englisch, Französisch, Italienisch und
+Niederländisch. Fehlt ein Text auf Französisch, Italienisch oder Niederländisch, nimmt sie den
+englischen, fehlt der, den deutschen. Zahlen und Daten folgen der Sprache (`de-CH`, `en-GB`,
+`fr-CH`, `it-CH`, `nl-NL`), Rechnungen bleiben in jeder Sprache im Schweizer Format. Regeln und
+Bedienung in [i18n.md](i18n.md).
+
+- **Wörterbücher:** `packages/shared/src/i18n/sections/<Abschnitt>.<Sprache>.ts`, 16 Abschnitte.
+  Deutsch und Englisch sind vollständig (der Typ verlangt jeden Schlüssel), Französisch,
+  Italienisch und Niederländisch dürfen Lücken haben. Die Abschnitte `email` und `pdf` kennt nur die
+  API. Im Web ist jede Sprache ein eigener Chunk, den der Browser erst lädt, wenn er ihn braucht (CI
+  prüft das mit `check:chunks`).
+- **Veraltete Übersetzungen:** Die Stempeldateien `stamps/<Sprache>/<Abschnitt>.json` halten für
+  jede Übersetzung im Repository fest, gegen welchen deutschen Text sie geschrieben wurde. Ändert
+  sich der deutsche Text, gilt sie als veraltet, bis sie neu übersetzt oder bestätigt ist
+  (`pnpm --filter @weblion/api i18n:stamp`).
+- **Angepasste Texte ohne Deploy:** Was unter Admin > Übersetzungen geändert wird, steht in
+  `translation_overrides` und gilt sofort. `I18nService` (`src/i18n/service.ts`) hält alle Zeilen im
+  Speicher: Der Prozess, der schreibt, lädt sofort neu, andere Prozesse schauen alle 15 Sekunden
+  nach. Die Console holt die Anpassungen einer Sprache über die öffentliche Route
+  `GET /i18n/overrides/:locale` (mit ETag, ohne die Texte von E-Mails und PDF) und merkt sie sich im
+  Browser. Zurück ins Repository kommen sie mit dem Export der Seite und
+  `pnpm --filter @weblion/api i18n:apply <Datei>`.
+- **Prüfungen:** Dieselben Regeln (`packages/shared/src/i18n/checks.ts`) gelten für die Wörterbücher
+  in den Tests, für Änderungen auf der Seite Übersetzungen und für Ergebnisse der KI: Platzhalter,
+  Zeilenumbrüche, kein scharfes S, kein Em Dash, die Leerzeichen im Französischen, dazu
+  Warnungen wie verbliebenes Deutsch oder Begriffe des Glossars.
+- **Rechtstexte** (`LEGAL_KEYS`: Titel und Text des Datenschutzhinweises der KI) übersetzt die KI
+  nie. Ist eine Übersetzung nach einer Änderung des deutschen Textes veraltet, zeigt die Console
+  den englischen Text, wenn dieser aktuell ist, sonst den deutschen, bis jemand neu übersetzt.
+- **Mass Translate** (`src/i18n/jobs.ts`, `translator.ts`): Höchstens ein Job über alle Prozesse
+  (eindeutiger Index in `translation_jobs`, Übernahme unter einem Advisory Lock). Der Job arbeitet
+  in Paketen, `I18N_AI_CONCURRENCY` gleichzeitig, jedes Paket wird für sich gespeichert. Der
+  Prozess, der ihn ausführt, meldet sich alle 30 Sekunden; bleibt die Meldung 2 Minuten aus,
+  übernimmt ein anderer Prozess. Prozesse mit `I18N_JOB_ENABLED=false` übernehmen keine Jobs. Der
+  Start wird abgelehnt, wenn die Kosten seit der bestätigten Schätzung um mehr als 25 Prozent
+  gestiegen sind, und der Job stoppt beim 1.5-fachen der Schätzung. Ergebnisse stehen als "KI,
+  ungeprüft" da. Manuell geänderte und geprüfte Texte bleiben, ausser "Auch manuell geänderte und
+  geprüfte Übersetzungen ersetzen" ist gewählt.
+- **Was Englisch bleibt:** Meldungen der API (die Console übersetzt nur die allgemeinen Fehlercodes,
+  die der KI und die der Übersetzungen), Logs und Details im Audit-Log.
+
 ## Sicherheit
 
 - Passwörter mit scrypt, Login-Sperre nach 10 Fehlversuchen, Rate-Limits
@@ -628,6 +761,26 @@ API-Instanzen nur einmal.
   geschützte (z.B. die Console selbst)
 - Der API Explorer protokolliert ändernde Requests, Werte von Passwort-, Token- und
   Secret-Feldern aber ausgeblendet
+- KI, Schlüssel: Der Schlüssel für Claude steht verschlüsselt in der Datenbank (oder in der `.env`)
+  und geht nur an die Claude API (`ANTHROPIC_BASE_URL`). Die Seite KI zeigt ihn nach dem Speichern
+  nie mehr, nur Quelle, Datum und wer ihn gespeichert hat. Admin-API-Schlüssel (`sk-ant-admin...`)
+  nimmt die Console nicht an
+- KI, keine Inhalte gespeichert: Fragen, Antworten und Ergebnisse der Werkzeuge stehen nirgends in
+  der Datenbank, `ai_usage` hält nur Angaben zur Nutzung. Das SDK loggt höchstens Warnungen und
+  schreibt keine Traces. Der Chat liegt nur im `sessionStorage` des Browser-Tabs und wird beim
+  Abmelden gelöscht
+- KI, Schwärzen: Bevor etwas an Claude geht oder als Fehlertext gespeichert wird, entfernt die
+  Console (`modules/ai/redact.ts`) die Werte geheimer Variablen der `.env`, die Claude-Schlüssel,
+  typische Formate von Schlüsseln, Tokens und Passwörtern und die Werte von Feldern mit geheimen
+  Namen. Aus Einträgen von Audit-Log und Mail-Log entfernt sie dazu IP- und E-Mail-Adressen. Die KI
+  bekommt die Rolle der Person, nie ihren Namen
+- KI, nur lesen: Die Werkzeuge rufen nur GET-Routen der Console auf, mit den Rechten der Person und
+  nur für Ressourcen der eigenen Organisation. Daten von Dritten (Provider, DNS, Einträge) gehen als
+  markierte Blöcke an Claude, in denen `<` und `>` maskiert sind. Vorschläge speichert erst das
+  normale Formular
+- KI, Antworten: Die Console zeigt sie als Text, nie als HTML. Links entstehen nur zu Pfaden der
+  Console (`/o/...`, `/admin...`), jede andere Adresse bleibt Text. So kann eine eingeschleuste
+  Anweisung keinen Link bauen, der Daten nach aussen schickt
 - Strenge Content-Security-Policy, keine Inline-Skripte
 - Konsole über einmalige, 60 Sekunden gültige Tickets
 - Jede schreibende Aktion landet im Audit-Log, auch fehlgeschlagene Logins

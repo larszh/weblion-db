@@ -47,12 +47,15 @@ Ohne Datum, mit heute oder einem früheren Datum endet ein Dienst sofort: Er wir
 abgerechnet, und "Modul sperren" schaltet das Modul gleich aus. Mit einem späteren Datum ist die
 Kündigung vorgemerkt ("Gekündigt per ..."): Der Dienst läuft bis zu diesem Tag weiter, behält seinen
 Status (aktiv oder pausiert) und wird für jede Periode abgerechnet, die bis zu diesem Tag beginnt, die
-letzte bis zum Enddatum, aber zum vollen Periodenpreis (nicht anteilig). Liegt das Datum auf oder nach
-der nächsten Rechnung, sagt der Dialog, dass diese Periode noch voll verrechnet wird, und bietet den Tag
-davor an ("Stattdessen per ... kündigen"). Wichtig bei Diensten, die gegen Ende eines Monats begonnen
-haben: Fällt der Rechnungstag auf das Monatsende (ein Start am 31. rechnet im November am 30. ab),
-kostet "per Ende Monat" eine ganze Periode mehr. Am Tag danach beendet ihn der tägliche Job (Audit-Eintrag `service.end`,
-Akteur "Abrechnungsjob") und sperrt erst dann das Modul, falls gewählt. Der Job rechnet zuerst ab und
+letzte bis zum Enddatum, aber zum vollen Periodenpreis (nicht anteilig). Bezahlt der Kunde so für Tage,
+die er nicht mehr nutzt, warnt der Dialog bei einem aktiven Dienst: Er nennt die Periode, die das
+Enddatum noch voll verrechnet, also die letzte, die am oder vor dem Enddatum beginnt, und bietet den Tag
+vor ihrem Beginn an ("Stattdessen per ... kündigen"), solange dieser Tag nicht vorbei ist. Endet der
+Dienst vor der nächsten Rechnung oder am letzten Tag einer Periode, gibt es keinen Hinweis. Wichtig bei
+Diensten, die gegen Ende eines Monats begonnen haben: Fällt der Rechnungstag auf das Monatsende (ein
+Start am 31. rechnet im November am 30. ab), kostet "per Ende Monat" eine ganze Periode mehr. Am Tag
+nach dem Enddatum beendet der tägliche Job den Dienst (Audit-Eintrag `service.end`, Akteur
+"Abrechnungsjob") und sperrt erst dann das Modul, falls gewählt. Der Job rechnet zuerst ab und
 beendet danach. Hat ein aktiver Dienst noch eine Periode bis zum Enddatum offen (etwa weil sie in einer
 anderen Währung steht oder der Betrag nicht passt), bleibt er aktiv, bis sie abgerechnet ist. Das
 Beenden läuft auch mit `BILLING_JOB_ENABLED=false`, dann bleibt ein solcher Dienst aktiv, bis "Fällige
@@ -290,7 +293,10 @@ Entwürfe bekommen das Wasserzeichen "ENTWURF" und keinen Zahlteil.
 
 SMTP entweder in der `.env` (`SMTP_HOST` usw., hat Vorrang und ist im Admin-Bereich dann nur
 lesbar) oder unter Admin > Einstellungen > E-Mail (verschlüsselt in der Datenbank). Versendet
-werden Einladungen, Rechnungen mit PDF, Zahlungsbestätigungen und Guthaben-Buchungen, auf
-Deutsch oder Englisch je nach Sprache des Empfängers. Jede Mail steht im Mail-Log, auch
-fehlgeschlagene. Ohne SMTP läuft alles weiter, die Mails werden dann als "übersprungen"
-protokolliert und Einladungslinks lassen sich weiterhin kopieren.
+werden Einladungen, Rechnungen mit PDF, Zahlungsbestätigungen und Guthaben-Buchungen. Einladungen
+gehen in der Sprache der eingeladenen Person, wenn sie schon ein Konto hat, sonst in der Sprache der
+Person, die einlädt. Rechnungen, Zahlungsbestätigungen und Guthaben-Buchungen folgen der "Sprache für
+Rechnungen" im Abrechnungsprofil des Kunden (leer: die Sprache des Owners), eine abgeschlossene
+Rechnung behält ihre Sprache. Jede Mail steht im Mail-Log, auch fehlgeschlagene. Ohne SMTP läuft
+alles weiter, die Mails werden dann als "übersprungen" protokolliert und Einladungslinks lassen sich
+weiterhin kopieren.

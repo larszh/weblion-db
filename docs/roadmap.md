@@ -16,6 +16,9 @@ Berechtigungen dazukommen. Vorschläge, grob nach Nutzen sortiert:
   Anfragen nach der [Checkliste](providers.md#anfragen-seerr)), bei Uptime Kuma mit einer
   Test-Instanz 2.x (echte Antworten als Fixtures ablegen). Offene Detailfragen stehen in
   docs/providers.md unter "Offene Punkte"
+- **KI einschalten**: Live-Test gegen die Claude API (die Tests laufen gegen eine nachgebaute API),
+  den Datenschutzhinweis (`ai.notice.text`) in allen fünf Sprachen vom Inhaber prüfen lassen, am
+  besten juristisch, und die Checkliste in [ai.md](ai.md) abarbeiten. Bis dahin bleibt die KI aus
 - **Cloud-Speicher, E-Mail, Websites, Telefonie, Streaming und Monitoring an Sperre und Abrechnung
   koppeln**: Heute laufen die Nextcloud-Konten, Mail-Domains, Websites, Telefonanlagen,
   Streaming-Zugänge und Monitore eines gesperrten Kunden oder nach gekündigtem Dienst weiter (siehe
@@ -273,6 +276,44 @@ Statusseiten" unter Neue Dienste erledigt. Als Nächstes:
 - **Berichte**: monatliche Verfügbarkeit pro Kunde als PDF (SLA)
 - **Kleinere Lücken**: Kontingente auf mehreren Instanzen pro Organisation, Monitore aus Uptime Kuma
   für Kunden änderbar machen (heute nur lesbar)
+
+## KI (Claude)
+
+Die Anbindung deckt heute sieben Funktionen ab: den Assistenten (liest mit den Rechten der Person,
+schlägt DNS-Einträge vor), Erklärungen von Fehlern und Einträgen, die Prüfung von DNS und E-Mail,
+Zusammenfassungen des Audit-Logs, die Analyse eines Servers, Produkttexte und Übersetzungen. Dazu
+die Seite KI im Admin-Bereich (Schlüssel, Modell, Funktionen, Budget und Limits, Nutzung, Fehler,
+Datenschutzhinweis), den Schalter pro Kunde (Standard aus, Einschalten nur nach Zustimmung des
+Kunden) und pro Reseller, die Ablehnung durch den Kunden und einen Demo-Modus ohne Schlüssel. Als
+Nächstes:
+
+- **Stufe 2: Aktionen aus dem Assistenten**: Wie heute bei DNS-Einträgen öffnet der Assistent das
+  normale Formular vorausgefüllt, für ein Postfach, einen Alias, eine Weiterleitung, einen Monitor,
+  eine Website, die PHP-Version (sobald sie sich in der Console wechseln lässt) und das Leeren des
+  Caches. Gespeichert wird weiterhin nur im Formular, mit der normalen Rechteprüfung. Heute nicht
+  gebaut. Vorschläge für Monitore waren schon geplant und sind in der Durchsicht vorerst
+  gestrichen worden
+- **Briefing zu einem Kunden für Mitarbeitende**: eine kurze Zusammenfassung (Dienste, Guthaben,
+  offene Rechnungen, Module, letzte Aktionen) auf der Kundenseite im Admin-Bereich. In der
+  Durchsicht vorerst gestrichen, weil die Kundenseite diese Zahlen schon ohne KI zeigt
+- **KI-Nutzung an Kunden verrechnen**: Anfragen oder Kosten pro Kunde als Rechnungszeile. Heute
+  trägt weblion.one die Kosten, Kunden sehen nur die Zahl ihrer Anfragen
+- **Ein Modell pro Funktion**, etwa ein günstiges für Erklärungen und das beste für den Assistenten.
+  Heute gilt ein Modell für alles
+- **Verarbeitung in der EU oder der Schweiz**, sobald Anthropic das für die API anbietet
+
+## Sprachen und Übersetzungen
+
+Die Console gibt es heute auf Deutsch, Englisch, Französisch, Italienisch und Niederländisch, mit
+einer Sprache pro Person, einer Sprache für Rechnungen pro Kunde, Produktnamen und
+Beschreibungen in allen fünf Sprachen und der Seite Übersetzungen im Admin-Bereich (Texte ohne
+Deploy ändern, Glossar, Stilhinweise, Mass Translate mit KI, Export und Import). Als Nächstes:
+
+- **Message Batches für sehr grosse Übersetzungsläufe**: die Batch-Schnittstelle von Anthropic ist
+  günstiger, antwortet aber nicht sofort. Heute läuft Mass Translate mit normalen Anfragen
+- **Fehlermeldungen der API übersetzen**: ein Katalog der Fehlercodes, damit die Console jede
+  Meldung in der Sprache der Person zeigt. Heute bleiben die Meldungen der API Englisch, übersetzt
+  sind nur die allgemeinen Codes und die der KI und der Übersetzungen
 
 ## Neue Dienste
 

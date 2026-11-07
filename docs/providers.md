@@ -1,5 +1,8 @@
 # Provider einrichten
 
+Claude (die KI-Funktionen der Console) ist keine Provider-Verbindung: Schlüssel, Modell und Schalter
+stehen im Admin-Bereich unter KI, siehe [ai.md](ai.md).
+
 ## 24fire (Rechenzentrum DE)
 
 - API: 24fire Customer REST API v1 (OpenAPI 3.1, Version 1.0.0). Eine Kopie der Spezifikation liegt in
