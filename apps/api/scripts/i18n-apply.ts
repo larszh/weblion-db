@@ -93,7 +93,10 @@ export function planApply(
     // A locale file carries no source hash, and its export holds stale cells with their old value. A value the
     // translator left as it is must keep its stamp: stamping it against the current German would turn a stale
     // translation, a legal notice included, into a current one (only A7 or i18n:stamp --confirm may do that).
-    if (row.sourceHash === null && value === SECTION_SOURCES[section][row.locale][row.key]) {
+    // The file's value is compared as well: a compiled value the preparation would still change (French spacing)
+    // is no change of the translator either.
+    const compiled = SECTION_SOURCES[section][row.locale][row.key];
+    if (row.sourceHash === null && (value === compiled || row.value === compiled)) {
       plan.unchanged.push(id);
       continue;
     }

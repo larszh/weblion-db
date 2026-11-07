@@ -1297,6 +1297,29 @@ describe('i18n:apply', () => {
     ]);
   });
 
+  it('keeps a locale file value left as it is also when the preparation would still change it', () => {
+    // A compiled French value with an ASCII space before ":": prepareValue turns it into U+00A0, so only the
+    // file's own value shows that the translator did not touch it.
+    const fr = SECTION_SOURCES.ai.fr as Record<string, string>;
+    const key = 'ai.assistant.title';
+    const compiled = fr[key];
+    fr[key] = 'Assistant : test';
+    try {
+      const rows = parseImportFile({
+        format: 'weblion-i18n-locale',
+        version: 1,
+        locale: 'fr',
+        entries: { [key]: { value: 'Assistant : test' } },
+      });
+      const plan = planApply(rows, {});
+      expect(plan.unchanged).toEqual([`fr:${key}`]);
+      expect(plan.values).toEqual([]);
+    } finally {
+      if (compiled === undefined) delete fr[key];
+      else fr[key] = compiled;
+    }
+  });
+
   it('replaces only one string literal and refuses what it cannot replace', () => {
     const text = "export const x = {\n  // a comment\n  'a.b': 'old',\n  'a.c':\n    'long old value',\n};\n";
     expect(replaceInPlace(text, 'a.b', "it's new")).toBe(
