@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
-import { aiUsage, auditLogs, domains, organizations, users } from '../src/db/schema';
+import { aiUsage, auditLogs, domains, organizations, settings, users } from '../src/db/schema';
 import { CHAT_LIMITS, FINAL_STEP_NOTE } from '../src/modules/ai/chat';
 import { SYSTEM_TEXT } from '../src/modules/ai/prompts';
+import { AI_BUDGET_NOTICE_KEY } from '../src/modules/ai/usage';
 import { toolDefinitions } from '../src/modules/ai/tools/registry';
 import { parseSse, startClaudeMock, type MockTurn, type SseFrame } from './claude-mock';
 import { ADMIN, Client, configureAi, createTestApp, json, type TestApp } from './helpers';
@@ -40,6 +41,40 @@ const lastRow = async () =>
       .limit(1)
   )[0]!;
 const script = (...turns: MockTurn[]) => mock.setScript((_b, i) => turns[Math.min(i, turns.length - 1)]);
+let address: string | null = null;
+/** A chat over a real socket as Anna, so the client can go away in the middle of the stream. */
+async function openChat() {
+  address ??= await t.app.listen({ port: 0, host: '127.0.0.1' });
+  const login = await fetch(`${address}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-requested-with': 'test' },
+    body: JSON.stringify({ email: 'anna@muster.example', password: 'demo-password-123' }),
+  });
+  const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
+  const controller = new AbortController();
+  const res = await fetch(`${address}/api/v1/orgs/${musterId}/ai/chat`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-requested-with': 'test',
+      cookie,
+      accept: 'text/event-stream',
+    },
+    body: JSON.stringify(ask()),
+    signal: controller.signal,
+  });
+  expect(res.status).toBe(200);
+  return { reader: res.body!.getReader(), controller };
+}
+/** The newest row once it is no longer running. */
+async function finishedRow() {
+  for (let i = 0; i < 100; i++) {
+    const row = await lastRow();
+    if (row && row.status !== 'running') break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return lastRow();
+}
 const liveReads = () => (t.ctx.ai as unknown as { liveReads: Map<string, number[]> }).liveReads;
 /** The tool results of the newest user message of a recorded request. */
 const toolResults = (index: number) =>
@@ -510,37 +545,63 @@ describe('stop reasons and errors', () => {
   });
 
   it('a client that goes away cancels the turn (status cancelled)', async () => {
-    const address = await t.app.listen({ port: 0, host: '127.0.0.1' });
-    const login = await fetch(`${address}/api/v1/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-requested-with': 'test' },
-      body: JSON.stringify({ email: 'anna@muster.example', password: 'demo-password-123' }),
-    });
-    const cookie = login.headers.get('set-cookie')!.split(';')[0]!;
     script({ text: 'y'.repeat(2_000), streamDelayMs: 20 });
-    const controller = new AbortController();
-    const res = await fetch(`${address}/api/v1/orgs/${musterId}/ai/chat`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-requested-with': 'test',
-        cookie,
-        accept: 'text/event-stream',
-      },
-      body: JSON.stringify(ask()),
-      signal: controller.signal,
-    });
-    expect(res.status).toBe(200);
-    const reader = res.body!.getReader();
+    const { reader, controller } = await openChat();
     const first = await reader.read();
     expect(new TextDecoder().decode(first.value)).toContain(': open');
     controller.abort();
-    for (let i = 0; i < 100; i++) {
-      const row = await lastRow();
-      if (row && row.status !== 'running') break;
-      await new Promise((r) => setTimeout(r, 50));
+    expect(await finishedRow()).toMatchObject({ status: 'cancelled', reservedMicros: 0 });
+  });
+
+  it('a call cut off after its stream started is charged: client abort, timeout, mid-stream error', async () => {
+    // 220,000 input tokens of Opus are USD 0.88: past the warning mark of a USD 1 budget.
+    const usage = { input_tokens: 220_000, output_tokens: 20_000 };
+    const warnings = () => t.db.select().from(auditLogs).where(eq(auditLogs.action, 'ai.budget_warning'));
+    await t.db.delete(settings).where(eq(settings.key, AI_BUDGET_NOTICE_KEY));
+    await t.db.delete(auditLogs).where(eq(auditLogs.action, 'ai.budget_warning'));
+    await configureAi(admin, { budgetUsd: 1 });
+    try {
+      // The client goes away after the first text: input tokens of message_start.
+      script({ text: 'y'.repeat(2_000), streamDelayMs: 20, usage });
+      const { reader, controller } = await openChat();
+      let seen = '';
+      while (!seen.includes('event: text')) seen += new TextDecoder().decode((await reader.read()).value);
+      controller.abort();
+      const aborted = await finishedRow();
+      expect(aborted).toMatchObject({ status: 'cancelled', apiCalls: 1, inputTokens: 220_000 });
+      expect(aborted.costMicros).toBeGreaterThan(0);
+      // The budget warning still runs after a cancelled turn.
+      for (let i = 0; i < 40 && (await warnings()).length === 0; i++)
+        await new Promise((r) => setTimeout(r, 50));
+      expect(await warnings()).toHaveLength(1);
+    } finally {
+      await configureAi(admin);
     }
-    expect(await lastRow()).toMatchObject({ status: 'cancelled', reservedMicros: 0 });
+
+    const env = t.ctx.env as { AI_TURN_TIMEOUT_SECONDS: number };
+    const before = env.AI_TURN_TIMEOUT_SECONDS;
+    env.AI_TURN_TIMEOUT_SECONDS = 1;
+    try {
+      script({ text: 'z'.repeat(4_000), streamDelayMs: 20, usage });
+      const { events } = await chat();
+      expect(events.at(-1)).toMatchObject({ event: 'error', data: { code: 'ai_timeout' } });
+      const timedOut = await lastRow();
+      expect(timedOut).toMatchObject({ status: 'error', errorCode: 'ai_timeout', inputTokens: 220_000 });
+      expect(timedOut.costMicros).toBeGreaterThan(0);
+    } finally {
+      env.AI_TURN_TIMEOUT_SECONDS = before;
+    }
+
+    script({ text: 'x'.repeat(200), midStreamError: { type: 'overloaded_error', afterFrames: 3 }, usage });
+    await chat();
+    const broken = await lastRow();
+    expect(broken).toMatchObject({ errorCode: 'ai_busy', apiCalls: 1, inputTokens: 220_000 });
+    expect(broken.costMicros).toBeGreaterThan(0);
+
+    // An error before the stream started (no message_start) costs nothing.
+    script({ error: { status: 529, type: 'overloaded_error', message: 'Overloaded' } });
+    await chat();
+    expect(await lastRow()).toMatchObject({ errorCode: 'ai_busy', apiCalls: 0, costMicros: 0 });
   });
 });
 

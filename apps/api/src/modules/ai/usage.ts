@@ -562,6 +562,35 @@ export async function chargeEstimate(db: DbOrTx, row: AiUsageRow, micros: number
   if (updated) Object.assign(row, updated);
 }
 
+/** What addCutCall reads of a stream: the SDK's BetaMessageStream. */
+export interface CutStream {
+  readonly currentMessage: BetaMessage | undefined;
+  readonly request_id: string | null | undefined;
+}
+
+/**
+ * A call cut off after its stream started (the client aborted, AI_TURN_TIMEOUT_SECONDS, an error mid-stream):
+ * Anthropic bills what it processed, so the call is recorded from the stream's message snapshot (input tokens
+ * of message_start, output tokens of the last message_delta), or as its estimate when the snapshot carries no
+ * usage. Nothing is recorded when no message_start arrived. Never throws, so the original error is kept.
+ */
+export async function addCutCall(
+  db: DbOrTx,
+  log: AppContext['log'],
+  row: AiUsageRow,
+  stream: CutStream,
+  estimateMicros: number,
+): Promise<void> {
+  const snapshot = stream.currentMessage;
+  if (!snapshot) return;
+  try {
+    if (snapshot.usage) await addCall(db, row, snapshot, { requestId: stream.request_id ?? null });
+    else await chargeEstimate(db, row, estimateMicros);
+  } catch (err) {
+    log.error({ err, usageId: row.id }, 'failed to record a cut-off AI call');
+  }
+}
+
 /** The tool calls of a chat turn, live ones separately (ai_usage.tool_calls, live_calls). */
 export async function setToolCounts(
   db: DbOrTx,

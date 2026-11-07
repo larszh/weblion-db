@@ -261,7 +261,13 @@ export class AiService {
           },
         };
         const stream = ai.client.beta.messages.stream(params, { signal });
-        const message = await stream.finalMessage();
+        let message: BetaMessage;
+        try {
+          message = await stream.finalMessage();
+        } catch (err) {
+          await this.addCutCall(row, stream, estimate);
+          throw err;
+        }
         await this.addCall(row, message, { requestId: stream.request_id ?? null });
 
         // stop_reason first, before reading any content.
@@ -360,6 +366,11 @@ export class AiService {
    *  updates the row in the database and the passed object. */
   async addCall(row: AiUsageRow, message: BetaMessage, call: { requestId: string | null }): Promise<void> {
     await usage.addCall(this.ctx.db, row, message, call);
+  }
+
+  /** A call cut off after its stream started: its snapshot's usage, else its estimate (usage.addCutCall). */
+  async addCutCall(row: AiUsageRow, stream: usage.CutStream, estimateMicros: number): Promise<void> {
+    await usage.addCutCall(this.ctx.db, this.ctx.log, row, stream, estimateMicros);
   }
 
   /** status, finished_at, duration_ms, reserved_micros = 0; on failure error_code, error_reason and the

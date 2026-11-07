@@ -274,6 +274,8 @@ export async function runChatTurn(
           await usage.chargeEstimate(ctx.db, row, estimate);
           continue;
         }
+        // Aborted, timed out or broken after the stream started: Anthropic bills that call too.
+        await ctx.ai.addCutCall(row, stream, estimate);
         throw err;
       }
       await ctx.ai.addCall(row, message, { requestId: stream.request_id ?? null });
